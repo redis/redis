@@ -306,19 +306,68 @@ start_server {tags {"multi"}} {
         r exec
     } {11}
 
-    test {MULTI / EXEC is propagated correctly (single write command)} {
+    test {MULTI / EXEC is not propagated (single write command)} {
         set repl [attach_to_replication_stream]
         r multi
         r set foo bar
         r exec
+        r set foo2 bar
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {set foo2 bar}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {MULTI / EXEC is propagated correctly (multiple commands)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r set foo{t} bar
+        r get foo{t}
+        r set foo2{t} bar2
+        r get foo2{t}
+        r set foo3{t} bar3
+        r get foo3{t}
+        r exec
+
         assert_replication_stream $repl {
             {select *}
             {multi}
-            {set foo bar}
+            {set foo{t} bar}
+            {set foo2{t} bar2}
+            {set foo3{t} bar3}
             {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC is propagated correctly (multiple commands with SELECT)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r select 1
+        r set foo{t} bar
+        r get foo{t}
+        r select 2
+        r set foo2{t} bar2
+        r get foo2{t}
+        r select 3
+        r set foo3{t} bar3
+        r get foo3{t}
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {set foo{t} bar}
+            {select *}
+            {set foo2{t} bar2}
+            {select *}
+            {set foo3{t} bar3}
+            {exec}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl singledb:skip}
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
@@ -364,6 +413,25 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC with REPLICAOF} {
+        # This test verifies that if we demote a master to replica inside a transaction, the
+        # entire transaction is not propagated to the already-connected replica
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r multi
+        r set foo2 bar
+        r replicaof localhost 9999
+        r set foo3 bar
+        r exec
+        catch {r set foo4 bar} e
+        assert_match {READONLY*} $e
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+        }
+        r replicaof no one
+    } {OK} {needs:repl cluster:skip}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]
@@ -585,16 +653,13 @@ start_server {tags {"multi"}} {
     test {MULTI propagation of PUBLISH} {
         set repl [attach_to_replication_stream]
 
-        # make sure that PUBLISH inside MULTI is propagated in a transaction
         r multi
         r publish bla bla
         r exec
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
             {publish bla bla}
-            {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl cluster:skip}
@@ -602,57 +667,75 @@ start_server {tags {"multi"}} {
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
 
-        # make sure that SCRIPT LOAD inside MULTI is propagated in a transaction
+        # make sure that SCRIPT LOAD inside MULTI isn't propagated
         r multi
         r script load {redis.call('set', KEYS[1], 'foo')}
+        r set foo bar
         set res [r exec]
         set sha [lindex $res 0]
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
-            {script load *}
-            {exec}
+            {set foo bar}
         }
         close_replication_stream $repl
     } {} {needs:repl}
 
-    test {MULTI propagation of SCRIPT LOAD} {
+    test {MULTI propagation of EVAL} {
         set repl [attach_to_replication_stream]
 
-        # make sure that EVAL inside MULTI is propagated in a transaction
-        r config set lua-replicate-commands no
+        # make sure that EVAL inside MULTI is propagated in a transaction in effects
         r multi
         r eval {redis.call('set', KEYS[1], 'bar')} 1 bar
         r exec
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
-            {eval *}
-            {exec}
+            {set bar bar}
         }
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {MULTI propagation of SCRIPT FLUSH} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that SCRIPT FLUSH isn't propagated
+        r multi
+        r script flush
+        r set foo bar
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+        }
+        close_replication_stream $repl
+    } {} {need:repl}
+
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {
-            # stream is a special case because it calls propagate() directly for XREADGROUP
             set repl [attach_to_replication_stream]
 
             r XADD mystream * foo bar
+            r XADD mystream * foo2 bar2
+            r XADD mystream * foo3 bar3
             r XGROUP CREATE mystream mygroup 0
 
             # make sure the XCALIM (propagated by XREADGROUP) is indeed inside MULTI/EXEC
             r multi
+            r XREADGROUP GROUP mygroup consumer1 COUNT 2 STREAMS mystream ">"
             r XREADGROUP GROUP mygroup consumer1 STREAMS mystream ">"
             r exec
 
             assert_replication_stream $repl {
                 {select *}
                 {xadd *}
+                {xadd *}
+                {xadd *}
                 {xgroup CREATE *}
                 {multi}
+                {xclaim *}
+                {xclaim *}
                 {xclaim *}
                 {exec}
             }

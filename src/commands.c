@@ -546,30 +546,30 @@ commandHistory CLUSTER_SLOTS_History[] = {
 
 /* CLUSTER command table */
 struct redisCommand CLUSTER_Subcommands[] = {
-{"addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,CLUSTER_ADDSLOTS_Hints,clusterCommand,-3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_ADDSLOTS_Args},
-{"addslotsrange","Assign new hash slots to receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_History,CLUSTER_ADDSLOTSRANGE_Hints,clusterCommand,-4,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_ADDSLOTSRANGE_Args},
-{"bumpepoch","Advance the cluster config epoch","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_BUMPEPOCH_History,CLUSTER_BUMPEPOCH_Hints,clusterCommand,2,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
+{"addslots","Assign new hash slots to receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,CLUSTER_ADDSLOTS_Hints,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_ADDSLOTS_Args},
+{"addslotsrange","Assign new hash slots to receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTSRANGE_History,CLUSTER_ADDSLOTSRANGE_Hints,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_ADDSLOTSRANGE_Args},
+{"bumpepoch","Advance the cluster config epoch","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_BUMPEPOCH_History,CLUSTER_BUMPEPOCH_Hints,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
 {"count-failure-reports","Return the number of failure reports active for a given node","O(N) where N is the number of failure reports","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_COUNT_FAILURE_REPORTS_History,CLUSTER_COUNT_FAILURE_REPORTS_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_COUNT_FAILURE_REPORTS_Args},
 {"countkeysinslot","Return the number of local keys in the specified hash slot","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_COUNTKEYSINSLOT_History,CLUSTER_COUNTKEYSINSLOT_Hints,clusterCommand,3,CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_COUNTKEYSINSLOT_Args},
-{"delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_History,CLUSTER_DELSLOTS_Hints,clusterCommand,-3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_DELSLOTS_Args},
-{"delslotsrange","Set hash slots as unbound in receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_History,CLUSTER_DELSLOTSRANGE_Hints,clusterCommand,-4,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_DELSLOTSRANGE_Args},
-{"failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_History,CLUSTER_FAILOVER_Hints,clusterCommand,-2,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_FAILOVER_Args},
-{"flushslots","Delete a node's own slots information","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_History,CLUSTER_FLUSHSLOTS_Hints,clusterCommand,2,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
-{"forget","Remove a node from the nodes table","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_History,CLUSTER_FORGET_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_FORGET_Args},
+{"delslots","Set hash slots as unbound in receiving node","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTS_History,CLUSTER_DELSLOTS_Hints,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_DELSLOTS_Args},
+{"delslotsrange","Set hash slots as unbound in receiving node","O(N) where N is the total number of the slots between the start slot and end slot arguments.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_DELSLOTSRANGE_History,CLUSTER_DELSLOTSRANGE_Hints,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_DELSLOTSRANGE_Args},
+{"failover","Forces a replica to perform a manual failover of its master.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FAILOVER_History,CLUSTER_FAILOVER_Hints,clusterCommand,-2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_FAILOVER_Args},
+{"flushslots","Delete a node's own slots information","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FLUSHSLOTS_History,CLUSTER_FLUSHSLOTS_Hints,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
+{"forget","Remove a node from the nodes table","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_FORGET_History,CLUSTER_FORGET_Hints,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_FORGET_Args},
 {"getkeysinslot","Return local key names in the specified hash slot","O(log(N)) where N is the number of requested keys","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_GETKEYSINSLOT_History,CLUSTER_GETKEYSINSLOT_Hints,clusterCommand,4,CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_GETKEYSINSLOT_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_HELP_History,CLUSTER_HELP_Hints,clusterCommand,2,CMD_LOADING|CMD_STALE,0},
 {"info","Provides info about Redis Cluster node state","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_INFO_History,CLUSTER_INFO_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,CLUSTER_KEYSLOT_Hints,clusterCommand,3,CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_KEYSLOT_Args},
 {"links","Returns a list of all TCP links to and from peer nodes in cluster","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,CLUSTER_LINKS_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
-{"meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,CLUSTER_MEET_Hints,clusterCommand,-4,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_MEET_Args},
+{"meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,CLUSTER_MEET_Hints,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_MEET_Args},
 {"myid","Return the node id","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,CLUSTER_MYID_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,CLUSTER_NODES_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {"replicas","List replica nodes of the specified master node","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,CLUSTER_REPLICAS_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_REPLICAS_Args},
-{"replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,CLUSTER_REPLICATE_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_REPLICATE_Args},
-{"reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,CLUSTER_RESET_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_RESET_Args},
-{"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_Hints,clusterCommand,2,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
-{"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
-{"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_Hints,clusterCommand,-4,CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
+{"replicate","Reconfigure a node as a replica of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,CLUSTER_REPLICATE_Hints,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_REPLICATE_Args},
+{"reset","Reset a Redis Cluster node","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,CLUSTER_RESET_Hints,clusterCommand,3,CMD_ADMIN|CMD_RANDOM|CMD_STALE|CMD_NOSCRIPT,0,.args=CLUSTER_RESET_Args},
+{"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_Hints,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0},
+{"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_Hints,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
+{"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_Hints,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_RANDOM|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
 {"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_Hints,clusterCommand,2,CMD_RANDOM|CMD_STALE,0},
 {0}
 };
@@ -3064,6 +3064,14 @@ struct redisCommandArg FUNCTION_DELETE_Args[] = {
 {0}
 };
 
+/********** FUNCTION DUMP ********************/
+
+/* FUNCTION DUMP history */
+#define FUNCTION_DUMP_History NULL
+
+/* FUNCTION DUMP hints */
+#define FUNCTION_DUMP_Hints NULL
+
 /********** FUNCTION FLUSH ********************/
 
 /* FUNCTION FLUSH history */
@@ -3124,6 +3132,29 @@ struct redisCommandArg FUNCTION_INFO_Args[] = {
 /* FUNCTION LIST hints */
 #define FUNCTION_LIST_Hints NULL
 
+/********** FUNCTION RESTORE ********************/
+
+/* FUNCTION RESTORE history */
+#define FUNCTION_RESTORE_History NULL
+
+/* FUNCTION RESTORE hints */
+#define FUNCTION_RESTORE_Hints NULL
+
+/* FUNCTION RESTORE policy argument table */
+struct redisCommandArg FUNCTION_RESTORE_policy_Subargs[] = {
+{"flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE},
+{"append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* FUNCTION RESTORE argument table */
+struct redisCommandArg FUNCTION_RESTORE_Args[] = {
+{"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_RESTORE_policy_Subargs},
+{0}
+};
+
 /********** FUNCTION STATS ********************/
 
 /* FUNCTION STATS history */
@@ -3134,14 +3165,16 @@ struct redisCommandArg FUNCTION_INFO_Args[] = {
 
 /* FUNCTION command table */
 struct redisCommand FUNCTION_Subcommands[] = {
-{"create","PATCH__TBD__15__","PATCH__TBD__14__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_CREATE_History,FUNCTION_CREATE_Hints,functionCreateCommand,-5,CMD_NOSCRIPT|CMD_MAY_REPLICATE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_CREATE_Args},
-{"delete","PATCH__TBD__23__","PATCH__TBD__22__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DELETE_History,FUNCTION_DELETE_Hints,functionDeleteCommand,3,CMD_NOSCRIPT|CMD_MAY_REPLICATE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_DELETE_Args},
-{"flush","PATCH__TBD__29__","PATCH__TBD__28__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_Hints,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_MAY_REPLICATE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args},
+{"create","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_CREATE_History,FUNCTION_CREATE_Hints,functionCreateCommand,-5,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_CREATE_Args},
+{"delete","Delete a function by name","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DELETE_History,FUNCTION_DELETE_Hints,functionDeleteCommand,3,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_DELETE_Args},
+{"dump","Dump all functions into a serialized binary payload","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_DUMP_History,FUNCTION_DUMP_Hints,functionDumpCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
+{"flush","Deleting all functions","O(N) where N is the number of functions deleted","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_FLUSH_History,FUNCTION_FLUSH_Hints,functionFlushCommand,-2,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_FLUSH_Args},
 {"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_Hints,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
-{"info","PATCH__TBD__11__","PATCH__TBD__10__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_INFO_History,FUNCTION_INFO_Hints,functionInfoCommand,-3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_INFO_Args},
-{"kill","PATCH__TBD__19__","PATCH__TBD__18__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_Hints,functionKillCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
-{"list","PATCH__TBD__27__","PATCH__TBD__26__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_Hints,functionListCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
-{"stats","PATCH__TBD__34__","PATCH__TBD__33__","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_STATS_History,FUNCTION_STATS_Hints,functionStatsCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
+{"info","Return information about a function by function name","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_INFO_History,FUNCTION_INFO_Hints,functionInfoCommand,-3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_INFO_Args},
+{"kill","Kill the function currently in execution.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_Hints,functionKillCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
+{"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_Hints,functionListCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
+{"restore","Restore all the functions on the given payload","O(N) where N is the number of functions on the payload","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_RESTORE_History,FUNCTION_RESTORE_Hints,functionRestoreCommand,-3,CMD_NOSCRIPT|CMD_WRITE,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_RESTORE_Args},
+{"stats","Return information about the function currently running (name, description, duration)","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_STATS_History,FUNCTION_STATS_Hints,functionStatsCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
 {0}
 };
 
@@ -3247,10 +3280,10 @@ struct redisCommandArg SCRIPT_LOAD_Args[] = {
 struct redisCommand SCRIPT_Subcommands[] = {
 {"debug","Set the debug mode for executed scripts.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_DEBUG_History,SCRIPT_DEBUG_Hints,scriptCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_DEBUG_Args},
 {"exists","Check existence of scripts in the script cache.","O(N) with N being the number of scripts to check (so checking a single script is an O(1) operation).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_EXISTS_History,SCRIPT_EXISTS_Hints,scriptCommand,-3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_EXISTS_Args},
-{"flush","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_History,SCRIPT_FLUSH_Hints,scriptCommand,-2,CMD_NOSCRIPT|CMD_MAY_REPLICATE,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_FLUSH_Args},
+{"flush","Remove all the scripts from the script cache.","O(N) with N being the number of scripts in cache","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_FLUSH_History,SCRIPT_FLUSH_Hints,scriptCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_FLUSH_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_HELP_History,SCRIPT_HELP_Hints,scriptCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
 {"kill","Kill the script currently in execution.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_KILL_History,SCRIPT_KILL_Hints,scriptCommand,2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING},
-{"load","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_History,SCRIPT_LOAD_Hints,scriptCommand,3,CMD_NOSCRIPT|CMD_MAY_REPLICATE,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_LOAD_Args},
+{"load","Load the specified Lua script into the script cache.","O(N) with N being the length in bytes of the script body.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,SCRIPT_LOAD_History,SCRIPT_LOAD_Hints,scriptCommand,3,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=SCRIPT_LOAD_Args},
 {0}
 };
 
@@ -3804,9 +3837,9 @@ struct redisCommandArg CONFIG_SET_Args[] = {
 struct redisCommand CONFIG_Subcommands[] = {
 {"get","Get the values of configuration parameters","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_GET_History,CONFIG_GET_Hints,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_GET_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_HELP_History,CONFIG_HELP_Hints,configHelpCommand,2,CMD_LOADING|CMD_STALE,0},
-{"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Hints,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0},
-{"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_Hints,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0},
-{"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=CONFIG_SET_Args},
+{"resetstat","Reset the stats returned by INFO","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,CONFIG_RESETSTAT_Hints,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"rewrite","Rewrite the configuration file with the in memory configuration","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,CONFIG_REWRITE_Hints,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
+{"set","Set configuration parameters to the given values","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_SET_History,CONFIG_SET_Hints,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=CONFIG_SET_Args},
 {0}
 };
 
@@ -4148,8 +4181,8 @@ struct redisCommandArg MODULE_UNLOAD_Args[] = {
 struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_Hints,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_Hints,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
-{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_Hints,moduleCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
-{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_Hints,moduleCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
+{"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_Hints,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
+{"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_Hints,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };
 
@@ -6426,8 +6459,8 @@ struct redisCommand redisCommandTable[] = {
 {"sentinel","A container for Sentinel commands","Depends on subcommand.","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_History,SENTINEL_Hints,NULL,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.subcommands=SENTINEL_Subcommands},
 /* server */
 {"acl","A container for Access List Control commands ","Depends on subcommand.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_History,ACL_Hints,NULL,-2,CMD_SENTINEL,0,.subcommands=ACL_Subcommands},
-{"bgrewriteaof","Asynchronously rewrite the append-only file","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGREWRITEAOF_History,BGREWRITEAOF_Hints,bgrewriteaofCommand,1,CMD_ADMIN|CMD_NOSCRIPT,0},
-{"bgsave","Asynchronously save the dataset to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGSAVE_History,BGSAVE_Hints,bgsaveCommand,-1,CMD_ADMIN|CMD_NOSCRIPT,0,.args=BGSAVE_Args},
+{"bgrewriteaof","Asynchronously rewrite the append-only file","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGREWRITEAOF_History,BGREWRITEAOF_Hints,bgrewriteaofCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0},
+{"bgsave","Asynchronously save the dataset to disk","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,BGSAVE_History,BGSAVE_Hints,bgsaveCommand,-1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.args=BGSAVE_Args},
 {"command","Get array of Redis command details","O(N) where N is the total number of Redis commands","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_History,COMMAND_Hints,commandCommand,-1,CMD_RANDOM|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,.subcommands=COMMAND_Subcommands},
 {"config","A container for server configuration commands","Depends on subcommand.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,CONFIG_History,CONFIG_Hints,NULL,-2,0,0,.subcommands=CONFIG_Subcommands},
 {"dbsize","Return the number of keys in the selected database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,DBSIZE_History,DBSIZE_Hints,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE},
@@ -6442,17 +6475,17 @@ struct redisCommand redisCommandTable[] = {
 {"memory","A container for memory diagnostics commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_History,MEMORY_Hints,NULL,-2,0,0,.subcommands=MEMORY_Subcommands},
 {"module","A container for module commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_History,MODULE_Hints,NULL,-2,0,0,.subcommands=MODULE_Subcommands},
 {"monitor","Listen for all requests received by the server in real time",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MONITOR_History,MONITOR_Hints,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
-{"psync","Internal command used for replication",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,PSYNC_History,PSYNC_Hints,syncCommand,-3,CMD_ADMIN|CMD_NOSCRIPT,0,.args=PSYNC_Args},
+{"psync","Internal command used for replication",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,PSYNC_History,PSYNC_Hints,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,.args=PSYNC_Args},
 {"replconf","An internal command for configuring the replication stream","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_History,REPLCONF_Hints,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
-{"replicaof","Make the server a replica of another instance, or promote it as master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_History,REPLICAOF_Hints,replicaofCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=REPLICAOF_Args},
+{"replicaof","Make the server a replica of another instance, or promote it as master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_History,REPLICAOF_Hints,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=REPLICAOF_Args},
 {"restore-asking","An internal command for migrating keys in a cluster","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_History,RESTORE_ASKING_Hints,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_ASKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"role","Return the role of the instance in the context of replication","O(1)","2.8.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ROLE_History,ROLE_Hints,roleCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS},
-{"save","Synchronously save the dataset to disk","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SAVE_History,SAVE_Hints,saveCommand,1,CMD_ADMIN|CMD_NOSCRIPT,0},
+{"save","Synchronously save the dataset to disk","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SAVE_History,SAVE_Hints,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0},
 {"shutdown","Synchronously save the dataset to disk and then shut down the server",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SHUTDOWN_History,SHUTDOWN_Hints,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=SHUTDOWN_Args},
-{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLAVEOF_History,SLAVEOF_Hints,replicaofCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=SLAVEOF_Args},
+{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLAVEOF_History,SLAVEOF_Hints,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=SLAVEOF_Args},
 {"slowlog","A container for slow log commands","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_History,SLOWLOG_Hints,NULL,-2,0,0,.subcommands=SLOWLOG_Subcommands},
 {"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SWAPDB_History,SWAPDB_Hints,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=SWAPDB_Args},
-{"sync","Internal command used for replication",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SYNC_History,SYNC_Hints,syncCommand,1,CMD_ADMIN|CMD_NOSCRIPT,0},
+{"sync","Internal command used for replication",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SYNC_History,SYNC_Hints,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0},
 {"time","Return the current server time","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,TIME_History,TIME_Hints,timeCommand,1,CMD_RANDOM|CMD_LOADING|CMD_STALE|CMD_FAST,0},
 /* set */
 {"sadd","Add one or more members to a set","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SADD_History,SADD_Hints,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SADD_Args},

@@ -417,9 +417,6 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
-"    Setting it to 1 makes Lua replication defaulting to replicating single",
-"    commands, without the script having to enable effects replication.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -556,7 +553,7 @@ NULL
         /* The default behavior is to remove the current dataset from
          * memory before loading the RDB file, however when MERGE is
          * used together with NOFLUSH, we are able to merge two datasets. */
-        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        if (flush) emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
 
         protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
@@ -569,7 +566,7 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
         int ret = loadAppendOnlyFile(server.aof_filename);
         if (ret != AOF_OK && ret != AOF_EMPTY)
@@ -831,11 +828,6 @@ NULL
                c->argc == 3)
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"lua-always-replicate-commands") &&
-               c->argc == 3)
-    {
-        server.lua_always_replicate_commands = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
