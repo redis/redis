@@ -16,16 +16,19 @@ def set_if_not_none_or_empty(dst, key, value):
     if value is not None and (type(value) is not list or len(value)):
         dst[key] = value
 
+
 def convert_argument(arg):
     ''' Transform an argument. '''
     arg.update(convert_flags_to_boolean_dict(arg.pop('flags', [])))
     set_if_not_none_or_empty(arg, 'arguments', [convert_argument(x) for x in arg.pop('arguments',[])])
     return arg
 
+
 def convert_keyspec(spec):
     ''' Transform a key spec. '''
     spec.update(convert_flags_to_boolean_dict(spec.pop('flags', [])))
     return spec
+
 
 def convert_entry_to_objects_array(container, cmd):
     ''' 
@@ -79,6 +82,7 @@ def convert_entry_to_objects_array(container, cmd):
 
     obj[key] = value
     return rep
+
 
 # MAIN
 if __name__ == '__main__':
