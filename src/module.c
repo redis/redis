@@ -10483,7 +10483,7 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, voi
     return REDISMODULE_OK;
 }
 
-/* Delete an event from the event loop.
+/* Delete a pipe / socket event from the event loop.
  *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
