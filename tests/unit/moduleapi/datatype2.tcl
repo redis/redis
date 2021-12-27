@@ -214,21 +214,19 @@ start_server {tags {"modules"}} {
         assert_equal $digest0 $digest1
     }
 
-    if {[string match {*jemalloc*} [s mem_allocator]]} {
-        test "datatype2: test memusage" {
-            r flushall
+    test "datatype2: test memusage" {
+        r flushall
 
-            set data k1
-            assert_equal 3 [r mem.alloc k1 3]
-            assert_equal [string length $data] [r mem.write k1 1 $data]
-            assert_equal $data [r mem.read k1 1]
+        set data k1
+        assert_equal 3 [r mem.alloc k1 3]
+        assert_equal [string length $data] [r mem.write k1 1 $data]
+        assert_equal $data [r mem.read k1 1]
 
-            set data k2
-            assert_equal 3 [r mem.alloc k2 3]
-            assert_equal [string length $data] [r mem.write k2 0 $data]
-            assert_equal $data [r mem.read k2 0]
+        set data k2
+        assert_equal 3 [r mem.alloc k2 3]
+        assert_equal [string length $data] [r mem.write k2 0 $data]
+        assert_equal $data [r mem.read k2 0]
 
-            assert_equal [r memory usage k1] [r memory usage k2] 
-        }
+        assert_equal [memory_usage k1] [memory_usage k2] 
     }
 }

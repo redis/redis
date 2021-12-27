@@ -1002,3 +1002,11 @@ proc prepare_value {size} {
     }
     return $_v
 }
+
+proc memory_usage {key} {
+    set usage 1
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        set usage [r memory usage $key]
+    }
+    return $usage
+}
