@@ -3275,8 +3275,6 @@ int processCommand(client *c) {
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
     int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
                                         (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
-    int is_no_multi_command = (c->cmd->flags & CMD_NO_MULTI) ||
-                              (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_MULTI));
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -3287,8 +3285,8 @@ int processCommand(client *c) {
         }
     }
 
-    if (c->flags & CLIENT_MULTI && is_no_multi_command) {
-        rejectCommandFormat(c,"command not allowed inside a transaction");
+    if (c->flags & CLIENT_MULTI && c->cmd->flags & CMD_NO_MULTI) {
+        rejectCommandFormat(c,"Command not allowed inside a transaction");
         return C_OK;
     }
 
@@ -3799,6 +3797,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");

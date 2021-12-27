@@ -750,27 +750,27 @@ start_server {tags {"multi"}} {
             r set foo bar
             catch {r $cmd} e1
             catch {r exec} e2
-            assert_match {*command not allowed inside a transaction*} $e1
+            assert_match {*Command not allowed inside a transaction*} $e1
             assert_match {EXECABORT*} $e2
             r get foo
         } {}
     }
+}
 
+start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
     test {MULTI with FLUSHALL} {
-        r del foo
-        set repl [attach_to_replication_stream]
+        set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
         r multi
         r set foo bar
         r flushall
         r exec
-        assert_replication_stream $repl {
+        assert_aof_content $aof {
             {select *}
             {multi}
             {set *}
             {flushall}
             {exec}
         }
-        close_replication_stream $repl
         r get foo
-    } {} {needs:repl cluster:skip}
+    } {}
 }
