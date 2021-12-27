@@ -1,25 +1,22 @@
 #!/usr/bin/env python
-'''
-Transform the output from `redis-cli --json COMMAND` to commands.json format.
-'''
 import argparse
 import json
 from collections import OrderedDict
-from sys import stdin
+from sys import argv, stdin
 
 def convert_flags_to_boolean_dict(flags):
-    ''' Return a dict with a key set to `True` per element in the flags list. '''
+    """Return a dict with a key set to `True` per element in the flags list."""
     return {f: True for f in flags}
 
 
 def set_if_not_none_or_empty(dst, key, value):
-    ''' Set 'key' in 'dst' if 'value' is not `None` or an empty list. '''
+    """Set 'key' in 'dst' if 'value' is not `None` or an empty list."""
     if value is not None and (type(value) is not list or len(value)):
         dst[key] = value
 
 
 def convert_argument(arg):
-    ''' Transform an argument. '''
+    """Transform an argument."""
     arg.update(convert_flags_to_boolean_dict(arg.pop('flags', [])))
     set_if_not_none_or_empty(arg, 'arguments', 
                             [convert_argument(x) for x in arg.pop('arguments',[])])
@@ -27,14 +24,13 @@ def convert_argument(arg):
 
 
 def convert_keyspec(spec):
-    ''' Transform a key spec. '''
+    """Transform a key spec."""
     spec.update(convert_flags_to_boolean_dict(spec.pop('flags', [])))
     return spec
 
 
 def convert_entry_to_objects_array(container, cmd):
-    ''' 
-    Transform the JSON output of `COMMAND` to a friendlier format.
+    """Transform the JSON output of `COMMAND` to a friendlier format.
 
     `COMMAND`'s output per command is a fixed-size (8) list as follows:
     1. Name (lower case, e.g. "lolwut")
@@ -47,8 +43,7 @@ def convert_entry_to_objects_array(container, cmd):
     This returns a list with a dict for the command and per each of its
     subcommands. Each dict contains one key, the command's full name, with a
     value of a dict that's set with the command's properties and meta
-    information.
-    '''
+    information."""
     assert len(cmd) >= 8
     obj = {}
     rep = [obj]
@@ -95,7 +90,7 @@ def convert_entry_to_objects_array(container, cmd):
 if __name__ == '__main__':
     opts = {
         'description': 'Transform the output from `redis-cli --json COMMAND` to commands.json format.',
-        'epilog': 'Usage example: src/redis-cli --json COMMAND | utils/generate-commands-json.py'
+        'epilog': f'Usage example: src/redis-cli --json COMMAND | {argv[0]}'
     }
     parser = argparse.ArgumentParser(**opts)
     parser.add_argument('input', help='JSON-formatted input file (default: stdin)',
