@@ -42,6 +42,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"

@@ -788,8 +788,8 @@ int aofRewriteLimited(void) {
             if (limit_deley_minutes == 0) {
                 limit = 1;
                 limit_deley_minutes = 1;
-            } else if (limit_deley_minutes < AOF_REWRITE_LIMITE_NAX_MINUTES) {
-                limit_deley_minutes <<= 1;
+            } else {
+                limit_deley_minutes *= 2;
             } 
 
             if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_MINUTES) {
@@ -1334,7 +1334,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         struct redisCommand *cmd;
 
         /* Serve the clients from time to time */
-        if (!(loops++ % 1000)) {
+        if (!(loops++ % 1024)) {
             off_t progress_delta = ftello(fp) - last_progress_report_size;
             loadingIncrProgress(progress_delta);
             last_progress_report_size += progress_delta;
@@ -1521,7 +1521,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         if (!dirExists(server.aof_dirname) || 
             (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) ||
             (am->base_aof_info != NULL && listLength(am->incr_aof_list) == 0 && 
-            !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename))) 
+             !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename))) 
         {
             aofUpgradePrepare(am);
         }

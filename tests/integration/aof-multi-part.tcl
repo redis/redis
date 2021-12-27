@@ -831,7 +831,7 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
         }
 
-        test "AOF rewrite not open new aof when AOF turn off" {
+        test "AOF rewrite doesn't open new aof when AOF turn off" {
             r config set appendonly no
 
             r bgrewriteaof
@@ -919,7 +919,7 @@ tags {"external:skip"} {
             }
         }
 
-        test "AOF reload can recovery the sequence" {
+        test "AOF can produce consecutive sequence number after reload" {
             # Current manifest, BASE seq 7 and INCR seq 3
             assert_aof_manifest_content $aof_manifest_filepath {
                 {file appendonly.aof.7.base.rdb seq 7 type b} 
@@ -941,7 +941,7 @@ tags {"external:skip"} {
 
         test "AOF enable during BGSAVE will not write data util AOFRW finish" {
             r flushall
-            r config set rdb-key-save-delay 10000000
+            r config set rdb-key-save-delay 1000000000
             r config set appendonly no
 
             r set k1 v1
@@ -969,11 +969,18 @@ tags {"external:skip"} {
             assert_equal 0 [r exists k1]
             assert_equal 0 [r exists k2]
 
+            # assert_equal [s rdb_bgsave_in_progress] 1
+            # set fork_child_pid [get_child_pid 0]
+            # exec kill -9 $fork_child_pid
             r config set rdb-key-save-delay 0
-            waitForBgsave r
+            assert_equal [s rdb_bgsave_in_progress] 0
 
-            after 2000 ; # Make sure AOFRW was scheduled
-
+            # Make sure AOFRW was scheduled
+            wait_for_condition 1000 10 {
+                [status r aof_rewrite_in_progress] == 1
+            } else {
+                fail "aof rewrite did not scheduled"
+            }
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_filepath {
@@ -1020,14 +1027,14 @@ tags {"external:skip"} {
             }
 
             # Make sure we have limit log
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [count_log_message 0 "triggered the limit"] == 1
             } else {
                 fail "aof rewrite did trigger limit"
             }
 
-            # Wait 1 sec
-            after 1000
+            # Wait 100 ms
+            after 100
 
             # No new INCR AOF be created
             assert_aof_manifest_content $aof_manifest_filepath {
@@ -1040,6 +1047,7 @@ tags {"external:skip"} {
             # Turn off auto rewrite
             r config set auto-aof-rewrite-percentage 0
             r config set rdb-key-save-delay 0
+            assert_equal [status r aof_rewrite_in_progress] 0
 
             # We can still manually execute AOFRW immediately
             r bgrewriteaof
