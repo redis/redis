@@ -1041,9 +1041,10 @@ void syncCommand(client *c) {
                 break;
         }
         /* To attach this slave, we check that it has at least all the
-         * capabilities of the slave that triggered the current BGSAVE. */
+         * capabilities of the slave that triggered the current BGSAVE
+         * and its exact requirements. */
         if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa) &&
-           c->slave_req == slave->slave_req) {
+            c->slave_req == slave->slave_req) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer.
              * We don't copy buffer if clients don't want. */
