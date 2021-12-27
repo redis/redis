@@ -2,14 +2,14 @@
 '''
 Transform the output from `redis-cli --json COMMAND` to commands.json format.
 '''
-from collections import OrderedDict
-from sys import stdin
 import argparse
 import json
+from collections import OrderedDict
+from sys import stdin
 
 def convert_flags_to_boolean_dict(flags):
     ''' Return a dict with a key set to `True` per element in the flags list. '''
-    return {f: True for f in flags} # TODO: remove after guy's PR
+    return {f: True for f in flags}
 
 def set_if_not_none_or_empty(dst, key, value):
     ''' Set 'key' in 'dst' if 'value' is not `None` or an empty list. '''
