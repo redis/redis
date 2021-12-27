@@ -3836,7 +3836,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
@@ -4133,7 +4133,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key-specs");
+            addReplyBulkCString(c, "key_specs");
             addReplyCommandKeySpecs(c, cmd);
             maplen++;
         }
