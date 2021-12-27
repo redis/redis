@@ -6,8 +6,46 @@ proc errorstat {cmd} {
     return [errorrstat $cmd r]
 }
 
+proc latency_percentiles_usec {cmd} {
+    return [latencyrstat_percentiles $cmd r]
+}
+
+proc latency_hist_usec {cmd} {
+    return [latencyrstat_hist $cmd r]
+}
+
 start_server {tags {"info" "external:skip"}} {
     start_server {} {
+
+        test {latencystats: disable/enable} {
+            r config resetstat
+            r CONFIG SET latency-track no
+            r set a b
+            assert_match {} [latency_hist_usec set]
+            r CONFIG SET latency-track yes
+            r set a b
+            assert_match {*calls=1,histogram=*} [latency_hist_usec set]
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
+            r config resetstat
+            assert_match {} [latency_hist_usec set]
+        }
+
+        test {latencystats: configure percentiles} {
+            r config resetstat
+            assert_match {} [latency_hist_usec set]
+            r CONFIG SET latency-track yes
+            r SET a b
+            r GET a
+            assert_match {*calls=1,histogram=*} [latency_hist_usec set]
+            assert_match {*calls=1,histogram=*} [latency_hist_usec get]
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec get]
+            r CONFIG SET latency-track-percentiles "0.0 50.0 100.0"
+            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec set]
+            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec get]
+            r config resetstat
+            assert_match {} [latency_hist_usec set]
+        }
 
         test {errorstats: failed call authentication error} {
             r config resetstat
