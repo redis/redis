@@ -41,7 +41,7 @@ start_server {tags {"hash"}} {
         assert_encoding $type myhash
 
         # coverage for objectComputeSize
-        assert_morethan [r memory usage myhash] 0
+        assert_morethan [memory_usage myhash] 0
 
         test "HRANDFIELD - $type" {
             unset -nocomplain myhash
