@@ -743,4 +743,34 @@ start_server {tags {"multi"}} {
         } {} {needs:repl}
     }
 
+    foreach {cmd} {BGREWRITEAOF SAVE BGSAVE} {
+        test "MULTI with $cmd" {
+            r del foo
+            r multi
+            r set foo bar
+            catch {r $cmd} e1
+            catch {r exec} e2
+            assert_match {*command not allowed inside a transaction*} $e1
+            assert_match {EXECABORT*} $e2
+            r get foo
+        } {}
+    }
+
+    test {MULTI with FLUSHALL} {
+        r del foo
+        set repl [attach_to_replication_stream]
+        r multi
+        r set foo bar
+        r flushall
+        r exec
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {set *}
+            {flushall}
+            {exec}
+        }
+        close_replication_stream $repl
+        r get foo
+    } {} {needs:repl cluster:skip}
 }
