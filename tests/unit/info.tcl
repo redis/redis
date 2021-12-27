@@ -47,6 +47,23 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {} [latency_hist_usec set]
         }
 
+        test {latencystats: blocking commands} {
+            r config resetstat
+            r CONFIG SET latency-track yes
+            r CONFIG SET latency-track-percentiles "50.0 99.0 99.9"
+            set rd [redis_deferring_client]
+            r del list1{t}
+
+            $rd blpop list1{t} 0
+            r lpush list1{t} a
+            assert_equal [$rd read] {list1{t} a}
+            $rd blpop list1{t} 0
+            r lpush list1{t} b
+            assert_equal [$rd read] {list1{t} b}
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec blpop]
+            assert_match {*calls=2,histogram=*} [latency_hist_usec blpop]
+        }
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]

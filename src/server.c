@@ -3001,7 +3001,8 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
-        if (server.latency_track_enabled)
+        /* If the client is blocked we will handle latency stats when it is unblocked. */
+        if (server.latency_track_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
     }
 
