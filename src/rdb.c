@@ -1304,8 +1304,6 @@ ssize_t rdbSaveDbs(rio *rdb, int rdbflags) {
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
              * order to have a smaller final write. */
-            // TODO: make this part of the rio chunk callback mechanism so this will be done periodically regardless of keys (for example during large aux fields or functions)
-            //   Then make sure to setup the rio mechanism based on whether RDBFLAGS_AOF_PREAMBLE is set
             if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
                 rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
             {
