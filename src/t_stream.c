@@ -1399,11 +1399,8 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[3]);
     decrRefCount(argv[7]);
     decrRefCount(argv[9]);
@@ -1424,11 +1421,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 
@@ -1446,11 +1440,8 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 
