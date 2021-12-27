@@ -44,6 +44,7 @@
 void freeClientArgv(client *c);
 off_t getAppendOnlyFileSize(sds filename);
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
+int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
 
 /* ----------------------------------------------------------------------------
@@ -1265,7 +1266,7 @@ struct client *createAOFClient(void) {
  * AOF_NOT_EXIST: AOF file doesn't exist.
  * AOF_EMPTY: The AOF file is empty (nothing to load).
  * AOF_FAILED: Failed to load the AOF file. */
-int loadSingleAppendOnlyFile(char *filename) {
+int loadSingleAppendOnlyFile(char *filename, int last_file) {
     struct client *fakeClient;
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
@@ -1458,7 +1459,7 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     }
 
 uxeof: /* Unexpected AOF end of file. */
-    if (server.aof_load_truncated) {
+    if (server.aof_load_truncated && last_file) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
             filename, (unsigned long long) valid_up_to);
@@ -1509,6 +1510,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     long long start;
     off_t total_size = 0;
     sds aof_name;
+    int aof_num, cur_num = 0;
 
     /* If the 'server.aof_filename' file exists in dir, we may be starting 
      * from an old redis version. We will use enter upgrade mode in three situations.
@@ -1533,6 +1535,9 @@ int loadAppendOnlyFiles(aofManifest *am) {
         return AOF_NOT_EXIST;
     }
 
+    aof_num = getBaseAndIncrAppendOnlyFilesNum(am);
+    serverAssert(aof_num > 0);
+
     /* Here we calculate the total size of all BASE and INCR files in 
      * advance, it will be set to `server.loading_total_bytes`. */
     total_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest);
@@ -1545,7 +1550,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         updateLoadingFileName(aof_name);
 
         start = ustime();
-        ret = loadSingleAppendOnlyFile(aof_name);
+        ret = loadSingleAppendOnlyFile(aof_name, ++cur_num == aof_num);
         if (ret == AOF_OK) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
@@ -1573,7 +1578,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             updateLoadingFileName(aof_name);
 
             start = ustime();
-            ret = loadSingleAppendOnlyFile(aof_name);
+            ret = loadSingleAppendOnlyFile(aof_name, ++cur_num == aof_num);
             if (ret == AOF_OK) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds", 
                     aof_name, (float)(ustime()-start)/1000000);
@@ -2351,6 +2356,13 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am) {
     }
 
     return size;
+}
+
+int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am) {
+    int num = 0;
+    if (am->base_aof_info) num++;
+    if (am->incr_aof_list) num += listLength(am->incr_aof_list);
+    return num;
 }
 
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
