@@ -823,9 +823,15 @@ need_full_resync:
  * Returns C_OK on success or C_ERR otherwise. */
 int startBgsaveForReplication(int mincapa, int req) {
     int retval;
-    int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
+    int socket_target = 0;
     listIter li;
     listNode *ln;
+
+    /* We use a socket target if slave can handle the EOF marker and we're configured to do diskless syncs.
+     * Note that in case we're creating a "filtered" RDB (functions-only) we also force socket replication
+     * to avoid overwriting the snapshot RDB file with filtered data. */
+    socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) && (mincapa & SLAVE_CAPA_EOF);
+    serverAssert(socket_target || !(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY));
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "replicas sockets" : "disk");
@@ -946,6 +952,13 @@ void syncCommand(client *c) {
      * dataset, so that we can copy to other slaves if needed. */
     if (clientHasPendingReplies(c)) {
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
+        return;
+    }
+
+    /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
+     * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. */
+    if ((c->slave_req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && !(c->slave_capa & SLAVE_CAPA_EOF)) {
+        addReplyError(c,"Filtered replica requires EOF capability");
         return;
     }
 
