@@ -664,82 +664,73 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            test "Multi Part AOF can upgrade when when two redis share the same server dir 1" {
-                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-                wait_done_loading $client
+            set redis1 [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            
+            start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2 appenddirname appendonlydir]] {
+                set redis2 [redis [srv host] [srv port] 0 $::tls]
 
-                assert_equal v1 [$client get k1]
-                assert_equal v2 [$client get k2]
-                assert_equal v3 [$client get k3]
+                test "Multi Part AOF can upgrade when when two redis share the same server dir (redis1)" {
+                    wait_done_loading $redis1
+                    assert_equal v1 [$redis1 get k1]
+                    assert_equal v2 [$redis1 get k2]
+                    assert_equal v3 [$redis1 get k3]
 
-                assert_equal 0 [$client exists k4]
-                assert_equal 0 [$client exists k5]
-                assert_equal 0 [$client exists k6]
-                
-                assert_aof_manifest_content $aof_manifest_file  {
-                    {file appendonly.aof seq 1 type b} 
-                    {file appendonly.aof.1.incr.aof seq 1 type i}
-                }
-                
-                $client bgrewriteaof
-                while 1 {
-                    if {[status $client aof_rewrite_in_progress] eq 1} {
-                        if {$::verbose} {
-                            puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-                            flush stdout
-                        }
-                        after 1000
-                    } else {
-                        break
+                    assert_equal 0 [$redis1 exists k4]
+                    assert_equal 0 [$redis1 exists k5]
+                    assert_equal 0 [$redis1 exists k6]
+                    
+                    assert_aof_manifest_content $aof_manifest_file  {
+                        {file appendonly.aof seq 1 type b} 
+                        {file appendonly.aof.1.incr.aof seq 1 type i}
                     }
+                    
+                    $redis1 bgrewriteaof
+                    waitForBgrewriteaof $redis1
+
+                    assert_equal OK [$redis1 set k v]
+
+                    assert_aof_manifest_content $aof_manifest_file {
+                        {file appendonly.aof.2.base.rdb seq 2 type b} 
+                        {file appendonly.aof.2.incr.aof seq 2 type i}
+                    }
+
+                    set d1 [$redis1 debug digest]
+                    $redis1 debug loadaof
+                    set d2 [$redis1 debug digest]
+                    assert {$d1 eq $d2}
                 }
 
-                assert_equal OK [$client set k v]
+                test "Multi Part AOF can upgrade when when two redis share the same server dir (redis2)" {
+                    wait_done_loading $redis2
 
-                assert_aof_manifest_content $aof_manifest_file {
-                    {file appendonly.aof.2.base.rdb seq 2 type b} 
-                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                    assert_equal 0 [$redis2 exists k1]
+                    assert_equal 0 [$redis2 exists k2]
+                    assert_equal 0 [$redis2 exists k3]
+
+                    assert_equal v4 [$redis2 get k4]
+                    assert_equal v5 [$redis2 get k5]
+                    assert_equal v6 [$redis2 get k6]
+            
+                    assert_aof_manifest_content $aof_manifest_file2  {
+                        {file appendonly.aof2 seq 1 type b} 
+                        {file appendonly.aof2.1.incr.aof seq 1 type i}
+                    }
+
+                    $redis2 bgrewriteaof
+                    waitForBgrewriteaof $redis2
+
+                    assert_equal OK [$redis2 set k v]
+
+                    assert_aof_manifest_content $aof_manifest_file2 {
+                        {file appendonly.aof2.2.base.rdb seq 2 type b} 
+                        {file appendonly.aof2.2.incr.aof seq 2 type i}
+                    }
+
+                    set d1 [$redis2 debug digest]
+                    $redis2 debug loadaof
+                    set d2 [$redis2 debug digest]
+                    assert {$d1 eq $d2}
                 }
-
-                set d1 [$client debug digest]
-                $client debug loadaof
-                set d2 [$client debug digest]
-                assert {$d1 eq $d2}
-            }
-        }
-
-        start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2 appenddirname appendonlydir]] {
-            test "Multi Part AOF can upgrade when when two redis share the same server dir 2" {
-                set client [redis [srv host] [srv port] 0 $::tls]
-                wait_done_loading $client
-
-                assert_equal 0 [$client exists k1]
-                assert_equal 0 [$client exists k2]
-                assert_equal 0 [$client exists k3]
-
-                assert_equal v4 [$client get k4]
-                assert_equal v5 [$client get k5]
-                assert_equal v6 [$client get k6]
-        
-                assert_aof_manifest_content $aof_manifest_file2  {
-                    {file appendonly.aof2 seq 1 type b} 
-                    {file appendonly.aof2.1.incr.aof seq 1 type i}
-                }
-
-                $client bgrewriteaof
-                waitForBgrewriteaof $client
-
-                assert_equal OK [$client set k v]
-
-                assert_aof_manifest_content $aof_manifest_file2 {
-                    {file appendonly.aof2.2.base.rdb seq 2 type b} 
-                    {file appendonly.aof2.2.incr.aof seq 2 type i}
-                }
-
-                set d1 [$client debug digest]
-                $client debug loadaof
-                set d2 [$client debug digest]
-                assert {$d1 eq $d2}
             }
         }
     }
