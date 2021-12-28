@@ -836,6 +836,7 @@ int startBgsaveForReplication(int mincapa, int req) {
      * Note that in case we're creating a "filtered" RDB (functions-only) we also force socket replication
      * to avoid overwriting the snapshot RDB file with filtered data. */
     socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) && (mincapa & SLAVE_CAPA_EOF);
+    /* `SYNC` should have failed with error if we don't support socket and require a filter, assert this here */
     serverAssert(socket_target || !(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY));
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
