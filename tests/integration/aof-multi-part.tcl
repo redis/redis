@@ -460,6 +460,7 @@ tags {"external:skip"} {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
 
+            # k1 k2 in rdb header and k3 in AOF tail
             assert_equal v1 [$client get k1]
             assert_equal v2 [$client get k2]
             assert_equal v3 [$client get k3]
