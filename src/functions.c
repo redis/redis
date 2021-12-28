@@ -293,40 +293,31 @@ done:
 static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int replace, sds *err) {
     int ret = C_ERR;
     dictIterator *iter = NULL;
+    /* Stores the libraries we need to replace in case a revert is required.
+     * Only initialized when needed */
     list *tmp_l_ctx = NULL;
     dictEntry *entry = NULL;
-    if (!replace) {
-        /* First make sure there is only new libraries */
-        iter = dictGetIterator(lib_ctx_src->libraries);
-        dictEntry *entry = NULL;
-        while ((entry = dictNext(iter))) {
-            libraryInfo *li = dictGetVal(entry);
-            if (dictFetchValue(lib_ctx_dst->libraries, li->name)) {
+    iter = dictGetIterator(lib_ctx_src->libraries);
+    while ((entry = dictNext(iter))) {
+        libraryInfo *li = dictGetVal(entry);
+        libraryInfo *old_li = dictFetchValue(lib_ctx_dst->libraries, li->name);
+        if (old_li) {
+            if (!replace) {
                 /* library already exists, failed the restore. */
                 *err = sdscatfmt(sdsempty(), "Library %s already exists", li->name);
                 goto done;
-            }
-        }
-        dictReleaseIterator(iter);
-        iter = NULL;
-    } else {
-        /* used to revert in case of function collision */
-        tmp_l_ctx = listCreate();
-        listSetFreeMethod(tmp_l_ctx, (void (*)(void*))engineLibraryFree);
-
-        /* Unlink collides libraries */
-        iter = dictGetIterator(lib_ctx_src->libraries);
-        while ((entry = dictNext(iter))) {
-            libraryInfo *li = dictGetVal(entry);
-            libraryInfo *old_li = dictFetchValue(lib_ctx_dst->libraries, li->name);
-            if (old_li) {
+            } else {
+                if (!tmp_l_ctx) {
+                    tmp_l_ctx = listCreate();
+                    listSetFreeMethod(tmp_l_ctx, (void (*)(void*))engineLibraryFree);
+                }
                 libraryUnlink(lib_ctx_dst, old_li);
                 listAddNodeTail(tmp_l_ctx, old_li);
             }
         }
-        dictReleaseIterator(iter);
-        iter = NULL;
     }
+    dictReleaseIterator(iter);
+    iter = NULL;
 
     /* Make sure no functions collision */
     iter = dictGetIterator(lib_ctx_src->functions);
