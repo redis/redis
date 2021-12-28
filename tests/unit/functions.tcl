@@ -656,7 +656,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*No libraries registered*}
+    } {*No functions registered*}
 
     test {LIBRARIES - load timeout} {
         catch {
