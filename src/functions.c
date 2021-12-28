@@ -251,37 +251,18 @@ static void libraryUnlink(librariesCtx *lib_ctx, libraryInfo* li) {
     lib_ctx->cache_memory += libraryMallocSize(li);
 }
 
-static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
-    int ret = C_ERR;
-    dictIterator *iter = NULL;
-    iter = dictGetIterator(li->functions);
+static void libraryLink(librariesCtx *lib_ctx, libraryInfo* li) {
+    dictIterator *iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-        functionInfo *fi = dictGetVal(entry);
-        if (dictFetchValue(lib_ctx->functions, fi->name)) {
-            /* functions name collision, abort. */
-            if (err) *err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
-            goto done;
-        }
-    }
-    dictReleaseIterator(iter);
-    iter = NULL;
-
-    iter = dictGetIterator(li->functions);
     while ((entry = dictNext(iter))) {
         functionInfo *fi = dictGetVal(entry);
         dictAdd(lib_ctx->functions, fi->name, fi);
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
     dictReleaseIterator(iter);
-    iter = NULL;
 
     dictAdd(lib_ctx->libraries, li->name, li);
     lib_ctx->cache_memory += libraryMallocSize(li);
-    ret = C_OK;
-done:
-    if (iter) dictReleaseIterator(iter);
-    return ret;
 }
 
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
@@ -335,8 +316,7 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     iter = dictGetIterator(lib_ctx_src->libraries);
     while ((entry = dictNext(iter))) {
         libraryInfo *li = dictGetVal(entry);
-        int ret = libraryLink(lib_ctx_dst, li, NULL);
-        serverAssert(ret == C_OK);
+        libraryLink(lib_ctx_dst, li);
         dictSetVal(lib_ctx_src->libraries, entry, NULL);
     }
     dictReleaseIterator(iter);
@@ -357,8 +337,7 @@ done:
             listNode *head = listFirst(old_libraries_list);
             libraryInfo *li = listNodeValue(head);
             listNodeValue(head) = NULL;
-            int ret = libraryLink(lib_ctx_dst, li, NULL);
-            serverAssert(ret == C_OK);
+            libraryLink(lib_ctx_dst, li);
             listDelNode(old_libraries_list, head);
         }
         listRelease(old_libraries_list);
@@ -814,6 +793,8 @@ static int functionsVerifyName(sds name) {
  * In case on failure the err out param is set with relevant error message */
 int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds code,
                                   int replace, sds* err, librariesCtx *lib_ctx) {
+    dictIterator *iter = NULL;
+    dictEntry *entry = NULL;
     if (functionsVerifyName(lib_name)) {
         *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
         return C_ERR;
@@ -846,9 +827,20 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
         goto error;
     }
 
-    if (libraryLink(lib_ctx, new_li, err) != C_OK) {
-        goto error;
+    /* Verify no duplicate functions */
+    iter = dictGetIterator(new_li->functions);
+    while ((entry = dictNext(iter))) {
+        functionInfo *fi = dictGetVal(entry);
+        if (dictFetchValue(lib_ctx->functions, fi->name)) {
+            /* functions name collision, abort. */
+            *err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
+            goto error;
+        }
     }
+    dictReleaseIterator(iter);
+    iter = NULL;
+
+    libraryLink(lib_ctx, new_li);
 
     if (old_li) {
         engineLibraryFree(old_li);
@@ -857,10 +849,10 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
     return C_OK;
 
 error:
+    if (iter) dictReleaseIterator(iter);
     engineLibraryFree(new_li);
     if (old_li) {
-        int ret = libraryLink(lib_ctx, old_li, NULL);
-        serverAssert(ret == C_OK);
+        libraryLink(lib_ctx, old_li);
     }
     return C_ERR;
 }
