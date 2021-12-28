@@ -2267,7 +2267,10 @@ struct redisCommandArg HSCAN_Args[] = {
 /********** HSET ********************/
 
 /* HSET history */
-#define HSET_History NULL
+commandHistory HSET_History[] = {
+{"4.0.0","Accepts multiple `field` and `value` arguments."},
+{0}
+};
 
 /* HSET hints */
 #define HSET_Hints NULL
@@ -5295,7 +5298,10 @@ struct redisCommandArg ZREVRANGEBYLEX_Args[] = {
 /********** ZREVRANGEBYSCORE ********************/
 
 /* ZREVRANGEBYSCORE history */
-#define ZREVRANGEBYSCORE_History NULL
+commandHistory ZREVRANGEBYSCORE_History[] = {
+{"2.1.6","`min` and `max` can be exclusive."},
+{0}
+};
 
 /* ZREVRANGEBYSCORE hints */
 #define ZREVRANGEBYSCORE_Hints NULL
