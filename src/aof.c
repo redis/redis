@@ -1448,7 +1448,6 @@ int loadSingleAppendOnlyFile(char *filename) {
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
-    if (ret != AOF_TRUNCATED) ret = AOF_OK;
     goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -1511,7 +1510,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     long long start;
     off_t total_size = 0;
     sds aof_name;
-    int total_num, aof_num = 0;
+    int total_num, aof_num = 0, last_file;
 
     /* If the 'server.aof_filename' file exists in dir, we may be starting 
      * from an old redis version. We will use enter upgrade mode in three situations.
@@ -1549,18 +1548,19 @@ int loadAppendOnlyFiles(aofManifest *am) {
         serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
         aof_name = (char*)am->base_aof_info->file_name;
         updateLoadingFileName(aof_name);
-        ++aof_num;
+        last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if (ret == AOF_OK || (ret == AOF_TRUNCATED && aof_num == total_num)) {
+        if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
-            ret = AOF_OK;
         }
 
         /* If an AOF exists in the manifest but not on the disk, Or the truncated 
          * file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_NOT_EXIST || ret == AOF_TRUNCATED) ret = AOF_FAILED;
+        if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+            ret = AOF_FAILED;
+        }
 
         if (ret != AOF_OK && ret != AOF_EMPTY) {
             goto cleanup;
@@ -1578,16 +1578,17 @@ int loadAppendOnlyFiles(aofManifest *am) {
             serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
             aof_name = (char*)ai->file_name;
             updateLoadingFileName(aof_name);
-            ++aof_num;
+            last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && aof_num == total_num)) {
+            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds", 
                     aof_name, (float)(ustime()-start)/1000000);
-                ret = AOF_OK;
             }
 
-            if (ret == AOF_NOT_EXIST || ret == AOF_TRUNCATED) ret = AOF_FAILED;
+            if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+                ret = AOF_FAILED;
+            }
 
             if (ret != AOF_OK && ret != AOF_EMPTY) {
                 goto cleanup;
@@ -2240,7 +2241,7 @@ werr:
  *    2b) the parent open a new INCR AOF file to continue writing.
  * 3) When the child finished '2a' exists.
  * 4) The parent will trap the exit code, if it's OK, it will:
- *    4a) get a new BASE file name mark the previous (if we have) as the HISTORY type
+ *    4a) get a new BASE file name and mark the previous (if we have) as the HISTORY type
  *    4b) rename(2) the temp file in new BASE file name
  *    4c) mark the rewritten INCR AOFs as history type
  *    4d) persist AOF manifest file
