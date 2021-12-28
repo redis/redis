@@ -1562,7 +1562,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             ret = AOF_FAILED;
         }
 
-        if (ret != AOF_OK && ret != AOF_EMPTY) {
+        if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {
             goto cleanup;
         }
     }
@@ -1590,7 +1590,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
                 ret = AOF_FAILED;
             }
 
-            if (ret != AOF_OK && ret != AOF_EMPTY) {
+            if (ret == AOF_OPEN_ERR || ret == AOF_FAILED) {
                 goto cleanup;
             }
         }
