@@ -355,7 +355,7 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-    /* Replicas should normally not cause any writes to the reply buffer. In case a rouge replica sent a command on the
+    /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
      * replication link that caused a reply to be generated we'll simply disconnect it. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it",
