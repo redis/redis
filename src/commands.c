@@ -1422,7 +1422,10 @@ struct redisCommandArg PTTL_Args[] = {
 /********** RENAME ********************/
 
 /* RENAME history */
-#define RENAME_History NULL
+commandHistory RENAME_History[] = {
+{"3.2.0","The command no longer returns an error when source and destination names are the same."},
+{0}
+};
 
 /* RENAME hints */
 #define RENAME_Hints NULL
@@ -1437,7 +1440,10 @@ struct redisCommandArg RENAME_Args[] = {
 /********** RENAMENX ********************/
 
 /* RENAMENX history */
-#define RENAMENX_History NULL
+commandHistory RENAMENX_History[] = {
+{"3.2.0","The command no longer returns an error when source and destination names are the same."},
+{0}
+};
 
 /* RENAMENX hints */
 #define RENAMENX_Hints NULL
@@ -1472,7 +1478,10 @@ struct redisCommandArg RESTORE_Args[] = {
 /********** SCAN ********************/
 
 /* SCAN history */
-#define SCAN_History NULL
+commandHistory SCAN_History[] = {
+{"6.0","Added the `TYPE` subcommand."},
+{0}
+};
 
 /* SCAN hints */
 #define SCAN_Hints NULL
@@ -2060,7 +2069,10 @@ struct redisCommandArg GEOSEARCHSTORE_Args[] = {
 /********** HDEL ********************/
 
 /* HDEL history */
-#define HDEL_History NULL
+commandHistory HDEL_History[] = {
+{"2.4.0","Accepts multiple `field` arguments."},
+{0}
+};
 
 /* HDEL hints */
 #define HDEL_Hints NULL
@@ -3934,7 +3946,11 @@ struct redisCommandArg FLUSHALL_Args[] = {
 /********** FLUSHDB ********************/
 
 /* FLUSHDB history */
-#define FLUSHDB_History NULL
+commandHistory FLUSHDB_History[] = {
+{"4.0.0","Added the `ASYNC` flushing mode modifier."},
+{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{0}
+};
 
 /* FLUSHDB hints */
 #define FLUSHDB_Hints NULL
@@ -5775,7 +5791,10 @@ struct redisCommandArg XPENDING_Args[] = {
 /********** XRANGE ********************/
 
 /* XRANGE history */
-#define XRANGE_History NULL
+commandHistory XRANGE_History[] = {
+{"6.2","Added exclusive ranges."},
+{0}
+};
 
 /* XRANGE hints */
 #define XRANGE_Hints NULL
@@ -5847,7 +5866,10 @@ struct redisCommandArg XREADGROUP_Args[] = {
 /********** XREVRANGE ********************/
 
 /* XREVRANGE history */
-#define XREVRANGE_History NULL
+commandHistory XREVRANGE_History[] = {
+{"6.2","Added exclusive ranges."},
+{0}
+};
 
 /* XREVRANGE hints */
 #define XREVRANGE_Hints NULL
