@@ -24,682 +24,723 @@ tags {"external:skip"} {
     # the redis behavior is as expected.
 
     # Tests1: Multi Part AOF can't load data when some file missing
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr2_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-        append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when some file missing" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof.1.incr.aof doesn't exist"]
+    test {Multi Part AOF can't load data when some file missing} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr2_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when some file missing" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof.1.incr.aof doesn't exist"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests2: Multi Part AOF can't load data when the sequence not increase monotonically
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr2_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the sequence not increase monotonically" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "Found Non-increasing sequence number"]
+    test {Multi Part AOF can't load data when the sequence not increase monotonically} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr2_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the sequence not increase monotonically" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "Found Non-increasing sequence number"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests3: Multi Part AOF can't load data when there are blank lines in the manifest file
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr3_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-        append_to_manifest "\n"
-        append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when there are blank lines in the manifest file" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+    test {Multi Part AOF can't load data when there are blank lines in the manifest file} {
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr3_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "\n"
+            append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when there are blank lines in the manifest file" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests4: Multi Part AOF can't load data when there is a duplicate base file
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_base2_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.2.base.aof seq 2 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when there is a duplicate base file" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "Found duplicate base file information"]
+    test {Multi Part AOF can't load data when there is a duplicate base file} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_base2_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.2.base.aof seq 2 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when there is a duplicate base file" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "Found duplicate base file information"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests5: Multi Part AOF can't load data when the manifest format is wrong (type unknown)
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type x\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest format is wrong (type unknown)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "Unknown AOF file type"]
+    test {Multi Part AOF can't load data when the manifest format is wrong (type unknown)} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type x\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest format is wrong (type unknown)" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "Unknown AOF file type"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests6: Multi Part AOF can't load data when the manifest format is wrong (missing key)
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "filx appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest format is wrong (missing key)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "Mismatched manifest key"]
+    test {Multi Part AOF can't load data when the manifest format is wrong (missing key)} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "filx appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest format is wrong (missing key)" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "Mismatched manifest key"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests7: Multi Part AOF can't load data when the manifest format is wrong (line too short)
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest format is wrong (line too short)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+    test {Multi Part AOF can't load data when the manifest format is wrong (line too short)} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest format is wrong (line too short)" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests8: Multi Part AOF can't load data when the manifest format is wrong (line too long)
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest format is wrong (line too long)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file contains too long line"]
+    test {Multi Part AOF can't load data when the manifest format is wrong (line too long)} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
+
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest format is wrong (line too long)" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file contains too long line"]
+            }
+        }
+        
+        clean_aof_persistence $aof_dirpath
     }
-    
-    clean_aof_persistence $aof_dirpath
 
     # Tests9: Multi Part AOF can't load data when the manifest format is wrong (odd parameter)
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i newkey\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest format is wrong (odd parameter)" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+    test {Multi Part AOF can't load data when the manifest format is wrong (odd parameter)} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i newkey\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest format is wrong (odd parameter)" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests10: Multi Part AOF can't load data when the manifest file is empty
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest file is empty" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "Found an empty AOF manifest"]
+    test {Multi Part AOF can't load data when the manifest file is empty} {
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest file is empty" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "Found an empty AOF manifest"]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests11: Multi Part AOF can start when no aof and no manifest
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can start when no aof and no manifest" {
-            assert_equal 1 [is_alive $srv]
+    test {Multi Part AOF can start when no aof and no manifest} {
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can start when no aof and no manifest" {
+                assert_equal 1 [is_alive $srv]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
 
-            assert_equal OK [$client set k1 v1]
-            assert_equal v1 [$client get k1]
+                assert_equal OK [$client set k1 v1]
+                assert_equal v1 [$client get k1]
+            }
         }
+
+        clean_aof_persistence $aof_dirpath
     }
 
-    clean_aof_persistence $aof_dirpath
-
     # Tests12: Multi Part AOF can start when we have en empty AOF dir
-    create_aof_dir $aof_dirpath
+    test {Multi Part AOF can start when we have en empty AOF dir} {
+        create_aof_dir $aof_dirpath
 
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can start when we have en empty AOF dir" {
-            assert_equal 1 [is_alive $srv]
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can start when we have en empty AOF dir" {
+                assert_equal 1 [is_alive $srv]
+            }
         }
     }
 
     # Tests13: Multi Part AOF can load data discontinuously increasing sequence
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof $aof_dirpath $aof_incr3_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-        append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data discontinuously increasing sequence" {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
+    test {Multi Part AOF can load data discontinuously increasing sequence} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof $aof_dirpath $aof_incr3_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can load data discontinuously increasing sequence" {
+                assert_equal 1 [is_alive $srv]
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests14: Multi Part AOF can load data when manifest add new k-v
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-        append_to_aof [formatCommand set k2 v2]
-    }
-
-    create_aof $aof_dirpath $aof_incr3_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b newkey newvalue\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-        append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data when manifest add new k-v" {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
+    test {Multi Part AOF can load data when manifest add new k-v} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+            append_to_aof [formatCommand set k2 v2]
+        }
+
+        create_aof $aof_dirpath $aof_incr3_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b newkey newvalue\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can load data when manifest add new k-v" {
+                assert_equal 1 [is_alive $srv]
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests15: Multi Part AOF can load data when some AOFs are empty
-    create_aof $aof_dirpath $aof_base1_file {
-        append_to_aof [formatCommand set k1 v1]
-    }
-
-    create_aof $aof_dirpath $aof_incr1_file {
-    }
-
-    create_aof $aof_dirpath $aof_incr3_file {
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
-        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
-        append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data when some AOFs are empty" {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal "" [$client get k2]
-            assert_equal v3 [$client get k3]
+    test {Multi Part AOF can load data when some AOFs are empty} {
+        create_aof $aof_dirpath $aof_base1_file {
+            append_to_aof [formatCommand set k1 v1]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        create_aof $aof_dirpath $aof_incr1_file {
+        }
+
+        create_aof $aof_dirpath $aof_incr3_file {
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can load data when some AOFs are empty" {
+                assert_equal 1 [is_alive $srv]
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal v1 [$client get k1]
+                assert_equal "" [$client get k2]
+                assert_equal v3 [$client get k3]
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
 
     # Tests16: Multi Part AOF can load data from old version redis (rdb preamble no)
-    create_aof $server_path $aof_old_name_old_path {
-        append_to_aof [formatCommand set k1 v1]
-        append_to_aof [formatCommand set k2 v2]
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data from old version redis (rdb preamble no)" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
-            
-            assert_equal 0 [check_file_exist $server_path $aof_basename]
-            assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
-           
-            assert_aof_manifest_content $aof_manifest_file  {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
-
-            assert_equal OK [$client set k4 v4]
-            
-            $client bgrewriteaof
-            waitForBgrewriteaof $client
-           
-            assert_equal OK [$client set k5 v5]
-
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.2.base.rdb seq 2 type b} 
-                {file appendonly.aof.2.incr.aof seq 2 type i}
-            }
-
-            set d1 [$client debug digest]
-            $client debug loadaof
-            set d2 [$client debug digest]
-            assert {$d1 eq $d2}
+    test {Multi Part AOF can load data from old version redis (rdb preamble no)} {
+        create_aof $server_path $aof_old_name_old_path {
+            append_to_aof [formatCommand set k1 v1]
+            append_to_aof [formatCommand set k2 v2]
+            append_to_aof [formatCommand set k3 v3]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can load data from old version redis (rdb preamble no)" {
+                assert_equal 1 [is_alive $srv]
+
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+                
+                assert_equal 0 [check_file_exist $server_path $aof_basename]
+                assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
+            
+                assert_aof_manifest_content $aof_manifest_file  {
+                    {file appendonly.aof seq 1 type b} 
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                assert_equal OK [$client set k4 v4]
+                
+                $client bgrewriteaof
+                waitForBgrewriteaof $client
+            
+                assert_equal OK [$client set k5 v5]
+
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.2.base.rdb seq 2 type b} 
+                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                }
+
+                set d1 [$client debug digest]
+                $client debug loadaof
+                set d2 [$client debug digest]
+                assert {$d1 eq $d2}
+            }
+        }
+
+        clean_aof_persistence $aof_dirpath
+        exec cp tests/assets/rdb-preamble.aof $aof_old_name_old_path
+    }
 
     # Tests17: Multi Part AOF can load data from old version redis (rdb preamble yes)
-    exec cp tests/assets/rdb-preamble.aof $aof_old_name_old_path
+    test {Multi Part AOF can load data from old version redis (rdb preamble yes)} {
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can load data from old version redis (rdb preamble yes)" {
+                assert_equal 1 [is_alive $srv]
 
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data from old version redis (rdb preamble yes)" {
-            assert_equal 1 [is_alive $srv]
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+                
+                assert_equal 0 [check_file_exist $server_path $aof_basename]
+                assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
             
-            assert_equal 0 [check_file_exist $server_path $aof_basename]
-            assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
-           
-            assert_aof_manifest_content $aof_manifest_file  {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof.1.incr.aof seq 1 type i}
+                assert_aof_manifest_content $aof_manifest_file  {
+                    {file appendonly.aof seq 1 type b} 
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                assert_equal OK [$client set k4 v4]
+                
+                $client bgrewriteaof
+                waitForBgrewriteaof $client
+
+                assert_equal OK [$client set k5 v5]
+
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.2.base.rdb seq 2 type b} 
+                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                }
+
+                set d1 [$client debug digest]
+                $client debug loadaof
+                set d2 [$client debug digest]
+                assert {$d1 eq $d2}
             }
-
-            assert_equal OK [$client set k4 v4]
-            
-            $client bgrewriteaof
-            waitForBgrewriteaof $client
-
-            assert_equal OK [$client set k5 v5]
-
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.2.base.rdb seq 2 type b} 
-                {file appendonly.aof.2.incr.aof seq 2 type i}
-            }
-
-            set d1 [$client debug digest]
-            $client debug loadaof
-            set d2 [$client debug digest]
-            assert {$d1 eq $d2}
         }
+        
+        clean_aof_persistence $aof_dirpath
     }
-    
-    clean_aof_persistence $aof_dirpath
 
     # Tests18: Multi Part AOF can continue the upgrade from the interrupted upgrade state
-    create_aof $server_path $aof_old_name_old_path {
-        append_to_aof [formatCommand set k1 v1]
-        append_to_aof [formatCommand set k2 v2]
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    # Create a layout of an interrupted upgrade (interrupted before the rename).
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof seq 1 type b\n"
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can can continue the upgrade from the interrupted upgrade state" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
-            
-            assert_equal 0 [check_file_exist $server_path $aof_basename]
-            assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
-           
-            assert_aof_manifest_content $aof_manifest_file  {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
+    test {Multi Part AOF can continue the upgrade from the interrupted upgrade state} {
+        create_aof $server_path $aof_old_name_old_path {
+            append_to_aof [formatCommand set k1 v1]
+            append_to_aof [formatCommand set k2 v2]
+            append_to_aof [formatCommand set k3 v3]
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
-
-    # Tests19: Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF
-    create_aof $server_path $aof_old_name_old_path {
-        append_to_aof [formatCommand set k1 v1]
-        append_to_aof [formatCommand set k2 v2]
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof seq 1 type b\n"
-    }
-
-    create_aof $aof_dirpath $aof_old_name_new_path {
-        append_to_aof [formatCommand set k4 v4]
-        append_to_aof [formatCommand set k5 v5]
-        append_to_aof [formatCommand set k6 v6]
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF" {
-            assert_equal 1 [is_alive $srv]
-
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal 0 [$client exists k1]
-            assert_equal 0 [$client exists k2]
-            assert_equal 0 [$client exists k3]
-
-            assert_equal v4 [$client get k4]
-            assert_equal v5 [$client get k5]
-            assert_equal v6 [$client get k6]
-            
-            assert_equal 1 [check_file_exist $server_path $aof_basename]
-            assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
-           
-            assert_aof_manifest_content $aof_manifest_file  {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
+        # Create a layout of an interrupted upgrade (interrupted before the rename).
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof seq 1 type b\n"
         }
-    }
 
-    clean_aof_persistence $aof_dirpath
-    catch {exec rm -rf $aof_old_name_old_path}
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can can continue the upgrade from the interrupted upgrade state" {
+                assert_equal 1 [is_alive $srv]
 
-    # Tests20: Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir
-    create_aof_manifest $aof_dirpath $aof_manifest_file {
-        append_to_manifest "file appendonly.aof seq 1 type b\n"
-    }
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
 
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir" {
-            wait_for_condition 100 50 {
-                ! [is_alive $srv]
-            } else {
-                fail "AOF loading didn't fail"
-            }
-
-            assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof doesn't exist"]
-        }
-    }
-
-    clean_aof_persistence $aof_dirpath
-
-    # Tests21: Multi Part AOF can upgrade when when two redis share the same server dir
-    create_aof $server_path $aof_old_name_old_path {
-        append_to_aof [formatCommand set k1 v1]
-        append_to_aof [formatCommand set k2 v2]
-        append_to_aof [formatCommand set k3 v3]
-    }
-
-    create_aof $server_path $aof_old_name_old_path2 {
-        append_to_aof [formatCommand set k4 v4]
-        append_to_aof [formatCommand set k5 v5]
-        append_to_aof [formatCommand set k6 v6]
-    }
-
-    start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can upgrade when when two redis share the same server dir 1" {
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
-            wait_done_loading $client
-
-            assert_equal v1 [$client get k1]
-            assert_equal v2 [$client get k2]
-            assert_equal v3 [$client get k3]
-
-            assert_equal 0 [$client exists k4]
-            assert_equal 0 [$client exists k5]
-            assert_equal 0 [$client exists k6]
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+                
+                assert_equal 0 [check_file_exist $server_path $aof_basename]
+                assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
             
-            assert_aof_manifest_content $aof_manifest_file  {
-                {file appendonly.aof seq 1 type b} 
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
-            
-            $client bgrewriteaof
-            while 1 {
-                if {[status $client aof_rewrite_in_progress] eq 1} {
-                    if {$::verbose} {
-                        puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-                        flush stdout
-                    }
-                    after 1000
-                } else {
-                    break
+                assert_aof_manifest_content $aof_manifest_file  {
+                    {file appendonly.aof seq 1 type b} 
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
                 }
             }
-
-            assert_equal OK [$client set k v]
-
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.2.base.rdb seq 2 type b} 
-                {file appendonly.aof.2.incr.aof seq 2 type i}
-            }
-
-            set d1 [$client debug digest]
-            $client debug loadaof
-            set d2 [$client debug digest]
-            assert {$d1 eq $d2}
         }
+
+        clean_aof_persistence $aof_dirpath
     }
 
-    start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2 appenddirname appendonlydir]] {
-        test "Multi Part AOF can upgrade when when two redis share the same server dir 2" {
-            set client [redis [srv host] [srv port] 0 $::tls]
-            wait_done_loading $client
+    # Tests19: Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF
+    test {Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF} {
+        create_aof $server_path $aof_old_name_old_path {
+            append_to_aof [formatCommand set k1 v1]
+            append_to_aof [formatCommand set k2 v2]
+            append_to_aof [formatCommand set k3 v3]
+        }
 
-            assert_equal 0 [$client exists k1]
-            assert_equal 0 [$client exists k2]
-            assert_equal 0 [$client exists k3]
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof seq 1 type b\n"
+        }
 
-            assert_equal v4 [$client get k4]
-            assert_equal v5 [$client get k5]
-            assert_equal v6 [$client get k6]
-     
-            assert_aof_manifest_content $aof_manifest_file2  {
-                {file appendonly.aof2 seq 1 type b} 
-                {file appendonly.aof2.1.incr.aof seq 1 type i}
+        create_aof $aof_dirpath $aof_old_name_new_path {
+            append_to_aof [formatCommand set k4 v4]
+            append_to_aof [formatCommand set k5 v5]
+            append_to_aof [formatCommand set k6 v6]
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF" {
+                assert_equal 1 [is_alive $srv]
+
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal 0 [$client exists k1]
+                assert_equal 0 [$client exists k2]
+                assert_equal 0 [$client exists k3]
+
+                assert_equal v4 [$client get k4]
+                assert_equal v5 [$client get k5]
+                assert_equal v6 [$client get k6]
+                
+                assert_equal 1 [check_file_exist $server_path $aof_basename]
+                assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
+            
+                assert_aof_manifest_content $aof_manifest_file  {
+                    {file appendonly.aof seq 1 type b} 
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
             }
+        }
 
-            $client bgrewriteaof
-            waitForBgrewriteaof $client
+        clean_aof_persistence $aof_dirpath
+        catch {exec rm -rf $aof_old_name_old_path}
+    }
 
-            assert_equal OK [$client set k v]
+    # Tests20: Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir
+    test {Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir} {
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof seq 1 type b\n"
+        }
 
-            assert_aof_manifest_content $aof_manifest_file2 {
-                {file appendonly.aof2.2.base.rdb seq 2 type b} 
-                {file appendonly.aof2.2.incr.aof seq 2 type i}
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir" {
+                wait_for_condition 100 50 {
+                    ! [is_alive $srv]
+                } else {
+                    fail "AOF loading didn't fail"
+                }
+
+                assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof doesn't exist"]
             }
+        }
 
-            set d1 [$client debug digest]
-            $client debug loadaof
-            set d2 [$client debug digest]
-            assert {$d1 eq $d2}
+        clean_aof_persistence $aof_dirpath
+    }
+
+    # Tests21: Multi Part AOF can upgrade when when two redis share the same server dir
+    test {Multi Part AOF can upgrade when when two redis share the same server dir} {
+        create_aof $server_path $aof_old_name_old_path {
+            append_to_aof [formatCommand set k1 v1]
+            append_to_aof [formatCommand set k2 v2]
+            append_to_aof [formatCommand set k3 v3]
+        }
+
+        create_aof $server_path $aof_old_name_old_path2 {
+            append_to_aof [formatCommand set k4 v4]
+            append_to_aof [formatCommand set k5 v5]
+            append_to_aof [formatCommand set k6 v6]
+        }
+
+        start_server_aof [list dir $server_path] {
+            test "Multi Part AOF can upgrade when when two redis share the same server dir 1" {
+                set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal v1 [$client get k1]
+                assert_equal v2 [$client get k2]
+                assert_equal v3 [$client get k3]
+
+                assert_equal 0 [$client exists k4]
+                assert_equal 0 [$client exists k5]
+                assert_equal 0 [$client exists k6]
+                
+                assert_aof_manifest_content $aof_manifest_file  {
+                    {file appendonly.aof seq 1 type b} 
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+                
+                $client bgrewriteaof
+                while 1 {
+                    if {[status $client aof_rewrite_in_progress] eq 1} {
+                        if {$::verbose} {
+                            puts -nonewline "\nWaiting for background AOF rewrite to finish... "
+                            flush stdout
+                        }
+                        after 1000
+                    } else {
+                        break
+                    }
+                }
+
+                assert_equal OK [$client set k v]
+
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.2.base.rdb seq 2 type b} 
+                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                }
+
+                set d1 [$client debug digest]
+                $client debug loadaof
+                set d2 [$client debug digest]
+                assert {$d1 eq $d2}
+            }
+        }
+
+        start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2 appenddirname appendonlydir]] {
+            test "Multi Part AOF can upgrade when when two redis share the same server dir 2" {
+                set client [redis [srv host] [srv port] 0 $::tls]
+                wait_done_loading $client
+
+                assert_equal 0 [$client exists k1]
+                assert_equal 0 [$client exists k2]
+                assert_equal 0 [$client exists k3]
+
+                assert_equal v4 [$client get k4]
+                assert_equal v5 [$client get k5]
+                assert_equal v6 [$client get k6]
+        
+                assert_aof_manifest_content $aof_manifest_file2  {
+                    {file appendonly.aof2 seq 1 type b} 
+                    {file appendonly.aof2.1.incr.aof seq 1 type i}
+                }
+
+                $client bgrewriteaof
+                waitForBgrewriteaof $client
+
+                assert_equal OK [$client set k v]
+
+                assert_aof_manifest_content $aof_manifest_file2 {
+                    {file appendonly.aof2.2.base.rdb seq 2 type b} 
+                    {file appendonly.aof2.2.incr.aof seq 2 type i}
+                }
+
+                set d1 [$client debug digest]
+                $client debug loadaof
+                set d2 [$client debug digest]
+                assert {$d1 eq $d2}
+            }
         }
     }
 
@@ -799,16 +840,23 @@ tags {"external:skip"} {
 
             # Let AOFRW fail three times
             r bgrewriteaof
-            catch {exec kill -9 [get_child_pid 0]}
+            set pid1 [get_child_pid 0]
+            catch {exec kill -9 $pid1}
             waitForBgrewriteaof r
 
             r bgrewriteaof
-            catch {exec kill -9 [get_child_pid 0]}
+            set pid2 [get_child_pid 0]
+            catch {exec kill -9 $pid2}
             waitForBgrewriteaof r
 
             r bgrewriteaof
-            catch {exec kill -9 [get_child_pid 0]}
+            set pid3 [get_child_pid 0]
+            catch {exec kill -9 $pid3}
             waitForBgrewriteaof r
+
+            assert_equal 0 [check_file_exist $dir "temp-rewriteaof-bg-$pid1.aof"]
+            assert_equal 0 [check_file_exist $dir "temp-rewriteaof-bg-$pid2.aof"]
+            assert_equal 0 [check_file_exist $dir "temp-rewriteaof-bg-$pid3.aof"]
 
             # We will have four INCR AOFs
             assert_aof_manifest_content $aof_manifest_file {
