@@ -9221,6 +9221,15 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
  *
+ * * RedisModuleEvent_EventLoop
+ *
+ *     Called on each event loop iteration, once just before the event loop goes
+ *     to sleep or just after it wakes up.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP`
+ *     * `REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP`
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -9295,6 +9304,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_NEXT;
     case REDISMODULE_EVENT_FORK_CHILD:
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
+    case REDISMODULE_EVENT_EVENTLOOP:
+        return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     default:
         break;
     }
@@ -10429,12 +10440,16 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
  *
  * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
  * * EINVAL: 'callback' is NULL or 'mask' value is invalid.
- *            Valid values for 'mask':
- *               REDISMODULE_EVENTLOOP_READABLE
- *               REDISMODULE_EVENTLOOP_WRITABLE
- *               REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE
+ *   errno might take other values in case of an internal error.
  *
- *  errno might take other values in case of an internal error. */
+ *  Example:
+ *  void onReadable(int fd, void *user_data, int mask) {
+ *      char buf[32];
+ *      int bytes = read(fd,buf,sizeof(buf));
+ *      printf("Read %d bytes \n", bytes);
+ *  }
+ *  RM_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
+ */
 int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, void *user_data) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
         errno = ERANGE;
@@ -10480,6 +10495,7 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, voi
     if (mask & REDISMODULE_EVENTLOOP_WRITABLE)
         data->wProc = callback;
 
+    errno = 0;
     return REDISMODULE_OK;
 }
 
@@ -10514,6 +10530,7 @@ int RM_EventLoopDel(int fd, int mask) {
     if (aeGetFileEvents(server.el, fd) == AE_NONE)
         zfree(data);
 
+    errno = 0;
     return REDISMODULE_OK;
 }
 

@@ -280,9 +280,8 @@ typedef void (*RedisModuleEventLoopCallback)(int fd, void *user_data, int mask);
 #define REDISMODULE_EVENT_REPL_BACKUP 12 /* Deprecated since Redis 7.0, not used anymore. */
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
-#define REDISMODULE_EVENT_BEFORE_SLEEP 15
-#define REDISMODULE_EVENT_AFTER_SLEEP 16
-#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_EVENTLOOP 15
+#define _REDISMODULE_EVENT_NEXT 16 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -356,12 +355,8 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_FORK_CHILD,
         1
     },
-    RedisModuleEvent_BeforeSleep = {
-        REDISMODULE_EVENT_BEFORE_SLEEP,
-        1
-    },
-    RedisModuleEvent_AfterSleep = {
-        REDISMODULE_EVENT_AFTER_SLEEP,
+    RedisModuleEvent_EventLoop = {
+        REDISMODULE_EVENT_EVENTLOOP,
         1
 };
 
@@ -422,6 +417,10 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
 #define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
+
+#define REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP 0
+#define REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP 1
+#define _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT 2
 
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0

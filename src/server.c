@@ -1440,7 +1440,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
     if (moduleCount()) {
-        moduleFireServerEvent(REDISMODULE_EVENT_BEFORE_SLEEP, 0, NULL);
+        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                              REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
+                              NULL);
         moduleHandleBlockedClients();
     }
 
@@ -1527,7 +1529,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyStartMonitor(latency);
 
             moduleAcquireGIL();
-            moduleFireServerEvent(REDISMODULE_EVENT_AFTER_SLEEP, 0, NULL);
+            moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                                  REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
+                                  NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
