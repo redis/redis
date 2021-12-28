@@ -236,14 +236,14 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
+    start_server {overrides {appendonly {yes}}} {
         test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
             r set x 10
             r expire x -1
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir} appendfsync always}} {
+    start_server {overrides {appendonly {yes} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -274,7 +274,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
+    start_server {overrides {appendonly {yes}}} {
         test {GETEX should not append to AOF} {
             set aof [get_last_incr_aof_path r]
             r set foo bar
@@ -405,7 +405,7 @@ tags {"aof external:skip"} {
     }
 
     test {Generate timestamp annotations in AOF} {
-        start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
+        start_server {overrides {appendonly {yes}}} {
             r config set aof-timestamp-enabled yes
             r config set aof-use-rdb-preamble no
             set aof [get_last_incr_aof_path r]
@@ -512,7 +512,7 @@ tags {"aof external:skip"} {
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
             append_to_aof [formatCommand eval {redis.call("incr",KEYS[1])} 1 foo]
         }
-        start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof appenddirname appendonlydir replica-read-only yes replicaof "127.0.0.1 0"]] {
+        start_server [list overrides [list dir $server_path appendonly yes replica-read-only yes replicaof "127.0.0.1 0"]] {
             assert_equal [r get foo] 102
         }
     }

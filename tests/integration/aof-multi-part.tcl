@@ -1,5 +1,5 @@
 source tests/support/aofmanifest.tcl
-set defaults { appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir} auto-aof-rewrite-percentage {0}}
+set defaults {appendonly {yes} appendfilename {appendonly.aof} appenddirname {appendonlydir} auto-aof-rewrite-percentage {0}}
 set server_path [tmpdir server.multi.aof]
 set aof_dirname "appendonlydir"
 set aof_basename "appendonly.aof"
@@ -626,7 +626,7 @@ tags {"external:skip"} {
         start_server_aof [list dir $server_path] {
             set redis1 [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             
-            start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2 appenddirname appendonlydir]] {
+            start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2]] {
                 set redis2 [redis [srv host] [srv port] 0 $::tls]
 
                 test "Multi Part AOF can upgrade when when two redis share the same server dir (redis1)" {
@@ -704,7 +704,7 @@ tags {"external:skip"} {
     # writing pressure, etc.
  
     
-    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no} appendfilename {appendonly.aof} appenddirname {appendonlydir}}} {
+    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
         set dir [get_redis_dir]
         set aof_basename "appendonly.aof"
         set aof_dirname "appendonlydir"
