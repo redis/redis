@@ -295,7 +295,7 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     dictIterator *iter = NULL;
     /* Stores the libraries we need to replace in case a revert is required.
      * Only initialized when needed */
-    list *tmp_l_ctx = NULL;
+    list *old_libraries_list = NULL;
     dictEntry *entry = NULL;
     iter = dictGetIterator(lib_ctx_src->libraries);
     while ((entry = dictNext(iter))) {
@@ -307,12 +307,12 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
                 *err = sdscatfmt(sdsempty(), "Library %s already exists", li->name);
                 goto done;
             } else {
-                if (!tmp_l_ctx) {
-                    tmp_l_ctx = listCreate();
-                    listSetFreeMethod(tmp_l_ctx, (void (*)(void*))engineLibraryFree);
+                if (!old_libraries_list) {
+                    old_libraries_list = listCreate();
+                    listSetFreeMethod(old_libraries_list, (void (*)(void*))engineLibraryFree);
                 }
                 libraryUnlink(lib_ctx_dst, old_li);
-                listAddNodeTail(tmp_l_ctx, old_li);
+                listAddNodeTail(old_libraries_list, old_li);
             }
         }
     }
@@ -343,25 +343,25 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     iter = NULL;
 
     librariesCtxClear(lib_ctx_src);
-    if (tmp_l_ctx) {
-        listRelease(tmp_l_ctx);
-        tmp_l_ctx = NULL;
+    if (old_libraries_list) {
+        listRelease(old_libraries_list);
+        old_libraries_list = NULL;
     }
     ret = C_OK;
 
 done:
     if (iter) dictReleaseIterator(iter);
-    if (tmp_l_ctx) {
+    if (old_libraries_list) {
         /* Link back all libraries on tmp_l_ctx */
-        while (listLength(tmp_l_ctx) > 0) {
-            listNode *head = listFirst(tmp_l_ctx);
+        while (listLength(old_libraries_list) > 0) {
+            listNode *head = listFirst(old_libraries_list);
             libraryInfo *li = listNodeValue(head);
             listNodeValue(head) = NULL;
             int ret = libraryLink(lib_ctx_dst, li, NULL);
             serverAssert(ret == C_OK);
-            listDelNode(tmp_l_ctx, head);
+            listDelNode(old_libraries_list, head);
         }
-        listRelease(tmp_l_ctx);
+        listRelease(old_libraries_list);
     }
     return ret;
 }

@@ -1290,8 +1290,11 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
     if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"ARGV");
 
     /* At this point whether this script was never seen before or if it was
-     * already defined, we can call it. We have zero arguments and expect
-     * a single return value. */
+     * already defined, we can call it.
+     * On eval mode, we have zero arguments and expect a single return value.
+     * In addition the error handler is located on position -2 on the Lua stack.
+     * On function mode, we pass 2 arguments (the keys and args tables),
+     * and the error handler is located on position -4 (stack: error_handler, callback, keys, args) */
     int err;
     if (run_ctx->flags & SCRIPT_EVAL_MODE) {
         err = lua_pcall(lua,0,1,-2);
