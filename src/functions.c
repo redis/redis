@@ -128,6 +128,9 @@ static void engineFunctionDispose(dict *d, void *obj) {
 }
 
 static void engineLibraryFree(libraryInfo* li) {
+    if (!li) {
+        return;
+    }
     dictRelease(li->functions);
     sdsfree(li->name);
     sdsfree(li->code);
@@ -137,9 +140,6 @@ static void engineLibraryFree(libraryInfo* li) {
 
 static void engineLibraryDispose(dict *d, void *obj) {
     UNUSED(d);
-    if (!obj) {
-        return;
-    }
     engineLibraryFree(obj);
 }
 
@@ -253,7 +253,8 @@ static void libraryUnlink(librariesCtx *lib_ctx, libraryInfo* li) {
 
 static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
     int ret = C_ERR;
-    dictIterator *iter = dictGetIterator(li->functions);
+    dictIterator *iter = NULL;
+    iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         functionInfo *fi = dictGetVal(entry);
@@ -264,6 +265,7 @@ static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
         }
     }
     dictReleaseIterator(iter);
+    iter = NULL;
 
     iter = dictGetIterator(li->functions);
     while ((entry = dictNext(iter))) {
@@ -271,11 +273,14 @@ static int libraryLink(librariesCtx *lib_ctx, libraryInfo* li, sds* err) {
         dictAdd(lib_ctx->functions, fi->name, fi);
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
+    dictReleaseIterator(iter);
+    iter = NULL;
+
     dictAdd(lib_ctx->libraries, li->name, li);
     lib_ctx->cache_memory += libraryMallocSize(li);
     ret = C_OK;
 done:
-    dictReleaseIterator(iter);
+    if (iter) dictReleaseIterator(iter);
     return ret;
 }
 
@@ -288,7 +293,8 @@ done:
 static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int replace, sds *err) {
     int ret = C_ERR;
     dictIterator *iter = NULL;
-    librariesCtx *tmp_l_ctx = NULL;
+    list *tmp_l_ctx = NULL;
+    dictEntry *entry = NULL;
     if (!replace) {
         /* First make sure there is only new libraries */
         iter = dictGetIterator(lib_ctx_src->libraries);
@@ -302,28 +308,28 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
             }
         }
         dictReleaseIterator(iter);
-    }
+        iter = NULL;
+    } else {
+        /* used to revert in case of function collision */
+        tmp_l_ctx = listCreate();
+        listSetFreeMethod(tmp_l_ctx, (void (*)(void*))engineLibraryFree);
 
-    /* used to revert in case of function collision */
-    tmp_l_ctx = librariesCtxCreate();
-
-    /* Unlink collides libraries */
-    iter = dictGetIterator(lib_ctx_src->libraries);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-        libraryInfo *li = dictGetVal(entry);
-        libraryInfo *old_li = dictFetchValue(lib_ctx_dst->libraries, li->name);
-        if (old_li) {
-            libraryUnlink(lib_ctx_dst, old_li);
-            int ret = libraryLink(tmp_l_ctx, old_li, NULL);
-            serverAssert(ret == C_OK);
+        /* Unlink collides libraries */
+        iter = dictGetIterator(lib_ctx_src->libraries);
+        while ((entry = dictNext(iter))) {
+            libraryInfo *li = dictGetVal(entry);
+            libraryInfo *old_li = dictFetchValue(lib_ctx_dst->libraries, li->name);
+            if (old_li) {
+                libraryUnlink(lib_ctx_dst, old_li);
+                listAddNodeTail(tmp_l_ctx, old_li);
+            }
         }
+        dictReleaseIterator(iter);
+        iter = NULL;
     }
-    dictReleaseIterator(iter);
 
     /* Make sure no functions collision */
     iter = dictGetIterator(lib_ctx_src->functions);
-    entry = NULL;
     while ((entry = dictNext(iter))) {
         functionInfo *fi = dictGetVal(entry);
         if (dictFetchValue(lib_ctx_dst->functions, fi->name)) {
@@ -332,10 +338,10 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
         }
     }
     dictReleaseIterator(iter);
+    iter = NULL;
 
     /* No collision, it is safe to link all the new libraries. */
     iter = dictGetIterator(lib_ctx_src->libraries);
-    entry = NULL;
     while ((entry = dictNext(iter))) {
         libraryInfo *li = dictGetVal(entry);
         int ret = libraryLink(lib_ctx_dst, li, NULL);
@@ -344,25 +350,27 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     }
     dictReleaseIterator(iter);
     iter = NULL;
+
     librariesCtxClear(lib_ctx_src);
-    librariesCtxFree(tmp_l_ctx);
-    tmp_l_ctx = NULL;
+    if (tmp_l_ctx) {
+        listRelease(tmp_l_ctx);
+        tmp_l_ctx = NULL;
+    }
     ret = C_OK;
 
 done:
     if (iter) dictReleaseIterator(iter);
     if (tmp_l_ctx) {
         /* Link back all libraries on tmp_l_ctx */
-        iter = dictGetIterator(tmp_l_ctx->libraries);
-        dictEntry *entry = NULL;
-        while ((entry = dictNext(iter))) {
-            libraryInfo *li = dictGetVal(entry);
+        while (listLength(tmp_l_ctx) > 0) {
+            listNode *head = listFirst(tmp_l_ctx);
+            libraryInfo *li = listNodeValue(head);
+            listNodeValue(head) = NULL;
             int ret = libraryLink(lib_ctx_dst, li, NULL);
             serverAssert(ret == C_OK);
-            dictSetVal(tmp_l_ctx->libraries, entry, NULL);
+            listDelNode(tmp_l_ctx, head);
         }
-        dictReleaseIterator(iter);
-        librariesCtxFree(tmp_l_ctx);
+        listRelease(tmp_l_ctx);
     }
     return ret;
 }
@@ -467,7 +475,13 @@ void functionListCommand(client *c) {
         return;
     }
     size_t reply_len = 0;
-    void *len_ptr = addReplyDeferredLen(c);
+    void *len_ptr = NULL;
+    if (library_name) {
+        len_ptr = addReplyDeferredLen(c);
+    } else {
+        /* If no pattern is asked we know the reply len and we can just set it */
+        addReplyArrayLen(c, dictSize(curr_lib_ctx->libraries));
+    }
     dictIterator *iter = dictGetIterator(curr_lib_ctx->libraries);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
@@ -514,7 +528,9 @@ void functionListCommand(client *c) {
         }
     }
     dictReleaseIterator(iter);
-    setDeferredArrayLen(c, len_ptr, reply_len);
+    if (len_ptr) {
+        setDeferredArrayLen(c, len_ptr, reply_len);
+    }
 }
 
 /*
@@ -778,7 +794,8 @@ void functionHelpCommand(client *c) {
 "    * FLUSH: delete all existing libraries.",
 "    * APPEND: appends the restored libraries to the existing libraries. On collision, abort.",
 "    * REPLACE: appends the restored libraries to the existing libraries, On collision, replace the old",
-"      libraries with the new libraries.",
+"      libraries with the new libraries (notice that even on this option there is a change of failure",
+"      in case of functions name collision with another library).",
 NULL };
     addReplyHelp(c, help);
 }
@@ -818,14 +835,14 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
     }
     engine *engine = ei->engine;
 
-    libraryInfo *li = dictFetchValue(lib_ctx->libraries, lib_name);
-    if (li && !replace) {
+    libraryInfo *old_li = dictFetchValue(lib_ctx->libraries, lib_name);
+    if (old_li && !replace) {
         *err = sdsnew("Library already exists");
         return C_ERR;
     }
 
-    if (li) {
-        libraryUnlink(lib_ctx, li);
+    if (old_li) {
+        libraryUnlink(lib_ctx, old_li);
     }
 
     libraryInfo *new_li = engineLibraryCreate(lib_name, ei, desc, code);
@@ -842,16 +859,16 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
         goto error;
     }
 
-    if (li) {
-        engineLibraryFree(li);
+    if (old_li) {
+        engineLibraryFree(old_li);
     }
 
     return C_OK;
 
 error:
     engineLibraryFree(new_li);
-    if (li) {
-        int ret = libraryLink(lib_ctx, li, NULL);
+    if (old_li) {
+        int ret = libraryLink(lib_ctx, old_li, NULL);
         serverAssert(ret == C_OK);
     }
     return C_ERR;

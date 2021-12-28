@@ -67,6 +67,10 @@ typedef struct loadCtx {
     monotime start_time;
 } loadCtx;
 
+/* Hook for FUNCTION LOAD execution.
+ * Used to cancel the execution in case of a timeout (500ms).
+ * This execution should be fast and should only register
+ * functions so 500ms should be more than enough. */
 static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);

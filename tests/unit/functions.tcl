@@ -595,7 +595,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*math.random can only be called inside a function invocation*}
+    } {*math.random can only be called inside a script invocation*}
 
     test {LIBRARIES - redis.call from function load} {
         catch {
@@ -604,7 +604,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*redis.call/pcall can only be called inside a function invocation*}
+    } {*redis.call/pcall can only be called inside a script invocation*}
 
     test {LIBRARIES - redis.call from function load} {
         catch {
@@ -613,7 +613,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*redis.setresp can only be called inside a function invocation*}
+    } {*redis.setresp can only be called inside a script invocation*}
 
     test {LIBRARIES - redis.set_repl from function load} {
         catch {
@@ -622,7 +622,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*redis.set_repl can only be called inside a function invocation*}
+    } {*redis.set_repl can only be called inside a script invocation*}
 
     test {LIBRARIES - delete removed all functions on library} {
         r function delete lib1

@@ -660,7 +660,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
-        luaPushError(lua, "redis.call/pcall can only be called inside a function invocation");
+        luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
         return raise_error ? luaRaiseError(lua) : 1;
     }
     sds err = NULL;
@@ -919,7 +919,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
-        lua_pushstring(lua, "redis.set_repl can only be called inside a function invocation");
+        lua_pushstring(lua, "redis.set_repl can only be called inside a script invocation");
         return lua_error(lua);
     }
 
@@ -979,7 +979,7 @@ static int luaLogCommand(lua_State *lua) {
 static int luaSetResp(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
-        lua_pushstring(lua, "redis.setresp can only be called inside a function invocation");
+        lua_pushstring(lua, "redis.setresp can only be called inside a script invocation");
         return lua_error(lua);
     }
     int argc = lua_gettop(lua);
@@ -1205,7 +1205,7 @@ static void luaCreateArray(lua_State *lua, robj **elev, int elec) {
 static int redis_math_random (lua_State *L) {
   scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
   if (!rctx) {
-    return luaL_error(L, "math.random can only be called inside a function invocation");
+    return luaL_error(L, "math.random can only be called inside a script invocation");
   }
 
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
@@ -1238,7 +1238,7 @@ static int redis_math_random (lua_State *L) {
 static int redis_math_randomseed (lua_State *L) {
   scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
   if (!rctx) {
-    return luaL_error(L, "math.randomseed can only be called inside a function invocation");
+    return luaL_error(L, "math.randomseed can only be called inside a script invocation");
   }
   redisSrand48(luaL_checkint(L, 1));
   return 0;
@@ -1292,7 +1292,12 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
-    int err = lua_pcall(lua,run_ctx->flags & SCRIPT_EVAL_MODE ? 0 : 2,1,run_ctx->flags & SCRIPT_EVAL_MODE ? -2 : -4);
+    int err;
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) {
+        err = lua_pcall(lua,0,1,-2);
+    } else {
+        err = lua_pcall(lua,2,1,-4);
+    }
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.

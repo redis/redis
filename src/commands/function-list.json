@@ -12,6 +12,20 @@
         ],
         "acl_categories": [
             "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "library-name-pattern",
+                "type": "string",
+                "token": "LIBRARYNAME",
+                "optional": true
+            },
+            {
+                "name": "withcode",
+                "type": "pure-token",
+                "token": "WITHCODE",
+                "optional": true
+            }
         ]
     }
 }
