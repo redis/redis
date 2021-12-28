@@ -956,7 +956,8 @@ void syncCommand(client *c) {
     }
 
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
-     * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. */
+     * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
+     * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
     if ((c->slave_req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && !(c->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
