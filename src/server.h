@@ -247,6 +247,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_EMPTY 2
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
+#define AOF_TRUNCATED 5
 
 /* Command doc flags */
 #define CMD_DOC_NONE 0

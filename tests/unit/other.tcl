@@ -126,8 +126,8 @@ start_server {tags {"other"}} {
 
     test {EXPIRES after AOF reload (without rewrite)} {
         r flushdb
-        r config set aof-use-rdb-preamble no
         r config set appendonly yes
+        r config set aof-use-rdb-preamble no
         r set x somevalue
         r expire x 1000
         r setex y 2000 somevalue

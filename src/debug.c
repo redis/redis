@@ -570,8 +570,9 @@ NULL
         protectClient(c);
         if (server.aof_manifest) aofManifestFree(server.aof_manifest);
         aofLoadManifestFromDisk();
+        aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
+        if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */

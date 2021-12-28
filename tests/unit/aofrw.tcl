@@ -44,8 +44,6 @@ start_server {tags {"aofrw external:skip"}} {
             # Make sure no more commands processed, before taking debug digest
             wait_load_handlers_disconnected
 
-            after 1000
-
             # Get the data set digest
             set d1 [debug_digest]
 

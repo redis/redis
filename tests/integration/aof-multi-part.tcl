@@ -18,7 +18,7 @@ set aof_manifest_filepath2 "$server_path/$aof_dirname/${aof_basename}2$::manifes
 tags {"external:skip"} {
     
     # Test Part 1
-    #
+    
     # In order to test the loading logic of redis under different combinations of manifest and AOF.
     # We will manually construct the manifest file and AOF, and then start redis to verify whether 
     # the redis behavior is as expected.
@@ -47,7 +47,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 1 [count_message_lines $server_path/stdout "doesn't exist"]
+            assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof.1.incr.aof doesn't exist"]
         }
     }
 
@@ -75,6 +75,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "Found Non-increasing sequence number"]
         }
     }
 
@@ -103,6 +105,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
     }
 
@@ -135,6 +139,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "Found duplicate base file information"]
         }
     }
 
@@ -162,6 +168,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "Unknown AOF file type"]
         }
     }
 
@@ -189,6 +197,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "Mismatched manifest key"]
         }
     }
 
@@ -216,6 +226,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
     }
 
@@ -243,6 +255,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file contains too long line"]
         }
     }
     
@@ -270,6 +284,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
     }
 
@@ -287,6 +303,8 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "Found an empty AOF manifest"]
         }
     }
 
@@ -416,7 +434,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $aof_dirpath
 
-    # Tests16: Multi Part AOF can load data from old version redis
+    # Tests16: Multi Part AOF can load data from old version redis (rdb preamble no)
     create_aof $aof_old_version_filepath {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -424,7 +442,7 @@ tags {"external:skip"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "Multi Part AOF can load data from old version redis" {
+        test "Multi Part AOF can load data from old version redis (rdb preamble no)" {
             assert_equal 1 [is_alive $srv]
 
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
@@ -445,18 +463,8 @@ tags {"external:skip"} {
             assert_equal OK [$client set k4 v4]
             
             $client bgrewriteaof
-            while 1 {
-                if {[status $client aof_rewrite_in_progress] eq 1} {
-                    if {$::verbose} {
-                        puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-                        flush stdout
-                    }
-                    after 1000
-                } else {
-                    break
-                }
-            }
-
+            waitForBgrewriteaof $client
+           
             assert_equal OK [$client set k5 v5]
 
             assert_aof_manifest_content $aof_manifest_filepath {
@@ -473,7 +481,50 @@ tags {"external:skip"} {
 
     clean_aof_persistence $aof_dirpath
 
-    # Tests17: Multi Part AOF can continue the upgrade from the interrupted upgrade state
+    # Tests17: Multi Part AOF can load data from old version redis (rdb preamble yes)
+    exec cp tests/assets/rdb-preamble.aof $aof_old_version_filepath
+
+    start_server_aof [list dir $server_path] {
+        test "Multi Part AOF can load data from old version redis (rdb preamble yes)" {
+            assert_equal 1 [is_alive $srv]
+
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal v1 [$client get k1]
+            assert_equal v2 [$client get k2]
+            assert_equal v3 [$client get k3]
+            
+            assert_equal 0 [check_file_exist $server_path $aof_basename]
+            assert_equal 1 [check_file_exist $aof_dirpath $aof_basename]
+           
+            assert_aof_manifest_content $aof_manifest_filepath  {
+                {file appendonly.aof seq 1 type b} 
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            assert_equal OK [$client set k4 v4]
+            
+            $client bgrewriteaof
+            waitForBgrewriteaof $client
+
+            assert_equal OK [$client set k5 v5]
+
+            assert_aof_manifest_content $aof_manifest_filepath {
+                {file appendonly.aof.2.base.rdb seq 2 type b} 
+                {file appendonly.aof.2.incr.aof seq 2 type i}
+            }
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2}
+        }
+    }
+    
+    clean_aof_persistence $aof_dirpath
+
+    # Tests18: Multi Part AOF can continue the upgrade from the interrupted upgrade state
     create_aof $aof_old_version_filepath {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -482,6 +533,7 @@ tags {"external:skip"} {
 
     create_aof_dir $aof_dirpath
 
+    # Create a layout of an interrupted upgrade (interrupted before the rename).
     create_aof_manifest $aof_manifest_filepath {
         append_to_manifest "file appendonly.aof seq 1 type b\n"
     }
@@ -509,7 +561,7 @@ tags {"external:skip"} {
 
     clean_aof_persistence $aof_dirpath
 
-    # Tests18: Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF
+    # Tests19: Multi Part AOF can be loaded correctly when both server dir and aof dir contain old AOF
     create_aof $aof_old_version_filepath {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -555,7 +607,7 @@ tags {"external:skip"} {
     clean_aof_persistence $aof_dirpath
     catch {exec rm -rf $aof_old_version_filepath}
 
-    # Tests19: Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir
+    # Tests20: Multi Part AOF can't load data when the manifest contains the old AOF file name but the file does not exist in server dir and aof dir
     create_aof_dir $aof_dirpath
     create_aof_manifest $aof_manifest_filepath {
         append_to_manifest "file appendonly.aof seq 1 type b\n"
@@ -567,12 +619,14 @@ tags {"external:skip"} {
             } else {
                 fail "AOF loading didn't fail"
             }
+
+            assert_equal 1 [count_message_lines $server_path/stdout "appendonly.aof doesn't exist"]
         }
     }
 
     clean_aof_persistence $aof_dirpath
 
-    # Tests20: Multi Part AOF can upgrade when when two redis share the same server dir
+    # Tests21: Multi Part AOF can upgrade when when two redis share the same server dir
     create_aof $aof_old_version_filepath {
         append_to_aof [formatCommand set k1 v1]
         append_to_aof [formatCommand set k2 v2]
@@ -728,7 +782,7 @@ tags {"external:skip"} {
 
             assert_equal 1 [check_file_exist $aof_dirpath $aof_manifest_name]
             # Wait bio delete history 
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"] == 0
             } else {
@@ -761,18 +815,15 @@ tags {"external:skip"} {
 
             # Let AOFRW fail three times
             r bgrewriteaof
-            set fork_child_pid [get_child_pid 0]
-            exec kill -9 $fork_child_pid
+            catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
 
             r bgrewriteaof
-            set fork_child_pid [get_child_pid 0]
-            exec kill -9 $fork_child_pid
+            catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
 
             r bgrewriteaof
-            set fork_child_pid [get_child_pid 0]
-            exec kill -9 $fork_child_pid
+            catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
 
             # We will have four INCR AOFs
@@ -799,6 +850,12 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
 
             r config set rdb-key-save-delay 0
+            catch {exec kill -9 [get_child_pid 0]}
+            wait_for_condition 1000 10 {
+                [s rdb_bgsave_in_progress] eq 0
+            } else {
+                fail "bgsave did not stop in time"
+            }
 
             # AOFRW success
             r bgrewriteaof
@@ -812,7 +869,7 @@ tags {"external:skip"} {
             }
 
             # Wait bio delete history 
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [check_file_exist $aof_dirpath "${aof_basename}.2${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.2${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.3${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
@@ -843,7 +900,7 @@ tags {"external:skip"} {
             }
 
             assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.4${::base_aof_sufix}${::rdb_format_suffix}"]
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [check_file_exist $aof_dirpath "${aof_basename}.6${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.7${::incr_aof_sufix}${::aof_format_suffix}"] == 0
             } else {
@@ -866,7 +923,7 @@ tags {"external:skip"} {
             }
 
             # Wait bio delete history 
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [check_file_exist $aof_dirpath "${aof_basename}.4${::base_aof_sufix}${::rdb_format_suffix}"] == 0
             } else {
                 fail "Failed to delete history AOF"
@@ -909,7 +966,7 @@ tags {"external:skip"} {
             }
 
             # wait bio delete history 
-            wait_for_condition 1000 500 {
+            wait_for_condition 1000 10 {
                 [check_file_exist $aof_dirpath "${aof_basename}.5${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.6${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
@@ -940,14 +997,14 @@ tags {"external:skip"} {
         }
 
         test "AOF enable during BGSAVE will not write data util AOFRW finish" {
-            r flushall
-            r config set rdb-key-save-delay 1000000000
             r config set appendonly no
-
+            r config set save ""
+            r config set rdb-key-save-delay 10000000
+            
             r set k1 v1
-        
             r bgsave
-            wait_for_condition 10 100 {
+
+            wait_for_condition 1000 10 {
                 [s rdb_bgsave_in_progress] eq 1
             } else {
                 fail "bgsave did not start in time"
@@ -955,6 +1012,7 @@ tags {"external:skip"} {
 
             # Make server.aof_rewrite_scheduled = 1
             r config set appendonly yes
+            assert_equal [s aof_rewrite_scheduled] 1
 
             # Not open new INCR aof
             assert_aof_manifest_content $aof_manifest_filepath {
@@ -969,15 +1027,18 @@ tags {"external:skip"} {
             assert_equal 0 [r exists k1]
             assert_equal 0 [r exists k2]
 
-            # assert_equal [s rdb_bgsave_in_progress] 1
-            # set fork_child_pid [get_child_pid 0]
-            # exec kill -9 $fork_child_pid
+            assert_equal [s rdb_bgsave_in_progress] 1
             r config set rdb-key-save-delay 0
-            assert_equal [s rdb_bgsave_in_progress] 0
+            catch {exec kill -9 [get_child_pid 0]}
+            wait_for_condition 1000 10 {
+                [s rdb_bgsave_in_progress] eq 0
+            } else {
+                fail "bgsave did not stop in time"
+            }
 
             # Make sure AOFRW was scheduled
             wait_for_condition 1000 10 {
-                [status r aof_rewrite_in_progress] == 1
+                [s aof_rewrite_in_progress] == 1
             } else {
                 fail "aof rewrite did not scheduled"
             }
@@ -1001,13 +1062,11 @@ tags {"external:skip"} {
 
             # Let AOFRW fail two times, this will trigger AOFRW limit
             r bgrewriteaof
-            set fork_child_pid [get_child_pid 0]
-            exec kill -9 $fork_child_pid
+            catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
 
             r bgrewriteaof
-            set fork_child_pid [get_child_pid 0]
-            exec kill -9 $fork_child_pid
+            catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_filepath {
@@ -1032,6 +1091,7 @@ tags {"external:skip"} {
             } else {
                 fail "aof rewrite did trigger limit"
             }
+            assert_equal [status r aof_rewrite_in_progress] 0
 
             # Wait 100 ms
             after 100
@@ -1047,6 +1107,12 @@ tags {"external:skip"} {
             # Turn off auto rewrite
             r config set auto-aof-rewrite-percentage 0
             r config set rdb-key-save-delay 0
+            catch {exec kill -9 [get_child_pid 0]}
+            wait_for_condition 1000 10 {
+                [s aof_rewrite_in_progress] eq 0
+            } else {
+                fail "aof rewrite did not stop in time"
+            }
             assert_equal [status r aof_rewrite_in_progress] 0
 
             # We can still manually execute AOFRW immediately

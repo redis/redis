@@ -348,12 +348,12 @@ loaderr:
     if (argv) sdsfreesplitres(argv, argc);
     if (ai) aofInfoFree(ai);
 
-    fprintf(stderr, "\n*** FATAL AOF MANIFEST FILE ERROR ***\n");
+    serverLog(LL_WARNING, "\n*** FATAL AOF MANIFEST FILE ERROR ***\n");
     if (line) {
-        fprintf(stderr, "Reading the manifest file, at line %d\n", linenum);
-        fprintf(stderr, ">>> '%s'\n", line);
+        serverLog(LL_WARNING, "Reading the manifest file, at line %d\n", linenum);
+        serverLog(LL_WARNING, ">>> '%s'\n", line);
     }
-    fprintf(stderr, "%s\n", err);
+    serverLog(LL_WARNING, "%s\n", err);
     exit(1);
 }
 
@@ -1266,7 +1266,7 @@ struct client *createAOFClient(void) {
  * AOF_NOT_EXIST: AOF file doesn't exist.
  * AOF_EMPTY: The AOF file is empty (nothing to load).
  * AOF_FAILED: Failed to load the AOF file. */
-int loadSingleAppendOnlyFile(char *filename, int last_file) {
+int loadSingleAppendOnlyFile(char *filename) {
     struct client *fakeClient;
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
@@ -1274,7 +1274,7 @@ int loadSingleAppendOnlyFile(char *filename, int last_file) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
-    int ret;
+    int ret = C_OK;
 
     sds aof_filepath = makePath(server.aof_dirname, filename);
     FILE *fp = fopen(aof_filepath, "r");
@@ -1448,7 +1448,7 @@ int loadSingleAppendOnlyFile(char *filename, int last_file) {
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
-    ret = AOF_OK;
+    if (ret != AOF_TRUNCATED) ret = AOF_OK;
     goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -1459,7 +1459,7 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     }
 
 uxeof: /* Unexpected AOF end of file. */
-    if (server.aof_load_truncated && last_file) {
+    if (server.aof_load_truncated) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
             filename, (unsigned long long) valid_up_to);
@@ -1479,6 +1479,7 @@ uxeof: /* Unexpected AOF end of file. */
             } else {
                 serverLog(LL_WARNING,
                     "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
+                ret = AOF_TRUNCATED;
                 goto loaded_ok;
             }
         }
@@ -1510,7 +1511,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     long long start;
     off_t total_size = 0;
     sds aof_name;
-    int aof_num, cur_num = 0;
+    int total_num, aof_num = 0;
 
     /* If the 'server.aof_filename' file exists in dir, we may be starting 
      * from an old redis version. We will use enter upgrade mode in three situations.
@@ -1535,8 +1536,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
         return AOF_NOT_EXIST;
     }
 
-    aof_num = getBaseAndIncrAppendOnlyFilesNum(am);
-    serverAssert(aof_num > 0);
+    total_num = getBaseAndIncrAppendOnlyFilesNum(am);
+    serverAssert(total_num > 0);
 
     /* Here we calculate the total size of all BASE and INCR files in 
      * advance, it will be set to `server.loading_total_bytes`. */
@@ -1548,17 +1549,18 @@ int loadAppendOnlyFiles(aofManifest *am) {
         serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
         aof_name = (char*)am->base_aof_info->file_name;
         updateLoadingFileName(aof_name);
-
+        ++aof_num;
         start = ustime();
-        ret = loadSingleAppendOnlyFile(aof_name, ++cur_num == aof_num);
-        if (ret == AOF_OK) {
+        ret = loadSingleAppendOnlyFile(aof_name);
+        if (ret == AOF_OK || (ret == AOF_TRUNCATED && aof_num == total_num)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
+            ret = AOF_OK;
         }
 
         /* If an AOF exists in the manifest but not on the disk, we consider 
          * this to be a fatal error. */
-        if (ret == AOF_NOT_EXIST) ret = AOF_FAILED;
+        if (ret == AOF_NOT_EXIST || ret == AOF_TRUNCATED) ret = AOF_FAILED;
 
         if (ret != AOF_OK && ret != AOF_EMPTY) {
             goto cleanup;
@@ -1576,15 +1578,16 @@ int loadAppendOnlyFiles(aofManifest *am) {
             serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
             aof_name = (char*)ai->file_name;
             updateLoadingFileName(aof_name);
-
+            ++aof_num;
             start = ustime();
-            ret = loadSingleAppendOnlyFile(aof_name, ++cur_num == aof_num);
-            if (ret == AOF_OK) {
+            ret = loadSingleAppendOnlyFile(aof_name);
+            if (ret == AOF_OK || (ret == AOF_TRUNCATED && aof_num == total_num)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds", 
                     aof_name, (float)(ustime()-start)/1000000);
+                ret = AOF_OK;
             }
 
-            if (ret == AOF_NOT_EXIST) ret = AOF_FAILED;
+            if (ret == AOF_NOT_EXIST || ret == AOF_TRUNCATED) ret = AOF_FAILED;
 
             if (ret != AOF_OK && ret != AOF_EMPTY) {
                 goto cleanup;
