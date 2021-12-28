@@ -225,7 +225,7 @@ static struct config {
     int pipe_mode;
     int pipe_timeout;
     int getrdb_mode;
-    int functions_rdb;
+    int get_functions_rdb_mode;
     int stat_mode;
     int scan_mode;
     int intrinsic_latency_mode;
@@ -1638,8 +1638,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--rdb") && !lastarg) {
             config.getrdb_mode = 1;
             config.rdb_filename = argv[++i];
-        } else if (!strcmp(argv[i],"--functions-rdb")) {
-            config.functions_rdb = 1;
+        } else if (!strcmp(argv[i],"--functions-rdb") && !lastarg) {
+            config.get_functions_rdb_mode = 1;
+            config.rdb_filename = argv[++i];
         } else if (!strcmp(argv[i],"--pipe")) {
             config.pipe_mode = 1;
         } else if (!strcmp(argv[i],"--pipe-timeout") && !lastarg) {
@@ -1844,9 +1845,8 @@ static int parseOptions(int argc, char **argv) {
               " line interface may not be safe.\n", stderr);
     }
 
-    if (config.functions_rdb && !config.getrdb_mode) {
-        fprintf(stderr,"Option --functions-rdb requires --rdb.\n");
-        fprintf(stderr,"Try %s --help for more information.\n", argv[0]);
+    if (config.get_functions_rdb_mode && config.getrdb_mode) {
+        fprintf(stderr,"Option --functions-rdb and --rdb are mutually exclusive.\n");
         exit(1);
     }
 
@@ -1945,8 +1945,8 @@ static void usage(int err) {
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "                     Use filename of \"-\" to write to stdout.\n"
-" --functions-rdb     Only get the functions (not the keys) when getting an RDB dump file.\n"
-"                     Requires --rdb to also be specified.\n"
+" --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
+"                     when getting the RDB dump file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -8360,7 +8360,7 @@ int main(int argc, char **argv) {
     config.cluster_send_asking = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;
-    config.functions_rdb = 0;
+    config.get_functions_rdb_mode = 0;
     config.stat_mode = 0;
     config.scan_mode = 0;
     config.intrinsic_latency_mode = 0;
@@ -8469,12 +8469,12 @@ int main(int argc, char **argv) {
         slaveMode();
     }
 
-    /* Get RDB mode. */
-    if (config.getrdb_mode) {
+    /* Get RDB/functions mode. */
+    if (config.getrdb_mode || config.get_functions_rdb_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
         sendRdbOnly();
-        if (config.functions_rdb && !sendReplconf("rdb-filter-only", "functions")) {
+        if (config.get_functions_rdb_mode && !sendReplconf("rdb-filter-only", "functions")) {
             fprintf(stderr, "Failed requesting functions only RDB from server, aborting\n");
             exit(1);
         }

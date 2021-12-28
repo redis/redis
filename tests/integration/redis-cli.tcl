@@ -299,8 +299,11 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
         assert_equal "OK" [r debug populate 100000 key 1000]
         assert_equal "OK" [r function create lua func1 "return 123"]
-        set args "--rdb $dir/cli.rdb"
-        if {$functions_only} { lappend args "--functions-rdb" }
+        if {$functions_only} {
+            set args "--functions-rdb $dir/cli.rdb"
+        } else {
+            set args "--rdb $dir/cli.rdb"
+        }
         catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
 
