@@ -40,6 +40,10 @@ proc get_cur_base_aof_name {manifest_filepath} {
         lappend lines $line
     }
 
+    if {[llength $lines] == 0} {
+        return ""
+    }
+
     set first_line [lindex $lines 0]
     set aofname [lindex [split $first_line " "] 1]
     set aoftype [lindex [split $first_line " "] 5]
@@ -63,6 +67,10 @@ proc get_last_incr_aof_name {manifest_filepath} {
         lappend lines $line
     }
 
+    if {[llength $lines] == 0} {
+        return ""
+    }
+
     set len [llength $lines]
     set last_line [lindex $lines [expr $len - 1]]
     set aofname [lindex [split $last_line " "] 1]
@@ -72,6 +80,30 @@ proc get_last_incr_aof_name {manifest_filepath} {
     }
 
     return ""
+}
+
+proc get_last_incr_aof_path {r} {
+    set dir [lindex [$r config get dir] 1]
+    set appenddirname [lindex [$r config get appenddirname] 1]
+    set appendfilename [lindex [$r config get appendfilename] 1]
+    set manifest_filepath [file join $dir $appenddirname $appendfilename$::manifest_suffix]
+    set last_incr_aof_name [get_last_incr_aof_name $manifest_filepath]
+    if {$last_incr_aof_name == ""} {
+        return ""
+    }
+    return [file join $dir $appenddirname $last_incr_aof_name]
+}
+
+proc get_base_aof_path {r} {
+    set dir [lindex [$r config get dir] 1]
+    set appenddirname [lindex [$r config get appenddirname] 1]
+    set appendfilename [lindex [$r config get appendfilename] 1]
+    set manifest_filepath [file join $dir $appenddirname $appendfilename$::manifest_suffix]
+    set cur_base_aof_name [get_cur_base_aof_name $manifest_filepath]
+    if {$cur_base_aof_name == ""} {
+        return ""
+    }
+    return [file join $dir $appenddirname $cur_base_aof_name]
 }
 
 proc assert_aof_manifest_content {manifest_path content} {
@@ -103,9 +135,10 @@ proc append_to_manifest {str} {
     puts -nonewline $fp $str
 }
 
-proc create_aof_manifest {aof_manifest_path code} {
+proc create_aof_manifest {dir aof_manifest_file code} {
+    create_aof_dir $dir
     upvar fp fp 
-    set fp [open $aof_manifest_path w+]
+    set fp [open $aof_manifest_file w+]
     uplevel 1 $code
     close $fp
 }
@@ -115,9 +148,10 @@ proc append_to_aof {str} {
     puts -nonewline $fp $str
 }
 
-proc create_aof {aof_path code} {
+proc create_aof {dir aof_file code} {
+    create_aof_dir $dir
     upvar fp fp 
-    set fp [open $aof_path w+]
+    set fp [open $aof_file w+]
     uplevel 1 $code
     close $fp
 }
