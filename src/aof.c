@@ -1558,8 +1558,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
             ret = AOF_OK;
         }
 
-        /* If an AOF exists in the manifest but not on the disk, we consider 
-         * this to be a fatal error. */
+        /* If an AOF exists in the manifest but not on the disk, Or the truncated 
+         * file is not the last file, we consider this to be a fatal error. */
         if (ret == AOF_NOT_EXIST || ret == AOF_TRUNCATED) ret = AOF_FAILED;
 
         if (ret != AOF_OK && ret != AOF_EMPTY) {
