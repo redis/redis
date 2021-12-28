@@ -785,7 +785,7 @@ void functionHelpCommand(client *c) {
 "    * FLUSH: delete all existing libraries.",
 "    * APPEND: appends the restored libraries to the existing libraries. On collision, abort.",
 "    * REPLACE: appends the restored libraries to the existing libraries, On collision, replace the old",
-"      libraries with the new libraries (notice that even on this option there is a change of failure",
+"      libraries with the new libraries (notice that even on this option there is a chance of failure",
 "      in case of functions name collision with another library).",
 NULL };
     addReplyHelp(c, help);
