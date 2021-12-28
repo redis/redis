@@ -760,7 +760,7 @@ void functionHelpCommand(client *c) {
 "    * Function name",
 "    * Command used to run the function",
 "    * Duration in MS that the function is running",
-"    If function is not running, return nil",
+"    If no function is running, return nil",
 "    In addition, returns a list of available engines.",
 "KILL",
 "    Kill the current running function.",
@@ -834,7 +834,7 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
     }
 
     if (dictSize(new_li->functions) == 0) {
-        *err = sdsnew("No libraries registered");
+        *err = sdsnew("No functions registered");
         goto error;
     }
 

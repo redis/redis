@@ -615,7 +615,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*redis.setresp can only be called inside a function invocation*}
 
-    test {LIBRARIES - redis.call from function load} {
+    test {LIBRARIES - redis.set_repl from function load} {
         catch {
             r function load LUA lib2 replace {
                 return redis.set_repl(redis.REPL_NONE)

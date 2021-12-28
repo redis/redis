@@ -97,8 +97,8 @@ static int luaEngineCreate(void *engine_ctx, libraryInfo *li, sds blob, sds *err
     serverAssert(lua_isfunction(lua, -1));
 
     loadCtx load_ctx = {
-            .li = li,
-            .start_time = getMonotonicUs(),
+        .li = li,
+        .start_time = getMonotonicUs(),
     };
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, &load_ctx);
     lua_sethook(lua,luaEngineLoadHook,LUA_MASKCOUNT,100000);
@@ -186,7 +186,7 @@ static int luaRegisterFunction(lua_State *lua) {
     }
 
     if (argc == 3 && !lua_isstring(lua, 3)) {
-        luaPushError(lua, "last argument to redis.register_function must be a string");
+        luaPushError(lua, "third argument to redis.register_function must be a string");
         return luaRaiseError(lua);
     }
 
