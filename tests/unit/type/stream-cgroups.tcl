@@ -205,11 +205,34 @@ start_server {
         $rd close
     }
 
+    test {Blocking XREADGROUP for stream that ran dry (issue #5299)} {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Serve it synchronously if the ID specified was not the special `>` ID.
+        foreach id {0 600 666 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # Pass a special `>` ID but without new entry, be blocked.
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream >
+        assert_equal [$rd read] {}
+
+        $rd close
+    }
+
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
         r del mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP mygroup Alice BLOCK 100 STREAMS mystream ">"
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r XGROUP DESTROY mystream mygroup
         assert_error "*NOGROUP*" {$rd read}
         $rd close
@@ -220,6 +243,7 @@ start_server {
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        wait_for_blocked_clients_count 1
         r XGROUP CREATE mystream2{t} mygroup $ MKSTREAM
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
@@ -232,6 +256,7 @@ start_server {
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        wait_for_blocked_clients_count 1
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
         assert_error "*NOGROUP*" {$rd read} ;# mystream2{t} didn't have mygroup before RENAME
@@ -560,6 +585,7 @@ start_server {
             r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
             set rd [redis_deferring_client]
             $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            wait_for_blocked_clients_count 1
             r XADD mystream * f2 v2
             set grpinfo [r xinfo groups mystream]
 
@@ -580,6 +606,7 @@ start_server {
             r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
             set rd [redis_deferring_client]
             $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            wait_for_blocked_clients_count 1
             r XGROUP CREATECONSUMER mystream mygroup Charlie
             set grpinfo [lindex [r xinfo groups mystream] 0]
 

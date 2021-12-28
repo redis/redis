@@ -354,6 +354,21 @@ start_server {
         $rd close
     }
 
+    test "Blocking XREAD for stream that ran dry (issue #5299)" {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Pass a ID smaller than stream's last_id, be blocked.
+        $rd XREAD BLOCK 10 STREAMS mystream 665
+        assert_equal [$rd read] {}
+
+        $rd close
+    }
+
     test "XREAD: XADD + DEL should not awake client" {
         set rd [redis_deferring_client]
         r del s1
