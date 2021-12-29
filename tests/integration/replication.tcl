@@ -1227,3 +1227,28 @@ test {replica can handle EINTR if use diskless load} {
         }
     }
 } {} {external:skip}
+
+
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        set replica [srv -1 client]
+        set replica_host [srv -1 host]
+        set replica_port [srv -1 port]
+
+        $replica replicaof $master_host $master_port
+        after 1000
+
+        test {check master is alive after set default user off} {
+            $master acl setuser newuser on allkeys allcommands >passwd
+            $master auth newuser passwd
+
+            $master acl setuser default -@all off
+            after 3000
+            $master ping
+        }
+    }
+}
