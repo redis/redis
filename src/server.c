@@ -4395,7 +4395,7 @@ void bytesToHuman(char *s, unsigned long long n) {
  * Each bucket covers twice the previous bucket s range.
  * Empty buckets are not printed.
  * Everything above 1sec is considered +Inf. */
-sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
+sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatprintf(info, "latency_hist_usec_%s:calls=%lld,histogram=[",
         histogram_name, (long long) histogram->total_count);
     struct hdr_iter iter;
@@ -4405,7 +4405,7 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
     while (hdr_iter_next(&iter)) {
         const int64_t micros = iter.highest_equivalent_value / 1000;
         const int64_t cumulative_count = iter.cumulative_count;
-        if(cumulative_count > previous_count){
+        if (cumulative_count > previous_count) {
             if (bucket_pos>0)
                 info = sdscatprintf(info,";");
             info = sdscatprintf(info,"(%lld:%lld)", (long long) micros, (long long) cumulative_count);
@@ -4419,13 +4419,13 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
 }
 
 /* Fill percentile distribution of latencies. */
-sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram){
+sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
     for (int j = 0; j < server.latency_percentiles_len; j++) {
-            info = sdscatprintf(info,"p%f=%.3f", server.latency_track_percentiles[j],
+        info = sdscatprintf(info,"p%f=%.3f", server.latency_track_percentiles[j],
             ((double)hdr_value_at_percentile(histogram,server.latency_track_percentiles[j]))/1000.0f);
-            if (j != server.latency_percentiles_len-1)
-                info = sdscatlen(info,",",1);
+        if (j != server.latency_percentiles_len-1)
+            info = sdscatlen(info,",",1);
         }
     info = sdscatprintf(info,"\r\n");
     return info;
@@ -5197,10 +5197,10 @@ sds genRedisInfoString(const char *section) {
         raxStop(&ri);
     }
 
-    if ((allsections || !strcasecmp(section,"latencystats"))) {
+    if (allsections || !strcasecmp(section,"latencystats")) {
         /* Latency by percentile distribution per command category */
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Latencystats - latency by percentile distribution\r\n");
+        info = sdscatprintf(info, "# Latencystats\r\n");
         struct redisCommand *c;
         dictEntry *de;
         dictIterator *di;
