@@ -250,7 +250,7 @@ void aofLoadManifestFromDisk(void) {
     int argc;
     aofInfo *ai = NULL;
 
-    sds line;
+    sds line = NULL;
     int linenum = 0;
 
     while (1) {
