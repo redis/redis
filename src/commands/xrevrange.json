@@ -8,7 +8,7 @@
         "function": "xrevrangeCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added exclusive ranges."
             ]
         ],

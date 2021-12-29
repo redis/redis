@@ -7,11 +7,11 @@
         "function": "monitorCommand",
         "history": [
             [
-                "6.0",
+                "6.0.0",
                 "`AUTH` excluded from the command's output."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "`RESET` can be called to exit monitor mode."
             ],
             [

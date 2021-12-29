@@ -60,7 +60,8 @@
                 "name": "withscores",
                 "token": "WITHSCORES",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "2.0.0"
             },
             {
                 "token": "LIMIT",
