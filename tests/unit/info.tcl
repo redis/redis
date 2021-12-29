@@ -84,8 +84,8 @@ start_server {tags {"info" "external:skip"}} {
             r SET k v
             set latencystatline_debug [latency_percentiles_usec debug]
             set latencystatline_set [latency_percentiles_usec set]
-            regexp "p50.000000=(.+\..+)" $latencystatline_debug p50_debug
-            regexp "p50.000000=(.+\..+)" $latencystatline_set p50_set
+            regexp "p50.000000=(.+\..+)" $latencystatline_debug -> p50_debug
+            regexp "p50.000000=(.+\..+)" $latencystatline_set -> p50_set
             assert {$p50_debug >= 50000}
             assert {$p50_set >= 0}
             assert {$p50_debug >= $p50_set}

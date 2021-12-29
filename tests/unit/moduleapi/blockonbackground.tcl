@@ -30,8 +30,8 @@ start_server {tags {"modules"}} {
         set cmdstatline [cmdrstat block.debug r]
         set latencystatline_debug [latency_percentiles_usec block.debug]
 
-        regexp "calls=1,usec=(.*?),usec_per_call=(.*?),rejected_calls=0,failed_calls=0" $cmdstatline usec usec_per_call
-        regexp "p50.000000=(.+\..+)" $latencystatline_debug p50
+        regexp "calls=1,usec=(.*?),usec_per_call=(.*?),rejected_calls=0,failed_calls=0" $cmdstatline -> usec usec_per_call
+        regexp "p50.000000=(.+\..+)" $latencystatline_debug  -> p50
         assert {$usec >= 100000}
         assert {$usec_per_call >= 100000}
         assert {$p50 >= 100000}
