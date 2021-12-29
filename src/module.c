@@ -10438,9 +10438,13 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
- * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
- * * EINVAL: 'callback' is NULL or 'mask' value is invalid.
- * 
+ * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
+ * * EINVAL: `callback` is NULL or `mask` value is invalid.
+ *
+ *     * `REDISMODULE_EVENTLOOP_READABLE`
+ *     * `REDISMODULE_EVENTLOOP_WRITABLE`
+ *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
+ *
  * `errno` might take other values in case of an internal error.
  *
  * Example:
@@ -10507,8 +10511,8 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, voi
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
- * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
- * * EINVAL: 'mask' value is invalid. Valid values for 'mask':
+ * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
+ * * EINVAL: `mask` value is invalid. Valid values for `mask`:
  *
  *     * `REDISMODULE_EVENTLOOP_READABLE`
  *     * `REDISMODULE_EVENTLOOP_WRITABLE`
