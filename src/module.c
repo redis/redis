@@ -10440,15 +10440,17 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
  *
  * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
  * * EINVAL: 'callback' is NULL or 'mask' value is invalid.
- *   errno might take other values in case of an internal error.
+ * 
+ * `errno` might take other values in case of an internal error.
  *
- *  Example:
- *  void onReadable(int fd, void *user_data, int mask) {
- *      char buf[32];
- *      int bytes = read(fd,buf,sizeof(buf));
- *      printf("Read %d bytes \n", bytes);
- *  }
- *  RM_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
+ * Example:
+ *
+ *     void onReadable(int fd, void *user_data, int mask) {
+ *         char buf[32];
+ *         int bytes = read(fd,buf,sizeof(buf));
+ *         printf("Read %d bytes \n", bytes);
+ *     }
+ *     RM_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
  */
 int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, void *user_data) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
@@ -10462,14 +10464,15 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, voi
         return REDISMODULE_ERR;
     }
 
-    /* We are going to register stub callbacks to 'ae' for two reasons :
+    /* We are going to register stub callbacks to 'ae' for two reasons:
+     *
      * - "ae" callback signature is different from RedisModuleEventLoopCallback,
      *   that will be handled it in our stub callbacks.
      * - We need to remap 'mask' value to provide binary compatibility.
      *
-     *  For the stub callbacks, saving user 'callback' and 'user_data' in an
-     *  EventLoopData object and passing it to ae, later we'll extract
-     *  'callback' and 'user_data' from that.
+     * For the stub callbacks, saving user 'callback' and 'user_data' in an
+     * EventLoopData object and passing it to ae, later we'll extract
+     * 'callback' and 'user_data' from that.
      */
     EventLoopData *data = aeGetFileClientData(server.el, fd);
     if (!data)
@@ -10505,11 +10508,11 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopCallback callback, voi
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * ERANGE: 'fd' is negative or higher than 'maxclients' Redis config.
- * * EINVAL: 'mask' value is invalid.
- *            Valid values for 'mask':
- *               REDISMODULE_EVENTLOOP_READABLE
- *               REDISMODULE_EVENTLOOP_WRITABLE
- *               REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE
+ * * EINVAL: 'mask' value is invalid. Valid values for 'mask':
+ *
+ *     * `REDISMODULE_EVENTLOOP_READABLE`
+ *     * `REDISMODULE_EVENTLOOP_WRITABLE`
+ *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
  */
 int RM_EventLoopDel(int fd, int mask) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
