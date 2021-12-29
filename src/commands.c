@@ -1078,7 +1078,10 @@ struct redisCommandArg DUMP_Args[] = {
 /********** EXISTS ********************/
 
 /* EXISTS history */
-#define EXISTS_History NULL
+commandHistory EXISTS_History[] = {
+{"3.0.3","Accepts multiple `key` arguments."},
+{0}
+};
 
 /* EXISTS hints */
 #define EXISTS_Hints NULL
@@ -1400,7 +1403,10 @@ struct redisCommandArg PEXPIRETIME_Args[] = {
 /********** PTTL ********************/
 
 /* PTTL history */
-#define PTTL_History NULL
+commandHistory PTTL_History[] = {
+{"2.8.0","Added the -2 reply."},
+{0}
+};
 
 /* PTTL hints */
 #define PTTL_Hints NULL
@@ -1458,7 +1464,12 @@ struct redisCommandArg RENAMENX_Args[] = {
 /********** RESTORE ********************/
 
 /* RESTORE history */
-#define RESTORE_History NULL
+commandHistory RESTORE_History[] = {
+{"3.0.0","Added the `REPLACE` modifier."},
+{"5.0.0","Added the `ABSTTL` modifier."},
+{"5.0.0","Added the `IDLETIME` and `FREQ` options."},
+{0}
+};
 
 /* RESTORE hints */
 #define RESTORE_Hints NULL
@@ -1579,7 +1590,10 @@ struct redisCommandArg TOUCH_Args[] = {
 /********** TTL ********************/
 
 /* TTL history */
-#define TTL_History NULL
+commandHistory TTL_History[] = {
+{"2.8.0","Added the -2 reply."},
+{0}
+};
 
 /* TTL hints */
 #define TTL_Hints NULL
@@ -5117,7 +5131,10 @@ struct redisCommandArg ZRANGEBYLEX_Args[] = {
 /********** ZRANGEBYSCORE ********************/
 
 /* ZRANGEBYSCORE history */
-#define ZRANGEBYSCORE_History NULL
+commandHistory ZRANGEBYSCORE_History[] = {
+{"2.0.0","Added the `WITHSCORES` modifier."},
+{0}
+};
 
 /* ZRANGEBYSCORE hints */
 #define ZRANGEBYSCORE_Hints NULL
