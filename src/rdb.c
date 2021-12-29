@@ -1250,9 +1250,8 @@ werr:
     return -1;
 }
 
-ssize_t rdbSaveDbs(rio *rdb, int rdbflags) {
-    int j;
-    dictIterator *di = NULL;
+ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags) {
+    dictIterator *di;
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
@@ -1260,76 +1259,72 @@ ssize_t rdbSaveDbs(rio *rdb, int rdbflags) {
     long long info_updated_time = 0;
     size_t processed = 0;
 
-    for (j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
+    redisDb *db = server.db + dbid;
+    dict *d = db->dict;
+    if (dictSize(d) == 0) return 0;
+    di = dictGetSafeIterator(d);
 
-        /* Write the SELECT DB opcode */
-        if ((res = rdbSaveType(rdb,RDB_OPCODE_SELECTDB)) < 0) goto werr;
+    /* Write the SELECT DB opcode */
+    if ((res = rdbSaveType(rdb,RDB_OPCODE_SELECTDB)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb, dbid)) < 0) goto werr;
+    written += res;
+
+    /* Write the RESIZE DB opcode. */
+    uint64_t db_size, expires_size;
+    db_size = dictSize(db->dict);
+    expires_size = dictSize(db->expires);
+    if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
+    written += res;
+
+    /* Iterate this DB writing every entry */
+    while((de = dictNext(di)) != NULL) {
+        sds keystr = dictGetKey(de);
+        robj key, *o = dictGetVal(de);
+        long long expire;
+        size_t rdb_bytes_before_key = rdb->processed_bytes;
+
+        initStaticStringObject(key,keystr);
+        expire = getExpire(db,&key);
+        if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
         written += res;
-        if ((res = rdbSaveLen(rdb,j)) < 0) goto werr;
-        written += res;
 
-        /* Write the RESIZE DB opcode. */
-        uint64_t db_size, expires_size;
-        db_size = dictSize(db->dict);
-        expires_size = dictSize(db->expires);
-        if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
-        written += res;
-        if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
-        written += res;
-        if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
-        written += res;
+        /* In fork child process, we can try to release memory back to the
+         * OS and possibly avoid or decrease COW. We give the dismiss
+         * mechanism a hint about an estimated size of the object we stored. */
+        size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
+        if (server.in_fork_child) dismissObject(o, dump_size);
 
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
-            long long expire;
-            size_t rdb_bytes_before_key = rdb->processed_bytes;
+        /* When this RDB is produced as part of an AOF rewrite, move
+         * accumulated diff from parent to child while rewriting in
+         * order to have a smaller final write. */
+        if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
+            rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
+        {
+            processed = rdb->processed_bytes;
+            aofReadDiffFromParent();
+        }
 
-            initStaticStringObject(key,keystr);
-            expire = getExpire(db,&key);
-            if ((res = rdbSaveKeyValuePair(rdb,&key,o,expire,j)) < 0) goto werr;
-            written += res;
-
-            /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We give the dismiss
-             * mechanism a hint about an estimated size of the object we stored. */
-            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-            if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* When this RDB is produced as part of an AOF rewrite, move
-             * accumulated diff from parent to child while rewriting in
-             * order to have a smaller final write. */
-            if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
-                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-            {
-                processed = rdb->processed_bytes;
-                aofReadDiffFromParent();
-            }
-
-            /* Update child info every 1 second (approximately).
-             * in order to avoid calling mstime() on each iteration, we will
-             * check the diff every 1024 keys */
-            if ((key_count++ & 1023) == 0) {
-                long long now = mstime();
-                if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB");
-                    info_updated_time = now;
-                }
+        /* Update child info every 1 second (approximately).
+         * in order to avoid calling mstime() on each iteration, we will
+         * check the diff every 1024 keys */
+        if ((key_count++ & 1023) == 0) {
+            long long now = mstime();
+            if (now - info_updated_time >= 1000) {
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB");
+                info_updated_time = now;
             }
         }
-        dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
     }
-
+    dictReleaseIterator(di);
     return written;
 
 werr:
-    if (di) dictReleaseIterator(di);
+    dictReleaseIterator(di);
     return -1;
 }
 
@@ -1346,6 +1341,7 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictEntry *de;
     char magic[10];
     uint64_t cksum;
+    int j;
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
@@ -1358,7 +1354,11 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if (rdbSaveFunctions(rdb) == -1) goto werr;
 
     /* save all databases, skip this if we're in functions-only mode */
-    if (!(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && rdbSaveDbs(rdb, rdbflags) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) {
+        for (j = 0; j < server.dbnum; j++) {
+            if (rdbSaveDb(rdb, j, rdbflags) == -1) goto werr;
+        }
+    }
 
     /* If we are storing the replication information on disk, persist
      * the script cache as well: on successful PSYNC after a restart, we need
