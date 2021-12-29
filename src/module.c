@@ -9586,7 +9586,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 sdsfree((sds)cmd->summary);
                 sdsfree((sds)cmd->since);
                 sdsfree((sds)cmd->complexity);
-                if(cmd->latency_histogram) {
+                if (cmd->latency_histogram) {
                     hdr_close(cmd->latency_histogram);
                     cmd->latency_histogram = NULL;
                 }
