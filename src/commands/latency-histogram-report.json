@@ -1,0 +1,23 @@
+{
+    "HISTOGRAM-REPORT": {
+        "summary": "Return the cumulative distribution of latencies of a subset of commands or all in a human-readable format.",
+        "complexity": "O(N) where N is the number of commands with latency information.",
+        "group": "server",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "COMMAND",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

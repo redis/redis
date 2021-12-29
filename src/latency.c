@@ -490,6 +490,147 @@ sds createLatencyReport(void) {
 
 /* ---------------------- Latency command implementation -------------------- */
 
+/* An array of time buckets, each representing a latency range,
+ * between 1 nanosecond and roughly 1 second.
+ * Each bucket covers twice the previous bucket s range.
+ * Empty buckets are not printed.
+ * Everything above 1sec is considered +Inf. */
+sds fillCommandCDF(sds info, const char* histogram_name, struct hdr_histogram* histogram){
+    info = sdscatprintf(info, "latency_hist_usec_%s:calls=%lld,histogram=[",
+        histogram_name, (long long) histogram->total_count);
+    struct hdr_iter iter;
+    hdr_iter_log_init(&iter, histogram, 1024,2);
+    size_t bucket_pos = 0;
+    int64_t previous_count = 0;
+    while (hdr_iter_next(&iter)) {
+        const int64_t micros = iter.highest_equivalent_value / 1000;
+        const int64_t cumulative_count = iter.cumulative_count;
+        if(cumulative_count > previous_count){
+            if (bucket_pos>0)
+                info = sdscatprintf(info,";");
+            info = sdscatprintf(info,"(%lld:%lld)", (long long) micros, (long long) cumulative_count);
+            bucket_pos++;
+        }
+        previous_count = cumulative_count;
+
+    }
+    info = sdscatprintf(info,"]\r\n");
+    return info;
+}
+
+/* An array of time buckets, each representing a latency range,
+ * between 1 nanosecond and roughly 1 second.
+ * Each bucket covers twice the previous bucket s range.
+ * Empty buckets are not printed.
+ * Everything above 1sec is considered +Inf. */
+void fillCommandCDFResp(client *c, const char* histogram_name, struct hdr_histogram* histogram){
+    addReplyArrayLen(c,5);
+    addReplyBulkCString(c,histogram_name);
+    addReplyBulkCString(c,"calls");
+    addReplyLongLong(c,(long long) histogram->total_count);
+    addReplyBulkCString(c,"histogram");
+    void *replylen = addReplyDeferredLen(c);
+    int samples = 0;
+    struct hdr_iter iter;
+    hdr_iter_log_init(&iter, histogram, 1024,2);
+    int64_t previous_count = 0;
+    while (hdr_iter_next(&iter)) {
+        const int64_t micros = iter.highest_equivalent_value / 1000;
+        const int64_t cumulative_count = iter.cumulative_count;
+        if(cumulative_count > previous_count){
+            addReplyLongLong(c,(long long) micros);
+            addReplyLongLong(c,(long long) cumulative_count);
+            samples+=2;
+        }
+        previous_count = cumulative_count;
+    }
+    setDeferredArrayLen(c,replylen,samples);
+}
+
+/* latencyCommand() helper to produce a per command category cumulative distribution of latencies. */
+void latencyAllCommandsFillCDF(client *c) {
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    struct redisCommand *cmd;
+    sds info = sdsempty();
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        cmd = (struct redisCommand *) dictGetVal(de);
+        if (!cmd->latency_histogram)
+            continue;
+        info = fillCommandCDF(info, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
+        if (tmpsafe != NULL) zfree(tmpsafe);
+    }
+    dictReleaseIterator(di);
+    addReplyVerbatim(c,info,sdslen(info),"txt");
+    sdsfree(info);
+}
+
+/* latencyCommand() helper to produce a per command category cumulative distribution of latencies. */
+void latencyCommandFillCDF(client *c) {
+    sds info = sdsempty();
+    for (int j = 2; j < c->argc; j++){
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        if (cmd == NULL) {
+            addReplyErrorFormat(c,
+                "Invalid command name '%s'", (char*) c->argv[j]->ptr);
+            sdsfree(info);
+            return;
+        }
+        char *tmpsafe;
+        if (!cmd->latency_histogram)
+            continue;
+        info = fillCommandCDF(info, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
+        if (tmpsafe != NULL) zfree(tmpsafe);
+    }
+    addReplyVerbatim(c,info,sdslen(info),"txt");
+    sdsfree(info);
+}
+
+/* latencyCommand() helper to produce a per command category cumulative distribution of latencies in RESP format. */
+void latencyAllCommandsFillCDFResp(client *c) {
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    struct redisCommand *cmd;
+    void *replylen = addReplyDeferredLen(c);
+    int command_with_data = 0;
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        cmd = (struct redisCommand *) dictGetVal(de);
+        if (!cmd->latency_histogram)
+            continue;
+        fillCommandCDFResp(c, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
+        if (tmpsafe != NULL) zfree(tmpsafe);
+        command_with_data++;
+    }
+    dictReleaseIterator(di);
+    setDeferredArrayLen(c,replylen,command_with_data);
+}
+
+/* latencyCommand() helper to produce a per command category cumulative distribution of latencies in RESP format. */
+void latencyCommandFillCDFResp(client *c) {
+    void *replylen = addReplyDeferredLen(c);
+    int samples = 0;
+    for (int j = 2; j < c->argc; j++){
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        samples++;
+        if (cmd == NULL) {
+            addReplyErrorFormat(c,
+                "Invalid command name '%s'", (char*) c->argv[j]->ptr);
+            break;
+        }
+        char *tmpsafe;
+        if (!cmd->latency_histogram) {
+            addReplyArrayLen(c,0);
+        }
+        else {
+            fillCommandCDFResp(c, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+        }
+    }
+    setDeferredArrayLen(c,replylen,samples);
+}
+
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
 void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
@@ -585,7 +726,6 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  */
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
-
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
@@ -628,6 +768,20 @@ void latencyCommand(client *c) {
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"histogram") && c->argc >= 2) {
+        /* LATENCY HISTOGRAM*/
+        if (c->argc == 2) {
+            latencyAllCommandsFillCDFResp(c);
+        } else {
+            latencyCommandFillCDFResp(c);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"histogram-report") && c->argc >= 2) {
+        /* LATENCY HISTOGRAM-REPORT*/
+        if (c->argc == 2) {
+            latencyAllCommandsFillCDF(c);
+        } else {
+            latencyCommandFillCDF(c);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
 "DOCTOR",
@@ -641,6 +795,12 @@ void latencyCommand(client *c) {
 "RESET [<event> ...]",
 "    Reset latency data of one or more <event> classes.",
 "    (default: reset all data for all event classes)",
+"HISTOGRAM [COMMAND ...]",
+"    Return cumulative distribution of latencies in the format of an histogram for the specified <command name>.",
+"    If no command is specified then all histograms are replied.",
+"HISTOGRAM-REPORT [COMMAND ...]",
+"    Return a human readable cumulative distribution of latencies in the format of an histogram for the specified <command name>.",
+"    If no command is specified then all histograms are replied.",
 NULL
         };
         addReplyHelp(c, help);

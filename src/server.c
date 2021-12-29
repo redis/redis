@@ -4390,34 +4390,6 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
-/* An array of time buckets, each representing a latency range,
- * between 1 nanosecond and roughly 1 second.
- * Each bucket covers twice the previous bucket s range.
- * Empty buckets are not printed.
- * Everything above 1sec is considered +Inf. */
-sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
-    info = sdscatprintf(info, "latency_hist_usec_%s:calls=%lld,histogram=[",
-        histogram_name, (long long) histogram->total_count);
-    struct hdr_iter iter;
-    hdr_iter_log_init(&iter, histogram, 1024,2);
-    size_t bucket_pos = 0;
-    int64_t previous_count = 0;
-    while (hdr_iter_next(&iter)) {
-        const int64_t micros = iter.highest_equivalent_value / 1000;
-        const int64_t cumulative_count = iter.cumulative_count;
-        if (cumulative_count > previous_count) {
-            if (bucket_pos>0)
-                info = sdscatprintf(info,",");
-            info = sdscatprintf(info,"%lld=%lld", (long long) micros, (long long) cumulative_count);
-            bucket_pos++;
-        }
-        previous_count = cumulative_count;
-
-    }
-    info = sdscatprintf(info,"]\r\n");
-    return info;
-}
-
 /* Fill percentile distribution of latencies. */
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);

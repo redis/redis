@@ -3989,6 +3989,34 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 /* LATENCY HELP hints */
 #define LATENCY_HELP_Hints NULL
 
+/********** LATENCY HISTOGRAM ********************/
+
+/* LATENCY HISTOGRAM history */
+#define LATENCY_HISTOGRAM_History NULL
+
+/* LATENCY HISTOGRAM hints */
+#define LATENCY_HISTOGRAM_Hints NULL
+
+/* LATENCY HISTOGRAM argument table */
+struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
+{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
+/********** LATENCY HISTOGRAM_REPORT ********************/
+
+/* LATENCY HISTOGRAM_REPORT history */
+#define LATENCY_HISTOGRAM_REPORT_History NULL
+
+/* LATENCY HISTOGRAM_REPORT hints */
+#define LATENCY_HISTOGRAM_REPORT_Hints NULL
+
+/* LATENCY HISTOGRAM_REPORT argument table */
+struct redisCommandArg LATENCY_HISTOGRAM_REPORT_Args[] = {
+{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** LATENCY HISTORY ********************/
 
 /* LATENCY HISTORY history */
@@ -4030,6 +4058,8 @@ struct redisCommand LATENCY_Subcommands[] = {
 {"doctor","Return a human readable latency analysis report.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_DOCTOR_History,LATENCY_DOCTOR_Hints,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
 {"graph","Return a latency graph for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_GRAPH_History,LATENCY_GRAPH_Hints,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_GRAPH_Args},
 {"help","Show helpful text about the different subcommands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HELP_History,LATENCY_HELP_Hints,latencyCommand,2,CMD_LOADING|CMD_STALE,0},
+{"histogram","Return the cumulative distribution of latencies of a subset of commands or all.","O(N) where N is the number of commands with latency information.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_History,LATENCY_HISTOGRAM_Hints,latencyCommand,-2,CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_Args},
+{"histogram-report","Return the cumulative distribution of latencies of a subset of commands or all in a human-readable format.","O(N) where N is the number of commands with latency information.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTOGRAM_REPORT_History,LATENCY_HISTOGRAM_REPORT_Hints,latencyCommand,-2,CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTOGRAM_REPORT_Args},
 {"history","Return timestamp-latency samples for the event.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_HISTORY_History,LATENCY_HISTORY_Hints,latencyCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_HISTORY_Args},
 {"latest","Return the latest latency samples for all events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_LATEST_History,LATENCY_LATEST_Hints,latencyCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
 {"reset","Reset latency data for one or more events.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,LATENCY_RESET_History,LATENCY_RESET_Hints,latencyCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,.args=LATENCY_RESET_Args},
