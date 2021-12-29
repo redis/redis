@@ -2614,7 +2614,7 @@ static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, 
     for (int j = 0; j < argc; j++) {
         double percentile;
         if (!string2d(argv[j], sdslen(argv[j]), &percentile)){
-            *err = "Invalid latency-track-percentiles parameters";
+            *err = "Invalid latency-tracking-percentiles parameters";
             return 0;
         }
         appendServerLatencyPercentileParams(percentile);
@@ -2635,11 +2635,11 @@ static sds getConfigLatencyPercentileOption(typeData data) {
     return buf;
 }
 
-/* Rewrite the save option. */
+/* Rewrite the latency-tracking-percentiles option. */
 void rewriteConfigLatencyPercentileOption(typeData data, const char *name, struct rewriteConfigState *state) {
     UNUSED(data);
     sds line = sdsnew(name);
-    /* Rewrite latency-track-percentiles parameters, or an empty 'latency-track-percentiles ""' line to avoid the
+    /* Rewrite latency-tracking-percentiles parameters, or an empty 'latency-tracking-percentiles ""' line to avoid the
      * defaults from being used.
      */
     if (!server.latency_percentiles_len) {
@@ -2700,7 +2700,7 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
-    createBoolConfig("latency-track", NULL, MODIFIABLE_CONFIG, server.latency_track_enabled, 1, NULL, NULL),
+    createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_track_enabled, 1, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2848,7 +2848,7 @@ standardConfig configs[] = {
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
-    createSpecialConfig("latency-track-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyPercentileOption, getConfigLatencyPercentileOption, rewriteConfigLatencyPercentileOption, NULL),
+    createSpecialConfig("latency-tracking-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyPercentileOption, getConfigLatencyPercentileOption, rewriteConfigLatencyPercentileOption, NULL),
 
     /* NULL Terminator */
     {NULL}

@@ -19,10 +19,10 @@ start_server {tags {"info" "external:skip"}} {
 
         test {latencystats: disable/enable} {
             r config resetstat
-            r CONFIG SET latency-track no
+            r CONFIG SET latency-tracking no
             r set a b
             assert_match {} [latency_hist_usec set]
-            r CONFIG SET latency-track yes
+            r CONFIG SET latency-tracking yes
             r set a b
             assert_match {*calls=1,histogram=*} [latency_hist_usec set]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
@@ -33,14 +33,14 @@ start_server {tags {"info" "external:skip"}} {
         test {latencystats: configure percentiles} {
             r config resetstat
             assert_match {} [latency_hist_usec set]
-            r CONFIG SET latency-track yes
+            r CONFIG SET latency-tracking yes
             r SET a b
             r GET a
             assert_match {*calls=1,histogram=*} [latency_hist_usec set]
             assert_match {*calls=1,histogram=*} [latency_hist_usec get]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec get]
-            r CONFIG SET latency-track-percentiles "0.0 50.0 100.0"
+            r CONFIG SET latency-tracking-percentiles "0.0 50.0 100.0"
             assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec set]
             assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec get]
             r config resetstat
@@ -49,8 +49,8 @@ start_server {tags {"info" "external:skip"}} {
 
         test {latencystats: blocking commands} {
             r config resetstat
-            r CONFIG SET latency-track yes
-            r CONFIG SET latency-track-percentiles "50.0 99.0 99.9"
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-percentiles "50.0 99.0 99.9"
             set rd [redis_deferring_client]
             r del list1{t}
 
