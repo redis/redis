@@ -4737,10 +4737,10 @@ dict *genInfoSectionDict(client *c, const char *source, int *all_sections, int *
     dict *section_dict = dictCreate(&stringSetDictType); /* Set to add the subsections to print*/
 
     if (c == NULL || c->argc == 1) {
-        if (!strcasecmp(source,"sentinel")){
+        if (!strcasecmp(source,"sentinel")) {
             addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
         }
-        else if (!strcasecmp(source,"server")){
+        else if (!strcasecmp(source,"server")) {
             addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
         }
     } else {
@@ -4750,7 +4750,7 @@ dict *genInfoSectionDict(client *c, const char *source, int *all_sections, int *
                     if (!strcasecmp(source,"sentinel")){
                         addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
                     }
-                    else if (!strcasecmp(source,"server")){
+                    else if (!strcasecmp(source,"server")) {
                         addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
                     }
                 } else if (!strcasecmp(c->argv[i]->ptr,"all")) {
