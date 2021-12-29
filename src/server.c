@@ -4721,7 +4721,7 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
-void addSectionsToDict(dict * section_dict, char ** sections, int len) {
+void addSectionsToDict(dict *section_dict, char **sections, int len) {
     for (int i = 0; i < len; i++){
         sds section = sdsnew(sections[i]);
         dictAdd(section_dict, section, NULL);
@@ -4729,12 +4729,12 @@ void addSectionsToDict(dict * section_dict, char ** sections, int len) {
 }
 
 
-dict * genSectionDict(client * c, const char * source, int * all_sections, int * everything) {
-    char * defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
-    char * defSectionsSentinel[] = {"server", "clients", "cpu", "stats"};
+dict *genInfoSectionDict(client *c, const char *source, int *all_sections, int *everything) {
+    char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
+    char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats"};
 
 
-    dict * section_dict = dictCreate(&stringSetDictType); /* Set to add the subsections to print*/
+    dict *section_dict = dictCreate(&stringSetDictType); /* Set to add the subsections to print*/
 
     if (c == NULL || c->argc == 1) {
         if (!strcasecmp(source,"sentinel")){
@@ -4743,8 +4743,7 @@ dict * genSectionDict(client * c, const char * source, int * all_sections, int *
         else if (!strcasecmp(source,"server")){
             addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
         }
-    }
-    else {
+    } else {
         if (!strcasecmp(source,"sentinel") || !strcasecmp(source,"server")) {
             for (int i = 1; i < c->argc; i++) {
                 if (!strcasecmp(c->argv[i]->ptr,"default")) {
@@ -4764,14 +4763,12 @@ dict * genSectionDict(client * c, const char * source, int * all_sections, int *
                     dictAdd(section_dict,section,NULL);
                 }
             }
-        }
-        else {
+        } else {
             if (!strcasecmp(source,"all")) {
-                    (*all_sections) = 1;
+                (*all_sections) = 1;
             } else if (!strcasecmp(source,"everything")) {
-                    (*everything) = 1;
-            }
-            else {
+                (*everything) = 1;
+            } else {
                 sds section = sdsnew(source); /* Got this from module */
                 sdstolower(section);
                 dictAdd(section_dict,section,NULL);
@@ -4785,7 +4782,7 @@ dict * genSectionDict(client * c, const char * source, int * all_sections, int *
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(dict * section_dict, int all_sections, int everything) {
+sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     int modules = 0; 
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
@@ -5787,7 +5784,7 @@ void infoCommand(client *c) {
     int all_sections = 0;
     int everything = 0;
 
-    dict * sections_dict = genSectionDict(c, "server", &all_sections, &everything);
+    dict *sections_dict = genInfoSectionDict(c, "server", &all_sections, &everything);
 
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");

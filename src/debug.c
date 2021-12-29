@@ -1688,7 +1688,7 @@ void logServerInfo(void) {
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
     int all_sections = 0;
     int everything = 0;
-    dict * sections_dict = genSectionDict(cc, "server", &all_sections, &everything);
+    dict *sections_dict = genInfoSectionDict(cc, "server", &all_sections, &everything);
     infostring = genRedisInfoString(sections_dict,1,0);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");

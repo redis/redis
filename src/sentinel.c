@@ -4065,7 +4065,7 @@ numargserr:
 void sentinelInfoCommand(client *c) {
     int all_sections = 0;
     int everything = 0;
-    dict * sections_dict = genSectionDict(c, "sentinel", &all_sections, &everything);
+    dict *sections_dict = genInfoSectionDict(c, "sentinel", &all_sections, &everything);
 
     sds info = sdsempty();
     info = genRedisInfoString(sections_dict, all_sections, everything);
