@@ -258,7 +258,7 @@ void clientInstallWriteHandler(client *c) {
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns C_ERR no
  * data should be appended to the output buffers. */
-int prepareClientToWrite(client *c) {
+int prepareClientToWrite(client *c, int replMode) {
     /* If it's the Lua client we always return ok without installing any
      * handler since there is no socket at all. */
     if (c->flags & (CLIENT_SCRIPT|CLIENT_MODULE)) return C_OK;
@@ -273,6 +273,11 @@ int prepareClientToWrite(client *c) {
      * is set. */
     if ((c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_MASTER_FORCE_REPLY)) return C_ERR;
+
+    if (!replMode && getClientType(c)==CLIENT_TYPE_SLAVE) {
+        freeClientAsync(c);
+        return C_ERR;
+    }
 
     if (!c->conn) return C_ERR; /* Fake client for AOF loading. */
 
@@ -366,7 +371,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
 
 /* Add the object 'obj' string representation to the client output buffer. */
 void addReply(client *c, robj *obj) {
-    if (prepareClientToWrite(c) != C_OK) return;
+    if (prepareClientToWrite(c,0) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
         _addReplyToBufferOrList(c,obj->ptr,sdslen(obj->ptr));
@@ -385,7 +390,7 @@ void addReply(client *c, robj *obj) {
 /* Add the SDS 's' string to the client output buffer, as a side effect
  * the SDS string is freed. */
 void addReplySds(client *c, sds s) {
-    if (prepareClientToWrite(c) != C_OK) {
+    if (prepareClientToWrite(c,0) != C_OK) {
         /* The caller expects the sds to be free'd. */
         sdsfree(s);
         return;
@@ -403,7 +408,7 @@ void addReplySds(client *c, sds s) {
  * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
 void addReplyProto(client *c, const char *s, size_t len) {
-    if (prepareClientToWrite(c) != C_OK) return;
+    if (prepareClientToWrite(c,0) != C_OK) return;
     _addReplyToBufferOrList(c,s,len);
 }
 
@@ -589,7 +594,7 @@ void *addReplyDeferredLen(client *c) {
     /* Note that we install the write event here even if the object is not
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
-    if (prepareClientToWrite(c) != C_OK) return NULL;
+    if (prepareClientToWrite(c,0) != C_OK) return NULL;
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
@@ -975,7 +980,7 @@ void AddReplyFromClient(client *dst, client *src) {
 
     /* We need to check with prepareClientToWrite again (after addReplyProto)
      * since addReplyProto may have changed something (like CLIENT_CLOSE_ASAP) */
-    if (prepareClientToWrite(dst) != C_OK)
+    if (prepareClientToWrite(dst,0) != C_OK)
         return;
 
     /* We're bypassing _addReplyProtoToList, so we need to add the pre/post

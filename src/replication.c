@@ -217,7 +217,7 @@ int prepareReplicasToWrite(void) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
         if (!canFeedReplicaReplBuffer(slave)) continue;
-        if (prepareClientToWrite(slave) == C_ERR) continue;
+        if (prepareClientToWrite(slave,1) == C_ERR) continue;
         prepared++;
     }
 
@@ -641,7 +641,7 @@ long long addReplyReplicationBacklog(client *c, long long offset) {
     serverAssert(node != NULL);
 
     /* Install a writer handler first.*/
-    prepareClientToWrite(c);
+    prepareClientToWrite(c,1);
     /* Setting output buffer of the replica. */
     replBufBlock *o = listNodeValue(node);
     o->refcount++;
