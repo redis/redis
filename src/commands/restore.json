@@ -6,6 +6,20 @@
         "since": "2.6.0",
         "arity": -4,
         "function": "restoreCommand",
+        "history": [
+            [
+                "3.0.0",
+                "Added the `REPLACE` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `ABSTTL` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `IDLETIME` and `FREQ` options."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -51,25 +65,29 @@
                 "name": "replace",
                 "token": "REPLACE",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "3.0.0"
             },
             {
                 "name": "absttl",
                 "token": "ABSTTL",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "5.0.0"
             },
             {
                 "token": "IDLETIME",
                 "name": "seconds",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "5.0.0"
             },
             {
                 "token": "FREQ",
                 "name": "frequency",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "5.0.0"
             }
         ]
     }

@@ -9,7 +9,7 @@
         "get_keys_function": "georadiusGetKeys",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `ANY` option for `COUNT`."
             ]
         ],
@@ -156,7 +156,8 @@
                         "name": "any",
                         "token": "ANY",
                         "type": "pure-token",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             },
