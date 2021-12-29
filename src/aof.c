@@ -1877,6 +1877,21 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_NOTICE,
             "Residual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) aofRewriteBufferSize() / (1024*1024));
 
+        /* Rename the temporary file. This will not unlink the target file if
+         * it exists, because we reference it with "oldfd". */
+        latencyStartMonitor(latency);
+        if (rename(tmpfile,server.aof_filename) == -1) {
+            serverLog(LL_WARNING,
+                "Error trying to rename the temporary AOF file %s into %s: %s",
+                tmpfile,
+                server.aof_filename,
+                strerror(errno));
+            close(newfd);
+            goto cleanup;
+        }
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("aof-rename",latency);
+
         /* The only remaining thing to do is to rename the temporary file to
          * the configured file and switch the file descriptor used to do AOF
          * writes. We don't want close(2) or rename(2) calls to block the
@@ -1905,34 +1920,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
          * we don't care what the outcome or duration of that close operation
          * is, as long as the file descriptor is released again. */
         if (server.aof_fd == -1) {
-            /* AOF disabled */
-
-            /* Don't care if this fails: oldfd will be -1 and we handle that.
-             * One notable case of -1 return is if the old file does
-             * not exist. */
-            oldfd = open(server.aof_filename,O_RDONLY|O_NONBLOCK);
-        } else {
-            /* AOF enabled */
-            oldfd = -1; /* We'll set this to the current AOF file descriptor later. */
-        }
-
-        /* Rename the temporary file. This will not unlink the target file if
-         * it exists, because we reference it with "oldfd". */
-        latencyStartMonitor(latency);
-        if (rename(tmpfile,server.aof_filename) == -1) {
-            serverLog(LL_WARNING,
-                "Error trying to rename the temporary AOF file %s into %s: %s",
-                tmpfile,
-                server.aof_filename,
-                strerror(errno));
-            close(newfd);
-            if (oldfd != -1) close(oldfd);
-            goto cleanup;
-        }
-        latencyEndMonitor(latency);
-        latencyAddSampleIfNeeded("aof-rename",latency);
-
-        if (server.aof_fd == -1) {
             /* AOF disabled, we don't need to set the AOF file descriptor
              * to this new file, so we can close it. */
             close(newfd);
@@ -1950,6 +1937,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
              * the new AOF from the background rewrite buffer. */
             sdsfree(server.aof_buf);
             server.aof_buf = sdsempty();
+
+            /* Asynchronously close the overwritten AOF. */
+            bioCreateCloseJob(oldfd);
         }
 
         server.aof_lastbgrewrite_status = C_OK;
@@ -1958,9 +1948,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* Change state from WAIT_REWRITE to ON if needed */
         if (server.aof_state == AOF_WAIT_REWRITE)
             server.aof_state = AOF_ON;
-
-        /* Asynchronously close the overwritten AOF. */
-        if (oldfd != -1) bioCreateCloseJob(oldfd);
 
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
