@@ -1216,12 +1216,12 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
 
 int functionsSaveRio(rio *rdb) {
     int ret = C_ERR;
-    dict *libraries = librariesGet();
-    dictIterator *iter = dictGetIterator(libraries);
+    dict *functions_libraries = functionsLibGet();
+    dictIterator *iter = dictGetIterator(functions_libraries);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
-        libraryInfo *li = dictGetVal(entry);
+        functionLibInfo *li = dictGetVal(entry);
         if (rdbSaveRawString(rdb, (unsigned char *) li->name, sdslen(li->name)) == -1) goto done;
         if (rdbSaveRawString(rdb, (unsigned char *) li->ei->name, sdslen(li->ei->name)) == -1) goto done;
         if (li->desc) {
@@ -2708,7 +2708,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  * The err output parameter is optional and will be set with relevant error
  * message on failure, it is the caller responsibility to free the error
  * message on failure. */
-int rdbFunctionLoad(rio *rdb, int ver, librariesCtx* lib_ctx, int rdbflags, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
@@ -2770,8 +2770,8 @@ error:
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    librariesCtx* lib_ctx = librariesCtxGetCurrent();
-    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .lib_ctx = lib_ctx };
+    functionsLibCtx* functions_lib_ctx = functionsLibCtxGetCurrent();
+    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_lib_ctx = functions_lib_ctx };
     int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
     return retval;
 }
@@ -2985,7 +2985,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
         } else if (type == RDB_OPCODE_FUNCTION) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->lib_ctx, rdbflags, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading library, %s", err);
                 sdsfree(err);
                 goto eoferr;

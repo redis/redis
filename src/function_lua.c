@@ -63,7 +63,7 @@ typedef struct luaFunctionCtx {
 } luaFunctionCtx;
 
 typedef struct loadCtx {
-    libraryInfo *li;
+    functionLibInfo *li;
     monotime start_time;
 } loadCtx;
 
@@ -90,7 +90,7 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
  *
  * Return NULL on compilation error and set the error to the err variable
  */
-static int luaEngineCreate(void *engine_ctx, libraryInfo *li, sds blob, sds *err) {
+static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds *err) {
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
     if (luaL_loadbuffer(lua, blob, sdslen(blob), "@user_function")) {
@@ -212,7 +212,7 @@ static int luaRegisterFunction(lua_State *lua) {
     *lua_f_ctx = (luaFunctionCtx ) { .lua_function_ref = lua_function_ref, };
 
     sds err = NULL;
-    if (libraryCreateFunction(function_name_sds, lua_f_ctx, load_ctx->li, desc_sds, &err) != C_OK) {
+    if (functionLibCreateFunction(function_name_sds, lua_f_ctx, load_ctx->li, desc_sds, &err) != C_OK) {
         sdsfree(function_name_sds);
         if (desc_sds) sdsfree(desc_sds);
         lua_unref(lua, lua_f_ctx->lua_function_ref);

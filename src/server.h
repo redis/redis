@@ -831,7 +831,7 @@ typedef struct redisDb {
 } redisDb;
 
 /* forward declaration for functions ctx */
-typedef struct librariesCtx librariesCtx;
+typedef struct functionsLibCtx functionsLibCtx;
 
 /* Holding object that need to be populated during
  * rdb loading. On loading end it is possible to decide
@@ -840,7 +840,7 @@ typedef struct librariesCtx librariesCtx;
  *              successful loading and dropped on failure. */
 typedef struct rdbLoadingCtx {
     redisDb* dbarray;
-    librariesCtx* lib_ctx;
+    functionsLibCtx* functions_lib_ctx;
 }rdbLoadingCtx;
 
 /* Client MULTI/EXEC state */
@@ -2916,7 +2916,7 @@ int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
-void freeFunctionsAsync(librariesCtx *lib_ctx);
+void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);

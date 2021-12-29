@@ -4648,7 +4648,7 @@ sds genRedisInfoString(const char *section) {
             (long long) mh->lua_caches,
             dictSize(evalScriptsDict()),
             functionsNum(),
-            librariesNum(),
+            functionsLibNum(),
             memory_functions,
             memory_functions + memory_lua,
             used_memory_vm_total_hmem,

@@ -44,7 +44,7 @@ static void engineFunctionDispose(dict *d, void *obj);
 static void engineLibraryDispose(dict *d, void *obj);
 static int functionsVerifyName(sds name);
 
-struct librariesCtx {
+struct functionsLibCtx {
     dict *libraries;    /* Function name -> Function object that can be used to run the function */
     dict *functions;    /* Function name -> Function object that can be used to run the function */
     size_t cache_memory /* Overhead memory (structs, dictionaries, ..) used by all the functions */;
@@ -97,7 +97,7 @@ static dict *engines = NULL;
  * Contains the dictionary that map a library name to library object,
  * Contains the dictionary that map a function name to function object,
  * and the cache memory used by all the functions */
-static librariesCtx *curr_lib_ctx = NULL;
+static functionsLibCtx *curr_functions_lib_ctx = NULL;
 
 static size_t functionMallocSize(functionInfo *fi) {
     return zmalloc_size(fi) + sdsZmallocSize(fi->name)
@@ -105,7 +105,7 @@ static size_t functionMallocSize(functionInfo *fi) {
             + fi->li->ei->engine->get_function_memory_overhead(fi->function);
 }
 
-static size_t libraryMallocSize(libraryInfo *li) {
+static size_t libraryMallocSize(functionLibInfo *li) {
     return zmalloc_size(li) + sdsZmallocSize(li->name)
             + (li->desc ? sdsZmallocSize(li->desc) : 0)
             + sdsZmallocSize(li->code);
@@ -127,7 +127,7 @@ static void engineFunctionDispose(dict *d, void *obj) {
     zfree(fi);
 }
 
-static void engineLibraryFree(libraryInfo* li) {
+static void engineLibraryFree(functionLibInfo* li) {
     if (!li) {
         return;
     }
@@ -144,45 +144,45 @@ static void engineLibraryDispose(dict *d, void *obj) {
 }
 
 /* Clear all the functions from the given library ctx */
-void librariesCtxClear(librariesCtx *lib_ctx) {
+void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     dictEmpty(lib_ctx->functions, NULL);
     dictEmpty(lib_ctx->libraries, NULL);
-    curr_lib_ctx->cache_memory = 0;
+    curr_functions_lib_ctx->cache_memory = 0;
 }
 
-void librariesCtxClearCurrent(int async) {
+void functionsLibCtxClearCurrent(int async) {
     if (async) {
-        librariesCtx *old_l_ctx = curr_lib_ctx;
-        curr_lib_ctx = librariesCtxCreate();
+        functionsLibCtx *old_l_ctx = curr_functions_lib_ctx;
+        curr_functions_lib_ctx = functionsLibCtxCreate();
         freeFunctionsAsync(old_l_ctx);
     } else {
-        librariesCtxClear(curr_lib_ctx);
+        functionsLibCtxClear(curr_functions_lib_ctx);
     }
 }
 
 /* Free the given functions ctx */
-void librariesCtxFree(librariesCtx *lib_ctx) {
-    librariesCtxClear(lib_ctx);
-    dictRelease(lib_ctx->functions);
-    dictRelease(lib_ctx->libraries);
-    zfree(lib_ctx);
+void functionsLibCtxFree(functionsLibCtx *functions_lib_ctx) {
+    functionsLibCtxClear(functions_lib_ctx);
+    dictRelease(functions_lib_ctx->functions);
+    dictRelease(functions_lib_ctx->libraries);
+    zfree(functions_lib_ctx);
 }
 
 /* Swap the current functions ctx with the given one.
  * Free the old functions ctx. */
-void librariesCtxSwapWithCurrent(librariesCtx *new_lib_ctx) {
-    librariesCtxFree(curr_lib_ctx);
-    curr_lib_ctx = new_lib_ctx;
+void functionsLibCtxSwapWithCurrent(functionsLibCtx *new_lib_ctx) {
+    functionsLibCtxFree(curr_functions_lib_ctx);
+    curr_functions_lib_ctx = new_lib_ctx;
 }
 
 /* return the current functions ctx */
-librariesCtx* librariesCtxGetCurrent() {
-    return curr_lib_ctx;
+functionsLibCtx* functionsLibCtxGetCurrent() {
+    return curr_functions_lib_ctx;
 }
 
 /* Create a new functions ctx */
-librariesCtx* librariesCtxCreate() {
-    librariesCtx *ret = zmalloc(sizeof(librariesCtx));
+functionsLibCtx* functionsLibCtxCreate() {
+    functionsLibCtx *ret = zmalloc(sizeof(functionsLibCtx));
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
     ret->cache_memory = 0;
@@ -198,7 +198,7 @@ librariesCtx* librariesCtxCreate() {
  *       the function will verify that the given name is following the naming format
  *       and return an error if its not.
  */
-int libraryCreateFunction(sds name, void *function, libraryInfo *li, sds desc, sds *err) {
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
         *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
         return C_ERR;
@@ -223,9 +223,9 @@ int libraryCreateFunction(sds name, void *function, libraryInfo *li, sds desc, s
     return C_OK;
 }
 
-static libraryInfo* engineLibraryCreate(sds name, engineInfo *ei, sds desc, sds code) {
-    libraryInfo *li = zmalloc(sizeof(*li));
-    *li = (libraryInfo) {
+static functionLibInfo* engineLibraryCreate(sds name, engineInfo *ei, sds desc, sds code) {
+    functionLibInfo *li = zmalloc(sizeof(*li));
+    *li = (functionLibInfo) {
         .name = sdsdup(name),
         .functions = dictCreate(&libraryFunctionDictType),
         .ei = ei,
@@ -235,7 +235,7 @@ static libraryInfo* engineLibraryCreate(sds name, engineInfo *ei, sds desc, sds 
     return li;
 }
 
-static void libraryUnlink(librariesCtx *lib_ctx, libraryInfo* li) {
+static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictIterator *iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
@@ -251,7 +251,7 @@ static void libraryUnlink(librariesCtx *lib_ctx, libraryInfo* li) {
     lib_ctx->cache_memory += libraryMallocSize(li);
 }
 
-static void libraryLink(librariesCtx *lib_ctx, libraryInfo* li) {
+static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictIterator *iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
@@ -271,17 +271,17 @@ static void libraryLink(librariesCtx *lib_ctx, libraryInfo* li) {
  * Return C_OK on success and C_ERR if aborted. If C_ERR is retunred, set a relevant
  * error message on the 'err' out parameter.
  *  */
-static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int replace, sds *err) {
+static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *functions_lib_ctx_src, int replace, sds *err) {
     int ret = C_ERR;
     dictIterator *iter = NULL;
     /* Stores the libraries we need to replace in case a revert is required.
      * Only initialized when needed */
     list *old_libraries_list = NULL;
     dictEntry *entry = NULL;
-    iter = dictGetIterator(lib_ctx_src->libraries);
+    iter = dictGetIterator(functions_lib_ctx_src->libraries);
     while ((entry = dictNext(iter))) {
-        libraryInfo *li = dictGetVal(entry);
-        libraryInfo *old_li = dictFetchValue(lib_ctx_dst->libraries, li->name);
+        functionLibInfo *li = dictGetVal(entry);
+        functionLibInfo *old_li = dictFetchValue(functions_lib_ctx_dst->libraries, li->name);
         if (old_li) {
             if (!replace) {
                 /* library already exists, failed the restore. */
@@ -292,7 +292,7 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
                     old_libraries_list = listCreate();
                     listSetFreeMethod(old_libraries_list, (void (*)(void*))engineLibraryFree);
                 }
-                libraryUnlink(lib_ctx_dst, old_li);
+                libraryUnlink(functions_lib_ctx_dst, old_li);
                 listAddNodeTail(old_libraries_list, old_li);
             }
         }
@@ -301,10 +301,10 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     iter = NULL;
 
     /* Make sure no functions collision */
-    iter = dictGetIterator(lib_ctx_src->functions);
+    iter = dictGetIterator(functions_lib_ctx_src->functions);
     while ((entry = dictNext(iter))) {
         functionInfo *fi = dictGetVal(entry);
-        if (dictFetchValue(lib_ctx_dst->functions, fi->name)) {
+        if (dictFetchValue(functions_lib_ctx_dst->functions, fi->name)) {
             *err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
             goto done;
         }
@@ -313,16 +313,16 @@ static int libraryJoin(librariesCtx *lib_ctx_dst, librariesCtx *lib_ctx_src, int
     iter = NULL;
 
     /* No collision, it is safe to link all the new libraries. */
-    iter = dictGetIterator(lib_ctx_src->libraries);
+    iter = dictGetIterator(functions_lib_ctx_src->libraries);
     while ((entry = dictNext(iter))) {
-        libraryInfo *li = dictGetVal(entry);
-        libraryLink(lib_ctx_dst, li);
-        dictSetVal(lib_ctx_src->libraries, entry, NULL);
+        functionLibInfo *li = dictGetVal(entry);
+        libraryLink(functions_lib_ctx_dst, li);
+        dictSetVal(functions_lib_ctx_src->libraries, entry, NULL);
     }
     dictReleaseIterator(iter);
     iter = NULL;
 
-    librariesCtxClear(lib_ctx_src);
+    functionsLibCtxClear(functions_lib_ctx_src);
     if (old_libraries_list) {
         listRelease(old_libraries_list);
         old_libraries_list = NULL;
@@ -335,9 +335,9 @@ done:
         /* Link back all libraries on tmp_l_ctx */
         while (listLength(old_libraries_list) > 0) {
             listNode *head = listFirst(old_libraries_list);
-            libraryInfo *li = listNodeValue(head);
+            functionLibInfo *li = listNodeValue(head);
             listNodeValue(head) = NULL;
-            libraryLink(lib_ctx_dst, li);
+            libraryLink(functions_lib_ctx_dst, li);
             listDelNode(old_libraries_list, head);
         }
         listRelease(old_libraries_list);
@@ -450,12 +450,12 @@ void functionListCommand(client *c) {
         len_ptr = addReplyDeferredLen(c);
     } else {
         /* If no pattern is asked we know the reply len and we can just set it */
-        addReplyArrayLen(c, dictSize(curr_lib_ctx->libraries));
+        addReplyArrayLen(c, dictSize(curr_functions_lib_ctx->libraries));
     }
-    dictIterator *iter = dictGetIterator(curr_lib_ctx->libraries);
+    dictIterator *iter = dictGetIterator(curr_functions_lib_ctx->libraries);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
-        libraryInfo *li = dictGetVal(entry);
+        functionLibInfo *li = dictGetVal(entry);
         if (library_name) {
             if (!stringmatchlen(library_name, sdslen(library_name), li->name, sdslen(li->name), 1)) {
                 continue;
@@ -508,13 +508,13 @@ void functionListCommand(client *c) {
  */
 void functionDeleteCommand(client *c) {
     robj *function_name = c->argv[2];
-    libraryInfo *li = dictFetchValue(curr_lib_ctx->libraries, function_name->ptr);
+    functionLibInfo *li = dictFetchValue(curr_functions_lib_ctx->libraries, function_name->ptr);
     if (!li) {
         addReplyError(c, "Library not found");
         return;
     }
 
-    libraryUnlink(curr_lib_ctx, li);
+    libraryUnlink(curr_functions_lib_ctx, li);
     engineLibraryFree(li);
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
@@ -528,7 +528,7 @@ void functionKillCommand(client *c) {
 
 static void fcallCommandGeneric(client *c, int ro) {
     robj *function_name = c->argv[1];
-    functionInfo *fi = dictFetchValue(curr_lib_ctx->functions, function_name->ptr);
+    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
     if (!fi) {
         addReplyError(c, "Function not found");
         return;
@@ -656,7 +656,7 @@ void functionRestoreCommand(client *c) {
         return;
     }
 
-    librariesCtx *l_ctx = librariesCtxCreate();
+    functionsLibCtx *functions_lib_ctx = functionsLibCtxCreate();
     rioInitWithBuffer(&payload, data);
 
     /* Read until reaching last 10 bytes that should contain RDB version and checksum. */
@@ -670,7 +670,7 @@ void functionRestoreCommand(client *c) {
             err = sdsnew("given type is not a function");
             goto load_error;
         }
-        if (rdbFunctionLoad(&payload, rdbver, l_ctx, RDBFLAGS_NONE, &err) != C_OK) {
+        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, RDBFLAGS_NONE, &err) != C_OK) {
             if (!err) {
                 err = sdsnew("failed loading the given functions payload");
             }
@@ -679,10 +679,10 @@ void functionRestoreCommand(client *c) {
     }
 
     if (restore_replicy == restorePolicy_Flush) {
-        librariesCtxSwapWithCurrent(l_ctx);
-        l_ctx = NULL; /* avoid releasing the f_ctx in the end */
+        functionsLibCtxSwapWithCurrent(functions_lib_ctx);
+        functions_lib_ctx = NULL; /* avoid releasing the f_ctx in the end */
     } else {
-        if (libraryJoin(curr_lib_ctx, l_ctx, restore_replicy == restorePolicy_Replace, &err) != C_OK) {
+        if (libraryJoin(curr_functions_lib_ctx, functions_lib_ctx, restore_replicy == restorePolicy_Replace, &err) != C_OK) {
             goto load_error;
         }
     }
@@ -697,8 +697,8 @@ load_error:
     } else {
         addReply(c, shared.ok);
     }
-    if (l_ctx) {
-        librariesCtxFree(l_ctx);
+    if (functions_lib_ctx) {
+        functionsLibCtxFree(functions_lib_ctx);
     }
 }
 
@@ -719,7 +719,7 @@ void functionFlushCommand(client *c) {
         return;
     }
 
-    librariesCtxClearCurrent(async);
+    functionsLibCtxClearCurrent(async);
 
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
@@ -792,7 +792,7 @@ static int functionsVerifyName(sds name) {
 /* Compile and save the given library, return C_OK on success and C_ERR on failure.
  * In case on failure the err out param is set with relevant error message */
 int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds code,
-                                  int replace, sds* err, librariesCtx *lib_ctx) {
+                                  int replace, sds* err, functionsLibCtx *lib_ctx) {
     dictIterator *iter = NULL;
     dictEntry *entry = NULL;
     if (functionsVerifyName(lib_name)) {
@@ -807,7 +807,7 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
     }
     engine *engine = ei->engine;
 
-    libraryInfo *old_li = dictFetchValue(lib_ctx->libraries, lib_name);
+    functionLibInfo *old_li = dictFetchValue(lib_ctx->libraries, lib_name);
     if (old_li && !replace) {
         *err = sdsnew("Library already exists");
         return C_ERR;
@@ -817,7 +817,7 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
         libraryUnlink(lib_ctx, old_li);
     }
 
-    libraryInfo *new_li = engineLibraryCreate(lib_name, ei, desc, code);
+    functionLibInfo *new_li = engineLibraryCreate(lib_name, ei, desc, code);
     if (engine->create(engine->engine_ctx, new_li, code, err) != C_OK) {
         goto error;
     }
@@ -898,7 +898,7 @@ void functionLoadCommand(client *c) {
     robj *code = c->argv[argc_pos];
     sds err = NULL;
     if (functionsCreateWithLibraryCtx(library_name->ptr, engine_name->ptr,
-                                      desc, code->ptr, replace, &err, curr_lib_ctx) != C_OK)
+                                      desc, code->ptr, replace, &err, curr_functions_lib_ctx) != C_OK)
     {
         addReplyErrorSds(c, err);
         return;
@@ -928,9 +928,9 @@ unsigned long functionsMemory() {
 unsigned long functionsMemoryOverhead() {
     size_t memory_overhead = dictSize(engines) * sizeof(dictEntry) +
             dictSlots(engines) * sizeof(dictEntry*);
-    memory_overhead += dictSize(curr_lib_ctx->functions) * sizeof(dictEntry) +
-            dictSlots(curr_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(librariesCtx);
-    memory_overhead += curr_lib_ctx->cache_memory;
+    memory_overhead += dictSize(curr_functions_lib_ctx->functions) * sizeof(dictEntry) +
+            dictSlots(curr_functions_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(functionsLibCtx);
+    memory_overhead += curr_functions_lib_ctx->cache_memory;
     memory_overhead += engine_cache_memory;
 
     return memory_overhead;
@@ -938,18 +938,18 @@ unsigned long functionsMemoryOverhead() {
 
 /* Returns the number of functions */
 unsigned long functionsNum() {
-    return dictSize(curr_lib_ctx->functions);
+    return dictSize(curr_functions_lib_ctx->functions);
 }
 
-unsigned long librariesNum() {
-    return dictSize(curr_lib_ctx->libraries);
+unsigned long functionsLibNum() {
+    return dictSize(curr_functions_lib_ctx->libraries);
 }
 
-dict* librariesGet() {
-    return curr_lib_ctx->libraries;
+dict* functionsLibGet() {
+    return curr_functions_lib_ctx->libraries;
 }
 
-size_t librariesCtxfunctionsLen(librariesCtx *functions_ctx) {
+size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
     return dictSize(functions_ctx->functions);
 }
 
@@ -957,7 +957,7 @@ size_t librariesCtxfunctionsLen(librariesCtx *functions_ctx) {
  * Should be called once on server initialization */
 int functionsInit() {
     engines = dictCreate(&engineDictType);
-    curr_lib_ctx = librariesCtxCreate();
+    curr_functions_lib_ctx = functionsLibCtxCreate();
 
     if (luaEngineInitEngine() != C_OK) {
         return C_ERR;

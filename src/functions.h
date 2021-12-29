@@ -47,7 +47,7 @@
 #include "script.h"
 #include "redismodule.h"
 
-typedef struct libraryInfo libraryInfo;
+typedef struct functionLibInfo functionLibInfo;
 
 typedef struct engine {
     /* engine specific context */
@@ -55,7 +55,7 @@ typedef struct engine {
 
     /* Create function callback, get the engine_ctx, and function code.
      * returns NULL on error and set sds to be the error message */
-    int (*create)(void *engine_ctx, libraryInfo *li, sds code, sds *err);
+    int (*create)(void *engine_ctx, functionLibInfo *li, sds code, sds *err);
 
     /* Invoking a function, r_ctx is an opaque object (from engine POV).
      * The r_ctx should be used by the engine to interaction with Redis,
@@ -91,16 +91,16 @@ typedef struct engineInfo {
 /* Hold information about the specific function.
  * Used on rdb.c so it must be declared here. */
 typedef struct functionInfo {
-    sds name;        /* Function name */
-    void *function;  /* Opaque object that set by the function's engine and allow it
-                        to run the function, usually it's the function compiled code. */
-    libraryInfo* li; /* Pointer to the library created the function */
-    sds desc;        /* Function description */
+    sds name;            /* Function name */
+    void *function;      /* Opaque object that set by the function's engine and allow it
+                            to run the function, usually it's the function compiled code. */
+    functionLibInfo* li; /* Pointer to the library created the function */
+    sds desc;            /* Function description */
 } functionInfo;
 
 /* Hold information about the specific library.
  * Used on rdb.c so it must be declared here. */
-struct libraryInfo {
+struct functionLibInfo {
     sds name;        /* Library name */
     dict *functions; /* Functions dictionary */
     engineInfo *ei;  /* Pointer to the function engine */
@@ -110,21 +110,21 @@ struct libraryInfo {
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
 int functionsCreateWithLibraryCtx(sds lib_name, sds engine_name, sds desc, sds code,
-                                  int replace, sds* err, librariesCtx *lib_ctx);
+                                  int replace, sds* err, functionsLibCtx *lib_ctx);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 unsigned long functionsNum();
-unsigned long librariesNum();
-dict* librariesGet();
-size_t librariesCtxfunctionsLen(librariesCtx *functions_ctx);
-librariesCtx* librariesCtxGetCurrent();
-librariesCtx* librariesCtxCreate();
-void librariesCtxClearCurrent(int async);
-void librariesCtxFree(librariesCtx *lib_ctx);
-void librariesCtxClear(librariesCtx *lib_ctx);
-void librariesCtxSwapWithCurrent(librariesCtx *lib_ctx);
+unsigned long functionsLibNum();
+dict* functionsLibGet();
+size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx);
+functionsLibCtx* functionsLibCtxGetCurrent();
+functionsLibCtx* functionsLibCtxCreate();
+void functionsLibCtxClearCurrent(int async);
+void functionsLibCtxFree(functionsLibCtx *lib_ctx);
+void functionsLibCtxClear(functionsLibCtx *lib_ctx);
+void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
-int libraryCreateFunction(sds name, void *function, libraryInfo *li, sds desc, sds *err);
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err);
 
 int luaEngineInitEngine();
 int functionsInit();
