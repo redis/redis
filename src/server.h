@@ -502,6 +502,19 @@ typedef enum {
     CLIENT_PAUSE_ALL      /* Pause all commands */
 } pause_type;
 
+/* Client pause purposes. Each purpose has its own end time and pause type. */
+typedef enum {
+    PAUSE_BY_CLIENT_COMMAND = 0,
+    PAUSE_DURING_SHUTDOWN,
+    PAUSE_DURING_FAILOVER,
+    NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
+} pause_purpose;
+
+typedef struct {
+    pause_type type;
+    mstime_t end;
+} pause_event;
+
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
 #define RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
@@ -1404,6 +1417,7 @@ struct redisServer {
     pause_type client_pause_type;      /* True if clients are currently paused */
     list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
+    pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -2331,8 +2345,8 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(int port, socketFds *fds);
-void pauseClients(mstime_t duration, pause_type type);
-void unpauseClients(void);
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
+void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);

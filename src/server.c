@@ -2244,6 +2244,8 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.client_pause_type = CLIENT_PAUSE_OFF;
     server.client_pause_end_time = 0;
+    memset(server.client_pause_per_purpose, 0,
+           sizeof(server.client_pause_per_purpose));
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
@@ -3585,7 +3587,7 @@ int prepareForShutdown(int flags) {
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
         if (!areClientsPaused()) sendGetackToReplicas();
-        pauseClients(LLONG_MAX, CLIENT_PAUSE_WRITE);
+        pauseClients(PAUSE_DURING_SHUTDOWN, LLONG_MAX, CLIENT_PAUSE_WRITE);
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
@@ -3750,7 +3752,7 @@ error:
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
     replyToClientsBlockedOnShutdown();
-    unpauseClients();
+    unpauseClients(PAUSE_DURING_SHUTDOWN);
     return C_ERR;
 }
 
