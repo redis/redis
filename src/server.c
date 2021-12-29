@@ -1745,7 +1745,7 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
-    server.latency_track_enabled = 1;
+    server.latency_tracking_enabled = 1;
     resetServerLatencyPercentileParams();
     appendServerLatencyPercentileParams(50.0);  /* p50 */
     appendServerLatencyPercentileParams(99.0);  /* p99 */
@@ -3068,7 +3068,7 @@ void call(client *c, int flags) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
         /* If the client is blocked we will handle latency stats when it is unblocked. */
-        if (server.latency_track_enabled && !(c->flags & CLIENT_BLOCKED))
+        if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
     }
 
@@ -4421,10 +4421,10 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
 /* Fill percentile distribution of latencies. */
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
-    for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
-        info = sdscatprintf(info,"p%f=%.3f", server.latency_tracking_percentiles[j],
-            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_percentiles[j]))/1000.0f);
-        if (j != server.latency_tracking_percentiles_len-1)
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        info = sdscatprintf(info,"p%f=%.3f", server.latency_tracking_info_percentiles[j],
+            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
+        if (j != server.latency_tracking_info_percentiles_len-1)
             info = sdscatlen(info,",",1);
         }
     info = sdscatprintf(info,"\r\n");
@@ -5197,35 +5197,25 @@ sds genRedisInfoString(const char *section) {
         raxStop(&ri);
     }
 
+    /* Latency by percentile distribution per command */
     if (allsections || !strcasecmp(section,"latencystats")) {
-        /* Latency by percentile distribution per command category */
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
-        struct redisCommand *c;
-        dictEntry *de;
-        dictIterator *di;
-        di = dictGetSafeIterator(server.commands);
-        while((de = dictNext(di)) != NULL) {
-            char *tmpsafe;
-            c = (struct redisCommand *) dictGetVal(de);
-            if (!c->latency_histogram)
-                continue;
-            info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
-            if (tmpsafe != NULL) zfree(tmpsafe);
+        if (server.latency_tracking_enabled) {
+            struct redisCommand *c;
+            dictEntry *de;
+            dictIterator *di;
+            di = dictGetSafeIterator(server.commands);
+            while((de = dictNext(di)) != NULL) {
+                char *tmpsafe;
+                c = (struct redisCommand *) dictGetVal(de);
+                if (!c->latency_histogram)
+                    continue;
+                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+                if (tmpsafe != NULL) zfree(tmpsafe);
+            }
+            dictReleaseIterator(di);
         }
-        dictReleaseIterator(di);
-
-        /* Per command category cumulative distribution of latencies */
-        di = dictGetSafeIterator(server.commands);
-        while((de = dictNext(di)) != NULL) {
-            char *tmpsafe;
-            c = (struct redisCommand *) dictGetVal(de);
-            if (!c->latency_histogram)
-                continue;
-            info = fillCumulativeDistributionLatencies(info, getSafeInfoString(c->name, strlen(c->name), &tmpsafe), c->latency_histogram);
-            if (tmpsafe != NULL) zfree(tmpsafe);
-        }
-        dictReleaseIterator(di);
     }
 
     /* Cluster */

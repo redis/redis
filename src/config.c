@@ -2602,7 +2602,7 @@ int allowProtectedAction(int config, client *c) {
 }
 
 
-static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, const char **err) {
+static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sds *argv, int argc, const char **err) {
     UNUSED(data);
 
     /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
@@ -2613,8 +2613,12 @@ static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, 
 
     for (int j = 0; j < argc; j++) {
         double percentile;
-        if (!string2d(argv[j], sdslen(argv[j]), &percentile)){
-            *err = "Invalid latency-tracking-percentiles parameters";
+        if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
+            *err = "Invalid latency-tracking-info-percentiles parameters";
+            return 0;
+        }
+        if (percentile > 100.0 || percentile < 0.0) {
+            *err = "latency-tracking-info-percentiles parameters should sit between [0.0,100.0]";
             return 0;
         }
         appendServerLatencyPercentileParams(percentile);
@@ -2623,33 +2627,34 @@ static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, 
     return 1;
 }
 
-static sds getConfigLatencyPercentileOption(typeData data) {
+static sds getConfigLatencyTrackingInfoPercentilesOutputOption(typeData data) {
     UNUSED(data);
     sds buf = sdsempty();
-    for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
         buf = sdscatprintf(buf,"%f",
-                        server.latency_tracking_percentiles[j]);
-        if (j != server.latency_tracking_percentiles_len-1)
+                        server.latency_tracking_info_percentiles[j]);
+        if (j != server.latency_tracking_info_percentiles_len-1)
             buf = sdscatlen(buf," ",1);
     }
     return buf;
 }
 
-/* Rewrite the latency-tracking-percentiles option. */
-void rewriteConfigLatencyPercentileOption(typeData data, const char *name, struct rewriteConfigState *state) {
+/* Rewrite the latency-tracking-info-percentiles option. */
+void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, const char *name, struct rewriteConfigState *state) {
     UNUSED(data);
     sds line = sdsnew(name);
-    /* Rewrite latency-tracking-percentiles parameters, or an empty 'latency-tracking-percentiles ""' line to avoid the
+    /* Rewrite latency-tracking-info-percentiles parameters,
+     * or an empty 'latency-tracking-info-percentiles ""' line to avoid the
      * defaults from being used.
      */
-    if (!server.latency_tracking_percentiles_len) {
+    if (!server.latency_tracking_info_percentiles_len) {
         line = sdscat(line,"\"\"");
     } else {
         line = sdscat(line," ");
-        for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
+        for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
             line = sdscatprintf(line,"%f",
-                server.latency_tracking_percentiles[j]);
-            if (j != server.latency_tracking_percentiles_len-1)
+                server.latency_tracking_info_percentiles[j]);
+            if (j != server.latency_tracking_info_percentiles_len-1)
                 line = sdscat(line," ");
         }
     }
@@ -2700,7 +2705,7 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
-    createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_track_enabled, 1, NULL, NULL),
+    createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -2848,7 +2853,7 @@ standardConfig configs[] = {
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
-    createSpecialConfig("latency-tracking-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyPercentileOption, getConfigLatencyPercentileOption, rewriteConfigLatencyPercentileOption, NULL),
+    createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
 
     /* NULL Terminator */
     {NULL}

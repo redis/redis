@@ -21,36 +21,49 @@ start_server {tags {"info" "external:skip"}} {
             r config resetstat
             r CONFIG SET latency-tracking no
             r set a b
-            assert_match {} [latency_hist_usec set]
+            assert_match {} [latency_percentiles_usec set]
             r CONFIG SET latency-tracking yes
             r set a b
-            assert_match {*calls=1,histogram=*} [latency_hist_usec set]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
             r config resetstat
-            assert_match {} [latency_hist_usec set]
+            assert_match {} [latency_percentiles_usec set]
         }
 
         test {latencystats: configure percentiles} {
             r config resetstat
-            assert_match {} [latency_hist_usec set]
+            assert_match {} [latency_percentiles_usec set]
             r CONFIG SET latency-tracking yes
             r SET a b
             r GET a
-            assert_match {*calls=1,histogram=*} [latency_hist_usec set]
-            assert_match {*calls=1,histogram=*} [latency_hist_usec get]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec get]
-            r CONFIG SET latency-tracking-percentiles "0.0 50.0 100.0"
+            r CONFIG SET latency-tracking-info-percentiles "0.0 50.0 100.0"
+            assert_match [r config get latency-tracking-info-percentiles] {latency-tracking-info-percentiles {0.000000 50.000000 100.000000}}
             assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec set]
             assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec get]
             r config resetstat
-            assert_match {} [latency_hist_usec set]
+            assert_match {} [latency_percentiles_usec set]
+        }
+
+        test {latencystats: bad configure percentiles} {
+            r config resetstat
+            set configlatencyline [r config get latency-tracking-info-percentiles]
+            catch {r CONFIG SET latency-tracking-info-percentiles "10.0 50.0 a"} e
+            assert_match {ERR CONFIG SET failed*} $e
+            assert_equal [s total_error_replies] 1
+            assert_match [r config get latency-tracking-info-percentiles] $configlatencyline
+            catch {r CONFIG SET latency-tracking-info-percentiles "10.0 50.0 101.0"} e
+            assert_match {ERR CONFIG SET failed*} $e
+            assert_equal [s total_error_replies] 2
+            assert_match [r config get latency-tracking-info-percentiles] $configlatencyline
+            r config resetstat
+            assert_match {} [errorstat ERR]
         }
 
         test {latencystats: blocking commands} {
             r config resetstat
             r CONFIG SET latency-tracking yes
-            r CONFIG SET latency-tracking-percentiles "50.0 99.0 99.9"
+            r CONFIG SET latency-tracking-info-percentiles "50.0 99.0 99.9"
             set rd [redis_deferring_client]
             r del list1{t}
 
@@ -61,7 +74,6 @@ start_server {tags {"info" "external:skip"}} {
             r lpush list1{t} b
             assert_equal [$rd read] {list1{t} b}
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec blpop]
-            assert_match {*calls=2,histogram=*} [latency_hist_usec blpop]
         }
 
         test {errorstats: failed call authentication error} {
