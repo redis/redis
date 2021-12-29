@@ -76,6 +76,21 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec blpop]
         }
 
+        test {latencystats: measure latency} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-info-percentiles "50.0"
+            r DEBUG sleep 0.05
+            r SET k v
+            set latencystatline_debug [latency_percentiles_usec debug]
+            set latencystatline_set [latency_percentiles_usec set]
+            regexp "p50.000000=(.+\..+)" $latencystatline_debug p50_debug
+            regexp "p50.000000=(.+\..+)" $latencystatline_set p50_set
+            assert {$p50_debug >= 50000}
+            assert {$p50_set >= 0}
+            assert {$p50_debug >= $p50_set}
+        }
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
