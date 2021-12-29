@@ -658,13 +658,13 @@ nodataerr:
 
 
 void appendServerLatencyPercentileParams(double percentile) {
-    server.latency_track_percentiles = zrealloc(server.latency_track_percentiles,sizeof(double)*(server.latency_percentiles_len+1));
-    server.latency_track_percentiles[server.latency_percentiles_len] = percentile;
-    server.latency_percentiles_len++;
+    server.latency_tracking_percentiles = zrealloc(server.latency_tracking_percentiles,sizeof(double)*(server.latency_tracking_percentiles_len+1));
+    server.latency_tracking_percentiles[server.latency_tracking_percentiles_len] = percentile;
+    server.latency_tracking_percentiles_len++;
 }
 
 void resetServerLatencyPercentileParams(void) {
-    zfree(server.latency_track_percentiles);
-    server.latency_track_percentiles = NULL;
-    server.latency_percentiles_len = 0;
+    zfree(server.latency_tracking_percentiles);
+    server.latency_tracking_percentiles = NULL;
+    server.latency_tracking_percentiles_len = 0;
 }

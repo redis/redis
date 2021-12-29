@@ -2626,10 +2626,10 @@ static int setConfigLatencyPercentileOption(typeData data, sds *argv, int argc, 
 static sds getConfigLatencyPercentileOption(typeData data) {
     UNUSED(data);
     sds buf = sdsempty();
-    for (int j = 0; j < server.latency_percentiles_len; j++) {
+    for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
         buf = sdscatprintf(buf,"%f",
-                        server.latency_track_percentiles[j]);
-        if (j != server.latency_percentiles_len-1)
+                        server.latency_tracking_percentiles[j]);
+        if (j != server.latency_tracking_percentiles_len-1)
             buf = sdscatlen(buf," ",1);
     }
     return buf;
@@ -2642,14 +2642,14 @@ void rewriteConfigLatencyPercentileOption(typeData data, const char *name, struc
     /* Rewrite latency-tracking-percentiles parameters, or an empty 'latency-tracking-percentiles ""' line to avoid the
      * defaults from being used.
      */
-    if (!server.latency_percentiles_len) {
+    if (!server.latency_tracking_percentiles_len) {
         line = sdscat(line,"\"\"");
     } else {
         line = sdscat(line," ");
-        for (int j = 0; j < server.latency_percentiles_len; j++) {
+        for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
             line = sdscatprintf(line,"%f",
-                server.latency_track_percentiles[j]);
-            if (j != server.latency_percentiles_len-1)
+                server.latency_tracking_percentiles[j]);
+            if (j != server.latency_tracking_percentiles_len-1)
                 line = sdscat(line," ");
         }
     }

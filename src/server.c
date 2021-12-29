@@ -4407,8 +4407,8 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
         const int64_t cumulative_count = iter.cumulative_count;
         if (cumulative_count > previous_count) {
             if (bucket_pos>0)
-                info = sdscatprintf(info,";");
-            info = sdscatprintf(info,"(%lld:%lld)", (long long) micros, (long long) cumulative_count);
+                info = sdscatprintf(info,",");
+            info = sdscatprintf(info,"%lld=%lld", (long long) micros, (long long) cumulative_count);
             bucket_pos++;
         }
         previous_count = cumulative_count;
@@ -4421,10 +4421,10 @@ sds fillCumulativeDistributionLatencies(sds info, const char* histogram_name, st
 /* Fill percentile distribution of latencies. */
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
-    for (int j = 0; j < server.latency_percentiles_len; j++) {
-        info = sdscatprintf(info,"p%f=%.3f", server.latency_track_percentiles[j],
-            ((double)hdr_value_at_percentile(histogram,server.latency_track_percentiles[j]))/1000.0f);
-        if (j != server.latency_percentiles_len-1)
+    for (int j = 0; j < server.latency_tracking_percentiles_len; j++) {
+        info = sdscatprintf(info,"p%f=%.3f", server.latency_tracking_percentiles[j],
+            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_percentiles[j]))/1000.0f);
+        if (j != server.latency_tracking_percentiles_len-1)
             info = sdscatlen(info,",",1);
         }
     info = sdscatprintf(info,"\r\n");
@@ -5216,8 +5216,6 @@ sds genRedisInfoString(const char *section) {
         dictReleaseIterator(di);
 
         /* Per command category cumulative distribution of latencies */
-        if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Latencystats - cumulative distribution of latencies\r\n");
         di = dictGetSafeIterator(server.commands);
         while((de = dictNext(di)) != NULL) {
             char *tmpsafe;
