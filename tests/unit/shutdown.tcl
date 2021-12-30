@@ -32,6 +32,7 @@ start_server {tags {"shutdown external:skip"}} {
         exec kill -SIGTERM $pid
         after 10;               # Give signal handler some time to run
         r shutdown abort
+        verify_log_message 0 "*Shutdown manually aborted*" 0
         r debug pause-cron 0
         r ping
     } {PONG}
