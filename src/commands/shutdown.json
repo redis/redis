@@ -42,6 +42,12 @@
                 "type": "pure-token",
                 "token": "FORCE",
                 "optional": true
+            },
+            {
+                "name": "abort",
+                "type": "pure-token",
+                "token": "ABORT",
+                "optional": true
             }
         ]
     }
