@@ -1067,6 +1067,11 @@ void shutdownCommand(client *c) {
         return;
     }
 
+    if (!(flags & SHUTDOWN_NOW) && c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "SHUTDOWN without NOW or ABORT isn't allowed for DENY BLOCKING client");
+        return;
+    }
+
     if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
         /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
          * also processCommand where these errors are returned. */
