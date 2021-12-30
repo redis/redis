@@ -203,9 +203,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SENTINEL (1ULL<<17)
 #define CMD_ONLY_SENTINEL (1ULL<<18)
 #define CMD_NO_MANDATORY_KEYS (1ULL<<19)
-/* Command flags used by the module system. */
-#define CMD_MODULE_GETKEYS (1ULL<<20)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1ULL<<21) /* Deny on Redis Cluster. */
+#define CMD_PROTECTED (1ULL<<20)
+#define CMD_MODULE_GETKEYS (1ULL<<21)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
+#define CMD_NO_ASYNC_LOADING (1ULL<<23)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -438,6 +439,11 @@ typedef enum {
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
 
+/* Enable protected config/command */
+#define PROTECTED_ACTION_ALLOWED_NO 0
+#define PROTECTED_ACTION_ALLOWED_YES 1
+#define PROTECTED_ACTION_ALLOWED_LOCAL 2
+
 /* Sets operations codes */
 #define SET_OP_UNION 0
 #define SET_OP_DIFF 1
@@ -486,10 +492,9 @@ typedef enum {
 #define CMD_CALL_PROPAGATE_REPL (1<<3)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
-#define CMD_CALL_NOWRAP (1<<4)  /* Don't wrap also propagate array into
-                                   MULTI/EXEC: the caller will handle it.  */
+#define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
 
-/* Command propagation flags, see propagate() function */
+/* Command propagation flags, see propagateNow() function */
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
@@ -1222,6 +1227,7 @@ typedef struct redisOp {
 typedef struct redisOpArray {
     redisOp *ops;
     int numops;
+    int capacity;
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -1233,6 +1239,7 @@ struct redisMemOverhead {
     size_t repl_backlog;
     size_t clients_slaves;
     size_t clients_normal;
+    size_t cluster_links;
     size_t aof_buffer;
     size_t lua_caches;
     size_t functions_caches;
@@ -1369,9 +1376,11 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_script;                /* Are we inside EVAL? */
+    int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
-    int propagate_in_transaction;  /* Make sure we don't propagate nested MULTI/EXEC */
+    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
+    int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
+    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -1426,6 +1435,9 @@ struct redisServer {
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
+    int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
+    int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -1481,6 +1493,7 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     redisAtomic size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_cluster_links_memory;/* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
@@ -1756,10 +1769,10 @@ struct redisServer {
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
+    unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t script_time_limit;  /* Script timeout in milliseconds */
-    int lua_always_replicate_commands; /* Default replication type. */
     int script_oom;                    /* OOM detected when script start */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
@@ -2018,6 +2031,9 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *                          possible), then the "random" flag is not needed.
  *
  * CMD_LOADING:     Allow the command while loading the database.
+ *
+ * CMD_NO_ASYNC_LOADING: Deny during async loading (when a replica uses diskless
+                         sync swapdb, and allows access to the old dataset)
  *
  * CMD_STALE:       Allow the command while a slave has stale data but is not
  *                  allowed to serve this data. Normally no command is accepted
@@ -2358,6 +2374,7 @@ int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
+int islocalClient(client *c);
 int updateClientMemUsage(client *c);
 void updateClientMemUsageBucket(client *c);
 void unlinkClient(client *c);
@@ -2427,10 +2444,6 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
-void execCommandPropagateMulti(int dbid);
-void execCommandPropagateExec(int dbid);
-void beforePropagateMulti();
-void afterPropagateExec();
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
@@ -2507,10 +2520,6 @@ void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
-void replicationScriptCacheInit(void);
-void replicationScriptCacheFlush(void);
-void replicationScriptCacheAdd(sds sha1);
-int replicationScriptCacheExists(sds sha1);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
@@ -2706,8 +2715,8 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);
 void call(client *c, int flags);
-void propagate(int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
+void propagatePendingCommands();
 void redisOpArrayInit(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
@@ -2820,11 +2829,12 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
 int rewriteConfig(char *path, int force_all);
 void initConfigValues();
 sds getConfigDebugInfo();
+int allowProtectedAction(int config, client *c);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
-void propagateExpire(redisDb *db, robj *key, int lazy);
+void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
@@ -2861,7 +2871,8 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
-long long emptyDb(int dbnum, int flags, void(callback)(dict*));
+#define EMPTYDB_NOFUNCTIONS (1<<1) /* Indicate not to flush the functions. */
+long long emptyData(int dbnum, int flags, void(callback)(dict*));
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount();
@@ -2929,6 +2940,7 @@ int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
+void freeFunctionsAsync(functionsCtx *f_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
@@ -3174,6 +3186,7 @@ void migrateCommand(client *c);
 void askingCommand(client *c);
 void readonlyCommand(client *c);
 void readwriteCommand(client *c);
+int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr);
 void dumpCommand(client *c);
 void objectCommand(client *c);
 void memoryCommand(client *c);
@@ -3193,6 +3206,9 @@ void functionStatsCommand(client *c);
 void functionInfoCommand(client *c);
 void functionListCommand(client *c);
 void functionHelpCommand(client *c);
+void functionFlushCommand(client *c);
+void functionRestoreCommand(client *c);
+void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
 void bitcountCommand(client *c);

@@ -1,20 +1,15 @@
 {
     "FLUSH": {
-        "summary": "Remove all the scripts from the script cache.",
-        "complexity": "O(N) with N being the number of scripts in cache",
+        "summary": "Deleting all functions",
+        "complexity": "O(N) where N is the number of functions deleted",
         "group": "scripting",
-        "since": "2.6.0",
+        "since": "7.0.0",
         "arity": -2,
-        "container": "SCRIPT",
-        "function": "scriptCommand",
-        "history": [
-            [
-                "6.2.0",
-                "Added the `ASYNC` and `SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."
-            ]
-        ],
+        "container": "FUNCTION",
+        "function": "functionFlushCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "WRITE"
         ],
         "acl_categories": [
             "SCRIPTING"

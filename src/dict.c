@@ -1154,8 +1154,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
         if (clvector[i] == 0) continue;
         if (l >= bufsize) break;
         l += snprintf(buf+l,bufsize-l,
-            "   %s%ld: %ld (%.02f%%)\n",
-            (i == DICT_STATS_VECTLEN-1)?">= ":"",
+            "   %ld: %ld (%.02f%%)\n",
             i, clvector[i], ((float)clvector[i]/DICTHT_SIZE(d->ht_size_exp[htidx]))*100);
     }
 

@@ -8,8 +8,10 @@
         "container": "MODULE",
         "function": "moduleCommand",
         "command_flags": [
+            "NO_ASYNC_LOADING",
             "ADMIN",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "PROTECTED"
         ],
         "arguments": [
             {

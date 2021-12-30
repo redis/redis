@@ -11,6 +11,20 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function already exists*}
 
+    test {FUNCTION - Create an already exiting function raise error (case insensitive)} {
+        catch {
+            r function create LUA TEST {return 'hello1'}
+        } e
+        set _ $e
+    } {*Function already exists*}
+
+    test {FUNCTION - Create a function with wrong name format} {
+        catch {
+            r function create LUA {bad\0foramat} {return 'hello1'}
+        } e
+        set _ $e
+    } {*Function names can only contain letters and numbers*}
+
     test {FUNCTION - Create function with unexisting engine} {
         catch {
             r function create bad_engine test {return 'hello1'}
@@ -28,6 +42,10 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test replace argument} {
         r function create LUA test REPLACE {return 'hello1'}
         r fcall test 0
+    } {hello1}
+
+    test {FUNCTION - test function case insensitive} {
+        r fcall TEST 0
     } {hello1}
 
     test {FUNCTION - test replace argument with function creation failure keeps old function} {
@@ -115,7 +133,90 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test loading from rdb} {
         r debug reload
         r fcall test 0
-    } {hello}
+    } {hello} {needs:debug}
+
+    test {FUNCTION - test debug reload different options} {
+        catch {r debug reload noflush} e
+        assert_match "*Error trying to load the RDB*" $e
+        r debug reload noflush merge
+        r function list
+    } {{name test engine LUA description {some description}}} {needs:debug}
+
+    test {FUNCTION - test debug reload with nosave and noflush} {
+        r function delete test
+        r set x 1
+        r function create LUA test1 DESCRIPTION {some description} {return 'hello'}
+        r debug reload
+        r function create LUA test2 DESCRIPTION {some description} {return 'hello'}
+        r debug reload nosave noflush merge
+        assert_equal [r fcall test1 0] {hello}
+        assert_equal [r fcall test2 0] {hello}
+    } {} {needs:debug}
+
+    test {FUNCTION - test flushall and flushdb do not clean functions} {
+        r function flush
+        r function create lua test REPLACE {return redis.call('set', 'x', '1')}
+        r flushall
+        r flushdb
+        r function list
+    } {{name test engine LUA description {}}}
+
+    test {FUNCTION - test function dump and restore} {
+        r function flush
+        r function create lua test description {some description} {return 'hello'} 
+        set e [r function dump]
+        r function delete test
+        assert_match {} [r function list]
+        r function restore $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function dump and restore with flush argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function restore $e FLUSH
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function dump and restore with append argument} {
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        catch {r function restore $e APPEND} err
+        assert_match {*already exists*} $err
+        r function flush
+        r function create lua test1 {return 'hello1'}
+        r function restore $e APPEND
+        assert_match {hello} [r fcall test 0]
+        assert_match {hello1} [r fcall test1 0]
+    }
+
+    test {FUNCTION - test function dump and restore with replace argument} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        set e [r function dump]
+        r function flush
+        assert_match {} [r function list]
+        r function create lua test {return 'hello1'}
+        assert_match {hello1} [r fcall test 0]
+        r function restore $e REPLACE
+        assert_match {hello} [r fcall test 0]
+    }
+
+    test {FUNCTION - test function restore with bad payload do not drop existing functions} {
+        r function flush
+        r function create LUA test DESCRIPTION {some description} {return 'hello'}
+        catch {r function restore bad_payload} e
+        assert_match {*payload version or checksum are wrong*} $e
+        r function list
+    } {{name test engine LUA description {some description}}}
+
+    test {FUNCTION - test function restore with wrong number of arguments} {
+        catch {r function restore arg1 args2 arg3} e
+        set _ $e
+    } {*wrong number of arguments*}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function create lua test REPLACE {return redis.call('set', 'x', '1')}
@@ -185,9 +286,34 @@ start_server {tags {"scripting"}} {
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
     }
+
+    test {FUNCTION - test function flush} {
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush
+        assert_match {} [r function list]
+
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush async
+        assert_match {} [r function list]
+
+        r function create lua test REPLACE {local a = 1 while true do a = a + 1 end}
+        assert_match {{name test engine LUA description {}}} [r function list]
+        r function flush sync
+        assert_match {} [r function list]
+    }
+
+    test {FUNCTION - test function wrong argument} {
+        catch {r function flush bad_arg} e
+        assert_match {*only supports SYNC|ASYNC*} $e
+
+        catch {r function flush sync extra_arg} e
+        assert_match {*wrong number of arguments*} $e
+    }
 }
 
-start_server {tags {"scripting repl"}} {
+start_server {tags {"scripting repl external:skip"}} {
     start_server {} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -212,8 +338,42 @@ start_server {tags {"scripting repl"}} {
             r -1 fcall test 0
         } {hello}
 
+        test {FUNCTION - restore is replicated to replica} {
+            set e [r function dump]
+
+            r function delete test
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+
+            r function restore $e
+
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {{name test engine LUA description {some description}}}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+        }
+
         test {FUNCTION - delete is replicated to replica} {
             r function delete test
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+        }
+
+        test {FUNCTION - flush is replicated to replica} {
+            r function create LUA test DESCRIPTION {some description} {return 'hello'}
+            wait_for_condition 50 100 {
+                [r -1 function list] eq {{name test engine LUA description {some description}}}
+            } else {
+                fail "Failed waiting for function to replicate to replica"
+            }
+            r function flush
             wait_for_condition 50 100 {
                 [r -1 function list] eq {}
             } else {
@@ -250,14 +410,14 @@ start_server {tags {"scripting repl"}} {
                 r -1 function create LUA test DESCRIPTION {some description} {return 'hello'}
             } e
             set _ $e
-        } {*Can not create a function on a read only replica*}
+        } {*can't write against a read only replica*}
 
         test "FUNCTION - delete on read only replica" {
             catch {
                 r -1 function delete test
             } e
             set _ $e
-        } {*Can not delete a function on a read only replica*}
+        } {*can't write against a read only replica*}
 
         test "FUNCTION - function effect is replicated to replica" {
             r function create LUA test REPLACE {return redis.call('set', 'x', '1')}
@@ -278,3 +438,31 @@ start_server {tags {"scripting repl"}} {
         } {*can't write against a read only replica*}
     }
 }
+
+test {FUNCTION can processes create, delete and flush commands in AOF when doing "debug loadaof" in read-only slaves} {
+    start_server {} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r FUNCTION CREATE lua test "return 'hello'"
+        r config set slave-read-only yes
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {{name test engine LUA description {}}}
+
+        r FUNCTION DELETE test
+
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {}
+
+        r FUNCTION CREATE lua test "return 'hello'"
+        r FUNCTION FLUSH
+
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r slaveof no one
+        assert_equal [r function list] {}
+    }
+} {} {needs:debug external:skip}

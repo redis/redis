@@ -45,11 +45,11 @@ start_server {tags {"aofrw external:skip"}} {
             wait_load_handlers_disconnected
 
             # Get the data set digest
-            set d1 [r debug digest]
+            set d1 [debug_digest]
 
             # Load the AOF
             r debug loadaof
-            set d2 [r debug digest]
+            set d2 [debug_digest]
 
             # Make sure they are the same
             assert {$d1 eq $d2}
@@ -86,11 +86,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r lpush key $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -114,11 +114,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                 if {$d ne {string}} {
                     assert_equal [r object encoding key] $e
                 }
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -140,11 +140,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r hset key $data $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -166,11 +166,11 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     r zadd key [expr rand()] $data
                 }
                 assert_equal [r object encoding key] $e
-                set d1 [r debug digest]
+                set d1 [debug_digest]
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
-                set d2 [r debug digest]
+                set d2 [debug_digest]
                 if {$d1 ne $d2} {
                     error "assertion:$d1 is not equal to $d2"
                 }
@@ -179,28 +179,28 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
     }
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
-        r multi
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
         r bgsave
-        r bgrewriteaof
-        r info persistence
-        set res [r exec]
-        assert_match {*scheduled*} [lindex $res 1]
-        assert_match {*aof_rewrite_scheduled:1*} [lindex $res 2]
-        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
+        assert_match {*scheduled*} [r bgrewriteaof]
+        assert_equal [s aof_rewrite_scheduled] 1
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+        while {[s aof_rewrite_scheduled] eq 1} {
             after 100
         }
     }
 
     test {BGREWRITEAOF is refused if already in progress} {
+        r config set aof-use-rdb-preamble yes
+        r config set rdb-key-save-delay 10000000
         catch {
-            r multi
             r bgrewriteaof
             r bgrewriteaof
-            r exec
         } e
         assert_match {*ERR*already*} $e
-        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
-            after 100
-        }
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
     }
 }

@@ -45,6 +45,12 @@ typedef struct configEnum {
     const int val;
 } configEnum;
 
+typedef struct deprecatedConfig {
+    const char *name;
+    const int argc_min;
+    const int argc_max;
+} deprecatedConfig;
+
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
@@ -125,6 +131,13 @@ configEnum sanitize_dump_payload_enum[] = {
     {"no", SANITIZE_DUMP_NO},
     {"yes", SANITIZE_DUMP_YES},
     {"clients", SANITIZE_DUMP_CLIENTS},
+    {NULL, 0}
+};
+
+configEnum protected_action_enum[] = {
+    {"no", PROTECTED_ACTION_ALLOWED_NO},
+    {"yes", PROTECTED_ACTION_ALLOWED_YES},
+    {"local", PROTECTED_ACTION_ALLOWED_LOCAL},
     {NULL, 0}
 };
 
@@ -255,6 +268,8 @@ typedef struct standardConfig {
 #define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
 #define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
 #define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
+#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
+#define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
 
 standardConfig configs[];
 
@@ -397,6 +412,12 @@ void initConfigValues() {
 static int reading_config_file;
 
 void loadServerConfigFromString(char *config) {
+    deprecatedConfig deprecated_configs[] = {
+        {"list-max-ziplist-entries", 2, 2},
+        {"list-max-ziplist-value", 2, 2},
+        {"lua-replicate-commands", 2, 2},
+        {NULL, 0},
+    };
     char buf[1024];
     const char *err = NULL;
     int linenum = 0, totlines, i;
@@ -451,6 +472,19 @@ void loadServerConfigFromString(char *config) {
             }
         }
 
+        /* If there's no matching above, we try matching them with deprecated configs */
+        if (!match) {
+            for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
+                if (!strcasecmp(argv[0], config->name) && 
+                    config->argc_min <= argc && 
+                    argc <= config->argc_max) 
+                {
+                    match = 1;
+                    break;
+                }
+            }
+        }
+
         if (match) {
             sdsfreesplitres(argv,argc);
             continue;
@@ -459,10 +493,6 @@ void loadServerConfigFromString(char *config) {
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1], 0, NULL);
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
-            /* DEAD OPTION */
-        } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
-            /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -681,7 +711,7 @@ void configSetCommand(client *c) {
     sds *old_values = NULL;
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
     int config_count, i, j;
-    int invalid_args = 0;
+    int invalid_args = 0, deny_loading_error = 0;
     int *config_map_fns;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
@@ -711,10 +741,18 @@ void configSetCommand(client *c) {
                 }
 
                 if (!invalid_args) {
-                    if (config->flags & IMMUTABLE_CONFIG) {
+                    if (config->flags & IMMUTABLE_CONFIG ||
+                        (config->flags & PROTECTED_CONFIG && !allowProtectedAction(server.enable_protected_configs, c)))
+                    {
                         /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        errstr = "can't set immutable config";
+                        errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
                         err_arg_name = c->argv[2+i*2]->ptr;
+                        invalid_args = 1;
+                    }
+
+                    if (server.loading && config->flags & DENY_LOADING_CONFIG) {
+                        /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
+                        deny_loading_error = 1;
                         invalid_args = 1;
                     }
 
@@ -788,7 +826,10 @@ void configSetCommand(client *c) {
     goto end;
 
 err:
-    if (invalid_arg_name) {
+    if (deny_loading_error) {
+        /* We give the loading error precedence because it may be handled by clients differently, unlike a plain -ERR. */
+        addReplyErrorObject(c,shared.loadingerr);
+    } else if (invalid_arg_name) {
         addReplyErrorFormat(c,"Unknown option or number of arguments for CONFIG SET - '%s'", invalid_arg_name);
     } else if (errstr) {
         addReplyErrorFormat(c,"CONFIG SET failed (possibly related to argument '%s') - %s", err_arg_name, errstr);
@@ -2552,12 +2593,16 @@ static sds getConfigReplicaOfOption(typeData data) {
     return sdsnew(buf);
 }
 
+int allowProtectedAction(int config, client *c) {
+    return (config == PROTECTED_ACTION_ALLOWED_YES) ||
+           (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
     createBoolConfig("io-threads-do-reads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
-    createBoolConfig("lua-replicate-commands", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lua_always_replicate_commands, 1, NULL, NULL),
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
@@ -2589,7 +2634,7 @@ standardConfig configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
-    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
+    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
@@ -2607,7 +2652,7 @@ standardConfig configs[] = {
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
-    createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
+    createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
@@ -2625,13 +2670,16 @@ standardConfig configs[] = {
     /* Enum Configs */
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
-    createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
+    createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
+    createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_protected_configs, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
+    createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
+    createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2691,6 +2739,7 @@ standardConfig configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
+    createULongLongConfig("cluster-link-sendbuf-limit", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.cluster_link_sendbuf_limit_bytes, 0, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */
     createSizeTConfig("hash-max-listpack-entries", "hash-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_entries, 512, INTEGER_CONFIG, NULL, NULL),
@@ -2734,7 +2783,7 @@ standardConfig configs[] = {
 #endif
 
     /* Special configs */
-    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
+    createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption, NULL),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption, NULL),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption, updateOOMScoreAdj),

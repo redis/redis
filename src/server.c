@@ -64,6 +64,10 @@
 #include <sys/mman.h>
 #endif
 
+#if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+#include <sys/sysctl.h>
+#endif
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -1379,6 +1383,14 @@ void whileBlockedCron() {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("while-blocked-cron",latency);
+
+    /* We received a SIGTERM during loading, shutting down here in a safe way,
+     * as it isn't ok doing so inside the signal handler. */
+    if (server.shutdown_asap && server.loading) {
+        if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
+        serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
+        server.shutdown_asap = 0;
+    }
 }
 
 static void sendGetackToReplicas(void) {
@@ -2043,7 +2055,7 @@ void adjustOpenFilesLimit(void) {
 /* Check that server.tcp_backlog can be actually enforced in Linux according
  * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
 void checkTcpBacklogSettings(void) {
-#ifdef HAVE_PROC_SOMAXCONN
+#if defined(HAVE_PROC_SOMAXCONN)
     FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
     char buf[1024];
     if (!fp) return;
@@ -2054,6 +2066,31 @@ void checkTcpBacklogSettings(void) {
         }
     }
     fclose(fp);
+#elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
+    int somaxconn, mib[3];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_IPC;
+    mib[2] = KIPC_SOMAXCONN;
+
+    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
+#elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+    int somaxconn, mib[2];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_SOMAXCONN;
+
+    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
 #endif
 }
 
@@ -2331,7 +2368,9 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.propagate_in_transaction = 0;
+    server.core_propagates = 0;
+    server.propagate_no_multi = 0;
+    server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
@@ -2369,6 +2408,7 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
     server.cron_malloc_stats.allocator_allocated = 0;
@@ -2424,12 +2464,11 @@ void initServer(void) {
     }
 
     if (server.cluster_enabled) clusterInit();
-    replicationScriptCacheInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
     latencyMonitorInit();
-    
+
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
 
@@ -2650,12 +2689,21 @@ void resetErrorTableStats(void) {
 void redisOpArrayInit(redisOpArray *oa) {
     oa->ops = NULL;
     oa->numops = 0;
+    oa->capacity = 0;
 }
 
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
+    int prev_capacity = oa->capacity;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    if (oa->numops == 0) {
+        oa->capacity = 16;
+    } else if (oa->numops >= oa->capacity) {
+        oa->capacity *= 2;
+    }
+
+    if (prev_capacity != oa->capacity)
+        oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
     op = oa->ops+oa->numops;
     op->dbid = dbid;
     op->argv = argv;
@@ -2677,7 +2725,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         zfree(op->argv);
     }
     zfree(oa->ops);
-    oa->ops = NULL;
+    redisOpArrayInit(oa);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -2752,6 +2800,22 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+static int shouldPropagate(int target) {
+    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+        return 0;
+
+    if (target & PROPAGATE_AOF) {
+        if (server.aof_state != AOF_OFF)
+            return 1;
+    }
+    if (target & PROPAGATE_REPL) {
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+            return 1;
+    }
+
+    return 0;
+}
+
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
@@ -2760,33 +2824,21 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
  * + PROPAGATE_REPL (propagate into the replication link)
  *
- * This should not be used inside commands implementation since it will not
- * wrap the resulting commands in MULTI/EXEC. Use instead alsoPropagate(),
- * preventCommandPropagation(), forceCommandPropagation().
+ * This is an internal low-level function and should not be called!
  *
- * However for functions that need to (also) propagate out of the context of a
- * command execution, for example when serving a blocked client, you
- * want to use propagate().
+ * The API for propagating commands is alsoPropagate().
  */
-void propagate(int dbid, robj **argv, int argc, int flags) {
-    if (!server.replication_allowed)
+static void propagateNow(int dbid, robj **argv, int argc, int target) {
+    if (!shouldPropagate(target))
         return;
-
-    /* Propagate a MULTI request once we encounter the first command which
-     * is a write command.
-     * This way we'll deliver the MULTI/..../EXEC block as a whole and
-     * both the AOF and the replication link will have the same consistency
-     * and atomicity guarantees. */
-    if (server.in_exec && !server.propagate_in_transaction)
-        execCommandPropagateMulti(dbid);
 
     /* This needs to be unreachable since the dataset should be fixed during 
      * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
-    if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
+    if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (flags & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL)
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
@@ -2805,7 +2857,8 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
-    if (server.loading) return; /* No propagation during loading. */
+    if (!shouldPropagate(target))
+        return;
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
@@ -2852,6 +2905,46 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
+}
+
+/* Handle the alsoPropagate() API to handle commands that want to propagate
+ * multiple separated commands. Note that alsoPropagate() is not affected
+ * by CLIENT_PREVENT_PROP flag. */
+void propagatePendingCommands() {
+    if (server.also_propagate.numops == 0)
+        return;
+
+    int j;
+    redisOp *rop;
+    int multi_emitted = 0;
+
+    /* Wrap the commands in server.also_propagate array,
+     * but don't wrap it if we are already in MULTI context,
+     * in case the nested MULTI/EXEC.
+     *
+     * And if the array contains only one command, no need to
+     * wrap it, since the single command is atomic. */
+    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
+        /* We use the first command-to-propagate to set the dbid for MULTI,
+         * so that the SELECT will be propagated beforehand */
+        int multi_dbid = server.also_propagate.ops[0].dbid;
+        propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        multi_emitted = 1;
+    }
+
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        serverAssert(rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+    }
+
+    if (multi_emitted) {
+        /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
+        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+    }
+
+    redisOpArrayFree(&server.also_propagate);
 }
 
 /* Call() is the core of Redis execution of a command.
@@ -2901,8 +2994,19 @@ void call(client *c, int flags) {
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-    redisOpArray prev_also_propagate = server.also_propagate;
-    redisOpArrayInit(&server.also_propagate);
+
+    /* Redis core is in charge of propagation when the first entry point
+     * of call() is processCommand().
+     * The only other option to get to call() without having processCommand
+     * as an entry point is if a module triggers RM_Call outside of call()
+     * context (for example, in a timer).
+     * In that case, the module is in charge of propagation.
+     *
+     * Because call() is re-entrant we have to cache and restore
+     * server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    if (!server.core_propagates && !(flags & CMD_CALL_FROM_MODULE))
+        server.core_propagates = 1;
 
     /* Call the command. */
     dirty = server.dirty;
@@ -2991,9 +3095,14 @@ void call(client *c, int flags) {
         real_cmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
+    /* Propagate the command into the AOF and replication link.
+     * We never propagate EXEC explicitly, it will be implicitly
+     * propagated if needed (see propagatePendingCommands).
+     * Also, module commands take care of themselves */
     if (flags & CMD_CALL_PROPAGATE &&
-        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
+        c->cmd->proc != execCommand &&
+        !(c->cmd->flags & CMD_MODULE))
     {
         int propagate_flags = PROPAGATE_NONE;
 
@@ -3016,11 +3125,10 @@ void call(client *c, int flags) {
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
-        /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. Note that modules commands handle replication
-         * in an explicit way, so we never replicate them automatically. */
-        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
-            propagate(c->db->id,c->argv,c->argc,propagate_flags);
+        /* Call alsoPropagate() only if at least one of AOF / replication
+         * propagation is needed. */
+        if (propagate_flags != PROPAGATE_NONE)
+            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -3028,54 +3136,6 @@ void call(client *c, int flags) {
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
-
-    /* Handle the alsoPropagate() API to handle commands that want to propagate
-     * multiple separated commands. Note that alsoPropagate() is not affected
-     * by CLIENT_PREVENT_PROP flag. */
-    if (server.also_propagate.numops) {
-        int j;
-        redisOp *rop;
-
-        if (flags & CMD_CALL_PROPAGATE) {
-            int multi_emitted = 0;
-            /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULTI context,
-             * in case the nested MULTI/EXEC.
-             *
-             * And if the array contains only one command, no need to
-             * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 &&
-                !(c->cmd->flags & CMD_MODULE) &&
-                !(c->flags & CLIENT_MULTI) &&
-                !(flags & CMD_CALL_NOWRAP))
-            {
-                execCommandPropagateMulti(c->db->id);
-                multi_emitted = 1;
-            }
-
-            for (j = 0; j < server.also_propagate.numops; j++) {
-                rop = &server.also_propagate.ops[j];
-                int target = rop->target;
-                /* Whatever the command wish is, we honor the call() flags. */
-                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
-                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
-                if (target)
-                    propagate(rop->dbid,rop->argv,rop->argc,target);
-            }
-
-            if (multi_emitted) {
-                execCommandPropagateExec(c->db->id);
-            }
-        }
-        redisOpArrayFree(&server.also_propagate);
-    }
-    server.also_propagate = prev_also_propagate;
-
-    /* Client pause takes effect after a transaction has finished. This needs
-     * to be located after everything is propagated. */
-    if (!server.in_exec && server.client_pause_in_transaction) {
-        server.client_pause_in_transaction = 0;
-    }
 
     /* If the client has keys tracking enabled for client side caching,
      * make sure to remember the keys it fetched via this command. */
@@ -3101,6 +3161,14 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Client pause takes effect after a transaction has finished. This needs
+     * to be located after everything is propagated. */
+    if (!server.in_exec && server.client_pause_in_transaction) {
+        server.client_pause_in_transaction = 0;
+    }
+
+    server.core_propagates = prev_core_propagates;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to
@@ -3141,9 +3209,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
     UNUSED(c);
-    /* Flush pending invalidation messages only when we are not in nested call.
-     * So the messages are not interleaved with transaction response. */
-    if (!server.in_nested_call) trackingHandlePendingKeyInvalidations();
+    if (!server.in_nested_call) {
+        /* If we are at the top-most call() we can propagate what we accumulated.
+         * Should be done before trackingHandlePendingKeyInvalidations so that we
+         * reply to client before invalidating cache (makes more sense) */
+        if (server.core_propagates)
+            propagatePendingCommands();
+        /* Flush pending invalidation messages only when we are not in nested call.
+         * So the messages are not interleaved with transaction response. */
+        trackingHandlePendingKeyInvalidations();
+    }
 }
 
 /* Returns 1 for commands that may have key names in their arguments, but the legacy range
@@ -3184,10 +3259,9 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
 int processCommand(client *c) {
     if (!scriptIsTimedout()) {
         /* Both EXEC and EVAL call call() directly so there should be
-         * no way in_exec or in_eval or propagate_in_transaction is 1.
+         * no way in_exec or in_eval is 1.
          * That is unless lua_timedout, in which case client may run
          * some commands. */
-        serverAssert(!server.propagate_in_transaction);
         serverAssert(!server.in_exec);
         serverAssert(!server.in_script);
     }
@@ -3226,6 +3300,21 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /* Check if the command is marked as protected and the relevant configuration allows it */
+    if (c->cmd->flags & CMD_PROTECTED) {
+        if ((c->cmd->proc == debugCommand && !allowProtectedAction(server.enable_debug_cmd, c)) ||
+            (c->cmd->proc == moduleCommand && !allowProtectedAction(server.enable_module_cmd, c)))
+        {
+            rejectCommandFormat(c,"%s command not allowed. If the %s option is set to \"local\", "
+                                  "you can run it from a local connection, otherwise you need to set this option "
+                                  "in the configuration file, and then restart the server.",
+                                  c->cmd->proc == debugCommand ? "DEBUG" : "MODULE",
+                                  c->cmd->proc == debugCommand ? "enable-debug-command" : "enable-module-command");
+            return C_OK;
+
+        }
+    }
+
     int is_read_command = (c->cmd->flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
     int is_write_command = (c->cmd->flags & CMD_WRITE) ||
@@ -3238,6 +3327,8 @@ int processCommand(client *c) {
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
+                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -3433,6 +3524,12 @@ int processCommand(client *c) {
      * CMD_LOADING flag. */
     if (server.loading && !server.async_loading && is_denyloading_command) {
         rejectCommand(c, shared.loadingerr);
+        return C_OK;
+    }
+
+    /* During async-loading, block certain commands. */
+    if (server.async_loading && is_deny_async_loading_command) {
+        rejectCommand(c,shared.loadingerr);
         return C_OK;
     }
 
@@ -3924,7 +4021,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
@@ -3942,7 +4039,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
         maplen++;
         if (args[j].type == ARG_TYPE_KEY) {
-            addReplyBulkCString(c, "key-spec-index");
+            addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
             maplen++;
         }
@@ -4031,7 +4128,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
 
-        addReplyBulkCString(c, "begin-search");
+        addReplyBulkCString(c, "begin_search");
         switch (cmd->key_specs[i].begin_search_type) {
             case KSPEC_BS_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -4064,10 +4161,10 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].bs.keyword.startfrom);
                 break;
             default:
-                serverPanic("Invalid begin-search key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid begin_search key spec type %d", cmd->key_specs[i].begin_search_type);
         }
 
-        addReplyBulkCString(c, "find-keys");
+        addReplyBulkCString(c, "find_keys");
         switch (cmd->key_specs[i].find_keys_type) {
             case KSPEC_FK_UNKNOWN:
                 addReplyMapLen(c, 2);
@@ -4106,7 +4203,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
                 addReplyLongLong(c, cmd->key_specs[i].fk.keynum.keystep);
                 break;
             default:
-                serverPanic("Invalid find-keys key spec type %d", cmd->key_specs[i].begin_search_type);
+                serverPanic("Invalid find_keys key spec type %d", cmd->key_specs[i].begin_search_type);
         }
     }
 }
@@ -4191,17 +4288,17 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->doc_flags) {
-            addReplyBulkCString(c, "doc-flags");
+            addReplyBulkCString(c, "doc_flags");
             addReplyDocFlagsForCommand(c, cmd);
             maplen++;
         }
         if (cmd->deprecated_since) {
-            addReplyBulkCString(c, "deprecated-since");
+            addReplyBulkCString(c, "deprecated_since");
             addReplyBulkCString(c, cmd->deprecated_since);
             maplen++;
         }
         if (cmd->replaced_by) {
-            addReplyBulkCString(c, "replaced-by");
+            addReplyBulkCString(c, "replaced_by");
             addReplyBulkCString(c, cmd->replaced_by);
             maplen++;
         }
@@ -4221,7 +4318,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key-specs");
+            addReplyBulkCString(c, "key_specs");
             addReplyCommandKeySpecs(c, cmd);
             maplen++;
         }
@@ -4728,6 +4825,7 @@ sds genRedisInfoString(const char *section) {
             "mem_total_replication_buffers:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
+            "mem_cluster_links:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
@@ -4780,6 +4878,7 @@ sds genRedisInfoString(const char *section) {
             server.repl_buffer_mem,
             mh->clients_slaves,
             mh->clients_normal,
+            mh->cluster_links,
             mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
@@ -5653,8 +5752,7 @@ static void sigShutdownHandler(int sig) {
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
-        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
-        exit(0);
+        msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
     serverLogFromHandler(LL_WARNING, msg);

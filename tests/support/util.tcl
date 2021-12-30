@@ -825,11 +825,17 @@ proc punsubscribe {client {channels {}}} {
 }
 
 proc debug_digest_value {key} {
-    if {!$::ignoredigest} {
-        r debug digest-value $key
-    } else {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest-value"
     }
+    r debug digest-value $key
+}
+
+proc debug_digest {{level 0}} {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
+        return "dummy-digest"
+    }
+    r $level debug digest
 }
 
 proc wait_for_blocked_client {} {
@@ -911,6 +917,16 @@ proc delete_lines_with_pattern {filename tmpfilename pattern} {
     file rename -force $tmpfilename $filename
 }
 
+proc get_nonloopback_addr {} {
+    set addrlist [list {}]
+    catch { set addrlist [exec hostname -I] }
+    return [lindex $addrlist 0]
+}
+
+proc get_nonloopback_client {} {
+    return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
+}
+
 # The following functions and variables are used only when running large-memory
 # tests. We avoid defining them when not running large-memory tests because the 
 # global variables takes up lots of memory.
@@ -980,4 +996,22 @@ proc read_big_bulk {code {compare no} {prefix ""}} {
     assert_equal [r rawread 2] "\r\n"
     r readraw 0
     return $resp_len
+}
+
+proc prepare_value {size} {
+    set _v "c"
+    for {set i 1} {$i < $size} {incr i} {
+        append _v 0
+    }
+    return $_v
+}
+
+proc memory_usage {key} {
+    set usage [r memory usage $key]
+    if {![string match {*jemalloc*} [s mem_allocator]]} {
+        # libc allocator can sometimes return a different size allocation for the same requested size
+        # this makes tests that rely on MEMORY USAGE unreliable, so instead we return a constant 1
+        set usage 1
+    }
+    return $usage
 }
