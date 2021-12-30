@@ -3549,6 +3549,9 @@ static void updateClientPauseTypeAndEndTime(void) {
             type = p->type;
         }
     }
+
+    /* Find the furthest end time among the pause purposes of the most
+     * restrictive type */
     for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
         pause_event *p = server.client_pause_per_purpose[i];
         if (p != NULL && p->type == type && p->end > end) end = p->end;
@@ -3557,7 +3560,7 @@ static void updateClientPauseTypeAndEndTime(void) {
     server.client_pause_end_time = end;
 
     /* If the pause type is less restrictive than before, we unblock all clients
-     * so they are reprocessed. */
+     * so they are reprocessed (may get re-paused). */
     if (type < old_type) {
         listNode *ln;
         listIter li;
@@ -3586,9 +3589,13 @@ void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
     /* Manage pause type and end time per pause purpose. */
     if (server.client_pause_per_purpose[purpose] == NULL) {
         server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));
+        server.client_pause_per_purpose[purpose]->type = type;
+        server.client_pause_per_purpose[purpose]->end = end;
+    } else {
+        pause_event *p = server.client_pause_per_purpose[purpose];
+        p->type = max(p->type, type);
+        p->end = max(p->end, end);
     }
-    server.client_pause_per_purpose[purpose]->type = type;
-    server.client_pause_per_purpose[purpose]->end = end;
     updateClientPauseTypeAndEndTime();
 
     /* We allow write commands that were queued
