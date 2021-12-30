@@ -123,7 +123,7 @@ void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_up
     if (information_type == CHILD_INFO_TYPE_CURRENT_INFO) {
         server.stat_current_cow_bytes = cow;
         server.stat_current_cow_updated = cow_updated;
-        server.stat_current_save_keys_processed = keys;
+        server.stat_current_save_keys_processed += keys;
         if (progress != -1) server.stat_module_progress = progress;
     } else if (information_type == CHILD_INFO_TYPE_AOF_COW_SIZE) {
         server.stat_aof_cow_bytes = server.stat_current_cow_peak;

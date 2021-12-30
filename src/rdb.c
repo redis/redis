@@ -1258,6 +1258,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags) {
     long key_count = 0;
     long long info_updated_time = 0;
     size_t processed = 0;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
     dict *d = db->dict;
@@ -1315,11 +1316,17 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags) {
         if ((key_count++ & 1023) == 0) {
             long long now = mstime();
             if (now - info_updated_time >= 1000) {
-                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB");
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+                key_count = 0;
                 info_updated_time = now;
             }
         }
     }
+
+    /* Send one last child info if needed */
+    if (key_count)
+        sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+
     dictReleaseIterator(di);
     return written;
 
@@ -1337,8 +1344,6 @@ werr:
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. */
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
-    dictIterator *di = NULL;
-    dictEntry *de;
     char magic[10];
     uint64_t cksum;
     int j;
@@ -1360,21 +1365,6 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         }
     }
 
-    /* If we are storing the replication information on disk, persist
-     * the script cache as well: on successful PSYNC after a restart, we need
-     * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
-    if (rsi && dictSize(evalScriptsDict())) {
-        di = dictGetIterator(evalScriptsDict());
-        while((de = dictNext(di)) != NULL) {
-            robj *body = dictGetVal(de);
-            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
-                goto werr;
-        }
-        dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
-    }
-
     if (!(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
@@ -1389,7 +1379,6 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
 werr:
     if (error) *error = errno;
-    if (di) dictReleaseIterator(di);
     return C_ERR;
 }
 
