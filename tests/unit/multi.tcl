@@ -743,7 +743,7 @@ start_server {tags {"multi"}} {
         } {} {needs:repl}
     }
 
-    foreach {cmd} {BGREWRITEAOF SAVE BGSAVE} {
+    foreach {cmd} {SAVE SHUTDOWN} {
         test "MULTI with $cmd" {
             r del foo
             r multi
@@ -755,10 +755,60 @@ start_server {tags {"multi"}} {
             r get foo
         } {}
     }
+
+    test "MULTI with BGREWRITEAOF" {
+        set forks [s total_forks]
+        r multi
+        r set foo bar
+        r BGREWRITEAOF
+        set res [r exec]
+        assert_match "*rewriting scheduled*" [lindex $res 1]
+        wait_for_condition 50 100 {
+            [s total_forks] > $forks
+        } else {
+            fail "aofrw didn't start"
+        }
+        waitForBgrewriteaof r
+    } {}
+
+    test "MULTI with config set appendonly" {
+        set lines [count_log_lines 0]
+        set forks [s total_forks]
+        r multi
+        r set foo bar
+        r config set appendonly yes
+        r exec
+        verify_log_message 0 "*AOF background was scheduled*" $lines
+        wait_for_condition 50 100 {
+            [s total_forks] > $forks
+        } else {
+            fail "aofrw didn't start"
+        }
+        waitForBgrewriteaof r
+    }
+
+    test "MULTI with config error" {
+        r multi
+        r set foo bar
+        r config set maxmemory bla
+
+        # letting the redis parser read it, it'll throw an exception instead of
+        # reply with an array that contains an error, so we switch to reading
+        # raw RESP instead
+        r readraw 1
+
+        set res [r exec]
+        assert_equal $res "*2"
+        set res [r read]
+        assert_equal $res "+OK"
+        set res [r read]
+        r readraw 1
+        set _ $res
+    } {*CONFIG SET failed*}
 }
 
 start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
-    test {MULTI with FLUSHALL} {
+    test {MULTI with FLUSHALL and AOF} {
         set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
         r multi
         r set foo bar

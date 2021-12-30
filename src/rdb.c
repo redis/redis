@@ -3393,8 +3393,8 @@ void bgsaveCommand(client *c) {
 
     if (server.child_type == CHILD_TYPE_RDB) {
         addReplyError(c,"Background save already in progress");
-    } else if (hasActiveChildProcess()) {
-        if (schedule) {
+    } else if (hasActiveChildProcess() || server.in_exec) {
+        if (schedule || server.in_exec) {
             server.rdb_bgsave_scheduled = 1;
             addReplyStatus(c,"Background saving scheduled");
         } else {
