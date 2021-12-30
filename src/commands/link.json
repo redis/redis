@@ -1,0 +1,61 @@
+{
+    "LINK": {
+        "summary": "Create the link to a key",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "7.0.0",
+        "arity": -3,
+        "function": "linkCommand",
+        "history": [
+        ],
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "WRITE",
+                    "READ"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "target",
+                "type": "string"
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "soft",
+                        "type": "pure-token",
+                        "token": "SOFT"
+                    }
+                ]
+            }
+        ]
+    }
+}

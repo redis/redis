@@ -287,6 +287,14 @@ robj *createModuleObject(moduleType *mt, void *value) {
     return createObject(OBJ_MODULE,mv);
 }
 
+robj *createLinkObject(void *ptr, int soft) {
+    robj *o = createObject(OBJ_LINK, ptr);
+    if (!soft) {
+        o->encoding = OBJ_ENCODING_POINTER;
+    }
+    return o;
+}
+
 void freeStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
         sdsfree(o->ptr);
@@ -355,6 +363,10 @@ void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
 
+void freeLinkObject(robj *o) {
+    decrRefCount(o->ptr);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
         o->refcount++;
@@ -377,6 +389,7 @@ void decrRefCount(robj *o) {
         case OBJ_HASH: freeHashObject(o); break;
         case OBJ_MODULE: freeModuleObject(o); break;
         case OBJ_STREAM: freeStreamObject(o); break;
+        case OBJ_LINK: freeLinkObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
@@ -1642,4 +1655,46 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+/* ======================= The LINK commands =================== */
+/* The link command will create link to a key.
+ *
+ * Usage: LINK <key> <target> [soft]*/
+void linkCommand(client *c) {
+    int soft = 0, found = 0;
+    robj *o = NULL, *target = NULL;
+
+    if (c->argc == 4) {
+        if (!strcasecmp(c->argv[3]->ptr, "soft")) { 
+            soft = 1; 
+        } else {
+            addReply(c, shared.syntaxerr);
+            return;
+        }
+    }
+    
+    if (!(o = lookupKeyReadOrReply(c, c->argv[1], shared.nokeyerr))) return;
+    found = (lookupKeyWrite(c->db, c->argv[2]) != NULL);
+
+    if (soft) {
+        incrRefCount(c->argv[1]);
+        target = createLinkObject(c->argv[1], soft);
+    } else {
+        incrRefCount(o);
+        target = createLinkObject(o, soft);
+    }
+
+    if (found) {
+        dbOverwrite(c->db, c->argv[2], target);
+    } else {
+        dbAdd(c->db, c->argv[2], target);
+    }
+
+    if (target)
+        addReply(c, shared.ok);
+    else 
+        addReply(c, shared.oomerr);
+
+    server.dirty++;
 }

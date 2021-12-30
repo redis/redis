@@ -230,6 +230,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_CONNECTION (1ULL<<18)
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
+#define ACL_CATEGORY_LINK (1ULL<<21)
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
@@ -564,6 +565,8 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 
+#define OBJ_LINK 7      /* Linked object. */
+
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
 #define REDISMODULE_TYPE_ENCVER_MASK ((1<<REDISMODULE_TYPE_ENCVER_BITS)-1)
@@ -741,6 +744,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of listpacks */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
+#define OBJ_ENCODING_POINTER 12 /* Encoded as a pointer */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -1969,7 +1973,7 @@ typedef enum {
     COMMAND_GROUP_GEO,
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
-    COMMAND_GROUP_MODULE,
+    COMMAND_GROUP_MODULE
 } redisCommandGroup;
 
 typedef void redisCommandProc(client *c);
@@ -2458,6 +2462,7 @@ robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
+robj *createLinkObject(void *ptr, int soft);
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);
@@ -3231,6 +3236,7 @@ void lcsCommand(client *c);
 void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
+void linkCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

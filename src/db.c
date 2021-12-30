@@ -139,10 +139,24 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     return lookupKey(db, key, flags);
 }
 
+static short lookup_link_loops;
+
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
  * common case. */
 robj *lookupKeyRead(redisDb *db, robj *key) {
-    return lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
+    robj *o = lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
+    if (o && o->type == OBJ_LINK) {
+        if (o->encoding == OBJ_ENCODING_POINTER) {
+            o = o->ptr;
+        } else {
+            if (lookup_link_loops > 2) {
+                return NULL;
+            }
+            lookup_link_loops++;
+            o = lookupKeyRead(db,o->ptr);
+        }
+    }
+    return o;
 }
 
 /* Lookup a key for write operations, and as a side effect, if needed, expires
@@ -160,8 +174,15 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
+    lookup_link_loops = 0;
     robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReplyOrErrorObject(c, reply);
+    if (!o) {
+        if (lookup_link_loops > 2) {
+            addReplyError(c, "Too many levels of symbolic links");
+        } else {
+            addReplyOrErrorObject(c, reply);
+        }
+    }
     return o;
 }
 
