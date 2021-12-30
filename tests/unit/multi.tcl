@@ -769,7 +769,7 @@ start_server {tags {"multi"}} {
             fail "aofrw didn't start"
         }
         waitForBgrewriteaof r
-    } {}
+    } {} {external:skip}
 
     test "MULTI with config set appendonly" {
         set lines [count_log_lines 0]
@@ -785,7 +785,7 @@ start_server {tags {"multi"}} {
             fail "aofrw didn't start"
         }
         waitForBgrewriteaof r
-    }
+    } {} {external:skip}
 
     test "MULTI with config error" {
         r multi
