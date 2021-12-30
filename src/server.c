@@ -3615,6 +3615,30 @@ int isReadyToShutdown(void) {
     return 1;
 }
 
+static void cancelShutdown(void) {
+    server.shutdown_asap = 0;
+    server.shutdown_flags = 0;
+    server.shutdown_mstime = 0;
+    replyToClientsBlockedOnShutdown();
+    unpauseClients(PAUSE_DURING_SHUTDOWN);
+}
+
+/* Returns C_OK if shutdown was aborted and C_ERR if shutdown wasn't ongoing. */
+int abortShutdown(void) {
+    if (isShutdownInitiated()) {
+        cancelShutdown();
+    } else if (server.shutdown_asap) {
+        /* Signal handler has requested shutdown, but it hasn't been initiated
+         * yet. Just clear the flag. */
+        server.shutdown_asap = 0;
+    } else {
+        /* Shutdown neither initiated nor requested. */
+        return C_ERR;
+    }
+    serverLog(LL_NOTICE, "Shutdown manually aborted.");
+    return C_OK;
+}
+
 /* The final step of the shutdown sequence. Returns C_OK if the shutdown
  * sequence was successful and it's OK to call exit(). If C_ERR is returned,
  * it's not safe to call exit(). */
@@ -3748,11 +3772,7 @@ int finishShutdown(void) {
 
 error:
     serverLog(LL_WARNING, "Errors trying to shut down the server. Check the logs for more information.");
-    server.shutdown_asap = 0;
-    server.shutdown_flags = 0;
-    server.shutdown_mstime = 0;
-    replyToClientsBlockedOnShutdown();
-    unpauseClients(PAUSE_DURING_SHUTDOWN);
+    cancelShutdown();
     return C_ERR;
 }
 

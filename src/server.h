@@ -2536,9 +2536,6 @@ void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
 
-/* Shutdown */
-void replyToClientsBlockedOnShutdown(void);
-
 /* Generic persistence functions */
 void startLoadingFile(FILE* fp, char* filename, int rdbflags);
 void startLoading(size_t size, int rdbflags, int async);
@@ -2719,6 +2716,8 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 int prepareForShutdown(int flags);
+void replyToClientsBlockedOnShutdown(void);
+int abortShutdown(void);
 void afterCommand(client *c);
 int inNestedCall(void);
 #ifdef __GNUC__

@@ -1024,6 +1024,7 @@ void typeCommand(client *c) {
 
 void shutdownCommand(client *c) {
     int flags = SHUTDOWN_NOFLAGS;
+    int abort = 0;
     for (int i = 1; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr,"nosave")) {
             flags |= SHUTDOWN_NOSAVE;
@@ -1033,16 +1034,29 @@ void shutdownCommand(client *c) {
             flags |= SHUTDOWN_NOW;
         } else if (!strcasecmp(c->argv[i]->ptr, "force")) {
             flags |= SHUTDOWN_FORCE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "abort")) {
+            abort = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
-    if (flags & SHUTDOWN_NOSAVE && flags & SHUTDOWN_SAVE) {
+    if ((abort && flags != SHUTDOWN_NOFLAGS) ||
+        (flags & SHUTDOWN_NOSAVE && flags & SHUTDOWN_SAVE))
+    {
         /* Illegal combo. */
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
+
+    if (abort) {
+        if (abortShutdown() == C_OK)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "No shutdown in progress.");
+        return;
+    }
+
     if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
         /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
          * also processCommand where these errors are returned. */

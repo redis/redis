@@ -135,7 +135,7 @@ test {Shutting down master waits for replica timeout} {
     }
 } {} {repl external:skip}
 
-test "Shutting down master waits for replicas then fails" {
+test "Shutting down master waits for replica then fails" {
     start_server {} {
         start_server {} {
             set master [srv -1 client]
@@ -185,6 +185,54 @@ test "Shutting down master waits for replicas then fails" {
 
             # Let master to exit fast, without waiting for the very slow AOFRW.
             catch {$master shutdown nosave force}
+        }
+    }
+} {} {repl external:skip}
+
+test "Shutting down master waits for replica then aborted" {
+    start_server {} {
+        start_server {} {
+            set master [srv -1 client]
+            set master_host [srv -1 host]
+            set master_port [srv -1 port]
+            set master_pid [srv -1 pid]
+            set replica [srv 0 client]
+            set replica_pid [srv 0 pid]
+
+            # Config master and replica.
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            # Pause the replica and write a key on master.
+            exec kill -SIGSTOP $replica_pid
+            after 10
+            $master incr k
+
+            # Two clients call blocking SHUTDOWN in parallel.
+            set rd1 [redis_deferring_client -1]
+            set rd2 [redis_deferring_client -1]
+            $rd1 shutdown
+            $rd2 shutdown
+            set info_clients [$master info clients]
+            assert_match "*connected_clients:3*" $info_clients
+            assert_match "*blocked_clients:2*" $info_clients
+
+            # Abort the shutdown
+            $master shutdown abort
+
+            # Wake up replica, causing master to continue shutting down.
+            exec kill -SIGCONT $replica_pid
+
+            # SHUTDOWN returns an error to both clients blocking on SHUTDOWN.
+            catch { $rd1 read } e1
+            catch { $rd2 read } e2
+            assert_match "*Errors trying to SHUTDOWN. Check logs*" $e1
+            assert_match "*Errors trying to SHUTDOWN. Check logs*" $e2
+            $rd1 close
+            $rd2 close
+
+            # Check shutdown log messages on master.
+            verify_log_message -1 "*Shutdown manually aborted*" 0
         }
     }
 } {} {repl external:skip}
