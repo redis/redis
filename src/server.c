@@ -4728,8 +4728,7 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
     }
 }
 
-
-dict *genInfoSectionDict(client *c, const char *source, int *all_sections, int *everything) {
+dict *genInfoSectionDict(char **argv, int argc, int *out_all, int *out_everything) {
     char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
     char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats"};
 
@@ -4777,7 +4776,6 @@ dict *genInfoSectionDict(client *c, const char *source, int *all_sections, int *
     }  
     return section_dict;
 }
-
 
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
@@ -5783,9 +5781,7 @@ void infoCommand(client *c) {
 
     int all_sections = 0;
     int everything = 0;
-
-    dict *sections_dict = genInfoSectionDict(c, "server", &all_sections, &everything);
-
+    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);

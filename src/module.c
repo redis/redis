@@ -8077,10 +8077,10 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     struct RedisModuleServerInfoData *d = zmalloc(sizeof(*d));
     d->rax = raxNew();
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
-    int all_sections = 0;
-    int everything = 0;
-    dict *section_dict = genInfoSectionDict(ctx->client, section, &all_sections, &everything);
-    sds info = genRedisInfoString(section_dict, all_sections, everything);
+    int out_all = 0;
+    int out_everything = 0;
+    dict *section_dict = genInfoSectionDict(section, 1, &out_all, &out_everything);
+    sds info = genRedisInfoString(section_dict, out_all, out_everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
     for(i=0; i<totlines; i++) {

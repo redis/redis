@@ -4063,12 +4063,12 @@ numargserr:
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
-    int all_sections = 0;
-    int everything = 0;
-    dict *sections_dict = genInfoSectionDict(c, "sentinel", &all_sections, &everything);
+    int out_all = 0;
+    int out_everything = 0;
+    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &out_all, &out_everything);
 
     sds info = sdsempty();
-    info = genRedisInfoString(sections_dict, all_sections, everything);
+    info = genRedisInfoString(sections_dict, out_all, out_everything);
     if (c->argc == 1 || !strcasecmp(c->argv[1]->ptr,"all") || !strcasecmp(c->argv[1]->ptr,"default") || !strcasecmp(c->argv[1]->ptr,"sentinel")) {
         dictIterator *di;
         dictEntry *de;
