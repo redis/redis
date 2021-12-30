@@ -919,9 +919,11 @@ void databasesCron(void) {
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
-        for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTables(resize_db % server.dbnum);
-            resize_db++;
+        if (server.resize_hashtables_enabled) {
+            for (j = 0; j < dbs_per_call; j++) {
+                tryResizeHashTables(resize_db % server.dbnum);
+                resize_db++;
+            }
         }
 
         /* Rehash */
