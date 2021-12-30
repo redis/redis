@@ -3652,8 +3652,6 @@ int prepareForShutdown(int flags) {
         }
     }
 
-    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
-
     /* Create a new RDB file before exiting. */
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
@@ -3674,6 +3672,9 @@ int prepareForShutdown(int flags) {
             return C_ERR;
         }
     }
+
+    /* Free the AOF manifest. */
+    if (server.aof_manifest) aofManifestFree(server.aof_manifest);
 
     /* Fire the shutdown modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
