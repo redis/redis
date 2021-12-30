@@ -179,6 +179,7 @@ typedef struct clusterManagerCommand {
     char *name;
     int argc;
     char **argv;
+    sds stdin_arg; /* arg from stdin. (-X option) */
     int flags;
     int replicas;
     char *from;
@@ -196,7 +197,7 @@ typedef struct clusterManagerCommand {
     int from_askpass;
 } clusterManagerCommand;
 
-static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
+static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 
 
 static redisContext *context;
@@ -235,7 +236,9 @@ static struct config {
     int memkeys;
     unsigned memkeys_samples;
     int hotkeys;
-    int stdinarg; /* get last arg from stdin. (-x option) */
+    int stdin_lastarg; /* get last arg from stdin. (-x option) */
+    int stdin_tag_arg; /* get <tag> arg from stdin. (-X option) */
+    char *stdin_tag_name; /* Placeholder(tag name) for user input. */
     int askpass;
     int quoted_input;   /* Force input args to be treated as quoted strings */
     int output; /* output mode, see OUTPUT_* defines */
@@ -1562,7 +1565,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             usage(0);
         } else if (!strcmp(argv[i],"-x")) {
-            config.stdinarg = 1;
+            config.stdin_lastarg = 1;
+        } else if (!strcmp(argv[i], "-X") && !lastarg) {
+            config.stdin_tag_arg = 1;
+            config.stdin_tag_name = argv[++i];
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
@@ -1678,7 +1684,8 @@ static int parseOptions(int argc, char **argv) {
             int j = i;
             while (j < argc && argv[j][0] != '-') j++;
             if (j > i) j--;
-            createClusterManagerCommand(cmd, j - i, argv + i + 1);
+            int err = createClusterManagerCommand(cmd, j - i, argv + i + 1);
+            if (err) exit(err);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
             usage(1);
@@ -1841,6 +1848,11 @@ static int parseOptions(int argc, char **argv) {
               " line interface may not be safe.\n", stderr);
     }
 
+    if (config.stdin_lastarg && config.stdin_tag_arg) {
+        fprintf(stderr, "Options -x and -X are mutually exclusive.\n");
+        exit(1);
+    }
+
     return i;
 }
 
@@ -1885,7 +1897,8 @@ static void usage(int err) {
 "  -n <db>            Database number.\n"
 "  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
-"  -x                 Read last argument from STDIN.\n"
+"  -x                 Read last argument from STDIN (see example below).\n"
+"  -X                 Read <tag> argument from STDIN (see example below).\n"
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
@@ -1975,7 +1988,7 @@ static void usage(int err) {
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
-"  redis-cli get mypasswd\n"
+"  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
 "  redis-cli -r 100 lpush mylist x\n"
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
@@ -2290,14 +2303,33 @@ static void repl(void) {
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
     sds *sds_args = getSdsArrayFromArgv(argc, argv, config.quoted_input);
+
     if (!sds_args) {
         printf("Invalid quoted string\n");
         return 1;
     }
-    if (config.stdinarg) {
+
+    if (config.stdin_lastarg) {
         sds_args = sds_realloc(sds_args, (argc + 1) * sizeof(sds));
         sds_args[argc] = readArgFromStdin();
         argc++;
+    } else if (config.stdin_tag_arg) {
+        int i = 0, tag_match = 0;
+
+        for (; i < argc; i++) {
+            if (strcmp(config.stdin_tag_name, sds_args[i]) != 0) continue;
+
+            tag_match = 1;
+            sdsfree(sds_args[i]);
+            sds_args[i] = readArgFromStdin();
+            break;
+        }
+
+        if (!tag_match) {
+            sdsfreesplitres(sds_args, argc);
+            fprintf(stderr, "Using -X option but stdin tag not match.\n");
+            return 1;
+        }
     }
 
     retval = issueCommand(argc, sds_args);
@@ -2577,14 +2609,41 @@ clusterManagerOptionDef clusterManagerOptions[] = {
 
 static void getRDB(clusterManagerNode *node);
 
-static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
+static int createClusterManagerCommand(char *cmdname, int argc, char **argv) {
     clusterManagerCommand *cmd = &config.cluster_manager_command;
     cmd->name = cmdname;
     cmd->argc = argc;
     cmd->argv = argc ? argv : NULL;
     if (isColorTerm()) cmd->flags |= CLUSTER_MANAGER_CMD_FLAG_COLOR;
-}
 
+    if (config.stdin_lastarg) {
+        char **new_argv = zmalloc(sizeof(char*) * (cmd->argc+1));
+        memcpy(new_argv, cmd->argv, sizeof(char*) * cmd->argc);
+
+        cmd->stdin_arg = readArgFromStdin();
+        new_argv[cmd->argc++] = cmd->stdin_arg;
+        cmd->argv = new_argv;
+    } else if (config.stdin_tag_arg) {
+        int i = 0, tag_match = 0;
+        cmd->stdin_arg = readArgFromStdin();
+
+        for (; i < argc; i++) {
+            if (strcmp(argv[i], config.stdin_tag_name) != 0) continue;
+
+            tag_match = 1;
+            cmd->argv[i] = (char *)cmd->stdin_arg;
+            break;
+        }
+
+        if (!tag_match) {
+            sdsfree(cmd->stdin_arg);
+            fprintf(stderr, "Using -X option but stdin tag not match.\n");
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 static clusterManagerCommandProc *validateClusterManagerCommand(void) {
     int i, commands_count = sizeof(clusterManagerCommands) /
@@ -5591,12 +5650,18 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     int argc = config.cluster_manager_command.argc;
     char **argv = config.cluster_manager_command.argv;
     cluster_manager.nodes = NULL;
-    if (!proc(argc, argv)) goto cluster_manager_err;
+    int success = proc(argc, argv);
+
+    /* Initialized in createClusterManagerCommand. */
+    if (config.stdin_lastarg) {
+        zfree(config.cluster_manager_command.argv);
+        sdsfree(config.cluster_manager_command.stdin_arg);
+    } else if (config.stdin_tag_arg) {
+        sdsfree(config.cluster_manager_command.stdin_arg);
+    }
     freeClusterManager();
-    exit(0);
-cluster_manager_err:
-    freeClusterManager();
-    exit(1);
+
+    exit(success ? 0 : 1);
 }
 
 /* Cluster Manager Commands */
@@ -8355,7 +8420,9 @@ int main(int argc, char **argv) {
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
     config.hotkeys = 0;
-    config.stdinarg = 0;
+    config.stdin_lastarg = 0;
+    config.stdin_tag_arg = 0;
+    config.stdin_tag_name = NULL;
     config.conn_info.auth = NULL;
     config.askpass = 0;
     config.conn_info.user = NULL;
@@ -8372,6 +8439,7 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
+    config.cluster_manager_command.stdin_arg = NULL;
     config.cluster_manager_command.flags = 0;
     config.cluster_manager_command.replicas = 0;
     config.cluster_manager_command.from = NULL;
