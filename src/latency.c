@@ -606,7 +606,7 @@ void latencyAllCommandsFillCDFResp(client *c) {
         command_with_data++;
     }
     dictReleaseIterator(di);
-    setDeferredArrayLen(c,replylen,command_with_data);
+    setDeferredMapLen(c,replylen,command_with_data);
 }
 
 /* latencyCommand() helper to produce a per command cumulative distribution of latencies in RESP format. */
@@ -630,7 +630,7 @@ void latencySpecificCommandsFillCDFResp(client *c) {
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
     }
-    setDeferredArrayLen(c,replylen,samples);
+    setDeferredMapLen(c,replylen,samples);
 }
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
