@@ -327,7 +327,7 @@ static unsigned long _dictNextPower(unsigned long size) {
     size |= size >> 8;
     size |= size >> 16;
     size |= size >> 32;
-    size--;
+    size++;
     return size;
 }
 
