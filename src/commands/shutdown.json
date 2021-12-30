@@ -8,6 +8,7 @@
         "function": "shutdownCommand",
         "command_flags": [
             "ADMIN",
+            "BLOCKING",
             "NOSCRIPT",
             "LOADING",
             "STALE",
