@@ -1250,13 +1250,12 @@ werr:
     return -1;
 }
 
-ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags) {
+ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     dictIterator *di;
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
-    long key_count = 0;
-    long long info_updated_time = 0;
+    static long long info_updated_time = 0;
     size_t processed = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
@@ -1313,19 +1312,14 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags) {
         /* Update child info every 1 second (approximately).
          * in order to avoid calling mstime() on each iteration, we will
          * check the diff every 1024 keys */
-        if ((key_count++ & 1023) == 0) {
+        if (((*key_counter)++ & 1023) == 0) {
             long long now = mstime();
             if (now - info_updated_time >= 1000) {
-                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
-                key_count = 0;
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
                 info_updated_time = now;
             }
         }
     }
-
-    /* Send one last child info if needed */
-    if (key_count)
-        sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
 
     dictReleaseIterator(di);
     return written;
@@ -1346,6 +1340,7 @@ werr:
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     char magic[10];
     uint64_t cksum;
+    long key_counter = 0;
     int j;
 
     if (server.rdb_checksum)
@@ -1361,7 +1356,7 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     /* save all databases, skip this if we're in functions-only mode */
     if (!(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) {
         for (j = 0; j < server.dbnum; j++) {
-            if (rdbSaveDb(rdb, j, rdbflags) == -1) goto werr;
+            if (rdbSaveDb(rdb, j, rdbflags, &key_counter) == -1) goto werr;
         }
     }
 
