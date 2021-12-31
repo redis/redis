@@ -1166,17 +1166,10 @@ struct redisCommandArg KEYS_Args[] = {
 /* LINK hints */
 #define LINK_Hints NULL
 
-/* LINK condition argument table */
-struct redisCommandArg LINK_condition_Subargs[] = {
-{"soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
 /* LINK argument table */
 struct redisCommandArg LINK_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"target",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=LINK_condition_Subargs},
 {0}
 };
 
@@ -6384,7 +6377,7 @@ struct redisCommand redisCommandTable[] = {
 {"expireat","Set the expiration for a key as a UNIX timestamp","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIREAT_History,EXPIREAT_Hints,expireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIREAT_Args},
 {"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRETIME_History,EXPIRETIME_Hints,expiretimeCommand,2,CMD_READONLY|CMD_RANDOM|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_READ,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRETIME_Args},
 {"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,KEYS_History,KEYS_Hints,keysCommand,2,CMD_READONLY|CMD_SORT_FOR_SCRIPT,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=KEYS_Args},
-{"link","Create the link to a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,LINK_History,LINK_Hints,linkCommand,-3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_WRITE|CMD_KEY_READ,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINK_Args},
+{"link","Create the link to a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,LINK_History,LINK_Hints,linkCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_WRITE|CMD_KEY_READ,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINK_Args},
 {"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MIGRATE_History,MIGRATE_Hints,migrateCommand,-6,CMD_WRITE|CMD_RANDOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{CMD_KEY_WRITE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
 {"move","Move a key to another database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MOVE_History,MOVE_Hints,moveCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_WRITE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MOVE_Args},
 {"object","A container for object introspection commands","Depends on subcommand.","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_History,OBJECT_Hints,NULL,-2,0,0,.subcommands=OBJECT_Subcommands},

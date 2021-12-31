@@ -146,15 +146,11 @@ static short lookup_link_loops;
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *o = lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
     if (o && o->type == OBJ_LINK) {
-        if (o->encoding == OBJ_ENCODING_POINTER) {
-            o = o->ptr;
-        } else {
-            if (lookup_link_loops > 2) {
-                return NULL;
-            }
-            lookup_link_loops++;
-            o = lookupKeyRead(db,o->ptr);
+        if (lookup_link_loops > 2) {
+            return NULL;
         }
+        lookup_link_loops++;
+        o = lookupKeyRead(db,o->ptr);
     }
     return o;
 }
@@ -1037,6 +1033,7 @@ char* getObjectTypeName(robj *o) {
         case OBJ_ZSET: type = "zset"; break;
         case OBJ_HASH: type = "hash"; break;
         case OBJ_STREAM: type = "stream"; break;
+        case OBJ_LINK: type = "link"; break;
         case OBJ_MODULE: {
             moduleValue *mv = o->ptr;
             type = mv->type->name;

@@ -695,6 +695,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
+    case OBJ_LINK:
+        return rdbSaveType(rdb,RDB_TYPE_LINK);
     default:
         serverPanic("Unknown object type");
     }
@@ -1063,6 +1065,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             zfree(io.ctx);
         }
         return io.error ? -1 : (ssize_t)io.bytes;
+    } else if (o->type == OBJ_LINK) {
+        if ((n = rdbSaveStringObject(rdb,o->ptr)) == -1) return -1;
+        nwritten += n;
     } else {
         serverPanic("Unknown object type");
     }
@@ -2604,6 +2609,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             return NULL;
         }
         o = createModuleObject(mt,ptr);
+    } else if (rdbtype == RDB_TYPE_LINK) {
+        if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+        o = createLinkObject(o);
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;

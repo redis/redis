@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.0.0",
-        "arity": -3,
+        "arity": 3,
         "function": "linkCommand",
         "history": [
         ],
@@ -43,18 +43,6 @@
             {
                 "name": "target",
                 "type": "string"
-            },
-            {
-                "name": "condition",
-                "type": "oneof",
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "soft",
-                        "type": "pure-token",
-                        "token": "SOFT"
-                    }
-                ]
             }
         ]
     }
