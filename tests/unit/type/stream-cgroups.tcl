@@ -214,15 +214,26 @@ start_server {
         r XADD mystream 666 key value
         r XDEL mystream 666
 
-        # Serve it synchronously if the ID specified was not the special `>` ID.
+        # Return right away instead of blocking, return the stream with an
+        # empty list instead of NIL if the ID specified is not the special `>` ID.
         foreach id {0 600 666 700} {
-            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream $id
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
             assert_equal [$rd read] {{mystream {}}}
         }
 
-        # Pass a special `>` ID but without new entry, be blocked.
+        # Pass a special `>` ID but without new entry, released on timeout.
         $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream >
         assert_equal [$rd read] {}
+
+        # Throw an error if the ID equal or smaller than the last_id.
+        assert_error ERR*equal*smaller* {r XADD mystream 665 key value}
+        assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
+
+        # Entered blocking state and then release because of the new entry.
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        r XADD mystream 667 key value
+        assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
 
         $rd close
     }

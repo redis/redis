@@ -362,9 +362,19 @@ start_server {
         r XADD mystream 666 key value
         r XDEL mystream 666
 
-        # Pass a ID smaller than stream's last_id, be blocked.
+        # Pass a ID smaller than stream's last_id, released on timeout.
         $rd XREAD BLOCK 10 STREAMS mystream 665
         assert_equal [$rd read] {}
+
+        # Throw an error if the ID equal or smaller than the last_id.
+        assert_error ERR*equal*smaller* {r XADD mystream 665 key value}
+        assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
+
+        # Entered blocking state and then release because of the new entry.
+        $rd XREAD BLOCK 10 STREAMS mystream 665
+        wait_for_blocked_clients_count 1
+        r XADD mystream 667 key value
+        assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
 
         $rd close
     }
