@@ -244,7 +244,9 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         int retval = connRead(r->io.conn.conn,
                           (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
                           toread);
-        if (retval <= 0) {
+        if (retval == 0) {
+            return 0;
+        } else if (retval < 0) {
             if (connLastErrorRetryable(r->io.conn.conn)) continue;
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
