@@ -1223,14 +1223,14 @@ ssize_t rdbSaveFunctions(rio *rdb) {
     while ((entry = dictNext(iter))) {
         if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION)) < 0) goto werr;
         written += ret;
-        functionInfo* fi = dictGetVal(entry);
+        functionInfo *fi = dictGetVal(entry);
         if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name))) < 0) goto werr;
         written += ret;
         if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name))) < 0) goto werr;
         written += ret;
         if (fi->desc) {
             /* desc exists */
-            if ((ret = rdbSaveLen(rdb, 1)) < 0) return ret;
+            if ((ret = rdbSaveLen(rdb, 1)) < 0) goto werr;
             written += ret;
             if ((ret = rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc))) < 0) goto werr;
             written += ret;
