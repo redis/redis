@@ -1261,7 +1261,7 @@ struct client *createAOFClient(void) {
     return c;
 }
 
-/* Replay an append log file. On success AOF_OK is returned,
+/* Replay an append log file. On success AOF_OK or AOF_TRUNCATED is returned,
  * otherwise, one of the following is returned:
  * AOF_OPEN_ERR: Failed to open the AOF file.
  * AOF_NOT_EXIST: AOF file doesn't exist.

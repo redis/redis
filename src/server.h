@@ -1546,7 +1546,7 @@ struct redisServer {
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
-    char *aof_filename;             /* Basename of the AOF file */
+    char *aof_filename;             /* Basename of the AOF file and manifest file */
     char *aof_dirname;              /* Name of the AOF directory */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
