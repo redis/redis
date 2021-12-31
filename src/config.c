@@ -2207,9 +2207,6 @@ static int updateMaxmemory(const char **err) {
         }
         performEvictions();
     }
-    /* The function is called via 'CONFIG SET maxmemory', we don't want to propagate it
-     * because server.dirty might have been incremented by performEvictions() */
-    preventCommandPropagation(server.current_client);
     return 1;
 }
 

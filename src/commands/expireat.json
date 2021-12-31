@@ -8,7 +8,7 @@
         "function": "expireatCommand",
         "history": [
             [
-                "7.0",
+                "7.0.0",
                 "Added options: `NX`, `XX`, `GT` and `LT`."
             ]
         ],
@@ -52,6 +52,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "7.0.0",
                 "arguments": [
                     {
                         "name": "nx",

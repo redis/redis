@@ -8,7 +8,7 @@
         "function": "geoaddCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `CH`, `NX` and `XX` options."
             ]
         ],
@@ -48,6 +48,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "nx",
@@ -65,7 +66,8 @@
                 "name": "change",
                 "token": "CH",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             },
             {
                 "name": "longitude_latitude_member",

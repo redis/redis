@@ -8,7 +8,7 @@
         "function": "subscribeCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "`RESET` can be called to exit subscribed state."
             ]
         ],

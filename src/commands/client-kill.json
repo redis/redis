@@ -10,22 +10,22 @@
         "history": [
             [
                 "2.8.12",
-                "Added new filter format. "
+                "Added new filter format."
             ],
             [
                 "2.8.12",
                 "`ID` option."
             ],
             [
-                "3.2",
+                "3.2.0",
                 "Added `master` type in for `TYPE` option."
             ],
             [
-                "5",
+                "5.0.0",
                 "Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "`LADDR` option."
             ]
         ],
@@ -48,13 +48,15 @@
                 "token": "ID",
                 "name": "client-id",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "2.8.12"
             },
             {
                 "token": "TYPE",
                 "name": "normal_master_slave_pubsub",
                 "type": "oneof",
                 "optional": true,
+                "since": "2.8.12",
                 "arguments": [
                     {
                         "name": "normal",
@@ -64,12 +66,19 @@
                     {
                         "name": "master",
                         "type": "pure-token",
-                        "token": "master"
+                        "token": "master",
+                        "since": "3.2.0"
                     },
                     {
                         "name": "slave",
                         "type": "pure-token",
                         "token": "slave"
+                    },
+                    {
+                        "name": "replica",
+                        "type": "pure-token",
+                        "token": "replica",
+                        "since": "5.0.0"
                     },
                     {
                         "name": "pubsub",
@@ -94,7 +103,8 @@
                 "token": "LADDR",
                 "name": "ip:port",
                 "type": "string",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             },
             {
                 "token": "SKIPME",

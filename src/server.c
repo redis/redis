@@ -64,6 +64,10 @@
 #include <sys/mman.h>
 #endif
 
+#if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+#include <sys/sysctl.h>
+#endif
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -1369,6 +1373,14 @@ void whileBlockedCron() {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("while-blocked-cron",latency);
+
+    /* We received a SIGTERM during loading, shutting down here in a safe way,
+     * as it isn't ok doing so inside the signal handler. */
+    if (server.shutdown_asap && server.loading) {
+        if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
+        serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
+        server.shutdown_asap = 0;
+    }
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -2028,7 +2040,7 @@ void adjustOpenFilesLimit(void) {
 /* Check that server.tcp_backlog can be actually enforced in Linux according
  * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
 void checkTcpBacklogSettings(void) {
-#ifdef HAVE_PROC_SOMAXCONN
+#if defined(HAVE_PROC_SOMAXCONN)
     FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
     char buf[1024];
     if (!fp) return;
@@ -2039,6 +2051,31 @@ void checkTcpBacklogSettings(void) {
         }
     }
     fclose(fp);
+#elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
+    int somaxconn, mib[3];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_IPC;
+    mib[2] = KIPC_SOMAXCONN;
+
+    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
+#elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+    int somaxconn, mib[2];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_SOMAXCONN;
+
+    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
 #endif
 }
 
@@ -3836,7 +3873,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
@@ -4133,7 +4170,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key-specs");
+            addReplyBulkCString(c, "key_specs");
             addReplyCommandKeySpecs(c, cmd);
             maplen++;
         }
@@ -5558,8 +5595,7 @@ static void sigShutdownHandler(int sig) {
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
-        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
-        exit(0);
+        msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
     serverLogFromHandler(LL_WARNING, msg);
