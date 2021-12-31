@@ -3697,7 +3697,7 @@ static void freeClusterLinkOnBufferLimitReached(clusterLink *link) {
     }
     unsigned long long mem_link = sdsalloc(link->sndbuf);
     if (mem_link > server.cluster_link_sendbuf_limit_bytes) {
-        serverLog(LL_WARNING, "Freeing cluster link(%s node %s, used memory: %llu) due to "
+        serverLog(LL_WARNING, "Freeing cluster link(%s node %.40s, used memory: %llu) due to "
                 "exceeding send buffer memory limit.", link->inbound ? "from" : "to",
                 link->node ? link->node->name : "", mem_link);
         freeClusterLink(link);
