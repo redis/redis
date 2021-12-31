@@ -1281,7 +1281,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     FILE *fp = fopen(aof_filepath, "r");
     if (fp == NULL) {
         int en = errno;
-        if (redis_stat(aof_filepath, &sb) == 0) {
+        if (redis_stat(aof_filepath, &sb) == 0 || errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error: can't open the append log file %s for reading: %s", filename, strerror(en));
             sdsfree(aof_filepath);
             return AOF_OPEN_ERR;
