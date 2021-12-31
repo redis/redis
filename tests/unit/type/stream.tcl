@@ -371,7 +371,7 @@ start_server {
         assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
 
         # Entered blocking state and then release because of the new entry.
-        $rd XREAD BLOCK 10 STREAMS mystream 665
+        $rd XREAD BLOCK 0 STREAMS mystream 665
         wait_for_blocked_clients_count 1
         r XADD mystream 667 key value
         assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
