@@ -1796,6 +1796,8 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+    /* link levels limit */
+    int lookup_levels_limit; /* lookup levels limit */
 };
 
 #define MAX_KEYS_BUFFER 256

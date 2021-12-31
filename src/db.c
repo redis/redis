@@ -146,7 +146,7 @@ static short lookup_link_loops;
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *o = lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
     if (o && o->type == OBJ_LINK) {
-        if (lookup_link_loops > 2) {
+        if (lookup_link_loops > server.lookup_levels_limit) {
             return NULL;
         }
         lookup_link_loops++;
@@ -173,7 +173,7 @@ robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     lookup_link_loops = 0;
     robj *o = lookupKeyRead(c->db, key);
     if (!o) {
-        if (lookup_link_loops > 2) {
+        if (lookup_link_loops > server.lookup_levels_limit) {
             addReplyError(c, "Too many levels of symbolic links");
         } else {
             addReplyOrErrorObject(c, reply);

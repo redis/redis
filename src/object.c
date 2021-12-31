@@ -1657,25 +1657,36 @@ NULL
 /* ======================= The LINK commands =================== */
 /* The link command will create link to a key.
  *
- * Usage: LINK <key> <target> [soft]*/
+ * Usage: LINK <key> <target> */
 void linkCommand(client *c) {
     int found = 0;
     robj *o = NULL, *target = NULL;
     
-    if (!(o = lookupKeyReadOrReply(c, c->argv[1], shared.nokeyerr))) return;
+    o = lookupKeyReadWithFlags(c->db, c->argv[1], LOOKUP_NONE);
+    if (!o) {
+        addReply(c, shared.nokeyerr);
+        return;
+    }
     found = (lookupKeyWrite(c->db, c->argv[2]) != NULL);
     
+    incrRefCount(c->argv[1]);
     target = createLinkObject(c->argv[1]);
+    if (!target) {
+        addReply(c, shared.oomerr);
+        return;
+    }
+
     if (found) {
         dbOverwrite(c->db, c->argv[2], target);
     } else {
         dbAdd(c->db, c->argv[2], target);
     }
-
-    if (target)
-        addReply(c, shared.ok);
-    else 
-        addReply(c, shared.oomerr);
-
+        
+    signalModifiedKey(c,c->db,c->argv[2]);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"link_from",
+        c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"link_to",
+        c->argv[2],c->db->id);
     server.dirty++;
+    addReply(c, shared.ok);
 }
