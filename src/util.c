@@ -825,11 +825,11 @@ int dirExists(char *dname) {
 }
 
 int dirCreateIfMissing(char *dname) {
-    if (!pathIsBaseName(dname)) return -1;
     if (mkdir(dname, 0755) != 0) {
         if (errno != EEXIST) {
             return -1;
         } else if (!dirExists(dname)) {
+            errno = ENOTDIR;
             return -1;
         }
     }

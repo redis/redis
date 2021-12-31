@@ -54,7 +54,7 @@ int aofFileExist(char *filename);
  * is used to track and manage all AOF files.
  * 
  * There are three types of AOF, they are: 
- * BASE: Every time AOFRW success, a BASE file will be generated, which represents 
+ * BASE: Every time AOFRW succeeds, a BASE file will be generated, which represents 
  *       the redis SNAPSHOT at the moment when the AOFRW is executed. In AOF manifest
  *       file, the BASE file (if we have) is always at the beginning. there is at 
  *       most one BASE file.
@@ -582,8 +582,8 @@ void aofUpgradePrepare(aofManifest *am) {
 
     /* Create AOF directory use 'server.aof_dirname' as the name. */
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open create append-only dir %s", 
-            server.aof_dirname);
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+            server.aof_dirname, strerror(errno));
         exit(1);
     }
     
@@ -615,7 +615,8 @@ void aofUpgradePrepare(aofManifest *am) {
     }
     sdsfree(aof_filepath);
 
-    serverLog(LL_NOTICE, "Redis enters the upgrade mode and successfully completes the upgrade preparation!!");
+    serverLog(LL_NOTICE, "Successfully migrated an old-style AOF file (%s) into the AOF directory (%s).",
+        server.aof_filename, server.aof_dirname);
 }
 
 /* When AOFRW success, the previous BASE and INCR AOFs will 
@@ -639,7 +640,7 @@ int aofDelHistoryFiles(void) {
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
         serverAssert(ai->file_type == AOF_FILE_TYPE_HIST);
-        serverLog(LL_NOTICE, "Delete the history file %s in background", ai->file_name);
+        serverLog(LL_NOTICE, "Removing the history file %s in the background", ai->file_name);
         sds aof_filepath = makePath(server.aof_dirname, ai->file_name);
         bg_unlink(aof_filepath);
         sdsfree(aof_filepath);
@@ -666,8 +667,8 @@ void aofOpenIfNeededOnServerStart(void) {
     serverAssert(server.aof_fd == -1);
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open create append-only dir %s", 
-            server.aof_dirname);
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+            server.aof_dirname, strerror(errno));
         exit(1);
     }
 
@@ -800,7 +801,7 @@ int aofRewriteLimited(void) {
             next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
             
             serverLog(LL_WARNING, 
-                "Background AOF rewrite has continuous failed %ld times and triggered the limit, redis will retry in %d minutes", 
+                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes", 
                 incr_aof_num, limit_deley_minutes);
         }
     } else {
@@ -1312,8 +1313,8 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
     } else {
         /* RDB preamble. Pass loading the RDB functions. */
-        rio rdb;     
-        
+        rio rdb;
+
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
@@ -2253,8 +2254,8 @@ int rewriteAppendOnlyFileBackground(void) {
     if (hasActiveChildProcess()) return C_ERR;
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open create append-only dir %s", 
-            server.aof_dirname);
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+            server.aof_dirname, strerror(errno));
         return C_ERR;
     }
 
