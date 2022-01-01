@@ -2158,48 +2158,51 @@ static int isSensitiveCommand(int argc, char **argv) {
     return 0;
 }
 
-/* If connected node is replica, use INFO to get master_host and master_port,
- * then connect to master */
-static void tryConnectMaster(void) {
+/* Use ROLE to get master_host and master_port, then connect to master. Or use
+ * ROLE to get one of replica_host and replica_port, then connect to it */
+static void tryConnectMasterOrReplica(int master) {
     if (context == NULL) {
         fprintf(stderr, "not connected with any node\n");
         return;
     }
-    redisReply *reply = redisCommand(context, "INFO replication");
+    redisReply *reply = redisCommand(context, "ROLE");
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
         return;
     } else if (reply->type == REDIS_REPLY_ERROR) {
-        fprintf(stderr, "INFO failed: %s\n", reply->str);
+        fprintf(stderr, "ROLE failed: %s\n", reply->str);
         freeReplyObject(reply);
         return;
-    } else if (reply->type != REDIS_REPLY_STRING) {
-        fprintf(stderr, "Non STR response from INFO!\n");
+    } else if (reply->type != REDIS_REPLY_ARRAY) {
+        fprintf(stderr, "Non Array response from ROLE!\n");
         freeReplyObject(reply);
         return;
     }
 
-    char *role = getInfoField(reply->str, "role");
-    if (!role) {
-        fprintf(stderr, "Can't get role of node\n");
-    } else if (!strcasecmp(role, "master")) {
-        fprintf(stderr, "I'm already master\n");
-    } else if (!strcasecmp(role, "slave")) {
-        sdsfree(config.conn_info.hostip);
-        char *host = getInfoField(reply->str, "master_host");
-        char *port = getInfoField(reply->str, "master_port");
-        if (host == NULL || port == NULL) {
-            fprintf(stderr, "Can't get host or port\n");
-        } else {
-            config.conn_info.hostip = sdsnew(host);
-            config.conn_info.hostport = atoi(port);
-            cliRefreshPrompt();
-            cliConnect(CC_FORCE);
+    redisReply *role = reply->element[0];
+    if (!strcasecmp(role->str,"master")) {
+        if (master) {
+            fprintf(stderr, "I'm already master!\n");
+            return;
         }
-        zfree(host);
-        zfree(port);
+        redisReply *replicas = reply->element[2];
+        if (replicas->elements == 0) {
+            fprintf(stderr, "Non available replicas!\n");
+            return;
+        }
+        redisReply *replica = replicas->element[0];
+        config.conn_info.hostip = sdsnew(replica->element[0]->str);
+        config.conn_info.hostport = atoi(replica->element[1]->str);
+    } else {
+        if (!master) {
+            fprintf(stderr, "I'm already replica!\n");
+            return;
+        }
+        config.conn_info.hostip = sdsnew(reply->element[1]->str);
+        config.conn_info.hostport = reply->element[2]->integer;
     }
-    zfree(role);
+    cliRefreshPrompt();
+    cliConnect(CC_FORCE);
     freeReplyObject(reply);
 }
 
@@ -2300,9 +2303,9 @@ static void repl(void) {
                 cliRefreshPrompt();
                 cliConnect(CC_FORCE);
             } else if (argc == 2 && !strcasecmp(argv[0],"connect") &&
-                !strcasecmp(argv[1],"master"))
+                (!strcasecmp(argv[1],"master") || !strcasecmp(argv[1],"replica")))
             {
-                tryConnectMaster();
+                tryConnectMasterOrReplica(strcasecmp(argv[1], "master") == 0);
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                 linenoiseClearScreen();
             } else {
