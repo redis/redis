@@ -6,6 +6,12 @@
         "since": "1.0.0",
         "arity": -1,
         "function": "shutdownCommand",
+        "history": [
+            [
+                "7.0",
+                "Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "NOSCRIPT",

@@ -4272,7 +4272,10 @@ struct redisCommandArg REPLICAOF_Args[] = {
 /********** SHUTDOWN ********************/
 
 /* SHUTDOWN history */
-#define SHUTDOWN_History NULL
+commandHistory SHUTDOWN_History[] = {
+{"7.0","Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."},
+{0}
+};
 
 /* SHUTDOWN hints */
 #define SHUTDOWN_Hints NULL
