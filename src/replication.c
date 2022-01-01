@@ -3517,7 +3517,7 @@ long long replicationGetSlaveOffset(void) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
-/* Replication cron function, called 1 time per second. */
+/* Replication cron function, called 1 time per second in NO_FAILOVER mode, called 10 times per second in other mode. */
 void replicationCron(void) {
     static long long replication_cron_loops = 0;
 
