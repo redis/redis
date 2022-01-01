@@ -214,13 +214,6 @@ start_server {
         r XADD mystream 666 key value
         r XDEL mystream 666
 
-        # Return right away instead of blocking, return the stream with an
-        # empty list instead of NIL if the ID specified is not the special `>` ID.
-        foreach id {0 600 666 700} {
-            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
-            assert_equal [$rd read] {{mystream {}}}
-        }
-
         # Pass a special `>` ID but without new entry, released on timeout.
         $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream >
         assert_equal [$rd read] {}
@@ -234,6 +227,55 @@ start_server {
         wait_for_blocked_clients_count 1
         r XADD mystream 667 key value
         assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+
+        $rd close
+    }
+
+    test "Blocking XREADGROUP will ignore BLOCK if ID is not >" {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Return right away instead of blocking, return the stream with an
+        # empty list instead of NIL if the ID specified is not the special `>` ID.
+        foreach id {0 600 666 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After adding a new entry, `XREADGROUP BLOCK` still return the stream
+        # with an empty list because the pending list is empty.
+        r XADD mystream 667 key value
+        foreach id {0 600 666 667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After we read it once, the pending list is not empty at this time,
+        # pass any ID smaller than 667 will return one of the pending entry.
+        set res [r XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream >]
+        assert_equal $res {{mystream {{667-0 {key value}}}}}
+        foreach id {0 600 666} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+        }
+
+        # Pass ID equal or greater than 667 will return the stream with an empty list.
+        foreach id {667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After we ACK the pending entry, return the stream with an empty list.
+        r XACK mystream mygroup 667
+        foreach id {0 600 666 667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
 
         $rd close
     }
