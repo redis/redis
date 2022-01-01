@@ -48,6 +48,7 @@ PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
 PKG_CONFIG?=pkg-config
+PYTHON?=python
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -393,6 +394,9 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
+
+commands.c: commands/*.json ../utils/generate-command-code.py
+	$(PYTHON) ../utils/generate-command-code.py
 
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
