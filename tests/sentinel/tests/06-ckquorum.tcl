@@ -7,10 +7,10 @@ set num_sentinels [llength $::sentinel_instances]
 # that in the `down` state (s_down or o_down).
 proc get_sentinel_sentinels_down_count {sentinel_id master_name} {
     set down_sentinel_count 0
-    set lines [S $sentinel_id SENTINEL SENTINELS $master_name]
+    set sentinels [S $sentinel_id SENTINEL SENTINELS $master_name]
 
-    foreach line $lines {
-        set flags [dict get $line flags]
+    foreach sentinel $sentinels {
+        set flags [dict get $sentinel flags]
         if {[string match *down* $flags]} { incr down_sentinel_count 1 }
     }
 
