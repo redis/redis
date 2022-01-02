@@ -2325,7 +2325,9 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(now+(CLUSTER_MF_TIMEOUT*CLUSTER_MF_PAUSE_MULT),CLIENT_PAUSE_WRITE);
+        pauseClients(PAUSE_DURING_FAILOVER,
+                     now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
+                     CLIENT_PAUSE_WRITE);
         serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
         /* We need to send a ping message to the replica, as it would carry
@@ -3590,7 +3592,7 @@ void resetManualFailover(void) {
     if (server.cluster->mf_slave) {
         /* We were a master failing over, so we paused clients. Regardless
          * of the outcome we unpause now to allow traffic again. */
-        unpauseClients();
+        unpauseClients(PAUSE_DURING_FAILOVER);
     }
     server.cluster->mf_end = 0; /* No manual failover in progress. */
     server.cluster->mf_can_start = 0;
@@ -3697,7 +3699,7 @@ static void freeClusterLinkOnBufferLimitReached(clusterLink *link) {
     }
     unsigned long long mem_link = sdsalloc(link->sndbuf);
     if (mem_link > server.cluster_link_sendbuf_limit_bytes) {
-        serverLog(LL_WARNING, "Freeing cluster link(%s node %s, used memory: %llu) due to "
+        serverLog(LL_WARNING, "Freeing cluster link(%s node %.40s, used memory: %llu) due to "
                 "exceeding send buffer memory limit.", link->inbound ? "from" : "to",
                 link->node ? link->node->name : "", mem_link);
         freeClusterLink(link);

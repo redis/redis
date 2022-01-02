@@ -408,7 +408,7 @@ void functionDumpCommand(client *c) {
     rio payload;
     rioInitWithBuffer(&payload, sdsempty());
 
-    functionsSaveRio(&payload);
+    rdbSaveFunctions(&payload);
 
     /* RDB version */
     buf[0] = RDB_VERSION & 0xff;

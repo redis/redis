@@ -1,10 +1,17 @@
 {
     "SHUTDOWN": {
         "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "complexity": "O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)",
         "group": "server",
         "since": "1.0.0",
         "arity": -1,
         "function": "shutdownCommand",
+        "history": [
+            [
+                "7.0",
+                "Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "NOSCRIPT",
@@ -29,6 +36,24 @@
                         "token": "SAVE"
                     }
                 ]
+            },
+            {
+                "name": "now",
+                "type": "pure-token",
+                "token": "NOW",
+                "optional": true
+            },
+            {
+                "name": "force",
+                "type": "pure-token",
+                "token": "FORCE",
+                "optional": true
+            },
+            {
+                "name": "abort",
+                "type": "pure-token",
+                "token": "ABORT",
+                "optional": true
             }
         ]
     }

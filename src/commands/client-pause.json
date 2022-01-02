@@ -13,8 +13,8 @@
                 "Client pause prevents client pause and key eviction as well."
             ],
             [
-                "6.2",
-                "CLIENT PAUSE WRITE mode added along with the `mode` option."
+                "6.2.0",
+                "`CLIENT PAUSE WRITE` mode added along with the `mode` option."
             ]
         ],
         "command_flags": [
@@ -35,6 +35,7 @@
                 "name": "mode",
                 "type": "oneof",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "write",

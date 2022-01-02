@@ -45,6 +45,7 @@ set ::all_tests {
     integration/replication-4
     integration/replication-psync
     integration/replication-buffer
+    integration/shutdown
     integration/aof
     integration/aof-multi-part
     integration/rdb

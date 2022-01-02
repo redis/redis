@@ -108,12 +108,20 @@ start_server {tags {"cli"}} {
         _run_cli [srv host] [srv port] $::dbnum {} {*}$args
     }
 
-    proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
+    proc run_cli_with_input_pipe {mode cmd args} {
+        if {$mode == "x" } {
+            _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
+        } elseif {$mode == "X"} {
+            _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -X tag {*}$args
+        }
     }
 
-    proc run_cli_with_input_file {path args} {
-        _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+    proc run_cli_with_input_file {mode path args} {
+        if {$mode == "x" } {
+            _run_cli [srv host] [srv port] $::dbnum [list path $path] -x {*}$args
+        } elseif {$mode == "X"} {
+            _run_cli [srv host] [srv port] $::dbnum [list path $path] -X tag {*}$args
+        }
     }
 
     proc run_cli_host_port_db {host port db args} {
@@ -201,14 +209,22 @@ start_server {tags {"cli"}} {
     }
 
     test_tty_cli "Read last argument from pipe" {
-        assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
+        assert_equal "OK" [run_cli_with_input_pipe x "echo foo" set key]
         assert_equal "foo\n" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_pipe X "echo foo" set key2 tag]
+        assert_equal "foo\n" [r get key2]
     }
 
     test_tty_cli "Read last argument from file" {
         set tmpfile [write_tmpfile "from file"]
-        assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
+
+        assert_equal "OK" [run_cli_with_input_file x $tmpfile set key]
         assert_equal "from file" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_file X $tmpfile set key2 tag]
+        assert_equal "from file" [r get key2]
+
         file delete $tmpfile
     }
 
@@ -280,44 +296,71 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
     test_nontty_cli "Read last argument from pipe" {
-        assert_equal "OK" [run_cli_with_input_pipe "echo foo" set key]
+        assert_equal "OK" [run_cli_with_input_pipe x "echo foo" set key]
         assert_equal "foo\n" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_pipe X "echo foo" set key2 tag]
+        assert_equal "foo\n" [r get key2]
     }
 
     test_nontty_cli "Read last argument from file" {
         set tmpfile [write_tmpfile "from file"]
-        assert_equal "OK" [run_cli_with_input_file $tmpfile set key]
+
+        assert_equal "OK" [run_cli_with_input_file x $tmpfile set key]
         assert_equal "from file" [r get key]
+
+        assert_equal "OK" [run_cli_with_input_file X $tmpfile set key2 tag]
+        assert_equal "from file" [r get key2]
+
         file delete $tmpfile
     }
 
-    proc test_redis_cli_rdb_dump {} {
+    proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
+        r function flush
 
         set dir [lindex [r config get dir] 1]
 
         assert_equal "OK" [r debug populate 100000 key 1000]
-        catch {run_cli --rdb "$dir/cli.rdb"} output
+        assert_equal "OK" [r function create lua func1 "return 123"]
+        if {$functions_only} {
+            set args "--functions-rdb $dir/cli.rdb"
+        } else {
+            set args "--rdb $dir/cli.rdb"
+        }
+        catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
 
         file delete "$dir/dump.rdb"
         file rename "$dir/cli.rdb" "$dir/dump.rdb"
 
         assert_equal "OK" [r set should-not-exist 1]
+        assert_equal "OK" [r function create lua should_not_exist_func "return 456"]
         assert_equal "OK" [r debug reload nosave]
         assert_equal {} [r get should-not-exist]
+        assert_error "ERR Function does not exists" {r function info should_not_exist_func}
+        assert_equal "func1" [dict get [r function info func1] name]
+        if {$functions_only} {
+            assert_equal 0 [r dbsize]
+        } else {
+            assert_equal 100000 [r dbsize]
+        }
     }
 
-    test "Dumping an RDB" {
+    foreach {functions_only} {no yes} {
+
+    test "Dumping an RDB - functions only: $functions_only" {
         # Disk-based master
         assert_match "OK" [r config set repl-diskless-sync no]
-        test_redis_cli_rdb_dump
+        test_redis_cli_rdb_dump $functions_only
 
         # Disk-less master
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
-        test_redis_cli_rdb_dump
+        test_redis_cli_rdb_dump $functions_only
     } {} {needs:repl needs:debug}
+
+    } ;# foreach functions_only
 
     test "Scan mode" {
         r flushdb
@@ -398,5 +441,13 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
+    }
+
+    test "Options -X with illegal argument" {
+        assert_error "*-x and -X are mutually exclusive*" {run_cli -x -X tag}
+
+        assert_error "*Unrecognized option or bad number*" {run_cli -X}
+
+        assert_error "*tag not match*" {run_cli_with_input_pipe X "echo foo" set key wrong_tag}
     }
 }

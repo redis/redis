@@ -953,6 +953,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * This structure is used in some of the command-related APIs.
  *
  * NULL is returned in case of the following errors:
+ *
  * * Command not found
  * * The command is not a module command
  * * The command doesn't belong to the calling module
@@ -989,6 +990,7 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  *         return REDISMODULE_ERR;
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR in case of the following errors:
+ *
  * * Error while parsing `strflags`
  * * Command is marked as `no-cluster` but cluster mode is enabled
  * * `parent` is already a subcommand (we do not allow more than one level of command nesting)

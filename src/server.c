@@ -64,6 +64,10 @@
 #include <sys/mman.h>
 #endif
 
+#if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+#include <sys/sysctl.h>
+#endif
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -78,6 +82,13 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* Global vars */
 struct redisServer server; /* Server global state */
+
+/*============================ Internal prototypes ========================== */
+
+static inline int isShutdownInitiated(void);
+int isReadyToShutdown(void);
+int finishShutdown(void);
+const char *replstateToString(int replstate);
 
 /*============================ Utility functions ============================ */
 
@@ -1133,10 +1144,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
-    if (server.shutdown_asap) {
+    if (server.shutdown_asap && !isShutdownInitiated()) {
         if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
-        serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
-        server.shutdown_asap = 0;
+    } else if (isShutdownInitiated()) {
+        if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
+            if (finishShutdown() == C_OK) exit(0);
+            /* Shutdown failed. Continue running. An error has been logged. */
+        }
     }
 
     /* Show some info about non-empty databases */
@@ -1206,7 +1220,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(server.rdb_filename,rsiptr);
+                rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename,rsiptr);
                 break;
             }
         }
@@ -1299,7 +1313,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK)
+        if (rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -1374,6 +1388,22 @@ void whileBlockedCron() {
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("while-blocked-cron",latency);
+
+    /* We received a SIGTERM during loading, shutting down here in a safe way,
+     * as it isn't ok doing so inside the signal handler. */
+    if (server.shutdown_asap && server.loading) {
+        if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
+        serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
+        server.shutdown_asap = 0;
+    }
+}
+
+static void sendGetackToReplicas(void) {
+    robj *argv[3];
+    argv[0] = shared.replconf;
+    argv[1] = shared.getack;
+    argv[2] = shared.special_asterick; /* Not used argument. */
+    replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -1460,12 +1490,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
     if (server.get_ack_from_slaves && !checkClientPauseTimeoutAndReturnIfPaused()) {
-        robj *argv[3];
-
-        argv[0] = shared.replconf;
-        argv[1] = shared.getack;
-        argv[2] = shared.special_asterick; /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        sendGetackToReplicas();
         server.get_ack_from_slaves = 0;
     }
 
@@ -1744,6 +1769,8 @@ void initServerConfig(void) {
     memset(server.blocked_clients_by_type,0,
            sizeof(server.blocked_clients_by_type));
     server.shutdown_asap = 0;
+    server.shutdown_flags = 0;
+    server.shutdown_mstime = 0;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
@@ -1846,9 +1873,9 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Perform a proper shutdown. */
+    /* Perform a proper shutdown. We don't wait for lagging replicas though. */
     if (flags & RESTART_SERVER_GRACEFULLY &&
-        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
+        prepareForShutdown(SHUTDOWN_NOW) != C_OK)
     {
         serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
         return C_ERR;
@@ -2034,7 +2061,7 @@ void adjustOpenFilesLimit(void) {
 /* Check that server.tcp_backlog can be actually enforced in Linux according
  * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
 void checkTcpBacklogSettings(void) {
-#ifdef HAVE_PROC_SOMAXCONN
+#if defined(HAVE_PROC_SOMAXCONN)
     FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
     char buf[1024];
     if (!fp) return;
@@ -2045,6 +2072,31 @@ void checkTcpBacklogSettings(void) {
         }
     }
     fclose(fp);
+#elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
+    int somaxconn, mib[3];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_IPC;
+    mib[2] = KIPC_SOMAXCONN;
+
+    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
+#elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
+    int somaxconn, mib[2];
+    size_t len = sizeof(int);
+
+    mib[0] = CTL_KERN;
+    mib[1] = KERN_SOMAXCONN;
+
+    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
 #endif
 }
 
@@ -2235,6 +2287,8 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.client_pause_type = CLIENT_PAUSE_OFF;
     server.client_pause_end_time = 0;
+    memset(server.client_pause_per_purpose, 0,
+           sizeof(server.client_pause_per_purpose));
     server.paused_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
@@ -3500,9 +3554,7 @@ int processCommand(client *c) {
           c->cmd->proc != unwatchCommand &&
           c->cmd->proc != quitCommand &&
           c->cmd->proc != resetCommand &&
-        !(c->cmd->proc == shutdownCommand &&
-          c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
+          c->cmd->proc != shutdownCommand && /* more checks in shutdownCommand */
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
@@ -3588,7 +3640,32 @@ void closeListeningSockets(int unlink_unix_socket) {
     }
 }
 
+/* Prepare for shutting down the server. Flags:
+ *
+ * - SHUTDOWN_SAVE: Save a database dump even if the server is configured not to
+ *   save any dump.
+ *
+ * - SHUTDOWN_NOSAVE: Don't save any database dump even if the server is
+ *   configured to save one.
+ *
+ * - SHUTDOWN_NOW: Don't wait for replicas to catch up before shutting down.
+ *
+ * - SHUTDOWN_FORCE: Ignore errors writing AOF and RDB files on disk, which
+ *   would normally prevent a shutdown.
+ *
+ * Unless SHUTDOWN_NOW is set and if any replicas are lagging behind, C_ERR is
+ * returned and server.shutdown_mstime is set to a timestamp to allow a grace
+ * period for the replicas to catch up. This is checked and handled by
+ * serverCron() which completes the shutdown as soon as possible.
+ *
+ * If shutting down fails due to errors writing RDB or AOF files, C_ERR is
+ * returned and an error is logged. If the flag SHUTDOWN_FORCE is set, these
+ * errors are logged but ignored and C_OK is returned.
+ *
+ * On success, this function returns C_OK and then it's OK to call exit(0). */
 int prepareForShutdown(int flags) {
+    if (isShutdownInitiated()) return C_ERR;
+
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
      * the dataset on shutdown (otherwise it could overwrite the current DB
@@ -3598,12 +3675,107 @@ int prepareForShutdown(int flags) {
     if (server.loading || server.sentinel_mode)
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
 
-    int save = flags & SHUTDOWN_SAVE;
-    int nosave = flags & SHUTDOWN_NOSAVE;
+    server.shutdown_flags = flags;
 
     serverLog(LL_WARNING,"User requested shutdown...");
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
+
+    /* If we have any replicas, let them catch up the replication offset before
+     * we shut down, to avoid data loss. */
+    if (!(flags & SHUTDOWN_NOW) &&
+        server.shutdown_timeout != 0 &&
+        !isReadyToShutdown())
+    {
+        server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
+        if (!areClientsPaused()) sendGetackToReplicas();
+        pauseClients(PAUSE_DURING_SHUTDOWN, LLONG_MAX, CLIENT_PAUSE_WRITE);
+        serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
+        return C_ERR;
+    }
+
+    return finishShutdown();
+}
+
+static inline int isShutdownInitiated(void) {
+    return server.shutdown_mstime != 0;
+}
+
+/* Returns 0 if there are any replicas which are lagging in replication which we
+ * need to wait for before shutting down. Returns 1 if we're ready to shut
+ * down now. */
+int isReadyToShutdown(void) {
+    if (listLength(server.slaves) == 0) return 1;  /* No replicas. */
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *replica = listNodeValue(ln);
+        if (replica->repl_ack_off != server.master_repl_offset) return 0;
+    }
+    return 1;
+}
+
+static void cancelShutdown(void) {
+    server.shutdown_asap = 0;
+    server.shutdown_flags = 0;
+    server.shutdown_mstime = 0;
+    replyToClientsBlockedOnShutdown();
+    unpauseClients(PAUSE_DURING_SHUTDOWN);
+}
+
+/* Returns C_OK if shutdown was aborted and C_ERR if shutdown wasn't ongoing. */
+int abortShutdown(void) {
+    if (isShutdownInitiated()) {
+        cancelShutdown();
+    } else if (server.shutdown_asap) {
+        /* Signal handler has requested shutdown, but it hasn't been initiated
+         * yet. Just clear the flag. */
+        server.shutdown_asap = 0;
+    } else {
+        /* Shutdown neither initiated nor requested. */
+        return C_ERR;
+    }
+    serverLog(LL_NOTICE, "Shutdown manually aborted.");
+    return C_OK;
+}
+
+/* The final step of the shutdown sequence. Returns C_OK if the shutdown
+ * sequence was successful and it's OK to call exit(). If C_ERR is returned,
+ * it's not safe to call exit(). */
+int finishShutdown(void) {
+
+    int save = server.shutdown_flags & SHUTDOWN_SAVE;
+    int nosave = server.shutdown_flags & SHUTDOWN_NOSAVE;
+    int force = server.shutdown_flags & SHUTDOWN_FORCE;
+
+    /* Log a warning for each replica that is lagging. */
+    listIter replicas_iter;
+    listNode *replicas_list_node;
+    int num_replicas = 0, num_lagging_replicas = 0;
+    listRewind(server.slaves, &replicas_iter);
+    while ((replicas_list_node = listNext(&replicas_iter)) != NULL) {
+        client *replica = listNodeValue(replicas_list_node);
+        num_replicas++;
+        if (replica->repl_ack_off != server.master_repl_offset) {
+            num_lagging_replicas++;
+            long lag = replica->replstate == SLAVE_STATE_ONLINE ?
+                time(NULL) - replica->repl_ack_time : 0;
+            serverLog(LL_WARNING,
+                      "Lagging replica %s reported offset %lld behind master, lag=%ld, state=%s.",
+                      replicationGetSlaveName(replica),
+                      server.master_repl_offset - replica->repl_ack_off,
+                      lag,
+                      replstateToString(replica->replstate));
+        }
+    }
+    if (num_replicas > 0) {
+        serverLog(LL_NOTICE,
+                  "%d of %d replicas are in sync when shutting down.",
+                  num_replicas - num_lagging_replicas,
+                  num_replicas);
+    }
 
     /* Kill all the Lua debugger forked sessions. */
     ldbKillForkedSessions();
@@ -3629,20 +3801,24 @@ int prepareForShutdown(int flags) {
         TerminateModuleForkChild(server.child_pid,0);
     }
 
-    if (server.aof_state != AOF_OFF) {
-        /* Kill the AOF saving child as the AOF we already have may be longer
-         * but contains the full dataset anyway. */
-        if (server.child_type == CHILD_TYPE_AOF) {
-            /* If we have AOF enabled but haven't written the AOF yet, don't
-             * shutdown or else the dataset will be lost. */
-            if (server.aof_state == AOF_WAIT_REWRITE) {
+    /* Kill the AOF saving child as the AOF we already have may be longer
+     * but contains the full dataset anyway. */
+    if (server.child_type == CHILD_TYPE_AOF) {
+        /* If we have AOF enabled but haven't written the AOF yet, don't
+         * shutdown or else the dataset will be lost. */
+        if (server.aof_state == AOF_WAIT_REWRITE) {
+            if (force) {
+                serverLog(LL_WARNING, "Writing initial AOF. Exit anyway.");
+            } else {
                 serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
-                return C_ERR;
+                goto error;
             }
-            serverLog(LL_WARNING,
-                "There is a child rewriting the AOF. Killing it!");
-            killAppendOnlyChild();
         }
+        serverLog(LL_WARNING,
+                  "There is a child rewriting the AOF. Killing it!");
+        killAppendOnlyChild();
+    }
+    if (server.aof_state != AOF_OFF) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
@@ -3660,16 +3836,20 @@ int prepareForShutdown(int flags) {
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+        if (rdbSave(SLAVE_REQ_NONE, server.rdb_filename,rsiptr) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
-            serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
-            if (server.supervised_mode == SUPERVISED_SYSTEMD)
-                redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
-            return C_ERR;
+            if (force) {
+                serverLog(LL_WARNING,"Error trying to save the DB. Exit anyway.");
+            } else {
+                serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
+                if (server.supervised_mode == SUPERVISED_SYSTEMD)
+                    redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
+                goto error;
+            }
         }
     }
 
@@ -3694,6 +3874,11 @@ int prepareForShutdown(int flags) {
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
+
+error:
+    serverLog(LL_WARNING, "Errors trying to shut down the server. Check the logs for more information.");
+    cancelShutdown();
+    return C_ERR;
 }
 
 /*================================== Commands =============================== */
@@ -3844,7 +4029,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
     void *flaglen = addReplyDeferredLen(c);
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
     flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple-token");
+    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
@@ -4141,7 +4326,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             maplen++;
         }
         if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key-specs");
+            addReplyBulkCString(c, "key_specs");
             addReplyCommandKeySpecs(c, cmd);
             maplen++;
         }
@@ -4375,6 +4560,20 @@ sds getFullCommandName(struct redisCommand *cmd) {
     }
 }
 
+const char *replstateToString(int replstate) {
+    switch (replstate) {
+    case SLAVE_STATE_WAIT_BGSAVE_START:
+    case SLAVE_STATE_WAIT_BGSAVE_END:
+        return "wait_bgsave";
+    case SLAVE_STATE_SEND_BULK:
+        return "send_bulk";
+    case SLAVE_STATE_ONLINE:
+        return "online";
+    default:
+        return "";
+    }
+}
+
 /* Characters we sanitize on INFO output to maintain expected format. */
 static char unsafe_info_chars[] = "#:\n\r";
 static char unsafe_info_chars_substs[] = "____";   /* Must be same length as above */
@@ -4521,6 +4720,13 @@ sds genRedisInfoString(const char *section) {
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             server.io_threads_active);
+
+        /* Conditional properties */
+        if (isShutdownInitiated()) {
+            info = sdscatfmt(info,
+                "shutdown_in_milliseconds:%I\r\n",
+                (int64_t)(server.shutdown_mstime - server.mstime));
+        }
     }
 
     /* Clients */
@@ -5016,7 +5222,6 @@ sds genRedisInfoString(const char *section) {
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
                 client *slave = listNodeValue(ln);
-                char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
                 long lag = 0;
@@ -5026,19 +5231,8 @@ sds genRedisInfoString(const char *section) {
                         continue;
                     slaveip = ip;
                 }
-                switch(slave->replstate) {
-                case SLAVE_STATE_WAIT_BGSAVE_START:
-                case SLAVE_STATE_WAIT_BGSAVE_END:
-                    state = "wait_bgsave";
-                    break;
-                case SLAVE_STATE_SEND_BULK:
-                    state = "send_bulk";
-                    break;
-                case SLAVE_STATE_ONLINE:
-                    state = "online";
-                    break;
-                }
-                if (state == NULL) continue;
+                const char *state = replstateToString(slave->replstate);
+                if (state[0] == '\0') continue;
                 if (slave->replstate == SLAVE_STATE_ONLINE)
                     lag = time(NULL) - slave->repl_ack_time;
 
@@ -5558,14 +5752,13 @@ static void sigShutdownHandler(int sig) {
     /* SIGINT is often delivered via Ctrl+C in an interactive session.
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
-     * on disk. */
+     * on disk and without waiting for lagging replicas. */
     if (server.shutdown_asap && sig == SIGINT) {
         serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
-        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
-        exit(0);
+        msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
     serverLogFromHandler(LL_WARNING, msg);

@@ -2155,6 +2155,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                     updated_time = now;
                 }
             }
+
+            /* Delay before next key if required (for testing) */
+            if (server.rdb_key_save_delay)
+                debugDelay(server.rdb_key_save_delay);
         }
         dictReleaseIterator(di);
         di = NULL;
@@ -2196,7 +2200,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
+        if (rdbSaveRio(SLAVE_REQ_NONE,&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }
