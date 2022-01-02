@@ -497,8 +497,7 @@ sds createLatencyReport(void) {
  * Empty buckets are not printed.
  * Everything above 1 sec is considered +Inf.
  * At max there will be log2(1000000000)=30 buckets */
-void fillCommandCDFResp(client *c, const char* histogram_name, struct hdr_histogram* histogram){
-    addReplyBulkCString(c,histogram_name);
+void fillCommandCDFResp(client *c, struct hdr_histogram* histogram){
     addReplyMapLen(c,2);
     addReplyBulkCString(c,"calls");
     addReplyLongLong(c,(long long) histogram->total_count);
@@ -534,7 +533,9 @@ void latencyAllCommandsFillCDFResp(client *c) {
         cmd = (struct redisCommand *) dictGetVal(de);
         if (!cmd->latency_histogram)
             continue;
-        fillCommandCDFResp(c,getSafeInfoString(cmd->name,strlen(cmd->name),&tmpsafe),cmd->latency_histogram);
+        const char* cmdname = getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe);
+        addReplyBulkCString(c,cmdname);
+        fillCommandCDFResp(c, cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
         command_with_data++;
     }
@@ -545,26 +546,25 @@ void latencyAllCommandsFillCDFResp(client *c) {
 /* latencyCommand() helper to produce for a specific command set,
  * a per command cumulative distribution of latencies in RESP format. */
 void latencySpecificCommandsFillCDFResp(client *c) {
-    void *replylen = addReplyDeferredLen(c);
-    int samples = 0;
+    addReplyMapLen(c,c->argc - 2);
     for (int j = 2; j < c->argc; j++){
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
-        samples++;
-        if (cmd == NULL) {
-            addReplyErrorFormat(c,
-                "Invalid command name '%s'", (char*) c->argv[j]->ptr);
-            break;
-        }
         char *tmpsafe;
+        const char* cmdname = getSafeInfoString(c->argv[j]->ptr, strlen(c->argv[j]->ptr), &tmpsafe);
+        addReplyBulkCString(c,cmdname);
+        // If the command does not exist we reply with an empty map
+        if (cmd == NULL) {
+            addReplyMapLen(c,0);
+            continue;
+        }
+        // If no latency info we reply with an empty map
         if (!cmd->latency_histogram) {
-            addReplyArrayLen(c,0);
+            addReplyMapLen(c,0);
+            continue;
         }
-        else {
-            fillCommandCDFResp(c, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
-            if (tmpsafe != NULL) zfree(tmpsafe);
-        }
+        fillCommandCDFResp(c,  cmd->latency_histogram);
+        if (tmpsafe != NULL) zfree(tmpsafe);
     }
-    setDeferredMapLen(c,replylen,samples);
 }
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples

@@ -634,12 +634,6 @@ proc latencyrstat_percentiles {cmd r} {
     }
 }
 
-proc latencyrstat_hist {cmd r} {
-    if {[regexp "\r\nlatency_hist_usec_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
-        set _ $value
-    }
-}
-
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from help.h or elsewhere, and improve to include other types
