@@ -31,7 +31,7 @@ test "Migrate a slot, verify client receives sunsubscribe on primary serving the
     $nodefrom(link) spublish $channelname hello
     assert_equal {message mychannel hello} [$subscribeclient read]
 
-    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
    
     set msg [$subscribeclient read]
     assert {"sunsubscribe" eq [lindex $msg 0]}
@@ -39,7 +39,7 @@ test "Migrate a slot, verify client receives sunsubscribe on primary serving the
     assert {"0" eq [lindex $msg 2]}
 
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
-    
+
     $subscribeclient close
 }
 
@@ -68,7 +68,7 @@ test "Client subscribes to multiple channels, migrate a slot, verify client rece
     $nodefrom(link) spublish $channelname hello
     assert_equal {message ch3 hello} [$subscribeclient read]
 
-    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
 
     # Verify the client receives sunsubscribe message for the channel(slot) which got migrated.
     set msg [$subscribeclient read]
@@ -116,14 +116,14 @@ test "Migrate a slot, verify client receives sunsubscribe on replica serving the
     $nodefrom(link) spublish $channelname hello
     assert_equal {message mychannel1 hello} [$subscribeclient read]
 
-    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
     set msg [$subscribeclient read]
     assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
-    
+
     $subscribeclient close
 }
 
