@@ -497,7 +497,7 @@ sds createLatencyReport(void) {
  * Empty buckets are not printed.
  * Everything above 1 sec is considered +Inf.
  * At max there will be log2(1000000000)=30 buckets */
-void fillCommandCDFResp(client *c, struct hdr_histogram* histogram){
+void fillCommandCDF(client *c, struct hdr_histogram* histogram){
     addReplyMapLen(c,2);
     addReplyBulkCString(c,"calls");
     addReplyLongLong(c,(long long) histogram->total_count);
@@ -521,8 +521,8 @@ void fillCommandCDFResp(client *c, struct hdr_histogram* histogram){
 }
 
 /* latencyCommand() helper to produce for all commands,
- * a per command cumulative distribution of latencies in RESP format. */
-void latencyAllCommandsFillCDFResp(client *c) {
+ * a per command cumulative distribution of latencies. */
+void latencyAllCommandsFillCDF(client *c) {
     dictIterator *di = dictGetSafeIterator(server.commands);
     dictEntry *de;
     struct redisCommand *cmd;
@@ -535,7 +535,7 @@ void latencyAllCommandsFillCDFResp(client *c) {
             continue;
         const char* cmdname = getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe);
         addReplyBulkCString(c,cmdname);
-        fillCommandCDFResp(c, cmd->latency_histogram);
+        fillCommandCDF(c, cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
         command_with_data++;
     }
@@ -544,8 +544,8 @@ void latencyAllCommandsFillCDFResp(client *c) {
 }
 
 /* latencyCommand() helper to produce for a specific command set,
- * a per command cumulative distribution of latencies in RESP format. */
-void latencySpecificCommandsFillCDFResp(client *c) {
+ * a per command cumulative distribution of latencies. */
+void latencySpecificCommandsFillCDF(client *c) {
     addReplyMapLen(c,c->argc - 2);
     for (int j = 2; j < c->argc; j++){
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
@@ -562,7 +562,7 @@ void latencySpecificCommandsFillCDFResp(client *c) {
             addReplyMapLen(c,0);
             continue;
         }
-        fillCommandCDFResp(c,  cmd->latency_histogram);
+        fillCommandCDF(c,  cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
     }
 }
@@ -708,9 +708,9 @@ void latencyCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"histogram") && c->argc >= 2) {
         /* LATENCY HISTOGRAM*/
         if (c->argc == 2) {
-            latencyAllCommandsFillCDFResp(c);
+            latencyAllCommandsFillCDF(c);
         } else {
-            latencySpecificCommandsFillCDFResp(c);
+            latencySpecificCommandsFillCDF(c);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
