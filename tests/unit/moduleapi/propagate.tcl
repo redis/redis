@@ -174,7 +174,6 @@ tags "modules" {
 
                     # Note whenever there's double notification: SET with EX issues two separate
                     # notifications: one for "set" and one for "expire"
-                    # "config set" should not be here, see https://github.com/redis/redis/issues/10014
                     assert_replication_stream $repl {
                         {select *}
                         {multi}
