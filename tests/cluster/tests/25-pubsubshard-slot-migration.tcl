@@ -131,14 +131,14 @@ test "Delete a slot, verify sunsubscribe message" {
     set channelname ch2
     set slot [$cluster cluster keyslot $channelname]
 
-    array set primary [$cluster masternode_for_slot $slot]
+    array set primary_client [$cluster masternode_for_slot $slot]
 
-    set subscribeclient [redis_deferring_client_by_addr $primary(host) $primary(port)]
+    set subscribeclient [redis_deferring_client_by_addr $primary_client(host) $primary_client(port)]
     $subscribeclient deferred 1
     $subscribeclient ssubscribe $channelname
     $subscribeclient read
 
-    $primary(link) cluster DELSLOTS $slot
+    $primary_client(link) cluster DELSLOTS $slot
 
     set msg [$subscribeclient read]
     assert {"sunsubscribe" eq [lindex $msg 0]}
@@ -152,9 +152,9 @@ test "Reset cluster, verify sunsubscribe message" {
     set channelname ch4
     set slot [$cluster cluster keyslot $channelname]
 
-    array set primary [$cluster masternode_for_slot $slot]
+    array set primary_client [$cluster masternode_for_slot $slot]
 
-    set subscribeclient [redis_deferring_client_by_addr $primary(host) $primary(port)]
+    set subscribeclient [redis_deferring_client_by_addr $primary_client(host) $primary_client(port)]
     $subscribeclient deferred 1
     $subscribeclient ssubscribe $channelname
     $subscribeclient read
