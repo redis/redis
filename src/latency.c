@@ -490,40 +490,12 @@ sds createLatencyReport(void) {
 
 /* ---------------------- Latency command implementation -------------------- */
 
-/* An human-readable array of time buckets, each representing a latency range,
+/* latencyCommand() helper to produce an map of time buckets,
+ * each representing a latency range,
  * between 1 nanosecond and roughly 1 second.
- * Each bucket covers twice the previous bucket s range.
+ * Each bucket covers twice the previous bucket's range.
  * Empty buckets are not printed.
- * Everything above 1sec is considered +Inf.
- * At max there will be log2(1000000000)=30 buckets */
-sds fillCommandCDFHuman(sds info, const char* histogram_name, struct hdr_histogram* histogram){
-    info = sdscatprintf(info,"latency_hist_usec_%s:calls=%lld,histogram=[",
-        histogram_name, (long long) histogram->total_count);
-    struct hdr_iter iter;
-    hdr_iter_log_init(&iter,histogram,1024,2);
-    size_t bucket_pos = 0;
-    int64_t previous_count = 0;
-    while (hdr_iter_next(&iter)) {
-        const int64_t micros = iter.highest_equivalent_value / 1000;
-        const int64_t cumulative_count = iter.cumulative_count;
-        if(cumulative_count > previous_count){
-            if (bucket_pos>0)
-                info = sdscatprintf(info,",");
-            info = sdscatprintf(info,"%lld=%lld",(long long) micros,(long long) cumulative_count);
-            bucket_pos++;
-        }
-        previous_count = cumulative_count;
-
-    }
-    info = sdscatprintf(info,"]\r\n");
-    return info;
-}
-
-/* An map of time buckets, each representing a latency range,
- * between 1 nanosecond and roughly 1 second.
- * Each bucket covers twice the previous bucket s range.
- * Empty buckets are not printed.
- * Everything above 1sec is considered +Inf.
+ * Everything above 1 sec is considered +Inf.
  * At max there will be log2(1000000000)=30 buckets */
 void fillCommandCDFResp(client *c, const char* histogram_name, struct hdr_histogram* histogram){
     addReplyBulkCString(c,histogram_name);
@@ -549,47 +521,8 @@ void fillCommandCDFResp(client *c, const char* histogram_name, struct hdr_histog
     setDeferredMapLen(c,replylen,samples);
 }
 
-/* latencyCommand() helper to produce a per command category cumulative distribution of latencies. */
-void latencyAllCommandsFillCDFHuman(client *c) {
-    dictIterator *di = dictGetSafeIterator(server.commands);
-    dictEntry *de;
-    struct redisCommand *cmd;
-    sds info = sdsempty();
-    while((de = dictNext(di)) != NULL) {
-        char *tmpsafe;
-        cmd = (struct redisCommand *) dictGetVal(de);
-        if (!cmd->latency_histogram)
-            continue;
-        info = fillCommandCDFHuman(info,getSafeInfoString(cmd->name,strlen(cmd->name),&tmpsafe),cmd->latency_histogram);
-        if (tmpsafe != NULL) zfree(tmpsafe);
-    }
-    dictReleaseIterator(di);
-    addReplyVerbatim(c,info,sdslen(info),"txt");
-    sdsfree(info);
-}
-
-/* latencyCommand() helper to produce a per command cumulative distribution of latencies. */
-void latencySpecificCommandsFillCDFHuman(client *c) {
-    sds info = sdsempty();
-    for (int j = 2; j < c->argc; j++){
-        struct redisCommand *cmd = dictFetchValue(server.commands,c->argv[j]->ptr);
-        if (cmd == NULL) {
-            addReplyErrorFormat(c,
-                "Invalid command name '%s'",(char*) c->argv[j]->ptr);
-            sdsfree(info);
-            return;
-        }
-        char *tmpsafe;
-        if (!cmd->latency_histogram)
-            continue;
-        info = fillCommandCDFHuman(info,getSafeInfoString(cmd->name,strlen(cmd->name),&tmpsafe),cmd->latency_histogram);
-        if (tmpsafe != NULL) zfree(tmpsafe);
-    }
-    addReplyVerbatim(c,info,sdslen(info),"txt");
-    sdsfree(info);
-}
-
-/* latencyCommand() helper to produce a per command cumulative distribution of latencies in RESP format. */
+/* latencyCommand() helper to produce for all commands,
+ * a per command cumulative distribution of latencies in RESP format. */
 void latencyAllCommandsFillCDFResp(client *c) {
     dictIterator *di = dictGetSafeIterator(server.commands);
     dictEntry *de;
@@ -609,7 +542,8 @@ void latencyAllCommandsFillCDFResp(client *c) {
     setDeferredMapLen(c,replylen,command_with_data);
 }
 
-/* latencyCommand() helper to produce a per command cumulative distribution of latencies in RESP format. */
+/* latencyCommand() helper to produce for a specific command set,
+ * a per command cumulative distribution of latencies in RESP format. */
 void latencySpecificCommandsFillCDFResp(client *c) {
     void *replylen = addReplyDeferredLen(c);
     int samples = 0;
@@ -726,7 +660,6 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  * LATENCY HISTOGRAM: return a cumulative distribution of latencies in the format of an histogram for the specified command names.
- * LATENCY HISTOGRAM-REPORT: return a human readable cumulative distribution of latencies in the format of an histogram for the specified command names.
  */
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
@@ -779,13 +712,6 @@ void latencyCommand(client *c) {
         } else {
             latencySpecificCommandsFillCDFResp(c);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"histogram-report") && c->argc >= 2) {
-        /* LATENCY HISTOGRAM-REPORT*/
-        if (c->argc == 2) {
-            latencyAllCommandsFillCDFHuman(c);
-        } else {
-            latencySpecificCommandsFillCDFHuman(c);
-        }
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
 "DOCTOR",
@@ -801,9 +727,6 @@ void latencyCommand(client *c) {
 "    (default: reset all data for all event classes)",
 "HISTOGRAM [COMMAND ...]",
 "    Return a cumulative distribution of latencies in the format of an histogram for the specified command names.",
-"    If no commands are specified then all histograms are replied.",
-"HISTOGRAM-REPORT [COMMAND ...]",
-"    Return a human readable cumulative distribution of latencies in the format of an histogram for the specified command names.",
 "    If no commands are specified then all histograms are replied.",
 NULL
         };
