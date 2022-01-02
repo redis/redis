@@ -321,7 +321,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
 #define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
-#define BLOCKED_NUM 7     /* Number of blocked states. */
+#define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
+#define BLOCKED_NUM 8      /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -484,6 +485,8 @@ typedef enum {
 #define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
                                    points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
+#define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
+#define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
@@ -507,6 +510,19 @@ typedef enum {
     CLIENT_PAUSE_WRITE,   /* Pause write commands */
     CLIENT_PAUSE_ALL      /* Pause all commands */
 } pause_type;
+
+/* Client pause purposes. Each purpose has its own end time and pause type. */
+typedef enum {
+    PAUSE_BY_CLIENT_COMMAND = 0,
+    PAUSE_DURING_SHUTDOWN,
+    PAUSE_DURING_FAILOVER,
+    NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
+} pause_purpose;
+
+typedef struct {
+    pause_type type;
+    mstime_t end;
+} pause_event;
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -1353,7 +1369,9 @@ struct redisServer {
     aeEventLoop *el;
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
-    volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
+    volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
+    mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
+    int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
@@ -1413,6 +1431,7 @@ struct redisServer {
     pause_type client_pause_type;      /* True if clients are currently paused */
     list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
+    pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -1613,6 +1632,9 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
+    /* Shutdown */
+    int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
+
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
@@ -2344,8 +2366,8 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(int port, socketFds *fds);
-void pauseClients(mstime_t duration, pause_type type);
-void unpauseClients(void);
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
+void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);
@@ -2708,6 +2730,8 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 int prepareForShutdown(int flags);
+void replyToClientsBlockedOnShutdown(void);
+int abortShutdown(void);
 void afterCommand(client *c);
 int inNestedCall(void);
 #ifdef __GNUC__

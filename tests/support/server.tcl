@@ -674,8 +674,12 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
+proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
     set srv [lindex $::servers end+$level]
+    if {$shutdown ne {sigterm}} {
+        catch {[dict get $srv "client"] shutdown $shutdown}
+    }
+    # Kill server doesn't mind if the server is already dead
     kill_server $srv
     # Remove the default client from the server
     dict unset srv "client"

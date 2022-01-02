@@ -2873,7 +2873,7 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
-        unpauseClients();
+        unpauseClients(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
@@ -2895,7 +2895,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(end, type);
+        pauseClients(PAUSE_BY_CLIENT_COMMAND, end, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3539,6 +3539,48 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
+/* Compute current most restictive pause type and its end time, aggregated for
+ * all pause purposes. */
+static void updateClientPauseTypeAndEndTime(void) {
+    pause_type old_type = server.client_pause_type;
+    pause_type type = CLIENT_PAUSE_OFF;
+    mstime_t end = 0;
+    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
+        pause_event *p = server.client_pause_per_purpose[i];
+        if (p == NULL) {
+            /* Nothing to do. */
+        } else if (p->end < server.mstime) {
+            /* This one expired. */
+            zfree(p);
+            server.client_pause_per_purpose[i] = NULL;
+        } else if (p->type > type) {
+            /* This type is the most restrictive so far. */
+            type = p->type;
+        }
+    }
+
+    /* Find the furthest end time among the pause purposes of the most
+     * restrictive type */
+    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
+        pause_event *p = server.client_pause_per_purpose[i];
+        if (p != NULL && p->type == type && p->end > end) end = p->end;
+    }
+    server.client_pause_type = type;
+    server.client_pause_end_time = end;
+
+    /* If the pause type is less restrictive than before, we unblock all clients
+     * so they are reprocessed (may get re-paused). */
+    if (type < old_type) {
+        listNode *ln;
+        listIter li;
+        listRewind(server.paused_clients, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            unblockClient(c);
+        }
+    }
+}
+
 /* Pause clients up to the specified unixtime (in ms) for a given type of
  * commands.
  *
@@ -3552,14 +3594,18 @@ void flushSlavesOutputBuffers(void) {
  * The function always succeed, even if there is already a pause in progress.
  * In such a case, the duration is set to the maximum and new end time and the
  * type is set to the more restrictive type of pause. */
-void pauseClients(mstime_t end, pause_type type) {
-    if (type > server.client_pause_type) {
-        server.client_pause_type = type;
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
+    /* Manage pause type and end time per pause purpose. */
+    if (server.client_pause_per_purpose[purpose] == NULL) {
+        server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));
+        server.client_pause_per_purpose[purpose]->type = type;
+        server.client_pause_per_purpose[purpose]->end = end;
+    } else {
+        pause_event *p = server.client_pause_per_purpose[purpose];
+        p->type = max(p->type, type);
+        p->end = max(p->end, end);
     }
-
-    if (end > server.client_pause_end_time) {
-        server.client_pause_end_time = end;
-    }
+    updateClientPauseTypeAndEndTime();
 
     /* We allow write commands that were queued
      * up before and after to execute. We need
@@ -3571,20 +3617,11 @@ void pauseClients(mstime_t end, pause_type type) {
 }
 
 /* Unpause clients and queue them for reprocessing. */
-void unpauseClients(void) {
-    listNode *ln;
-    listIter li;
-    client *c;
-    
-    server.client_pause_type = CLIENT_PAUSE_OFF;
-    server.client_pause_end_time = 0;
-
-    /* Unblock all of the clients so they are reprocessed. */
-    listRewind(server.paused_clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-        unblockClient(c);
-    }
+void unpauseClients(pause_purpose purpose) {
+    if (server.client_pause_per_purpose[purpose] == NULL) return;
+    zfree(server.client_pause_per_purpose[purpose]);
+    server.client_pause_per_purpose[purpose] = NULL;
+    updateClientPauseTypeAndEndTime();
 }
 
 /* Returns true if clients are paused and false otherwise. */ 
@@ -3599,7 +3636,7 @@ int checkClientPauseTimeoutAndReturnIfPaused(void) {
     if (!areClientsPaused())
         return 0;
     if (server.client_pause_end_time < server.mstime) {
-        unpauseClients();
+        updateClientPauseTypeAndEndTime();
     }
     return areClientsPaused();
 }

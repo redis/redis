@@ -591,8 +591,11 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num {prefix key:} {size 3}} {
-    set rd [redis_deferring_client]
+# Write num keys with the given key prefix and value size (in bytes). If idx is
+# given, it's the index (AKA level) used with the srv procedure and it specifies
+# to which Redis instance to write the keys.
+proc populate {num {prefix key:} {size 3} {idx 0}} {
+    set rd [redis_deferring_client $idx]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
     }
