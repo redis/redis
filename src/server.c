@@ -2333,6 +2333,8 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
 size_t dictEntryMetadataSize(dict *d) {
     UNUSED(d);
+    /* NOTICE: this also affect overhead_ht_slot_to_keys in getMemoryOverheadData.
+     * If we ever add non-cluster realted data here, that code must be modified too. */
     return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
 }
 

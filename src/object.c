@@ -30,7 +30,6 @@
 
 #include "server.h"
 #include "functions.h"
-#include "cluster.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -1237,12 +1236,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
-        if (server.cluster_enabled) {
-            /* Account for the slot to keys map in cluster mode */
-            mem = dictSize(db->dict) * sizeof(clusterDictEntryMetadata);
-            mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
-            mem_total+=mem;
-        }
+        /* Account for the slot to keys map in cluster mode */
+        mem = dictSize(db->dict) * dictMetadataSize(db->dict);
+        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
+        mem_total+=mem;
 
         mh->num_dbs++;
     }
