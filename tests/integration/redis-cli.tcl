@@ -451,33 +451,31 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_error "*tag not match*" {run_cli_with_input_pipe X "echo foo" set key wrong_tag}
     }
 
-    if {!$::tls} {
-        test "DUMP RESTORE with -x option" {
-            set cmd "src/redis-cli -h [srv host] -p [srv port]"
+    test "DUMP RESTORE with -x option" {
+        set cmd "src/redis-cli -h [srv host] -p [srv port]"
 
-            exec {*}$cmd DEL set new_set
-            exec {*}$cmd SADD set 1 2 3 4 5 6
-            assert_equal 6 [exec {*}$cmd SCARD set]
+        exec {*}$cmd DEL set new_set
+        exec {*}$cmd SADD set 1 2 3 4 5 6
+        assert_equal 6 [exec {*}$cmd SCARD set]
 
-            assert_equal "OK" [exec {*}$cmd -D "" --raw DUMP set | \
-                                    {*}$cmd -x RESTORE new_set 0]
+        assert_equal "OK" [exec {*}$cmd -D "" --raw DUMP set | \
+                                {*}$cmd -x RESTORE new_set 0]
 
-            assert_equal 6 [exec {*}$cmd SCARD new_set]
-            assert_equal "1\n2\n3\n4\n5\n6" [exec {*}$cmd SMEMBERS new_set]
-        }
+        assert_equal 6 [exec {*}$cmd SCARD new_set]
+        assert_equal "1\n2\n3\n4\n5\n6" [exec {*}$cmd SMEMBERS new_set]
+    } {} {tls:skip}
 
-        test "DUMP RESTORE with -X option" {
-            set cmd "src/redis-cli -h [srv host] -p [srv port]"
+    test "DUMP RESTORE with -X option" {
+        set cmd "src/redis-cli -h [srv host] -p [srv port]"
 
-            exec {*}$cmd DEL zset new_zset
-            exec {*}$cmd ZADD zset 1 a 2 b 3 c
-            assert_equal 3 [exec {*}$cmd ZCARD zset]
+        exec {*}$cmd DEL zset new_zset
+        exec {*}$cmd ZADD zset 1 a 2 b 3 c
+        assert_equal 3 [exec {*}$cmd ZCARD zset]
 
-            assert_equal "OK" [exec {*}$cmd -D "" --raw DUMP zset | \
-                                    {*}$cmd -X dump_tag RESTORE new_zset 0 dump_tag REPLACE]
+        assert_equal "OK" [exec {*}$cmd -D "" --raw DUMP zset | \
+                                {*}$cmd -X dump_tag RESTORE new_zset 0 dump_tag REPLACE]
 
-            assert_equal 3 [exec {*}$cmd ZCARD new_zset]
-            assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmd ZRANGE new_zset 0 -1 WITHSCORES]
-        }
-    }
+        assert_equal 3 [exec {*}$cmd ZCARD new_zset]
+        assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmd ZRANGE new_zset 0 -1 WITHSCORES]
+    } {} {tls:skip}
 }
