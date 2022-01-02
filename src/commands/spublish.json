@@ -35,7 +35,7 @@
         },
         "find_keys": {
           "range": {
-            "lastkey": 1,
+            "lastkey": 0,
             "step": 1,
             "limit": 0
           }

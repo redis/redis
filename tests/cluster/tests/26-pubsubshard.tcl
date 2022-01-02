@@ -13,20 +13,18 @@ test "Pub/Sub shard basics" {
     array set publishnode [$cluster masternode_for_slot $slot]
     array set notshardnode [$cluster masternode_notfor_slot $slot]
 
-    set publishclient [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set subscribeclient [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set subscribeclient2 [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set anotherclient [redis_deferring_client $notshardnode(host) $notshardnode(port)]
+    set publishclient [redis_client_by_addr $publishnode(host) $publishnode(port)]
+    set subscribeclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
+    set subscribeclient2 [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
+    set anotherclient [redis_deferring_client_by_addr $notshardnode(host) $notshardnode(port)]
 
-    $subscribeclient deferred 1
-    $subscribeclient ssubscirbe channel.0
+    $subscribeclient ssubscribe channel.0
     $subscribeclient read
 
-    $subscribeclient2 deferred 1
-    $subscribeclient2 ssubscirbe channel.0
+    $subscribeclient2 ssubscribe channel.0
     $subscribeclient2 read
 
-    $anotherclient ssubscirbe channel.0
+    $anotherclient ssubscribe channel.0
     catch {$anotherclient read} err
     assert_match {MOVED *} $err
 
@@ -34,10 +32,10 @@ test "Pub/Sub shard basics" {
     $publishclient spublish channel.0 $data
 
     set msg [$subscribeclient read]
-    assert {$data eq [lindex $msg 2]}
+    assert_equal $data [lindex $msg 2]
 
     set msg [$subscribeclient2 read]
-    assert {$data eq [lindex $msg 2]}
+    assert_equal $data [lindex $msg 2]
 
     $publishclient close
     $subscribeclient close
@@ -46,13 +44,13 @@ test "Pub/Sub shard basics" {
 }
 
 test "client can't subscribe to multiple shard channels across different slots in same call" {
-    catch {$cluster ssubscirbe channel.0 channel.1} err
+    catch {$cluster ssubscribe channel.0 channel.1} err
     assert_match {CROSSSLOT Keys*} $err
 }
 
 test "client can subscribe to multiple shard channels across different slots in separate call" {
-    $cluster ssubscirbe ch3
-    $cluster ssubscirbe ch7
+    $cluster ssubscribe ch3
+    $cluster ssubscribe ch7
 
     $cluster sunsubscribe ch3
     $cluster sunsubscribe ch7
@@ -64,13 +62,13 @@ test "Verify Pub/Sub and Pub/Sub shard no overlap" {
     array set publishnode [$cluster masternode_for_slot $slot]
     array set notshardnode [$cluster masternode_notfor_slot $slot]
 
-    set publishshardclient [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set publishclient [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set subscribeshardclient [redis_deferring_client $publishnode(host) $publishnode(port)]
-    set subscribeclient [redis_deferring_client $publishnode(host) $publishnode(port)]
+    set publishshardclient [redis_client_by_addr $publishnode(host) $publishnode(port)]
+    set publishclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
+    set subscribeshardclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
+    set subscribeclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
 
     $subscribeshardclient deferred 1
-    $subscribeshardclient ssubscirbe channel.0
+    $subscribeshardclient ssubscribe channel.0
     $subscribeshardclient read
 
     $subscribeclient deferred 1
@@ -84,10 +82,10 @@ test "Verify Pub/Sub and Pub/Sub shard no overlap" {
     $publishclient publish channel.0 $data
 
     set msg [$subscribeshardclient read]
-    assert {$sharddata eq [lindex $msg 2]}
+    assert_equal $sharddata [lindex $msg 2]
 
     set msg [$subscribeclient read]
-    assert {$data eq [lindex $msg 2]}
+    assert_equal $data [lindex $msg 2]
 
     $cluster close
     $publishclient close
