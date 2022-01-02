@@ -1119,8 +1119,12 @@ void syncCommand(client *c) {
  * Unlike other subcommands, this is used by master to get the replication
  * offset from a replica.
  *
- * - rdb-only
- * Only wants RDB snapshot without replication buffer. */
+ * - rdb-only <0|1>
+ * Only wants RDB snapshot without replication buffer.
+ *
+ * - rdb-filter-only <include-filters>
+ * Define "include" filters for the RDB snapshot. Currently we only support
+ * a single include filter: "functions". */
 void replconfCommand(client *c) {
     int j;
 
