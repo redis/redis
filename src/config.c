@@ -2650,12 +2650,10 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, cons
     if (!server.latency_tracking_info_percentiles_len) {
         line = sdscat(line,"\"\"");
     } else {
-        line = sdscat(line," ");
         for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+            line = sdscat(line," ");
             line = sdscatprintf(line,"%f",
                 server.latency_tracking_info_percentiles[j]);
-            if (j != server.latency_tracking_info_percentiles_len-1)
-                line = sdscat(line," ");
         }
     }
     rewriteConfigRewriteLine(state,name,line,1);

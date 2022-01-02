@@ -1364,8 +1364,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                         !strcasecmp(argv[1],"info"))) ||
         (argc == 3 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"graph")) ||
-        (argc >= 2 && !strcasecmp(command,"latency") &&
-                       !strcasecmp(argv[1],"histogram-report")) ||
         (argc == 2 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"doctor")) ||
         /* Format PROXY INFO command for Redis Cluster Proxy:

@@ -1689,7 +1689,6 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
-
 void initServerConfig(void) {
     int j;
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
@@ -1746,10 +1745,11 @@ void initServerConfig(void) {
     server.pause_cron = 0;
 
     server.latency_tracking_enabled = 1;
-    resetServerLatencyPercentileParams();
-    appendServerLatencyPercentileParams(50.0);  /* p50 */
-    appendServerLatencyPercentileParams(99.0);  /* p99 */
-    appendServerLatencyPercentileParams(99.9); /* p999 */
+    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len+1));
+    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
+    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
+    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -2552,9 +2552,9 @@ void populateCommandStructure(struct redisCommand *c) {
     c->key_specs = c->key_specs_static;
     c->key_specs_max = STATIC_KEY_SPECS_NUM;
 
-    c->latency_histogram = NULL; /* We start with an unallocated histogram
-                                      * and only allocate memory when a command
-                                      * has been issued for the first time */
+    /* We start with an unallocated histogram and only allocate memory when a command
+     * has been issued for the first time */
+    c->latency_histogram = NULL;
 
     for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
@@ -2874,9 +2874,9 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int64_t duration_hist){
     if (unlikely(duration_hist < LATENCY_HISTOGRAM_MIN_VALUE))
         duration_hist=LATENCY_HISTOGRAM_MIN_VALUE;
-    if(unlikely(duration_hist>LATENCY_HISTOGRAM_MAX_VALUE))
+    if (unlikely(duration_hist>LATENCY_HISTOGRAM_MAX_VALUE))
         duration_hist=LATENCY_HISTOGRAM_MAX_VALUE;
-    if(unlikely(*latency_histogram==NULL))
+    if (unlikely(*latency_histogram==NULL))
         hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
     hdr_record_value(*latency_histogram,duration_hist);
 }
