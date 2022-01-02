@@ -450,4 +450,32 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
         assert_error "*tag not match*" {run_cli_with_input_pipe X "echo foo" set key wrong_tag}
     }
+
+    test "DUMP RESTORE with -x option" {
+        set cmdline [rediscli [srv host] [srv port]]
+
+        exec {*}$cmdline DEL set new_set
+        exec {*}$cmdline SADD set 1 2 3 4 5 6
+        assert_equal 6 [exec {*}$cmdline SCARD set]
+
+        assert_equal "OK" [exec {*}$cmdline -D "" --raw DUMP set | \
+                                {*}$cmdline -x RESTORE new_set 0]
+
+        assert_equal 6 [exec {*}$cmdline SCARD new_set]
+        assert_equal "1\n2\n3\n4\n5\n6" [exec {*}$cmdline SMEMBERS new_set]
+    }
+
+    test "DUMP RESTORE with -X option" {
+        set cmdline [rediscli [srv host] [srv port]]
+
+        exec {*}$cmdline DEL zset new_zset
+        exec {*}$cmdline ZADD zset 1 a 2 b 3 c
+        assert_equal 3 [exec {*}$cmdline ZCARD zset]
+
+        assert_equal "OK" [exec {*}$cmdline -D "" --raw DUMP zset | \
+                                {*}$cmdline -X dump_tag RESTORE new_zset 0 dump_tag REPLACE]
+
+        assert_equal 3 [exec {*}$cmdline ZCARD new_zset]
+        assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
+    }
 }
