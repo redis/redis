@@ -469,10 +469,20 @@ void loadServerConfigFromString(char *config) {
                     err = "wrong number of arguments";
                     goto loaderr;
                 }
+
+                sds *use_argv = argv+1, *free_argv = NULL;
+                int use_argc = argc-1;
+                /* If we have a multi arg config with a single arg, try to split it. */
+                if (config->flags & MULTI_ARG_CONFIG && argc == 2) {
+                    use_argv = sdssplitlen(*use_argv, sdslen(*use_argv), " ", 1, &use_argc);
+                    free_argv = use_argv;
+                }
                 /* Set config using all arguments that follows */
-                if (!config->interface.set(config->data, &argv[1], argc-1, &err)) {
+                if (!config->interface.set(config->data, use_argv, use_argc, &err)) {
+                    if (free_argv) sdsfreesplitres(free_argv,use_argc);
                     goto loaderr;
                 }
+                if (free_argv) sdsfreesplitres(free_argv,use_argc);
 
                 match = 1;
                 break;

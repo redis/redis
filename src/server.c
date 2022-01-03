@@ -6425,8 +6425,13 @@ int main(int argc, char **argv) {
                 if (sdslen(options)) options = sdscat(options,"\n");
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
+                if (++j >= argc) break;
+                /* First option argument (don't look for `--` in this one) */
+                printf("%s\n",argv[j]);
+                options = sdscatrepr(options,argv[j],strlen(argv[j]));
+                options = sdscat(options," ");
             } else {
-                /* Option argument */
+                /* Additional option argument */
                 options = sdscatrepr(options,argv[j],strlen(argv[j]));
                 options = sdscat(options," ");
             }
