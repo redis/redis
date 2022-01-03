@@ -252,7 +252,8 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
-    client *thread_safe_ctx_client; /* Fake client to be used for thread safe context so that no lock is required. */
+    client *thread_safe_ctx_client; /* Fake client to be used for thread safe
+                                       context so that no lock is required. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
@@ -266,9 +267,9 @@ typedef struct RedisModuleBlockedClient {
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
-#define MODULE_MAX_TEMP_CLIENT_COUNT 1024
-static client *moduleTempClients[MODULE_MAX_TEMP_CLIENT_COUNT];
+static client **moduleTempClients;
 static size_t moduleTempClientCount = 0;
+static size_t moduleTempClientCap = 0;
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
@@ -512,14 +513,18 @@ client *moduleAllocTempClient() {
 }
 
 void moduleReleaseTempClient(client *c) {
-    if (moduleTempClientCount == MODULE_MAX_TEMP_CLIENT_COUNT) {
-        freeClient(c);
-    } else {
-        clearClient(c);
-        c->flags |= CLIENT_MODULE;
-        c->user = NULL; /* Root user */
-        moduleTempClients[moduleTempClientCount++] = c;
+    if (moduleTempClientCount == moduleTempClientCap) {
+        moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
+        moduleTempClients = zrealloc(moduleTempClients, sizeof(c)*moduleTempClientCap);
     }
+    clearClientConnectionState(c);
+    listEmpty(c->reply);
+    c->reply_bytes = 0;
+    resetClient(c);
+    c->bufpos = 0;
+    c->flags = CLIENT_MODULE;
+    c->user = NULL; /* Root user */
+    moduleTempClients[moduleTempClientCount++] = c;
 }
 
 /* Create an empty key of the specified type. `key` must point to a key object
@@ -653,8 +658,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             ctx->module->name);
     }
     /* If this context has a temp client, we return it back to the pool.
-     * If this context has a newly created client (e.g a detached context), we
-     * destroy the client.
+     * If this context created a new client (e.g detached context), we free it.
      * If the client is assigned manually, e.g ctx->client = someClientInstance,
      * none of these flags will be set and we do not attempt to free it. */
     if (ctx->flags & REDISMODULE_CTX_TEMP_CLIENT)
@@ -6644,11 +6648,12 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * internal pool of client objects. In blockClient(), a client object is
      * assigned to bc->thread_safe_ctx_client to be used for the thread safe
      * context.
-     * For detached thread safe contexts, we are creating a new client. As this
-     * function can be called from different threads, we would need to
-     * synchronize access to internal pool of client objects. Assuming creating
-     * detached clients are rare and not that performance critical, we avoid
-     * synchronizing access to the client pool by creating a new client */
+     * For detached thread safe contexts, we create a new client object.
+     * Otherwise, as this function can be called from different threads, we
+     * would need to synchronize access to internal pool of client objects.
+     * Assuming creating detached context is rare and not that performance
+     * critical, we avoid synchronizing access to the client pool by creating
+     * a new client */
     if (!bc) flags |= REDISMODULE_CTX_NEW_CLIENT;
     moduleCreateContext(ctx, module, flags);
     /* Even when the context is associated with a blocked client, we can't
@@ -9484,8 +9489,7 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 void moduleRegisterCoreAPI(void);
 
 /* Currently, this function is just a placeholder for the module system
- * initialization steps that need to be run after server initialization if
- * needed.
+ * initialization steps that need to be run after server initialization.
  * A previous issue, selectDb() in createClient() requires that server.db has
  * been initialized, see #7323. */
 void moduleInitModulesSystemLast(void) {
@@ -9525,6 +9529,20 @@ void moduleInitModulesSystem(void) {
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */
     pthread_mutex_lock(&moduleGIL);
+}
+
+void modulesCron(void) {
+    /* For two reasons, we limit max client count to be freed here. First, if
+     * there are many clients to be freed, this loop might become slow.
+     * Second, we are giving temp clients more chance to be reused. If they are
+     * not used, they'll be freed eventually rather than all at once. */
+    int iteration = 10;
+    /* Keep 32 clients for future use */
+    while (iteration > 0 && moduleTempClientCount > 32) {
+        client *c = moduleTempClients[--moduleTempClientCount];
+        freeClient(c);
+        iteration--;
+    }
 }
 
 void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {

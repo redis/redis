@@ -117,19 +117,35 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-static void initClientVariables(client *c) {
+client *createClient(connection *conn) {
+    client *c = zmalloc(sizeof(client));
+
+    /* passing NULL as conn it is possible to create a non connected client.
+     * This is useful since all the commands needs to be executed
+     * in the context of a client. When commands are executed in other
+     * contexts (for instance a Lua script) we need a non connected client. */
+    if (conn) {
+        connEnableTcpNoDelay(conn);
+        if (server.tcpkeepalive)
+            connKeepAlive(conn,server.tcpkeepalive);
+        connSetReadHandler(conn, readQueryFromClient);
+        connSetPrivateData(conn, c);
+    }
+
     selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
     c->id = client_id;
     c->resp = 2;
-    c->conn = NULL;
+    c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
+    c->querybuf = sdsempty();
+    c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -155,10 +171,14 @@ static void initClientVariables(client *c) {
     c->slave_listening_port = 0;
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
+    c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
+    listSetFreeMethod(c->reply,freeClientReplyValue);
+    listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
+    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType);
     c->bpop.target = NULL;
     c->bpop.xread_group = NULL;
     c->bpop.xread_consumer = NULL;
@@ -166,6 +186,9 @@ static void initClientVariables(client *c) {
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
+    c->watched_keys = listCreate();
+    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
+    c->pubsub_patterns = listCreate();
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
@@ -178,40 +201,12 @@ static void initClientVariables(client *c) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
-    c->mem_usage_bucket = NULL;
-    c->mem_usage_bucket_node = NULL;
-    initClientMultiState(c);
-}
-
-client *createClient(connection *conn) {
-    client *c = zmalloc(sizeof(client));
-
-    initClientVariables(c);
-    c->querybuf = sdsempty();
-    c->pending_querybuf = sdsempty();
-    c->reply = listCreate();
-    listSetFreeMethod(c->reply,freeClientReplyValue);
-    listSetDupMethod(c->reply,dupClientReplyValue);
-    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType);
-    c->watched_keys = listCreate();
-    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsub_patterns = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-
-    /* passing NULL as conn it is possible to create a non-connected client.
-     * This is useful since all the commands needs to be executed
-     * in the context of a client. When commands are executed in other
-     * contexts (for instance a Lua script) we need a non-connected client. */
-    if (conn) {
-        c->conn = conn;
-        connEnableTcpNoDelay(conn);
-        if (server.tcpkeepalive)
-            connKeepAlive(conn,server.tcpkeepalive);
-        connSetReadHandler(conn, readQueryFromClient);
-        connSetPrivateData(conn, c);
-        linkClient(c);
-    }
+    c->mem_usage_bucket = NULL;
+    c->mem_usage_bucket_node = NULL;
+    if (conn) linkClient(c);
+    initClientMultiState(c);
     return c;
 }
 
@@ -1388,67 +1383,6 @@ void clearClientConnectionState(client *c) {
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
                   CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
-}
-
-/* Clear the client state fully and initialize it as a new client object. This
- * function is useful when you want to reuse the client object to avoid
- * costly freeClient()/createClient() calls. */
-void clearClient(client *c) {
-    serverAssert(!(c->flags & CLIENT_PROTECTED));
-
-    /* For connected clients, call the disconnection event of modules hooks. */
-    if (c->conn) {
-        moduleFireServerEvent(REDISMODULE_EVENT_CLIENT_CHANGE,
-                              REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
-                              c);
-    }
-
-    clearClientConnectionState(c);
-
-    /* Deallocate structures used to block on blocking ops. */
-    if (c->flags & CLIENT_BLOCKED) unblockClient(c);
-    dictEmpty(c->bpop.keys, NULL);
-
-    sdsclear(c->querybuf);
-    /* Resize querybuf if it is too big. If this client ends up in a cache
-     * after being cleared, it may go undetected with a large query buffer,
-     * possibly wasting memory. */
-    if (sdsavail(c->querybuf) > PROTO_RESIZE_THRESHOLD) {
-        c->querybuf = sdsResize(c->querybuf, PROTO_RESIZE_THRESHOLD);
-    }
-
-    sdsclear(c->pending_querybuf);
-    listEmpty(c->watched_keys);
-    dictEmpty(c->pubsub_channels, NULL);
-    listEmpty(c->pubsub_patterns);
-    listEmpty(c->reply);
-    freeReplicaReferencedReplBuffer(c);
-    freeClientArgv(c);
-    freeClientOriginalArgv(c);
-
-    /* Unlink the client: this will close the socket, remove the I/O
-     * handlers, and remove references of the client from different
-     * places where active clients may be referenced. */
-    unlinkClient(c);
-
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->last_memory_type] -=
-        c->last_memory_usage;
-    /* Remove client from memory usage buckets */
-    if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
-        listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-    }
-
-    /* Release other dynamically allocated client structure fields */
-    if (c->name) decrRefCount(c->name);
-    sdsfree(c->peerid);
-    sdsfree(c->sockname);
-    sdsfree(c->slave_addr);
-
-    /* Reinitialize all variables to the default values */
-    initClientVariables(c);
 }
 
 void freeClient(client *c) {

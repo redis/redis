@@ -2208,6 +2208,7 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 /* Modules */
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
+void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2266,7 +2267,7 @@ client *createClient(connection *conn);
 void freeClient(client *c);
 void freeClientAsync(client *c);
 int beforeNextClient(client *c);
-void clearClient(client *c);
+void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
 void sendReplyToClient(connection *conn);
