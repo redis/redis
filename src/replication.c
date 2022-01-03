@@ -833,11 +833,11 @@ int startBgsaveForReplication(int mincapa, int req) {
     listNode *ln;
 
     /* We use a socket target if slave can handle the EOF marker and we're configured to do diskless syncs.
-     * Note that in case we're creating a "filtered" RDB (functions-only) we also force socket replication
+     * Note that in case we're creating a "filtered" RDB (functions-only, for example) we also force socket replication
      * to avoid overwriting the snapshot RDB file with filtered data. */
-    socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) && (mincapa & SLAVE_CAPA_EOF);
+    socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_ALL) != SLAVE_REQ_RDB_ALL) && (mincapa & SLAVE_CAPA_EOF);
     /* `SYNC` should have failed with error if we don't support socket and require a filter, assert this here */
-    serverAssert(socket_target || !(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY));
+    serverAssert(socket_target || (req & SLAVE_REQ_RDB_ALL) == SLAVE_REQ_RDB_ALL);
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "replicas sockets" : "disk");
@@ -958,7 +958,7 @@ void syncCommand(client *c) {
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
-    if ((c->slave_req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && !(c->slave_capa & SLAVE_CAPA_EOF)) {
+    if ((c->slave_req & SLAVE_REQ_RDB_ALL) != SLAVE_REQ_RDB_ALL && !(c->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
     }
@@ -1124,7 +1124,8 @@ void syncCommand(client *c) {
  *
  * - rdb-filter-only <include-filters>
  * Define "include" filters for the RDB snapshot. Currently we only support
- * a single include filter: "functions". */
+ * a single include filter: "functions". Passing an empty string "" will
+ * result in an empty RDB. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1214,9 +1215,10 @@ void replconfCommand(client *c) {
                 addReplyErrorFormat(c, "Missing rdb-filter-only values");
                 return;
             }
+            c->slave_req &= ~SLAVE_REQ_RDB_ALL;
             for (i = 0; i < filter_count; i++) {
                 if (!strcasecmp(filters[i], "functions"))
-                    c->slave_req |= SLAVE_REQ_RDB_FUNCTIONS_ONLY;
+                    c->slave_req |= SLAVE_REQ_RDB_FUNCTIONS;
                 else {
                     addReplyErrorFormat(c, "Unsupported rdb-filter-only option: %s", (char*)filters[i]);
                     sdsfreesplitres(filters, filter_count);

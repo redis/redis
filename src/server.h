@@ -382,8 +382,10 @@ typedef enum {
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
 
 /* Slave requirements */
-#define SLAVE_REQ_NONE 0
-#define SLAVE_REQ_RDB_FUNCTIONS_ONLY (1 << 0)
+#define SLAVE_REQ_RDB_DATA (1 << 0)
+#define SLAVE_REQ_RDB_FUNCTIONS (1 << 1)
+#define SLAVE_REQ_RDB_ALL (SLAVE_REQ_RDB_DATA | SLAVE_REQ_RDB_FUNCTIONS)
+#define SLAVE_REQ_DEFAULT SLAVE_REQ_RDB_ALL
 
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
