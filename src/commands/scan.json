@@ -6,6 +6,12 @@
         "since": "2.8.0",
         "arity": -2,
         "function": "scanCommand",
+        "history": [
+            [
+                "6.0.0",
+                "Added the `TYPE` subcommand."
+            ]
+        ],
         "command_flags": [
             "READONLY",
             "RANDOM"
@@ -34,7 +40,8 @@
                 "token": "TYPE",
                 "name": "type",
                 "type": "string",
-                "optional": true
+                "optional": true,
+                "since": "6.0.0"
             }
         ]
     }

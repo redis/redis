@@ -826,11 +826,18 @@ need_full_resync:
  *    started.
  *
  * Returns C_OK on success or C_ERR otherwise. */
-int startBgsaveForReplication(int mincapa) {
+int startBgsaveForReplication(int mincapa, int req) {
     int retval;
-    int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
+    int socket_target = 0;
     listIter li;
     listNode *ln;
+
+    /* We use a socket target if slave can handle the EOF marker and we're configured to do diskless syncs.
+     * Note that in case we're creating a "filtered" RDB (functions-only) we also force socket replication
+     * to avoid overwriting the snapshot RDB file with filtered data. */
+    socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) && (mincapa & SLAVE_CAPA_EOF);
+    /* `SYNC` should have failed with error if we don't support socket and require a filter, assert this here */
+    serverAssert(socket_target || !(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY));
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "replicas sockets" : "disk");
@@ -841,9 +848,9 @@ int startBgsaveForReplication(int mincapa) {
      * otherwise slave will miss repl-stream-db. */
     if (rsiptr) {
         if (socket_target)
-            retval = rdbSaveToSlavesSockets(rsiptr);
+            retval = rdbSaveToSlavesSockets(req,rsiptr);
         else
-            retval = rdbSaveBackground(server.rdb_filename,rsiptr);
+            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr);
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -886,8 +893,10 @@ int startBgsaveForReplication(int mincapa) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-                    replicationSetupSlaveForFullResync(slave,
-                            getPsyncInitialOffset());
+                /* Check slave has the exact requirements */
+                if (slave->slave_req != req)
+                    continue;
+                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
             }
         }
     }
@@ -943,6 +952,14 @@ void syncCommand(client *c) {
      * dataset, so that we can copy to other slaves if needed. */
     if (clientHasPendingReplies(c)) {
         addReplyError(c,"SYNC and PSYNC are invalid with pending output");
+        return;
+    }
+
+    /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
+     * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
+     * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
+    if ((c->slave_req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && !(c->slave_capa & SLAVE_CAPA_EOF)) {
+        addReplyError(c,"Filtered replica requires EOF capability");
         return;
     }
 
@@ -1025,8 +1042,10 @@ void syncCommand(client *c) {
                 break;
         }
         /* To attach this slave, we check that it has at least all the
-         * capabilities of the slave that triggered the current BGSAVE. */
-        if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
+         * capabilities of the slave that triggered the current BGSAVE
+         * and its exact requirements. */
+        if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa) &&
+            c->slave_req == slave->slave_req) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer.
              * We don't copy buffer if clients don't want. */
@@ -1062,7 +1081,7 @@ void syncCommand(client *c) {
             /* We don't have a BGSAVE in progress, let's start one. Diskless
              * or disk-based mode is determined by replica's capacity. */
             if (!hasActiveChildProcess()) {
-                startBgsaveForReplication(c->slave_capa);
+                startBgsaveForReplication(c->slave_capa, c->slave_req);
             } else {
                 serverLog(LL_NOTICE,
                     "No BGSAVE in progress, but another BG operation is active. "
@@ -1100,8 +1119,12 @@ void syncCommand(client *c) {
  * Unlike other subcommands, this is used by master to get the replication
  * offset from a replica.
  *
- * - rdb-only
- * Only wants RDB snapshot without replication buffer. */
+ * - rdb-only <0|1>
+ * Only wants RDB snapshot without replication buffer.
+ *
+ * - rdb-filter-only <include-filters>
+ * Define "include" filters for the RDB snapshot. Currently we only support
+ * a single include filter: "functions". */
 void replconfCommand(client *c) {
     int j;
 
@@ -1177,6 +1200,30 @@ void replconfCommand(client *c) {
                 return;
             if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
             else c->flags &= ~CLIENT_REPL_RDBONLY;
+        } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {
+            /* REPLCONFG RDB-FILTER-ONLY is used to define "include" filters
+             * for the RDB snapshot. Currently we only support a single
+             * include filter: "functions". In the future we may want to add
+             * other filters like key patterns, key types, non-volatile, module
+             * aux fields, ...
+             * We might want to add the complementing "RDB-FILTER-EXCLUDE" to
+             * filter out certain data. */
+            int filter_count, i;
+            sds *filters;
+            if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
+                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                return;
+            }
+            for (i = 0; i < filter_count; i++) {
+                if (!strcasecmp(filters[i], "functions"))
+                    c->slave_req |= SLAVE_REQ_RDB_FUNCTIONS_ONLY;
+                else {
+                    addReplyErrorFormat(c, "Unsupported rdb-filter-only option: %s", (char*)filters[i]);
+                    sdsfreesplitres(filters, filter_count);
+                    return;
+                }
+            }
+            sdsfreesplitres(filters, filter_count);
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -3633,8 +3680,8 @@ void replicationCron(void) {
     replication_cron_loops++; /* Incremented with frequency 1 HZ. */
 }
 
-void replicationStartPendingFork(void) {
-    /* Start a BGSAVE good for replication if we have slaves in
+int shouldStartChildReplication(int *mincapa_out, int *req_out) {
+    /* We should start a BGSAVE good for replication if we have slaves in
      * WAIT_BGSAVE_START state.
      *
      * In case of diskless replication, we make sure to wait the specified
@@ -3643,7 +3690,9 @@ void replicationStartPendingFork(void) {
     if (!hasActiveChildProcess()) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
-        int mincapa = -1;
+        int mincapa;
+        int req;
+        int first = 1;
         listNode *ln;
         listIter li;
 
@@ -3651,11 +3700,18 @@ void replicationStartPendingFork(void) {
         while((ln = listNext(&li))) {
             client *slave = ln->value;
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                if (first) {
+                    /* Get first slave's requirements */
+                    req = slave->slave_req;
+                } else if (req != slave->slave_req) {
+                    /* Skip slaves that don't match */
+                    continue;
+                }
                 idle = server.unixtime - slave->lastinteraction;
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
-                mincapa = (mincapa == -1) ? slave->slave_capa :
-                                            (mincapa & slave->slave_capa);
+                mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);
+                first = 0;
             }
         }
 
@@ -3663,11 +3719,26 @@ void replicationStartPendingFork(void) {
             (!server.repl_diskless_sync ||
              max_idle >= server.repl_diskless_sync_delay))
         {
-            /* Start the BGSAVE. The called function may start a
-             * BGSAVE with socket target or disk target depending on the
-             * configuration and slaves capabilities. */
-            startBgsaveForReplication(mincapa);
+            if (mincapa_out)
+                *mincapa_out = mincapa;
+            if (req_out)
+                *req_out = req;
+            return 1;
         }
+    }
+
+    return 0;
+}
+
+void replicationStartPendingFork(void) {
+    int mincapa = -1;
+    int req = -1;
+
+    if (shouldStartChildReplication(&mincapa, &req)) {
+        /* Start the BGSAVE. The called function may start a
+         * BGSAVE with socket target or disk target depending on the
+         * configuration and slaves capabilities and requirements. */
+        startBgsaveForReplication(mincapa, req);
     }
 }
 
@@ -3715,7 +3786,7 @@ void clearFailoverState() {
     server.target_replica_host = NULL;
     server.target_replica_port = 0;
     server.failover_state = NO_FAILOVER;
-    unpauseClients();
+    unpauseClients(PAUSE_DURING_FAILOVER);
 }
 
 /* Abort an ongoing failover if one is going on. */
@@ -3864,7 +3935,7 @@ void failoverCommand(client *c) {
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
-    pauseClients(LLONG_MAX,CLIENT_PAUSE_WRITE);
+    pauseClients(PAUSE_DURING_FAILOVER, LLONG_MAX, CLIENT_PAUSE_WRITE);
     addReply(c,shared.ok);
 }
 

@@ -522,7 +522,7 @@ start_server {tags {"scripting"}} {
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {MGET: mget shouldn't be propagated in Lua} {
         set repl [attach_to_replication_stream]
@@ -536,7 +536,7 @@ start_server {tags {"scripting"}} {
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {EXPIRE: We can call scripts rewriting client->argv from Lua} {
         set repl [attach_to_replication_stream]
@@ -550,7 +550,7 @@ start_server {tags {"scripting"}} {
             {pexpireat expirekey *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     } ;# is_eval
 

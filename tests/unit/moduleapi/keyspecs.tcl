@@ -15,7 +15,7 @@ start_server {tags {"modules"}} {
             dict append mydict $k $v
         }
         # Verify key-specs
-        set keyspecs [dict get $mydict key-specs]
+        set keyspecs [dict get $mydict key_specs]
         assert_equal [lindex $keyspecs 0] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags write begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
     }
@@ -32,7 +32,7 @@ start_server {tags {"modules"}} {
             dict append mydict $k $v
         }
         # Verify key-specs
-        set keyspecs [dict get $mydict key-specs]
+        set keyspecs [dict get $mydict key_specs]
         assert_equal [lindex $keyspecs 0] {flags {} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags write begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 2] {flags read begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
@@ -50,7 +50,7 @@ start_server {tags {"modules"}} {
             dict append mydict $k $v
         }
         # Verify key-specs
-        set keyspecs [dict get $mydict key-specs]
+        set keyspecs [dict get $mydict key_specs]
         assert_equal [lindex $keyspecs 0] {flags write begin_search {type keyword spec {keyword STORE startfrom 5}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 2] {flags read begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}

@@ -233,9 +233,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)
-#define CMD_KEY_READ (1ULL<<1)
-#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* meaning that the keyspec might not point out to all keys it should cover */
+#define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
+#define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
+#define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<3)        /* "incomplete" flag (meaning that
+                                             * the keyspec might not point out
+                                             * to all keys it should cover) */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -321,7 +324,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
 #define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
-#define BLOCKED_NUM 7     /* Number of blocked states. */
+#define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
+#define BLOCKED_NUM 8      /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -379,6 +383,10 @@ typedef enum {
 #define SLAVE_CAPA_NONE 0
 #define SLAVE_CAPA_EOF (1<<0)    /* Can parse the RDB EOF streaming format. */
 #define SLAVE_CAPA_PSYNC2 (1<<1) /* Supports PSYNC2 protocol. */
+
+/* Slave requirements */
+#define SLAVE_REQ_NONE 0
+#define SLAVE_REQ_RDB_FUNCTIONS_ONLY (1 << 0)
 
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
@@ -480,6 +488,8 @@ typedef enum {
 #define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
                                    points are configured. */
 #define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
+#define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
+#define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
@@ -503,6 +513,26 @@ typedef enum {
     CLIENT_PAUSE_WRITE,   /* Pause write commands */
     CLIENT_PAUSE_ALL      /* Pause all commands */
 } pause_type;
+
+/* Client pause purposes. Each purpose has its own end time and pause type. */
+typedef enum {
+    PAUSE_BY_CLIENT_COMMAND = 0,
+    PAUSE_DURING_SHUTDOWN,
+    PAUSE_DURING_FAILOVER,
+    NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
+} pause_purpose;
+
+typedef struct {
+    pause_type type;
+    mstime_t end;
+} pause_event;
+
+/* Ways that a clusters endpoint can be described */
+typedef enum {
+    CLUSTER_ENDPOINT_TYPE_IP = 0,          /* Show IP address */
+    CLUSTER_ENDPOINT_TYPE_HOSTNAME,        /* Show hostname */
+    CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
+} cluster_endpoint_type;
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -1058,6 +1088,7 @@ typedef struct client {
     int slave_listening_port; /* As configured with: REPLCONF listening-port */
     char *slave_addr;       /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
+    int slave_req;          /* Slave requirements: SLAVE_REQ_* */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
     blockingState bpop;     /* blocking state */
@@ -1065,6 +1096,7 @@ typedef struct client {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1153,6 +1185,7 @@ struct sharedObjectsStruct {
     *time, *pxat, *absttl, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *ssubscribebulk,*sunsubscribebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1246,6 +1279,7 @@ struct redisMemOverhead {
         size_t dbid;
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
+        size_t overhead_ht_slot_to_keys;
     } *db;
 };
 
@@ -1348,7 +1382,9 @@ struct redisServer {
     aeEventLoop *el;
     rax *errors;                /* Errors table */
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
-    volatile sig_atomic_t shutdown_asap; /* SHUTDOWN needed ASAP */
+    volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
+    mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
+    int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
     char *pidfile;              /* PID file path */
@@ -1408,6 +1444,7 @@ struct redisServer {
     pause_type client_pause_type;      /* True if clients are currently paused */
     list *paused_clients;       /* List of pause clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
+    pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -1608,6 +1645,9 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
+    /* Shutdown */
+    int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
+
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
@@ -1723,6 +1763,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
+    dict *pubsubshard_channels;  /* Map channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -1737,6 +1778,8 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
+    char *cluster_announce_hostname;  /* IP address to announce on cluster bus. */
+    int cluster_preferred_endpoint_type; /* Use the announced hostname when available. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
@@ -1748,6 +1791,8 @@ struct redisServer {
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
+    int cluster_drop_packet_filter; /* Debug config that allows tactically
+                                   * dropping packets of a specific type */
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t script_time_limit;  /* Script timeout in milliseconds */
@@ -1793,6 +1838,8 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+    int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
+                                                is down, doesn't affect pubsub global. */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2339,8 +2386,8 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(int port, socketFds *fds);
-void pauseClients(mstime_t duration, pause_type type);
-void unpauseClients(void);
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
+void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
 void processEventsWhileBlocked(void);
@@ -2703,6 +2750,8 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 int prepareForShutdown(int flags);
+void replyToClientsBlockedOnShutdown(void);
+int abortShutdown(void);
 void afterCommand(client *c);
 int inNestedCall(void);
 #ifdef __GNUC__
@@ -2786,9 +2835,14 @@ robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
+int pubsubUnsubscribeShardAllChannels(client *c, int notify);
+void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
+int pubsubPublishMessageShard(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
+int serverPubsubSubscriptionCount();
+int serverPubsubShardSubscriptionCount();
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -2872,6 +2926,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
@@ -3154,6 +3209,9 @@ void psubscribeCommand(client *c);
 void punsubscribeCommand(client *c);
 void publishCommand(client *c);
 void pubsubCommand(client *c);
+void spublishCommand(client *c);
+void ssubscribeCommand(client *c);
+void sunsubscribeCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);
@@ -3190,8 +3248,6 @@ void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
 void waitCommand(client *c);
-void geoencodeCommand(client *c);
-void geodecodeCommand(client *c);
 void georadiusbymemberCommand(client *c);
 void georadiusbymemberroCommand(client *c);
 void georadiusCommand(client *c);
@@ -3287,5 +3343,8 @@ int isTlsConfigured(void);
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
 int iAmMaster(void);
+
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
 
 #endif

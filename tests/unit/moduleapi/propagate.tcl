@@ -157,11 +157,12 @@ tags "modules" {
 
                     # Please note we use volatile eviction to prevent the loop described in the test above.
                     # "notifications" is not volatile so it always remains
+                    $master config resetstat
                     $master config set maxmemory-policy volatile-ttl
                     $master config set maxmemory 1
 
                     wait_for_condition 500 10 {
-                        [$replica dbsize] eq 1
+                        [s evicted_keys] eq 3
                     } else {
                         fail "Not all keys have been evicted"
                     }
@@ -173,6 +174,7 @@ tags "modules" {
 
                     # Note whenever there's double notification: SET with EX issues two separate
                     # notifications: one for "set" and one for "expire"
+                    # "config set" should not be here, see https://github.com/redis/redis/issues/10014
                     assert_replication_stream $repl {
                         {select *}
                         {multi}
@@ -196,6 +198,7 @@ tags "modules" {
                         {del asdf*}
                         {incr notifications}
                         {del asdf*}
+                        {config set maxmemory 1}
                         {multi}
                         {incr notifications}
                         {set asdf4 4}
@@ -207,14 +210,14 @@ tags "modules" {
                 test {module propagation with timer and CONFIG SET maxmemory} {
                     set repl [attach_to_replication_stream]
 
+                    $master config resetstat
                     $master config set maxmemory-policy volatile-random
 
                     $master propagate-test.timer-maxmemory
 
-                    # The replica will have two keys: "notifications" and "timer-maxmemory-middle"
-                    # which are not volatile
+                    # Wait until the volatile keys are evicted
                     wait_for_condition 500 10 {
-                        [$replica dbsize] eq 2
+                        [s evicted_keys] eq 2
                     } else {
                         fail "Not all keys have been evicted"
                     }

@@ -44,6 +44,7 @@ set ::all_tests {
     integration/replication-4
     integration/replication-psync
     integration/replication-buffer
+    integration/shutdown
     integration/aof
     integration/rdb
     integration/corrupt-dump
@@ -61,6 +62,7 @@ set ::all_tests {
     integration/redis-benchmark
     integration/dismiss-mem
     unit/pubsub
+    unit/pubsubshard
     unit/slowlog
     unit/scripting
     unit/functions
