@@ -1307,8 +1307,11 @@ int ACLCheckCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, in
     }
 
     /* Check if the user can execute commands explicitly touching the keys
-     * mentioned in the command arguments. */
+     * mentioned in the command arguments. Shard channels are treated as
+     * special keys for client library to rely on `COMMAND` command
+     * to discover the node to connect to. These don't need acl key check. */
     if (!(u->flags & USER_FLAG_ALLKEYS) &&
+        !(cmd->flags & CMD_PUBSUB) &&
         (cmd->getkeys_proc || cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;
@@ -1392,6 +1395,7 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
             }
             /* Check for channel violations. */
             if (!kill) {
+                /* Check for global channels violation. */
                 dictIterator *di = dictGetIterator(c->pubsub_channels);
                 dictEntry *de;                
                 while (!kill && ((de = dictNext(di)) != NULL)) {
@@ -1399,6 +1403,16 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
                     kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
                             ACL_DENIED_CHANNEL);
                 }
+                dictReleaseIterator(di);
+
+                /* Check for shard channels violation. */
+                di = dictGetIterator(c->pubsubshard_channels);
+                while (!kill && ((de = dictNext(di)) != NULL)) {
+                    o = dictGetKey(de);
+                    kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
+                            ACL_DENIED_CHANNEL);
+                }
+
                 dictReleaseIterator(di);
             }
 
@@ -1448,9 +1462,9 @@ int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **a
     int acl_retval = ACLCheckCommandPerm(u,cmd,argv,argc,idxptr);
     if (acl_retval != ACL_OK)
         return acl_retval;
-    if (cmd->proc == publishCommand)
+    if (cmd->proc == publishCommand || cmd->proc == spublishCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,1,0,idxptr);
-    else if (cmd->proc == subscribeCommand)
+    else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,0,idxptr);
     else if (cmd->proc == psubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,1,idxptr);
