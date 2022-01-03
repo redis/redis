@@ -58,7 +58,6 @@
 #include "adlist.h"
 #include "zmalloc.h"
 #include "linenoise.h"
-#include "help.h"
 #include "anet.h"
 #include "ae.h"
 #include "cli_common.h"
@@ -167,12 +166,20 @@ int *spectrum_palette;
 int spectrum_palette_size;
 
 /* Dict Helpers */
-
 static uint64_t dictSdsHash(const void *key);
 static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
+
+/* Command help info */
+struct commandHelp {
+  char *name;
+  char *params;
+  char *summary;
+  char *group;
+  char *since;
+};
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -418,91 +425,226 @@ static sds cliVersion(void) {
     return version;
 }
 
-static void cliInitHelp(void) {
-    int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
-    int groupslen = sizeof(commandGroups)/sizeof(char*);
-    int i, len, pos = 0;
-    helpEntry tmp;
-
-    helpEntriesLen = len = commandslen+groupslen;
-    helpEntries = zmalloc(sizeof(helpEntry)*len);
-
-    for (i = 0; i < groupslen; i++) {
-        tmp.argc = 1;
-        tmp.argv = zmalloc(sizeof(sds));
-        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
-        tmp.full = tmp.argv[0];
-        tmp.type = CLI_HELP_GROUP;
-        tmp.org = NULL;
-        helpEntries[pos++] = tmp;
+// Concatenate a string to an sds string, but if it's empty substitute double quote marks.
+static sds sdscat_orempty(sds params, char *value) {
+    if (value[0] == '\0') {
+        return sdscat(params, "\"\"");
     }
-
-    for (i = 0; i < commandslen; i++) {
-        tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
-        tmp.full = sdsnew(commandHelp[i].name);
-        tmp.type = CLI_HELP_COMMAND;
-        tmp.org = &commandHelp[i];
-        helpEntries[pos++] = tmp;
-    }
+    return sdscat(params, value);
 }
 
-/* cliInitHelp() setups the helpEntries array with the command and group
- * names from the help.h file. However the Redis instance we are connecting
- * to may support more commands, so this function integrates the previous
- * entries with additional entries obtained using the COMMAND command
- * available in recent versions of Redis. */
-static void cliIntegrateHelp(void) {
+static sds cliAddArgument(sds params, redisReply *argMap);
+
+// Concatenate a list of arguments to the parameter string, separated by a separator string.
+static sds cliConcatArguments(sds params, redisReply *arguments, char *separator) {
+    for (size_t j = 0; j < arguments->elements; j++) {
+        params = cliAddArgument(params, arguments->element[j]);
+        if (j != arguments->elements - 1) {
+            params = sdscat(params, separator);
+        }
+    }
+    return params;
+}
+
+// Add an argument to the parameter string.
+static sds cliAddArgument(sds params, redisReply *argMap) {
+    char *name = NULL;
+    char *type = NULL;
+    int optional = 0;
+    int multiple = 0;
+    int multipleToken = 0;
+    redisReply *arguments = NULL;
+    sds tokenPart = sdsempty();
+    sds repeatPart = sdsempty();
+
+    // First read the fields describing the argument.
+    for (size_t i = 0; i < argMap->elements; i += 2) {
+        char *key = argMap->element[i]->str;
+        if (!strcmp(key, "name")) {
+            name = argMap->element[i + 1]->str;
+        }
+        else if (!strcmp(key, "token")) {
+            char *token = argMap->element[i + 1]->str;
+            tokenPart = sdscat_orempty(tokenPart, token);
+        }
+        else if (!strcmp(key, "type")) {
+            type = argMap->element[i + 1]->str;
+        }
+        else if (!strcmp(key, "arguments")) {
+            arguments = argMap->element[i + 1];
+        }
+        else if (!strcmp(key, "flags")) {
+            redisReply *flags = argMap->element[i + 1];
+            for (size_t j = 0; j < flags->elements; j++) {
+                char *flag = flags->element[j]->str;
+                if (!strcmp(flag, "optional")) {
+                    optional = 1;
+                }
+                else if (!strcmp(flag, "multiple")) {
+                    multiple = 1;
+                }
+                else if (!strcmp(flag, "multiple_token")) {
+                    multipleToken = 1;
+                }
+            }
+        }
+    }
+
+    // Then build the "repeating part" of the argument string.
+    if (!strcmp(type, "key") ||
+        !strcmp(type, "string") ||
+        !strcmp(type, "integer") ||
+        !strcmp(type, "double") ||
+        !strcmp(type, "pattern") ||
+        !strcmp(type, "unix-time") ||
+        !strcmp(type, "token")) {
+            repeatPart = sdscat_orempty(repeatPart, name);
+    }
+    else if (!strcmp(type, "oneof")) {
+        repeatPart = cliConcatArguments(repeatPart, arguments, "|");
+    }
+    else if (!strcmp(type, "block")) {
+        repeatPart = cliConcatArguments(repeatPart, arguments, " ");
+    }
+    else if (strcmp(type, "pure-token") != 0) {
+        fprintf(stderr, "Unknown type '%s' set for argument '%s'\n", type, name);
+    }
+
+    // Finally, build the parameter string.
+    if (tokenPart[0] != '\0' && strcmp(type, "pure-token") != 0) {
+        tokenPart = sdscat(tokenPart, " ");
+    }
+    if (optional) {
+        params = sdscat(params, "[");
+    }
+    params = sdscat(params, tokenPart);
+    params = sdscat(params, repeatPart);
+    if (multiple) {
+        params = sdscat(params, " [");
+        if (multipleToken) {
+            params = sdscat(params, tokenPart);
+        }
+        params = sdscat(params, repeatPart);
+        params = sdscat(params, " ...]");
+    }
+    if (optional) {
+        params = sdscat(params, "]");
+    }
+    sdsfree(tokenPart);
+    sdsfree(repeatPart);
+    return params;
+}
+
+/* Initialize a command help entry for the command/subcommand described in reply.
+ * Returns the index of the next available position in the help entries table. */
+static int cliInitCommandHelpEntry(char *cmdname, char *subcommandname, int helpIndex, redisReply *reply) {
+    helpEntry *help = &(helpEntries[helpIndex++]);
+    help->argc = subcommandname ? 2 : 1;
+    help->argv = zmalloc(sizeof(sds) * help->argc);
+    help->argv[0] = sdsnew(cmdname);
+    sdstoupper(help->argv[0]);
+    if (subcommandname) {
+        help->argv[1] = sdsnew(subcommandname);
+        sdstoupper(help->argv[1]);
+    }
+    sds fullname = sdsnew(help->argv[0]);
+    if (subcommandname) {
+        fullname = sdscat(fullname, " ");
+        fullname = sdscat(fullname, help->argv[1]);
+    }
+    help->full = fullname;
+    help->type = CLI_HELP_COMMAND;
+
+    struct commandHelp *ch = zmalloc(sizeof(*ch));
+    help->org = ch;
+    ch->name = help->full;
+    ch->params = sdsempty();
+
+    if (reply->elements > 7) {
+        redisReply *map = reply->element[7];
+        for (size_t j = 0; j < map->elements; j += 2) {
+            char *key = map->element[j]->str;
+            if (!strcmp(key, "summary")) {
+                redisReply *reply = map->element[j + 1];
+                ch->summary = sdsnew(reply->str);
+            }
+            else if (!strcmp(key, "since")) {
+                redisReply *reply = map->element[j + 1];
+                ch->since = sdsnew(reply->str);
+            }
+            else if (!strcmp(key, "group")) {
+                redisReply *reply = map->element[j + 1];
+                ch->group = sdsnew(reply->str);
+            }
+            else if (!strcmp(key, "arguments")) {
+                redisReply *args = map->element[j + 1];
+                ch->params = cliConcatArguments(ch->params, args, " ");
+            }
+            else if (!strcmp(key, "subcommands")) {
+                redisReply *subcommands = map->element[j + 1];
+                for (size_t i = 0; i < subcommands->elements; i++) {
+                    redisReply *subcommand = subcommands->element[i];
+                    char *subcommandname = subcommand->element[0]->str;
+                    helpIndex = cliInitCommandHelpEntry(cmdname, subcommandname, helpIndex, subcommands->element[i]);
+                }
+            }
+        }
+    }
+    return helpIndex;
+}
+
+/* Returns the total number of commands and subcommands in the command table. */
+static size_t cliCountCommands(redisReply* commandTable) {
+    size_t numCommands = commandTable->elements;
+    
+    for (size_t j = 0; j < commandTable->elements; j++) {
+        redisReply *entry = commandTable->element[j];
+        if (entry->elements <= 7) {
+            continue;
+        }
+        redisReply *map = entry->element[7];
+        for (size_t j = 0; j < map->elements; j += 2) {
+            char *key = map->element[j]->str;
+            if (!strcmp(key, "subcommands")) {
+                redisReply *subcommands = map->element[j + 1];
+                numCommands += subcommands->elements;
+            }
+        }
+    }
+    
+    return numCommands;
+}
+
+/* Comparator for sorting help table entries. */
+int helpEntryCompare(const void *entry1, const void *entry2) {
+    helpEntry *i1 = (helpEntry *)entry1;
+    helpEntry *i2 = (helpEntry *)entry2;
+    return strcmp(i1->full, i2->full);
+}
+
+/* cliInitHelp() sets up the helpEntries array with the command and group
+ * names and command descriptions obtained using the COMMAND command. */
+static void cliInitHelp(void) {
+    int nextIndex = 0;
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
     if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
 
-    /* Scan the array reported by COMMAND and fill only the entries that
-     * don't already match what we have. */
+    /* Scan the array reported by COMMAND and fill in the entries */
+    helpEntriesLen = cliCountCommands(reply);
+    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
+
     for (size_t j = 0; j < reply->elements; j++) {
-        redisReply *entry = reply->element[j];
-        if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
-            entry->element[0]->type != REDIS_REPLY_STRING ||
-            entry->element[1]->type != REDIS_REPLY_INTEGER ||
-            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
-        char *cmdname = entry->element[0]->str;
-        int i;
-
-        for (i = 0; i < helpEntriesLen; i++) {
-            helpEntry *he = helpEntries+i;
-            if (!strcasecmp(he->argv[0],cmdname))
-                break;
-        }
-        if (i != helpEntriesLen) continue;
-
-        helpEntriesLen++;
-        helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
-        helpEntry *new = helpEntries+(helpEntriesLen-1);
-
-        new->argc = 1;
-        new->argv = zmalloc(sizeof(sds));
-        new->argv[0] = sdsnew(cmdname);
-        new->full = new->argv[0];
-        new->type = CLI_HELP_COMMAND;
-        sdstoupper(new->argv[0]);
-
-        struct commandHelp *ch = zmalloc(sizeof(*ch));
-        ch->name = new->argv[0];
-        ch->params = sdsempty();
-        int args = llabs(entry->element[1]->integer);
-        args--; /* Remove the command name itself. */
-        if (entry->element[3]->integer == 1) {
-            ch->params = sdscat(ch->params,"key ");
-            args--;
-        }
-        while(args-- > 0) ch->params = sdscat(ch->params,"arg ");
-        if (entry->element[1]->integer < 0)
-            ch->params = sdscat(ch->params,"...options...");
-        ch->summary = "Help not available";
-        ch->group = 0;
-        ch->since = "not known";
-        new->org = ch;
+        redisReply *command = reply->element[j];
+        if (command->type != REDIS_REPLY_ARRAY || command->elements < 4 ||
+            command->element[0]->type != REDIS_REPLY_STRING ||
+            command->element[1]->type != REDIS_REPLY_INTEGER ||
+            command->element[3]->type != REDIS_REPLY_INTEGER) return;
+        char *cmdname = command->element[0]->str;
+        nextIndex = cliInitCommandHelpEntry(cmdname, NULL, nextIndex, command);
     }
+    qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
     freeReplyObject(reply);
 }
 
@@ -512,7 +654,7 @@ static void cliOutputCommandHelp(struct commandHelp *help, int group) {
     printf("  \x1b[33msummary:\x1b[0m %s\r\n", help->summary);
     printf("  \x1b[33msince:\x1b[0m %s\r\n", help->since);
     if (group) {
-        printf("  \x1b[33mgroup:\x1b[0m %s\r\n", commandGroups[help->group]);
+        printf("  \x1b[33mgroup:\x1b[0m %s\r\n", help->group);
     }
 }
 
@@ -538,8 +680,8 @@ static void cliOutputGenericHelp(void) {
 
 /* Output all command help, filtering by group or command name. */
 static void cliOutputHelp(int argc, char **argv) {
-    int i, j, len;
-    int group = -1;
+    int i, j;
+    char *group = NULL;
     helpEntry *entry;
     struct commandHelp *help;
 
@@ -547,13 +689,7 @@ static void cliOutputHelp(int argc, char **argv) {
         cliOutputGenericHelp();
         return;
     } else if (argc > 0 && argv[0][0] == '@') {
-        len = sizeof(commandGroups)/sizeof(char*);
-        for (i = 0; i < len; i++) {
-            if (strcasecmp(argv[0]+1,commandGroups[i]) == 0) {
-                group = i;
-                break;
-            }
-        }
+        group = argv[0]+1;
     }
 
     assert(argc > 0);
@@ -562,7 +698,7 @@ static void cliOutputHelp(int argc, char **argv) {
         if (entry->type != CLI_HELP_COMMAND) continue;
 
         help = entry->org;
-        if (group == -1) {
+        if (group == NULL) {
             /* Compare all arguments */
             if (argc <= entry->argc) {
                 for (j = 0; j < argc; j++) {
@@ -573,7 +709,7 @@ static void cliOutputHelp(int argc, char **argv) {
                 }
             }
         } else {
-            if (group == help->group) {
+            if (strcasecmp(group, help->group) == 0) {
                 cliOutputCommandHelp(help,0);
             }
         }
@@ -2206,10 +2342,8 @@ static void repl(void) {
     int argc;
     sds *argv;
 
-    /* Initialize the help and, if possible, use the COMMAND command in order
-     * to retrieve missing entries. */
+    /* Initialize the help using the results of the COMMAND command. */
     cliInitHelp();
-    cliIntegrateHelp();
 
     config.interactive = 1;
     linenoiseSetMultiLine(1);
