@@ -1351,7 +1351,7 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     if ((req & SLAVE_REQ_RDB_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
     /* save functions */
-    if ((req && SLAVE_REQ_RDB_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
+    if ((req & SLAVE_REQ_RDB_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
 
     /* save all databases, skip this if we're in functions-only mode */
     if (req & SLAVE_REQ_RDB_DATA) {
