@@ -1192,8 +1192,15 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     case REDIS_REPLY_MAP:
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
-            out = cliFormatReplyJson(out, r->element[i]);
-
+            redisReply *key = r->element[i];
+            if (key->type == REDIS_REPLY_STATUS ||
+                key->type == REDIS_REPLY_STRING ||
+                key->type == REDIS_REPLY_VERB) {
+                out = cliFormatReplyJson(out, key);
+            } else {
+                sds tmp = cliFormatReplyJson(sdsempty(), key);
+                out = sdscatrepr(out,tmp,sdslen(tmp));
+            }
             out = sdscat(out,":");
 
             out = cliFormatReplyJson(out, r->element[i+1]);
