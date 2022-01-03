@@ -2604,16 +2604,17 @@ int allowProtectedAction(int config, client *c) {
 
 static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sds *argv, int argc, const char **err) {
     UNUSED(data);
+    zfree(server.latency_tracking_info_percentiles);
     server.latency_tracking_info_percentiles = NULL;
     server.latency_tracking_info_percentiles_len = argc;
 
     /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
-    if (argc == 1 && !strcasecmp(argv[0],""))
+    if (argc == 1 && sdslen(argv[0]) == 0)
         server.latency_tracking_info_percentiles_len = 0;
     else
-        server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len+1));
+        server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*argc);
 
-    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+    for (int j = 0; j < argc; j++) {
         double percentile;
         if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
             *err = "Invalid latency-tracking-info-percentiles parameters";
