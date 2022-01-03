@@ -497,8 +497,7 @@ sds createLatencyReport(void) {
  * Empty buckets are not printed.
  * Everything above 1 sec is considered +Inf.
  * At max there will be log2(1000000000)=30 buckets */
-void fillCommandCDF(client *c, const char* histogram_name, struct hdr_histogram* histogram){
-    addReplyBulkCString(c,histogram_name);
+void fillCommandCDF(client *c, struct hdr_histogram* histogram) {
     addReplyMapLen(c,2);
     addReplyBulkCString(c,"calls");
     addReplyLongLong(c,(long long) histogram->total_count);
@@ -530,12 +529,11 @@ void latencyAllCommandsFillCDF(client *c) {
     void *replylen = addReplyDeferredLen(c);
     int command_with_data = 0;
     while((de = dictNext(di)) != NULL) {
-        char *tmpsafe;
         cmd = (struct redisCommand *) dictGetVal(de);
         if (!cmd->latency_histogram)
             continue;
-        fillCommandCDF(c, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
-        if (tmpsafe != NULL) zfree(tmpsafe);
+        addReplyBulkCString(c,cmd->name);
+        fillCommandCDF(c, cmd->latency_histogram);
         command_with_data++;
     }
     dictReleaseIterator(di);
@@ -557,10 +555,9 @@ void latencySpecificCommandsFillCDF(client *c) {
         if (!cmd->latency_histogram) {
             continue;
         }
-        char *tmpsafe;
+        addReplyBulkCString(c,c->argv[j]->ptr);
+        fillCommandCDF(c, cmd->latency_histogram);
         command_with_data++;
-        fillCommandCDF(c, getSafeInfoString(c->argv[j]->ptr, strlen(c->argv[j]->ptr), &tmpsafe), cmd->latency_histogram);
-        if (tmpsafe != NULL) zfree(tmpsafe);
     }
     setDeferredMapLen(c,replylen,command_with_data);
 }
