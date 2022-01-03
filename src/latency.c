@@ -497,7 +497,8 @@ sds createLatencyReport(void) {
  * Empty buckets are not printed.
  * Everything above 1 sec is considered +Inf.
  * At max there will be log2(1000000000)=30 buckets */
-void fillCommandCDF(client *c, struct hdr_histogram* histogram){
+void fillCommandCDF(client *c, const char* histogram_name, struct hdr_histogram* histogram){
+    addReplyBulkCString(c,histogram_name);
     addReplyMapLen(c,2);
     addReplyBulkCString(c,"calls");
     addReplyLongLong(c,(long long) histogram->total_count);
@@ -533,9 +534,7 @@ void latencyAllCommandsFillCDF(client *c) {
         cmd = (struct redisCommand *) dictGetVal(de);
         if (!cmd->latency_histogram)
             continue;
-        const char* cmdname = getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe);
-        addReplyBulkCString(c,cmdname);
-        fillCommandCDF(c, cmd->latency_histogram);
+        fillCommandCDF(c, getSafeInfoString(cmd->name, strlen(cmd->name), &tmpsafe), cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
         command_with_data++;
     }
@@ -547,30 +546,23 @@ void latencyAllCommandsFillCDF(client *c) {
  * a per command cumulative distribution of latencies. */
 void latencySpecificCommandsFillCDF(client *c) {
     void *replylen = addReplyDeferredLen(c);
-    int valid_commands = 0;
+    int command_with_data = 0;
     for (int j = 2; j < c->argc; j++){
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
         /* If the command does not exist we skip the reply */
         if (cmd == NULL) {
             continue;
         }
-        char *tmpsafe;
-        const char* cmdname = getSafeInfoString(c->argv[j]->ptr, strlen(c->argv[j]->ptr), &tmpsafe);
-        addReplyBulkCString(c,cmdname);
-        valid_commands++;
         /* If no latency info we reply with the same format as non empty histograms */
         if (!cmd->latency_histogram) {
-            addReplyMapLen(c,2);
-            addReplyBulkCString(c,"calls");
-            addReplyLongLong(c,0);
-            addReplyBulkCString(c,"histogram_usec");
-            addReplyMapLen(c,0);
             continue;
         }
-        fillCommandCDF(c,  cmd->latency_histogram);
+        char *tmpsafe;
+        command_with_data++;
+        fillCommandCDF(c, getSafeInfoString(c->argv[j]->ptr, strlen(c->argv[j]->ptr), &tmpsafe), cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
     }
-    setDeferredMapLen(c,replylen,valid_commands);
+    setDeferredMapLen(c,replylen,command_with_data);
 }
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
