@@ -2604,27 +2604,34 @@ int allowProtectedAction(int config, client *c) {
 
 static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sds *argv, int argc, const char **err) {
     UNUSED(data);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = argc;
 
     /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
     if (argc == 1 && !strcasecmp(argv[0],""))
-        argc = 0;
+        server.latency_tracking_info_percentiles_len = 0;
+    else
+        server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len+1));
 
-    resetServerLatencyPercentileParams();
-
-    for (int j = 0; j < argc; j++) {
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
         double percentile;
         if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
             *err = "Invalid latency-tracking-info-percentiles parameters";
-            return 0;
+            goto configerr;
         }
         if (percentile > 100.0 || percentile < 0.0) {
             *err = "latency-tracking-info-percentiles parameters should sit between [0.0,100.0]";
-            return 0;
+            goto configerr;
         }
-        appendServerLatencyPercentileParams(percentile);
+        server.latency_tracking_info_percentiles[j] = percentile;
     }
 
     return 1;
+configerr:
+    zfree(server.latency_tracking_info_percentiles);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = 0;
+    return 0;
 }
 
 static sds getConfigLatencyTrackingInfoPercentilesOutputOption(typeData data) {

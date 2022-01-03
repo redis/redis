@@ -546,25 +546,31 @@ void latencyAllCommandsFillCDF(client *c) {
 /* latencyCommand() helper to produce for a specific command set,
  * a per command cumulative distribution of latencies. */
 void latencySpecificCommandsFillCDF(client *c) {
-    addReplyMapLen(c,c->argc - 2);
+    void *replylen = addReplyDeferredLen(c);
+    int valid_commands = 0;
     for (int j = 2; j < c->argc; j++){
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        /* If the command does not exist we skip the reply */
+        if (cmd == NULL) {
+            continue;
+        }
         char *tmpsafe;
         const char* cmdname = getSafeInfoString(c->argv[j]->ptr, strlen(c->argv[j]->ptr), &tmpsafe);
         addReplyBulkCString(c,cmdname);
-        // If the command does not exist we reply with an empty map
-        if (cmd == NULL) {
-            addReplyMapLen(c,0);
-            continue;
-        }
-        // If no latency info we reply with an empty map
+        valid_commands++;
+        /* If no latency info we reply with the same format as non empty histograms */
         if (!cmd->latency_histogram) {
+            addReplyMapLen(c,2);
+            addReplyBulkCString(c,"calls");
+            addReplyLongLong(c,0);
+            addReplyBulkCString(c,"histogram_usec");
             addReplyMapLen(c,0);
             continue;
         }
         fillCommandCDF(c,  cmd->latency_histogram);
         if (tmpsafe != NULL) zfree(tmpsafe);
     }
+    setDeferredMapLen(c,replylen,valid_commands);
 }
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
@@ -663,6 +669,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  */
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
+
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
@@ -743,15 +750,3 @@ nodataerr:
         "No samples available for event '%s'", (char*) c->argv[2]->ptr);
 }
 
-
-void appendServerLatencyPercentileParams(double percentile) {
-    server.latency_tracking_info_percentiles = zrealloc(server.latency_tracking_info_percentiles,sizeof(double)*(server.latency_tracking_info_percentiles_len+1));
-    server.latency_tracking_info_percentiles[server.latency_tracking_info_percentiles_len] = percentile;
-    server.latency_tracking_info_percentiles_len++;
-}
-
-void resetServerLatencyPercentileParams(void) {
-    zfree(server.latency_tracking_info_percentiles);
-    server.latency_tracking_info_percentiles = NULL;
-    server.latency_tracking_info_percentiles_len = 0;
-}

@@ -10,10 +10,6 @@ proc latency_percentiles_usec {cmd} {
     return [latencyrstat_percentiles $cmd r]
 }
 
-proc latency_hist_usec {cmd} {
-    return [latencyrstat_hist $cmd r]
-}
-
 start_server {tags {"info" "external:skip"}} {
     start_server {} {
 

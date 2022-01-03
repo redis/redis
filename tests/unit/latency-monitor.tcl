@@ -9,7 +9,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HISTOGRAM with empty histogram} {
         r config resetstat
-        assert_match {} [latency_histogram set]
+        assert_match {calls 0 histogram_usec {}} [latency_histogram set]
         assert {[llength [r latency histogram]] == 0}
     }
 
@@ -43,11 +43,12 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert {[llength [r latency histogram set get]] == 4}
     }
 
-    test {LATENCY HISTOGRAM with wrong command name is fine} {
+    test {LATENCY HISTOGRAM with wrong command name skips the invalid one} {
         r config resetstat
-        assert {[llength [r latency histogram blabla set get]] == 6}
-        assert {[lindex [r latency histogram blabla set get] 1] == {}}
-        assert {[lindex [r latency histogram blabla set get] 3] == {}}
+        assert {[llength [r latency histogram blabla]] == 0}
+        assert {[llength [r latency histogram blabla blabla2 set get]] == 4}
+        assert_match [lindex [r latency histogram blabla blabla2 set get] 1] {calls 0 histogram_usec {}}
+        assert_match [lindex [r latency histogram blabla blabla2 set get] 3] {calls 0 histogram_usec {}}
         assert {[string length [r latency histogram blabla set get]] > 0}
     }
 
