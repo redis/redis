@@ -3451,7 +3451,10 @@ int processCommand(client *c) {
         /* Save out_of_memory result at script start, otherwise if we check OOM
          * until first write within script, memory used by lua stack and
          * arguments might interfere. */
-        if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand) {
+        if (c->cmd->proc == evalCommand ||
+            c->cmd->proc == evalShaCommand ||
+            c->cmd->proc == fcallCommand)
+        {
             server.script_oom = out_of_memory;
         }
     }
