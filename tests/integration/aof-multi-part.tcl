@@ -72,7 +72,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 1 [count_message_lines $server_path/stdout "Found Non-increasing sequence number"]
+            assert_equal 1 [count_message_lines $server_path/stdout "Found a non-monotonic sequence number"]
         }
 
         clean_aof_persistence $aof_dirpath

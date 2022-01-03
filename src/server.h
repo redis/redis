@@ -232,9 +232,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Key argument flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)
-#define CMD_KEY_READ (1ULL<<1)
-#define CMD_KEY_INCOMPLETE (1ULL<<2)   /* meaning that the keyspec might not point out to all keys it should cover */
+#define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
+#define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
+#define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<3)        /* "incomplete" flag (meaning that
+                                             * the keyspec might not point out
+                                             * to all keys it should cover) */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -523,6 +526,13 @@ typedef struct {
     pause_type type;
     mstime_t end;
 } pause_event;
+
+/* Ways that a clusters endpoint can be described */
+typedef enum {
+    CLUSTER_ENDPOINT_TYPE_IP = 0,          /* Show IP address */
+    CLUSTER_ENDPOINT_TYPE_HOSTNAME,        /* Show hostname */
+    CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
+} cluster_endpoint_type;
 
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
@@ -1086,6 +1096,7 @@ typedef struct client {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1174,6 +1185,7 @@ struct sharedObjectsStruct {
     *time, *pxat, *absttl, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *ssubscribebulk,*sunsubscribebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1267,6 +1279,7 @@ struct redisMemOverhead {
         size_t dbid;
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
+        size_t overhead_ht_slot_to_keys;
     } *db;
 };
 
@@ -1773,6 +1786,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
+    dict *pubsubshard_channels;  /* Map channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -1787,6 +1801,8 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
+    char *cluster_announce_hostname;  /* IP address to announce on cluster bus. */
+    int cluster_preferred_endpoint_type; /* Use the announced hostname when available. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
@@ -1798,6 +1814,8 @@ struct redisServer {
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
+    int cluster_drop_packet_filter; /* Debug config that allows tactically
+                                   * dropping packets of a specific type */
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t script_time_limit;  /* Script timeout in milliseconds */
@@ -1843,6 +1861,8 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+    int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
+                                                is down, doesn't affect pubsub global. */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2842,9 +2862,14 @@ robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
+int pubsubUnsubscribeShardAllChannels(client *c, int notify);
+void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
+int pubsubPublishMessageShard(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
+int serverPubsubSubscriptionCount();
+int serverPubsubShardSubscriptionCount();
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -2928,6 +2953,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 /* API to get key arguments from commands */
 int *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
@@ -3210,6 +3236,9 @@ void psubscribeCommand(client *c);
 void punsubscribeCommand(client *c);
 void publishCommand(client *c);
 void pubsubCommand(client *c);
+void spublishCommand(client *c);
+void ssubscribeCommand(client *c);
+void sunsubscribeCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);
@@ -3342,5 +3371,8 @@ int isTlsConfigured(void);
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
 int iAmMaster(void);
+
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
 
 #endif

@@ -790,6 +790,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
         char *t = tokens[j];
         if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
         else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
+        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_SHARD_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
     }
