@@ -30,10 +30,16 @@ proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
     set config [dict get $config "config"]
-    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
-    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set dir [dict get $config "dir"]
+    set rdb [format "%s/%s" $dir "dump.rdb"]
+    if {[dict exists $config "appenddirname"]} {
+        set aofdir [dict get $config "appenddirname"]
+    } else {
+        set aofdir "appendonlydir"
+    }
+    set aof_dirpath [format "%s/%s" $dir $aofdir]
+    clean_aof_persistence $aof_dirpath
     catch {exec rm -rf $rdb}
-    catch {exec rm -rf $aof}
 }
 
 proc kill_server config {

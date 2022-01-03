@@ -105,7 +105,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define OBJ_SHARED_BULKHDR_LEN 32
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
 #define AOF_REWRITE_ITEMS_PER_CMD 64
-#define AOF_READ_DIFF_INTERVAL_BYTES (1024*10)
 #define AOF_ANNOTATION_LINE_MAX_LEN 1024
 #define CONFIG_AUTHPASS_MAX_LEN 512
 #define CONFIG_RUN_ID_SIZE 40
@@ -251,6 +250,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_EMPTY 2
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
+#define AOF_TRUNCATED 5
 
 /* Command doc flags */
 #define CMD_DOC_NONE 0
@@ -1340,6 +1340,33 @@ typedef struct redisTLSContextConfig {
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
+ * AOF manifest definition
+ *----------------------------------------------------------------------------*/
+typedef enum {
+    AOF_FILE_TYPE_BASE  = 'b', /* BASE file */
+    AOF_FILE_TYPE_HIST  = 'h', /* HISTORY file */
+    AOF_FILE_TYPE_INCR  = 'i', /* INCR file */
+} aof_file_type;
+
+typedef struct {
+    sds           file_name;  /* file name */
+    long long     file_seq;   /* file sequence */
+    aof_file_type file_type;  /* file type */
+} aofInfo;
+
+typedef struct {
+    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */
+    list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
+    list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
+                                         `base_aof_info` and `incr_aof_list` will be moved to this list. We
+                                         will delete these AOF files when AOFRW finish. */
+    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */
+    long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
+    int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with
+                                         disk, we need to persist it immediately. */
+} aofManifest;
+
+/*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
 
@@ -1556,12 +1583,14 @@ struct redisServer {
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
-    char *aof_filename;             /* Name of the AOF file */
+    char *aof_filename;             /* Basename of the AOF file and manifest file */
+    char *aof_dirname;              /* Name of the AOF directory */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). */
+    off_t aof_last_incr_size;       /* The size of the latest incr AOF. */
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
@@ -1585,16 +1614,10 @@ struct redisServer {
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
-    /* AOF pipes used to communicate between parent and child during rewrite. */
-    int aof_pipe_write_data_to_child;
-    int aof_pipe_read_data_from_parent;
-    int aof_pipe_write_ack_to_parent;
-    int aof_pipe_read_ack_from_child;
-    int aof_pipe_write_ack_to_child;
-    int aof_pipe_read_ack_from_parent;
-    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
-                                      to child process. */
-    sds aof_child_diff;             /* AOF diff accumulator child side. */
+    aofManifest *aof_manifest;       /* Used to track AOFs. */
+    int aof_disable_auto_gc;         /* If disable automatically deleting HISTORY type AOFs?
+                                        default no. (for testings). */
+
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -2571,10 +2594,12 @@ void abortFailover(const char *err);
 const char *getFailoverStateString();
 
 /* Generic persistence functions */
-void startLoadingFile(FILE* fp, char* filename, int rdbflags);
+void startLoadingFile(size_t size, char* filename, int rdbflags);
 void startLoading(size_t size, int rdbflags, int async);
-void loadingProgress(off_t pos);
+void loadingAbsProgress(off_t pos);
+void loadingIncrProgress(off_t size);
 void stopLoading(int success);
+void updateLoadingFileName(char* filename);
 void startSaving(int rdbflags);
 void stopSaving(int success);
 int allPersistenceDisabled(void);
@@ -2594,16 +2619,18 @@ void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
-int loadAppendOnlyFile(char *filename);
+int loadAppendOnlyFiles(aofManifest *am);
 void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
-void aofRewriteBufferReset(void);
-unsigned long aofRewriteBufferSize(void);
-unsigned long aofRewriteBufferMemoryUsage(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
 void restartAOFAfterSYNC();
+void aofLoadManifestFromDisk(void);
+void aofOpenIfNeededOnServerStart(void);
+void aofManifestFree(aofManifest *am);
+int aofDelHistoryFiles(void);
+int aofRewriteLimited(void);
 
 /* Child info */
 void openChildInfoPipe(void);

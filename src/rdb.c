@@ -1256,7 +1256,6 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     ssize_t written = 0;
     ssize_t res;
     static long long info_updated_time = 0;
-    size_t processed = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
@@ -1298,16 +1297,6 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
          * mechanism a hint about an estimated size of the object we stored. */
         size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
         if (server.in_fork_child) dismissObject(o, dump_size);
-
-        /* When this RDB is produced as part of an AOF rewrite, move
-         * accumulated diff from parent to child while rewriting in
-         * order to have a smaller final write. */
-        if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
-            rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-        {
-            processed = rdb->processed_bytes;
-            aofReadDiffFromParent();
-        }
 
         /* Update child info every 1 second (approximately).
          * in order to avoid calling mstime() on each iteration, we will
@@ -2677,19 +2666,28 @@ void startLoading(size_t size, int rdbflags, int async) {
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats.
  * 'filename' is optional and used for rdb-check on error */
-void startLoadingFile(FILE *fp, char* filename, int rdbflags) {
-    struct stat sb;
-    if (fstat(fileno(fp), &sb) == -1)
-        sb.st_size = 0;
+void startLoadingFile(size_t size, char* filename, int rdbflags) {
     rdbFileBeingLoaded = filename;
-    startLoading(sb.st_size, rdbflags, 0);
+    startLoading(size, rdbflags, 0);
 }
 
-/* Refresh the loading progress info */
-void loadingProgress(off_t pos) {
+/* Refresh the absolute loading progress info */
+void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
     if (server.stat_peak_memory < zmalloc_used_memory())
         server.stat_peak_memory = zmalloc_used_memory();
+}
+
+/* Refresh the incremental loading progress info */
+void loadingIncrProgress(off_t size) {
+    server.loading_loaded_bytes += size;
+    if (server.stat_peak_memory < zmalloc_used_memory())
+        server.stat_peak_memory = zmalloc_used_memory();
+}
+
+/* Update the file name currently being loaded */
+void updateLoadingFileName(char* filename) {
+    rdbFileBeingLoaded = filename;
 }
 
 /* Loading finished */
@@ -2738,7 +2736,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     {
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
+        loadingAbsProgress(r->processed_bytes);
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
     }
@@ -3176,9 +3174,14 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
     rio rdb;
     int retval;
+    struct stat sb;
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-    startLoadingFile(fp, filename,rdbflags);
+
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+
+    startLoadingFile(sb.st_size, filename, rdbflags);
     rioInitWithFile(&rdb,fp);
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);

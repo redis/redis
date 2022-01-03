@@ -570,7 +570,10 @@ NULL
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+        aofLoadManifestFromDisk();
+        aofDelHistoryFiles();
+        int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);

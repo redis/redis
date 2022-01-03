@@ -2150,8 +2150,24 @@ static int isValidDBfilename(char *val, const char **err) {
 }
 
 static int isValidAOFfilename(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appendfilename can't be empty";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appendfilename can't be a path, just a filename";
+        return 0;
+    }
+    return 1;
+}
+
+static int isValidAOFdirname(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appenddirname can't be empty";
+        return 0;
+    }
+    if (!pathIsBaseName(val)) {
+        *err = "appenddirname can't be a path, just a dirname";
         return 0;
     }
     return 1;
@@ -2262,6 +2278,15 @@ static int updateAppendonly(const char **err) {
             return 0;
         }
     }
+    return 1;
+}
+
+static int updateAofAutoGCEnabled(const char **err) {
+    UNUSED(err);
+    if (!server.aof_disable_auto_gc) {
+        aofDelHistoryFiles();
+    }
+
     return 1;
 }
 
@@ -2680,7 +2705,8 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
-
+    createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
+    
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
@@ -2693,6 +2719,7 @@ standardConfig configs[] = {
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
+    createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),

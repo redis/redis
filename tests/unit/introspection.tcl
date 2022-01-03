@@ -183,6 +183,7 @@ start_server {tags {"introspection"}} {
             pidfile
             syslog-ident
             appendfilename
+            appenddirname
             supervised
             syslog-facility
             databases
