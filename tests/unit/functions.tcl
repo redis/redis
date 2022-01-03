@@ -450,8 +450,23 @@ test {FUNCTION can processes create, delete and flush commands in AOF when doing
 } {} {needs:debug external:skip}
 
 start_server {tags {"scripting"}} {
-    test {LIBRARIES - usage and code sharing} {
+    test {LIBRARIES - test shared function can access default globals} {
         r function load LUA lib1 {
+            local function ping()
+                return redis.call('ping')
+            end
+            library.register_function(
+                'f1',
+                function(keys, args)
+                    return ping()
+                end
+            )
+        }
+        r fcall f1 0
+    } {PONG}
+
+    test {LIBRARIES - usage and code sharing} {
+        r function load LUA lib1 REPLACE {
             local function add1(a)
                 return a + 1
             end
