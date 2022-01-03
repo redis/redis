@@ -661,7 +661,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
         luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
-        return raise_error ? luaRaiseError(lua) : 1;
+        return luaRaiseError(lua);
     }
     sds err = NULL;
     client* c = rctx->c;

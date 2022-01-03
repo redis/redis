@@ -133,6 +133,7 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
         *err = sdscatprintf(sdsempty(), "Error registering functions: %s", lua_tostring(lua, -1));
         lua_pop(lua, 2); /* pops the error and globals table */
         lua_sethook(lua,NULL,0,0); /* Disable hook */
+        luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
         return C_ERR;
     }
     lua_sethook(lua,NULL,0,0); /* Disable hook */

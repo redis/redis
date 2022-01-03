@@ -624,6 +624,47 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*attempted to access nonexistent global variable 'redis'*}
 
+    test {LIBRARIES - malicious access test} {
+        r function load LUA lib1 replace {
+            local lib = library
+            lib.register_function('f1', function ()
+                lib.redis = redis
+                lib.math = math
+                return {ok='OK'}
+            end)
+
+            lib.register_function('f2', function ()
+                lib.register_function('f1', function ()
+                    lib.redis = redis
+                    lib.math = math
+                    return {ok='OK'}
+                end)
+            end)
+        }
+        assert_equal {OK} [r fcall f1 0]
+
+        catch {[r function load LUA lib2 {library.math.random()}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r function load LUA lib2 {library.math.randomseed()}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r function load LUA lib2 {library.redis.call('ping')}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r function load LUA lib2 {library.redis.pcall('ping')}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r function load LUA lib2 {library.redis.setresp(3)}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r function load LUA lib2 {library.redis.set_repl(library.redis.REPL_NONE)}]} e
+        assert_match {*can only be called inside a script invocation*} $e
+
+        catch {[r fcall f2 0]} e
+        assert_match {*can only be called on FUNCTION LOAD command*} $e
+    }
+
     test {LIBRARIES - delete removed all functions on library} {
         r function delete lib1
         r function list
