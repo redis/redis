@@ -37,7 +37,7 @@ if {$is_eval == 1} {
 start_server {tags {"scripting"}} {
 
     test {Script - disallow write on OOM} {
-        r FUNCTION create lua f1 replace { return redis.call('set', 'x', '1') }
+        r FUNCTION load lua f1 replace { library.register_function('f1', function() return redis.call('set', 'x', '1') end) }
 
         r config set maxmemory 1
 
