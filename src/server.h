@@ -1336,20 +1336,20 @@ typedef enum {
 } aof_file_type;
 
 typedef struct {
-    sds           file_name;  /* file name */     
-    long long     file_seq;   /* file sequence */          
+    sds           file_name;  /* file name */
+    long long     file_seq;   /* file sequence */
     aof_file_type file_type;  /* file type */
 } aofInfo;
 
 typedef struct {
-    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */ 
+    aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */
     list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
-    list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in 
-                                         `base_aof_info` and `incr_aof_list` will be moved to this list. We 
+    list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
+                                         `base_aof_info` and `incr_aof_list` will be moved to this list. We
                                          will delete these AOF files when AOFRW finish. */
-    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */     
+    long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */
     long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
-    int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with 
+    int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with
                                          disk, we need to persist it immediately. */
 } aofManifest;
 

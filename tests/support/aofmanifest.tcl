@@ -137,7 +137,7 @@ proc append_to_manifest {str} {
 
 proc create_aof_manifest {dir aof_manifest_file code} {
     create_aof_dir $dir
-    upvar fp fp 
+    upvar fp fp
     set fp [open $aof_manifest_file w+]
     uplevel 1 $code
     close $fp
@@ -150,7 +150,7 @@ proc append_to_aof {str} {
 
 proc create_aof {dir aof_file code} {
     create_aof_dir $dir
-    upvar fp fp 
+    upvar fp fp
     set fp [open $aof_file w+]
     uplevel 1 $code
     close $fp

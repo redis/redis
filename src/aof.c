@@ -50,22 +50,26 @@ int aofFileExist(char *filename);
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
  *
- * The following code implements the read/write logic of AOF manifest file, which 
+ * The following code implements the read/write logic of AOF manifest file, which
  * is used to track and manage all AOF files.
- * 
- * There are three types of AOF, they are: 
- * BASE: Every time AOFRW succeeds, a BASE file will be generated, which represents 
- *       the redis SNAPSHOT at the moment when the AOFRW is executed. In AOF manifest
- *       file, the BASE file (if we have) is always at the beginning. there is at 
- *       most one BASE file.
- * HISTORY: Each time the AOFRW is successful, the previous BASE file and INCR AOF 
- *       files will become HISTORY. they will be cleaned unless GC is disabled.
- * INCR: There may be more than one (during AOFRW, and after AOFRW failure), and they
- *       together represent all the incremental commands executed by redis after the 
- *       last successful AOFRW.
- * 
+ *
+ * Append-only files consist of three types:
+ *
+ * BASE: Represents a Redis snapshot from the time of last AOF rewrite. The manifest
+ * file contains at most a single BASE file, which will always be the first file in the
+ * list.
+ *
+ * INCR: Represents all write commands executed by Redis following the last successful
+ * AOF rewrite. In some cases it is possible to have several ordered INCR files. For
+ * example:
+ *   - During an on-going AOF rewrite
+ *   - After an AOF rewrite was aborted/failed, and before the next one succeeded.
+ *
+ * HISTORY: After a successful rewrite, the previous BASE and INCR become HISTORY files.
+ * They will be automatically removed unless garbage collection is disabled.
+ *
  * The following is a possible AOF manifest file content:
- * 
+ *
  * file appendonly.aof.2.base.rdb seq 2 type b
  * file appendonly.aof.1.incr.aof seq 1 type h
  * file appendonly.aof.2.incr.aof seq 2 type h
@@ -75,12 +79,12 @@ int aofFileExist(char *filename);
  * ------------------------------------------------------------------------- */
 
 /* Naming rules. */
-#define BASE_FILE_SUFFIX           ".base"        
-#define INCR_FILE_SUFFIX           ".incr"   
+#define BASE_FILE_SUFFIX           ".base"
+#define INCR_FILE_SUFFIX           ".incr"
 #define RDB_FORMAT_SUFFIX          ".rdb"
 #define AOF_FORMAT_SUFFIX          ".aof"
-#define MANIFEST_NAME_SUFFIX       ".manifest"   
-#define MANIFEST_TEMP_NAME_PREFIX  "temp_"      
+#define MANIFEST_NAME_SUFFIX       ".manifest"
+#define MANIFEST_TEMP_NAME_PREFIX  "temp_"
 
 /* AOF manifest key. */
 #define AOF_MANIFEST_KEY_FILE_NAME   "file"
@@ -141,32 +145,29 @@ void aofManifestFree(aofManifest *am) {
 }
 
 sds getAofManifestFileName() {
-    return sdscatprintf(sdsempty(), "%s%s", server.aof_filename, 
+    return sdscatprintf(sdsempty(), "%s%s", server.aof_filename,
                 MANIFEST_NAME_SUFFIX);
 }
 
 sds getTempAofManifestFileName() {
-    return sdscatprintf(sdsempty(), "%s%s%s", MANIFEST_TEMP_NAME_PREFIX, 
+    return sdscatprintf(sdsempty(), "%s%s%s", MANIFEST_TEMP_NAME_PREFIX,
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
 
 /* Returns the string representation of aofManifest pointed to by am.
- * 
+ *
  * The string is multiple lines separated by '\n', and each line represents
  * an AOF file.
- * 
- * Each line contains 6 fields (they are separated by spaces). Among 
- * them, the 0th, 2nd, and 4th field respectively represent the manifest 
- * key, they are:
- * file: AOF file name
- * seq: The serial number of the AOF file
- * type: Types of AOF file, There are: b(BASE)、h(HISTORY)、i(INCR)
- * 
- * A possible line:
- *    file appendonly.aof.1.base.rdb seq 1 type b
- * 
- * The BASE file information (if we have) will be placed on the first 
- * line, followed by history type AOFs and finally is the INCR AOFs.
+ *
+ * Each line is space delimited and contains 6 fields, as follows:
+ * "file" [filename] "seq" [sequence] "type" [type]
+ *
+ * Where "file", "seq" and "type" are keywords that describe the next value,
+ * [filename] and [sequence] describe file name and order, and [type] is one
+ * of 'b' (base), 'h' (history) or 'i' (incr).
+ *
+ * The base file, if exists, will always be first, followed by history files,
+ * and incremental files.
  */
 #define AOF_INFO_FORMAT_AND_CAT(buf, info)                      \
     sdscatprintf((buf), "%s %s %s %lld %s %c\n",                \
@@ -181,12 +182,12 @@ sds getAofManifestAsString(aofManifest *am) {
     listNode *ln;
     listIter li;
 
-    /* 1. Add BASE File information, it is always at the beginning 
+    /* 1. Add BASE File information, it is always at the beginning
      * of the manifest file. */
     if (am->base_aof_info) {
         buf = AOF_INFO_FORMAT_AND_CAT(buf, am->base_aof_info);
     }
-    
+
     /* 2. Add HISTORY type AOF information. */
     listRewind(am->history_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
@@ -204,15 +205,15 @@ sds getAofManifestAsString(aofManifest *am) {
     return buf;
 }
 
-/*  Load the manifest information from the disk to `server.aof_manifest` 
- *  when the redis server start.
- *  
- *  During the loading process, we will conduct strict error checking. 
- *  Once there are file opening error, format error, etc., we will 
- *  directly exit the redis process.
- * 
- *  Note: We will ignore the "doesn't exist" error, because this will 
- *  happen when we upgrade from an old version redis.
+/* Load the manifest information from the disk to `server.aof_manifest`
+ * when the Redis server start.
+ *
+ * During loading, this function does strict error checking and will abort
+ * the entire Redis server process on error (I/O error, invalid format, etc.)
+ *
+ * If the AOF directory or manifest file do not exist, this will be ignored
+ * in order to support seamless upgrades from previous versions which did not
+ * use them.
  */
 #define MANIFEST_MAX_LINE 1024
 void aofLoadManifestFromDisk(void) {
@@ -237,10 +238,10 @@ void aofLoadManifestFromDisk(void) {
 
     FILE *fp = fopen(am_filepath, "r");
     if (fp == NULL) {
-        serverLog(LL_WARNING, "Fatal error: can't open the AOF manifest  \
-            file %s for reading: %s", am_name, strerror(errno));
+        serverLog(LL_WARNING, "Fatal error: can't open the AOF manifest "
+            "file %s for reading: %s", am_name, strerror(errno));
         exit(1);
-    }  
+    }
 
     sdsfree(am_name);
     sdsfree(am_filepath);
@@ -298,7 +299,7 @@ void aofLoadManifestFromDisk(void) {
                 ai->file_seq = atoll(argv[i+1]);
             } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
                 ai->file_type = (argv[i+1])[0];
-            } 
+            }
             /* else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_OTHER)) {} */
         }
 
@@ -322,7 +323,7 @@ void aofLoadManifestFromDisk(void) {
             listAddNodeTail(server.aof_manifest->history_aof_list, ai);
         } else if (ai->file_type == AOF_FILE_TYPE_INCR) {
             if (ai->file_seq <= maxseq) {
-                err = "Found Non-increasing sequence number";
+                err = "Found a non-monotonic sequence number";
                 goto loaderr;
             }
             listAddNodeTail(server.aof_manifest->incr_aof_list, ai);
@@ -342,9 +343,8 @@ void aofLoadManifestFromDisk(void) {
     return;
 
 loaderr:
-    /* Sanitizer suppression: when an error occurs in loading we will 
-     * goto loaderr and exit(1), but sanitizer think that we have not free
-     * `argv` and `ai`,  which is a false positive in this context. */
+    /* Sanitizer suppression: may report a false positive if we goto loaderr
+     * and exit(1) without freeing these allocations. */
     if (argv) sdsfreesplitres(argv, argc);
     if (ai) aofInfoFree(ai);
 
@@ -358,16 +358,16 @@ loaderr:
 }
 
 /* Deep copy an aofManifest from orig.
- * 
+ *
  * In `backgroundRewriteDoneHandler` and `openNewIncrAofForAppend`, we will
- * first deep copy a temporary AOF manifest from the `server.aof_manifest` and 
- * try to modify it. Once everything is modified, we will atomically make the 
+ * first deep copy a temporary AOF manifest from the `server.aof_manifest` and
+ * try to modify it. Once everything is modified, we will atomically make the
  * `server.aof_manifest` point to this temporary aof_manifest.
  */
 aofManifest *aofManifestDup(aofManifest *orig) {
     serverAssert(orig != NULL);
     aofManifest *am = zcalloc(sizeof(aofManifest));
-    
+
     am->curr_base_file_seq = orig->curr_base_file_seq;
     am->curr_incr_file_seq = orig->curr_incr_file_seq;
     am->dirty = orig->dirty;
@@ -375,7 +375,7 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     if (orig->base_aof_info) {
         am->base_aof_info = aofInfoDup(orig->base_aof_info);
     }
-    
+
     am->incr_aof_list = listDup(orig->incr_aof_list);
     am->history_aof_list = listDup(orig->history_aof_list);
     serverAssert(am->incr_aof_list != NULL);
@@ -383,7 +383,7 @@ aofManifest *aofManifestDup(aofManifest *orig) {
     return am;
 }
 
-/* Change the `server.aof_manifest` pointer to 'am' and free the previous 
+/* Change the `server.aof_manifest` pointer to 'am' and free the previous
  * one if we have. */
 void aofManifestFreeAndUpdate(aofManifest *am) {
     serverAssert(am != NULL);
@@ -392,14 +392,14 @@ void aofManifestFreeAndUpdate(aofManifest *am) {
 }
 
 /* Called in `backgroundRewriteDoneHandler` to get a new BASE file
- * name, and mark the previous (if we have) BASE file as HISTORY type. 
+ * name, and mark the previous (if we have) BASE file as HISTORY type.
  *
  * BASE file naming rules: `server.aof_filename`.seq.base.format
- * 
+ *
  * for example:
  *  appendonly.aof.1.base.aof  (server.aof_use_rdb_preamble is no)
  *  appendonly.aof.1.base.rdb  (server.aof_use_rdb_preamble is yes)
- * */
+ */
 sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     serverAssert(am != NULL);
     if (am->base_aof_info) {
@@ -408,11 +408,11 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
         listAddNodeHead(am->history_aof_list, am->base_aof_info);
     }
 
-    char *format_suffix = server.aof_use_rdb_preamble ? 
+    char *format_suffix = server.aof_use_rdb_preamble ?
         RDB_FORMAT_SUFFIX:AOF_FORMAT_SUFFIX;
 
     aofInfo *ai = aofInfoCreate();
-    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename, 
+    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
                         ++am->curr_base_file_seq, BASE_FILE_SUFFIX, format_suffix);
     ai->file_seq = am->curr_base_file_seq;
     ai->file_type = AOF_FILE_TYPE_BASE;
@@ -421,17 +421,17 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
     return am->base_aof_info->file_name;
 }
 
-/* Get a new INCR type AOF name. 
- *  
+/* Get a new INCR type AOF name.
+ *
  * INCR AOF naming rules: `server.aof_filename`.seq.incr.aof
- * 
+ *
  * for example:
  *  appendonly.aof.1.incr.aof
  */
 sds getNewIncrAofName(aofManifest *am) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
-    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename, 
+    ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
                         ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
     ai->file_seq = am->curr_incr_file_seq;
     listAddNodeTail(am->incr_aof_list, ai);
@@ -455,7 +455,7 @@ sds getLastIncrAofName(aofManifest *am) {
 }
 
 /* Called in `backgroundRewriteDoneHandler`. when AOFRW success, This
- * function will change the AOF file type in 'incr_aof_list' from 
+ * function will change the AOF file type in 'incr_aof_list' from
  * AOF_FILE_TYPE_INCR to AOF_FILE_TYPE_HIST, and move them to the
  * 'history_aof_list'.
  */
@@ -464,13 +464,13 @@ void markRewrittenIncrAofAsHistory(aofManifest *am) {
     if (!listLength(am->incr_aof_list)) {
         return;
     }
-    
+
     listNode *ln;
     listIter li;
 
     listRewindTail(am->incr_aof_list, &li);
 
-    /* "server.aof_fd != -1" means AOF enabled, then we must skip the 
+    /* "server.aof_fd != -1" means AOF enabled, then we must skip the
      * last AOF, because this file is our currently writing. */
     if (server.aof_fd != -1) {
         ln = listNext(&li);
@@ -504,13 +504,13 @@ int writeAofManifestFile(sds buf) {
 
     int fd = open(tmp_am_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     if (fd == -1) {
-        serverLog(LL_WARNING, "Can't open the AOF manifest file %s: %s", 
+        serverLog(LL_WARNING, "Can't open the AOF manifest file %s: %s",
             tmp_am_name, strerror(errno));
 
         ret = C_ERR;
         goto cleanup;
     }
-    
+
     len = sdslen(buf);
     while(len) {
         nwritten = write(fd, buf, len);
@@ -530,7 +530,7 @@ int writeAofManifestFile(sds buf) {
     }
 
     if (redis_fsync(fd) == -1) {
-        serverLog(LL_WARNING, "Fail to fsync the temp AOF file %s: %s.", 
+        serverLog(LL_WARNING, "Fail to fsync the temp AOF file %s: %s.",
             tmp_am_name, strerror(errno));
 
         ret = C_ERR;
@@ -544,7 +544,7 @@ int writeAofManifestFile(sds buf) {
 
         ret = C_ERR;
     }
-    
+
 cleanup:
     if (fd != -1) close(fd);
     sdsfree(am_name);
@@ -568,13 +568,13 @@ int persistAofManifest(aofManifest *am) {
 }
 
 /* Called in `loadAppendOnlyFiles` when we upgrade from a old version redis.
- * 
+ *
  * 1) Create AOF directory use 'server.aof_dirname' as the name.
- * 2) Use 'server.aof_filename' to construct a BASE type aofInfo and add it to 
+ * 2) Use 'server.aof_filename' to construct a BASE type aofInfo and add it to
  *    aofManifest, then persist the manifest file to AOF directory.
  * 3) Move the old AOF file (server.aof_filename) to AOF directory.
  *
- * If any of the above steps fails or crash occurs, this will not cause any 
+ * If any of the above steps fails or crash occurs, this will not cause any
  * problems, and redis will retry the upgrade process when it restarts.
  */
 void aofUpgradePrepare(aofManifest *am) {
@@ -582,11 +582,11 @@ void aofUpgradePrepare(aofManifest *am) {
 
     /* Create AOF directory use 'server.aof_dirname' as the name. */
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
             server.aof_dirname, strerror(errno));
         exit(1);
     }
-    
+
     /* Manually construct a BASE type aofInfo and add it to aofManifest. */
     if (am->base_aof_info) aofInfoFree(am->base_aof_info);
     aofInfo *ai = aofInfoCreate();
@@ -597,7 +597,7 @@ void aofUpgradePrepare(aofManifest *am) {
     am->curr_base_file_seq = 1;
     am->dirty = 1;
 
-    /* Persist the manifest file to AOF directory. */ 
+    /* Persist the manifest file to AOF directory. */
     if (persistAofManifest(am) != C_OK) {
         exit(1);
     }
@@ -619,16 +619,16 @@ void aofUpgradePrepare(aofManifest *am) {
         server.aof_filename, server.aof_dirname);
 }
 
-/* When AOFRW success, the previous BASE and INCR AOFs will 
+/* When AOFRW success, the previous BASE and INCR AOFs will
  * become HISTORY type and be moved into 'history_aof_list'.
- * 
- * The function will traverse the 'history_aof_list' and submit 
+ *
+ * The function will traverse the 'history_aof_list' and submit
  * the delete task to the bio thread.
  */
 int aofDelHistoryFiles(void) {
-    if (server.aof_manifest == NULL || 
-        server.aof_disable_auto_gc == 1 || 
-        !listLength(server.aof_manifest->history_aof_list)) 
+    if (server.aof_manifest == NULL ||
+        server.aof_disable_auto_gc == 1 ||
+        !listLength(server.aof_manifest->history_aof_list))
     {
         return C_OK;
     }
@@ -651,11 +651,11 @@ int aofDelHistoryFiles(void) {
     return persistAofManifest(server.aof_manifest);
 }
 
-/* Called after `loadDataFromDisk` when redis start. If `server.aof_state` is 
+/* Called after `loadDataFromDisk` when redis start. If `server.aof_state` is
  * 'AOF_ON', It will do two things:
  * 1. Open the last opened INCR type AOF for writing, If not, create a new one
  * 2. Synchronously update the manifest file to the disk
- * 
+ *
  * If any of the above two steps fails, the redis process will exit.
  */
 void aofOpenIfNeededOnServerStart(void) {
@@ -667,7 +667,7 @@ void aofOpenIfNeededOnServerStart(void) {
     serverAssert(server.aof_fd == -1);
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
             server.aof_dirname, strerror(errno));
         exit(1);
     }
@@ -681,11 +681,11 @@ void aofOpenIfNeededOnServerStart(void) {
     server.aof_fd = open(aof_filepath, O_WRONLY|O_APPEND|O_CREAT, 0644);
     sdsfree(aof_filepath);
     if (server.aof_fd == -1) {
-        serverLog(LL_WARNING, "Can't open the append-only file %s: %s", 
+        serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
             aof_name, strerror(errno));
         exit(1);
     }
-    
+
     int ret = persistAofManifest(server.aof_manifest);
     if (ret != C_OK) {
         exit(1);
@@ -701,12 +701,12 @@ int aofFileExist(char *filename) {
     return ret;
 }
 
-/* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state` 
+/* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state`
  * is 'AOF_ON' or ‘AOF_WAIT_REWRITE', It will do two things:
  * 1. Open a new INCR type AOF for writing
  * 2. Synchronously update the manifest file to the disk
- * 
- * The above two steps of modification are atomic, that is, if 
+ *
+ * The above two steps of modification are atomic, that is, if
  * any step fails, the entire operation will rollback and returns
  * C_ERR, and if all succeeds, it returns C_OK.
  * */
@@ -732,7 +732,7 @@ int openNewIncrAofForAppend(void) {
         aofManifestFree(temp_am);
         return C_ERR;
     }
-    
+
     /* Persist AOF Manifest. */
     int ret = persistAofManifest(temp_am);
     if (ret == C_ERR) {
@@ -741,7 +741,7 @@ int openNewIncrAofForAppend(void) {
         return C_ERR;
     }
 
-    /* If reaches here, we can safely modify the `server.aof_manifest` 
+    /* If reaches here, we can safely modify the `server.aof_manifest`
      * and `server.aof_fd`. */
 
     /* Close old aof_fd if needed. */
@@ -752,30 +752,30 @@ int openNewIncrAofForAppend(void) {
     server.aof_last_incr_size = 0;
     /* Update `server.aof_manifest`. */
     aofManifestFreeAndUpdate(temp_am);
-    return C_OK;  
+    return C_OK;
 }
 
 /* Whether to limit the execution of Background AOF rewrite.
- * 
- * At present, if AOFRW fails, redis will automatically retry. If it continues 
- * to fail, we may get a lot of very small INCR files. so we need an AOFRW 
+ *
+ * At present, if AOFRW fails, redis will automatically retry. If it continues
+ * to fail, we may get a lot of very small INCR files. so we need an AOFRW
  * limiting measure.
- * 
- * We can't directly use `server.aof_current_size` and `server.aof_last_incr_size`, 
+ *
+ * We can't directly use `server.aof_current_size` and `server.aof_last_incr_size`,
  * because there may be no new writes after AOFRW fails.
- * 
- * So, we use time delay to achieve our goal. When AOFRW fails, we delay the execution 
- * of the next AOFRW by 1 minute. If the next AOFRW also fails, it will be delayed by 2 
+ *
+ * So, we use time delay to achieve our goal. When AOFRW fails, we delay the execution
+ * of the next AOFRW by 1 minute. If the next AOFRW also fails, it will be delayed by 2
  * minutes. The next is 4, 8, 16, the maximum delay is 60 minutes (1 hour).
- * 
- * During the limit period, we can still use the 'bgrewriteaof' command to execute AOFRW 
+ *
+ * During the limit period, we can still use the 'bgrewriteaof' command to execute AOFRW
  * immediately.
- * 
- * Return 1 means that AOFRW is limited and cannot be executed. 0 means that we can execute 
- * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR 
+ *
+ * Return 1 means that AOFRW is limited and cannot be executed. 0 means that we can execute
+ * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR
  * AOFs has not reached the limit threshold.
- * */ 
-#define AOF_REWRITE_LIMITE_THRESHOLD    3    
+ * */
+#define AOF_REWRITE_LIMITE_THRESHOLD    3
 #define AOF_REWRITE_LIMITE_NAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     int limit = 0;
@@ -792,16 +792,16 @@ int aofRewriteLimited(void) {
                 limit_deley_minutes = 1;
             } else {
                 limit_deley_minutes *= 2;
-            } 
+            }
 
             if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_MINUTES) {
                 limit_deley_minutes = AOF_REWRITE_LIMITE_NAX_MINUTES;
             }
 
             next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
-            
-            serverLog(LL_WARNING, 
-                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes", 
+
+            serverLog(LL_WARNING,
+                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
                 incr_aof_num, limit_deley_minutes);
         }
     } else {
@@ -884,14 +884,14 @@ int startAppendOnly(void) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
         }
-        
+
         if (rewriteAppendOnlyFileBackground() == C_ERR) {
             server.aof_state = AOF_OFF;
             serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
             return C_ERR;
         }
     }
-    server.aof_last_fsync = server.unixtime; 
+    server.aof_last_fsync = server.unixtime;
     /* If AOF fsync error in bio job, we just ignore it and log the event. */
     int aof_bio_fsync_status;
     atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
@@ -1513,24 +1513,24 @@ int loadAppendOnlyFiles(aofManifest *am) {
     sds aof_name;
     int total_num, aof_num = 0, last_file;
 
-    /* If the 'server.aof_filename' file exists in dir, we may be starting 
+    /* If the 'server.aof_filename' file exists in dir, we may be starting
      * from an old redis version. We will use enter upgrade mode in three situations.
-     *  
+     *
      * 1. If the 'server.aof_dirname' directory not exist
      * 2. If the 'server.aof_dirname' directory exists but the manifest file is missing
-     * 3. If the 'server.aof_dirname' directory exists and the manifest file it contains 
+     * 3. If the 'server.aof_dirname' directory exists and the manifest file it contains
      *    has only one base AOF record, and the file name of this base AOF is 'server.aof_filename',
      *    and the 'server.aof_filename' file not exist in 'server.aof_dirname' directory
      * */
     if (fileExist(server.aof_filename)) {
-        if (!dirExists(server.aof_dirname) || 
+        if (!dirExists(server.aof_dirname) ||
             (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) ||
-            (am->base_aof_info != NULL && listLength(am->incr_aof_list) == 0 && 
-             !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename))) 
+            (am->base_aof_info != NULL && listLength(am->incr_aof_list) == 0 &&
+             !strcmp(am->base_aof_info->file_name, server.aof_filename) && !aofFileExist(server.aof_filename)))
         {
             aofUpgradePrepare(am);
         }
-    } 
+    }
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
         return AOF_NOT_EXIST;
@@ -1539,7 +1539,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     total_num = getBaseAndIncrAppendOnlyFilesNum(am);
     serverAssert(total_num > 0);
 
-    /* Here we calculate the total size of all BASE and INCR files in 
+    /* Here we calculate the total size of all BASE and INCR files in
      * advance, it will be set to `server.loading_total_bytes`. */
     total_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest);
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
@@ -1557,7 +1557,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
-        /* If an AOF exists in the manifest but not on the disk, Or the truncated 
+        /* If an AOF exists in the manifest but not on the disk, Or the truncated
          * file is not the last file, we consider this to be a fatal error. */
         if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
             ret = AOF_FAILED;
@@ -1583,7 +1583,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
             if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
-                serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds", 
+                serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
 
@@ -1596,7 +1596,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             }
         }
     }
-    
+
     server.aof_current_size = total_size;
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
@@ -2224,7 +2224,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
     stopSaving(1);
-    
+
     return C_OK;
 
 werr:
@@ -2258,7 +2258,7 @@ int rewriteAppendOnlyFileBackground(void) {
     if (hasActiveChildProcess()) return C_ERR;
 
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
-        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s", 
+        serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
             server.aof_dirname, strerror(errno));
         return C_ERR;
     }
@@ -2416,7 +2416,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename", latency);
 
-        /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR 
+        /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR
          * to AOF_FILE_TYPE_HIST, and move them to the 'history_aof_list'. */
         markRewrittenIncrAofAsHistory(temp_am);
 
@@ -2441,7 +2441,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_last_fsync = server.unixtime;
         }
 
-        /* We don't care about the return value of `aofDelHistoryFiles`, because the history 
+        /* We don't care about the return value of `aofDelHistoryFiles`, because the history
          * deletion failure will not cause any problems. */
         aofDelHistoryFiles();
 

@@ -416,7 +416,7 @@ tags {"aof external:skip"} {
             r bgrewriteaof
             waitForBgrewriteaof r
 
-            set aof [get_base_aof_path r] 
+            set aof [get_base_aof_path r]
             assert_match "#TS:*" [exec head -n 1 $aof]
         }
     }
