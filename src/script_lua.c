@@ -1082,6 +1082,29 @@ void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     sdsfree(code);
 }
 
+void luaRegisterLogFunction(lua_State* lua) {
+    /* redis.log and log levels. */
+    lua_pushstring(lua,"log");
+    lua_pushcfunction(lua,luaLogCommand);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_DEBUG");
+    lua_pushnumber(lua,LL_DEBUG);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_VERBOSE");
+    lua_pushnumber(lua,LL_VERBOSE);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_NOTICE");
+    lua_pushnumber(lua,LL_NOTICE);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_WARNING");
+    lua_pushnumber(lua,LL_WARNING);
+    lua_settable(lua,-3);
+}
+
 void luaRegisterRedisAPI(lua_State* lua) {
     luaLoadLibraries(lua);
     luaRemoveUnsupportedFunctions(lua);
@@ -1099,30 +1122,11 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_pushcfunction(lua,luaRedisPCallCommand);
     lua_settable(lua,-3);
 
-    /* redis.log and log levels. */
-    lua_pushstring(lua,"log");
-    lua_pushcfunction(lua,luaLogCommand);
-    lua_settable(lua,-3);
+    luaRegisterLogFunction(lua);
 
     /* redis.setresp */
     lua_pushstring(lua,"setresp");
     lua_pushcfunction(lua,luaSetResp);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_DEBUG");
-    lua_pushnumber(lua,LL_DEBUG);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_VERBOSE");
-    lua_pushnumber(lua,LL_VERBOSE);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_NOTICE");
-    lua_pushnumber(lua,LL_NOTICE);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_WARNING");
-    lua_pushnumber(lua,LL_WARNING);
     lua_settable(lua,-3);
 
     /* redis.sha1hex */
@@ -1164,7 +1168,7 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
     lua_settable(lua,-3);
     /* Finally set the table as 'redis' global var. */
-    lua_setglobal(lua,"redis");
+    lua_setglobal(lua,REDIS_API_NAME);
 
     /* Replace math.random and math.randomseed with our implementations. */
     lua_getglobal(lua,"math");

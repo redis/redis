@@ -48,7 +48,9 @@
 #define LUA_ENGINE_NAME "LUA"
 #define REGISTRY_ENGINE_CTX_NAME "__ENGINE_CTX__"
 #define REGISTRY_ERROR_HANDLER_NAME "__ERROR_HANDLER__"
+#define REGISTRY_SET_GLOBALS_PROTECTION_NAME "__GLOBAL_PROTECTION__"
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
+#define LIBRARY_API_NAME "library"
 #define LOAD_TIMEOUT_MS 500
 
 /* Lua engine ctx */
@@ -93,9 +95,24 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
 static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds *err) {
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
+
+    lua_newtable(lua); /* Global table for the library */
+    lua_pushstring(lua, LIBRARY_API_NAME);
+    lua_pushstring(lua, LIBRARY_API_NAME);
+    lua_gettable(lua, LUA_REGISTRYINDEX); /* get library function from registry */
+    lua_settable(lua, -3); /* push the library table to the new global table */
+
+    /* Set global protection on the new global table */
+    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    lua_gettable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
+    lua_pushvalue(lua_engine_ctx->lua, -2);
+    int res = lua_pcall(lua_engine_ctx->lua, 1, 0, 0);
+    serverAssert(res == 0);
+
+    /* compile the code */
     if (luaL_loadbuffer(lua, blob, sdslen(blob), "@user_function")) {
         *err = sdscatprintf(sdsempty(), "Error compiling function: %s", lua_tostring(lua, -1));
-        lua_pop(lua, 1);
+        lua_pop(lua, 2); /* pops the error and globals table */
         return C_ERR;
     }
     serverAssert(lua_isfunction(lua, -1));
@@ -105,15 +122,41 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
         .start_time = getMonotonicUs(),
     };
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, &load_ctx);
+
+    /* set the function environment so only 'library' API can be accessed. */
+    lua_pushvalue(lua, -2); /* push global table to the front */
+    lua_setfenv(lua, -2);
+
     lua_sethook(lua,luaEngineLoadHook,LUA_MASKCOUNT,100000);
     /* Run the compiled code to allow it to register functions */
     if (lua_pcall(lua,0,0,0)) {
         *err = sdscatprintf(sdsempty(), "Error registering functions: %s", lua_tostring(lua, -1));
-        lua_pop(lua, 1);
+        lua_pop(lua, 2); /* pops the error and globals table */
+        lua_sethook(lua,NULL,0,0); /* Disable hook */
         return C_ERR;
     }
     lua_sethook(lua,NULL,0,0); /* Disable hook */
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+
+    /* stack contains the global table, lets rearrange it to contains the entire API. */
+    /* delete 'library' API */
+    lua_pushstring(lua, LIBRARY_API_NAME);
+    lua_pushnil(lua);
+    lua_settable(lua, -3);
+
+
+    /* create metatable */
+    lua_newtable(lua);
+    lua_pushstring(lua, "__index");
+    lua_pushvalue(lua, LUA_GLOBALSINDEX); /* push original globals */
+    lua_settable(lua, -3);
+    lua_pushstring(lua, "__newindex");
+    lua_pushvalue(lua, LUA_GLOBALSINDEX); /* push original globals */
+    lua_settable(lua, -3);
+
+    lua_setmetatable(lua, -2);
+
+    lua_pop(lua, 1); /* pops the global table */
 
     return C_OK;
 }
@@ -170,27 +213,27 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
 static int luaRegisterFunction(lua_State *lua) {
     int argc = lua_gettop(lua);
     if (argc < 2 || argc > 3) {
-        luaPushError(lua, "wrong number of arguments to redis.register_function");
+        luaPushError(lua, "wrong number of arguments to library.register_function");
         return luaRaiseError(lua);
     }
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
     if (!load_ctx) {
-        luaPushError(lua, "redis.register_function can only be called on FUNCTION LOAD command");
+        luaPushError(lua, "library.register_function can only be called on FUNCTION LOAD command");
         return luaRaiseError(lua);
     }
 
     if (!lua_isstring(lua, 1)) {
-        luaPushError(lua, "first argument to redis.register_function must be a string");
+        luaPushError(lua, "first argument to library.register_function must be a string");
         return luaRaiseError(lua);
     }
 
     if (!lua_isfunction(lua, 2)) {
-        luaPushError(lua, "second argument to redis.register_function must be a function");
+        luaPushError(lua, "second argument to library.register_function must be a function");
         return luaRaiseError(lua);
     }
 
     if (argc == 3 && !lua_isstring(lua, 3)) {
-        luaPushError(lua, "third argument to redis.register_function must be a string");
+        luaPushError(lua, "third argument to library.register_function must be a string");
         return luaRaiseError(lua);
     }
 
@@ -232,12 +275,17 @@ int luaEngineInitEngine() {
 
     luaRegisterRedisAPI(lua_engine_ctx->lua);
 
-    lua_getglobal(lua_engine_ctx->lua,"redis");
+    /* Register the library commands table and fields and store it to registry */
+    lua_pushstring(lua_engine_ctx->lua, LIBRARY_API_NAME);
+    lua_newtable(lua_engine_ctx->lua);
 
-    /* redis.register_function */
-    lua_pushstring(lua_engine_ctx->lua,"register_function");
-    lua_pushcfunction(lua_engine_ctx->lua,luaRegisterFunction);
-    lua_settable(lua_engine_ctx->lua,-3);
+    lua_pushstring(lua_engine_ctx->lua, "register_function");
+    lua_pushcfunction(lua_engine_ctx->lua, luaRegisterFunction);
+    lua_settable(lua_engine_ctx->lua, -3);
+
+    luaRegisterLogFunction(lua_engine_ctx->lua);
+
+    lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
     /* Save error handler to registry */
     lua_pushstring(lua_engine_ctx->lua, REGISTRY_ERROR_HANDLER_NAME);
@@ -258,11 +306,44 @@ int luaEngineInitEngine() {
     lua_pcall(lua_engine_ctx->lua,0,1,0);
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
+    /* Save global protection to registry */
+    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    char *global_protection_func =       "local dbg = debug\n"
+                                         "local globals_protection = function (t)\n"
+                                         "   local mt = {}\n"
+                                         "   setmetatable(t, mt)\n"
+                                         "   mt.__newindex = function (t, n, v)\n"
+                                         "       if dbg.getinfo(2) then\n"
+                                         "           local w = dbg.getinfo(2, \"S\").what\n"
+                                         "           if w ~= \"C\" then\n"
+                                         "               error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "           end"
+                                         "       end"
+                                         "       rawset(t, n, v)\n"
+                                         "   end\n"
+                                         "   mt.__index = function (t, n)\n"
+                                         "       if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n"
+                                         "           error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "       end\n"
+                                         "       return rawget(t, n)\n"
+                                         "   end\n"
+                                         "end\n"
+                                         "return globals_protection";
+    int res = luaL_loadbuffer(lua_engine_ctx->lua, global_protection_func, strlen(global_protection_func), "@global_protection_def");
+    serverAssert(res == 0);
+    res = lua_pcall(lua_engine_ctx->lua,0,1,0);
+    serverAssert(res == 0);
+    lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
+
+    /* Set global protection on globals */
+    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    lua_gettable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
+    lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
+    res = lua_pcall(lua_engine_ctx->lua, 1, 0, 0);
+    serverAssert(res == 0);
+
     /* save the engine_ctx on the registry so we can get it from the Lua interpreter */
     luaSaveOnRegistry(lua_engine_ctx->lua, REGISTRY_ENGINE_CTX_NAME, lua_engine_ctx);
-
-    luaEnableGlobalsProtection(lua_engine_ctx->lua, 0);
-
 
     engine *lua_engine = zmalloc(sizeof(*lua_engine));
     *lua_engine = (engine) {
