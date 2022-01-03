@@ -839,4 +839,21 @@ start_server {tags {"scripting"}} {
         catch {r function list withcode libraryname foo libraryname foo} e
         set _ $e
     } {*Unknown argument libraryname*}
+
+    test {FUNCTION - verify OOM on function load and function restore} {
+        r function flush
+        r function load lua test replace {library.register_function('f1', function() return 1 end)}
+        set payload [r function dump]
+        r config set maxmemory 1
+
+        r function flush
+        catch {r function load lua test replace {library.register_function('f1', function() return 1 end)}} e
+        assert_match {*command not allowed when used memory*} $e
+
+        r function flush
+        catch {r function restore $payload} e
+        assert_match {*command not allowed when used memory*} $e
+
+        r config set maxmemory 0
+    }
 }

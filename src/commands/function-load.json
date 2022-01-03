@@ -9,7 +9,8 @@
         "function": "functionLoadCommand",
         "command_flags": [
             "NOSCRIPT",
-            "WRITE"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
             "SCRIPTING"
