@@ -326,6 +326,10 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
+            # disable latency tracking
+            $master config set latency-tracking no
+            $slave config set latency-tracking no
+
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
