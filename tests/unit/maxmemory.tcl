@@ -412,6 +412,7 @@ test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
@@ -432,6 +433,7 @@ start_server {tags {"maxmemory external:skip"}} {
 
 start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru
         r config set maxmemory-eviction-tenacity 100
