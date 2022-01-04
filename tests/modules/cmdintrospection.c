@@ -37,13 +37,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_SetCommandSummary(xadd, "Appends a new entry to a stream");
     RedisModule_SetCommandDebutVersion(xadd, "5.0.0");
     RedisModule_SetCommandComplexity(xadd, "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.");
-    RedisModule_AppendCommandHistoryEntry(xadd, "6.2", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option.");
-    RedisModule_AppendCommandHistoryEntry(xadd, "7.0", "Added support for the `<ms>-*` explicit ID form.");
+    RedisModule_AppendCommandHistoryEntry(xadd, "6.2.0", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option.");
+    RedisModule_AppendCommandHistoryEntry(xadd, "7.0.0", "Added support for the `<ms>-*` explicit ID form.");
     RedisModule_SetCommandHints(xadd, "hint1 hint2 hint3");
 
     // Trimming args
     RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2", REDISMODULE_CMD_ARG_NONE);
+    RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE);
     RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("strategy", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
     RedisModule_AppendSubarg(trim_startegy, trim_maxlen);
     RedisModule_AppendSubarg(trim_startegy, trim_minid);
@@ -56,7 +56,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("threshold", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
 
-    RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2", REDISMODULE_CMD_ARG_OPTIONAL);
+    RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL);
 
     RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trim", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL);
     RedisModule_AppendSubarg(trimming, trim_startegy);
@@ -82,7 +82,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, 0, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
 
     // NOMKSTREAM
-    RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, "6.2", REDISMODULE_CMD_ARG_OPTIONAL);
+    RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL);
 
     // Append all args
     RedisModule_AppendArgToCommand(xadd, key);

@@ -51,8 +51,7 @@ TEST_MODULES = \
     list.so \
     subcommands.so \
     reply.so \
-    cmdintrospection.so 
-
+    cmdintrospection.so
 
 .PHONY: all
 
