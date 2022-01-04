@@ -17,6 +17,7 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
+            "NO_MULTI",
             "SENTINEL"
         ],
         "arguments": [

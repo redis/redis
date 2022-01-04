@@ -3350,6 +3350,11 @@ int processCommand(client *c) {
         }
     }
 
+    if (c->flags & CLIENT_MULTI && c->cmd->flags & CMD_NO_MULTI) {
+        rejectCommandFormat(c,"Command not allowed inside a transaction");
+        return C_OK;
+    }
+
     /* Check if the user can run this command according to the current
      * ACLs. */
     int acl_errpos;
@@ -3997,6 +4002,10 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");
+
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
