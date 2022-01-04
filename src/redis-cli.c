@@ -1415,7 +1415,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         if (config.monitor_mode) {
             do {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout);
 
                 /* This happens when the MONITOR command returns an error. */
@@ -1434,7 +1437,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             redisSetPushCallback(context, NULL);
 
             while (config.pubsub_mode) {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout); /* Make it grep friendly */
                 if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
@@ -2271,7 +2277,8 @@ static void repl(void) {
                     linenoiseFree(line);
                     return; /* Return to evalMode to restart the session. */
                 } else {
-                    printf("Use 'restart' only in Lua debugging mode.");
+                    printf("Use 'restart' only in Lua debugging mode.\n");
+                    fflush(stdout);
                 }
             } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                 sdsfree(config.conn_info.hostip);
