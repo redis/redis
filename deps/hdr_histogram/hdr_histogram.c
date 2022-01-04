@@ -15,6 +15,7 @@
 
 #include "hdr_histogram.h"
 #include "hdr_atomic.h"
+#include "hdr_alloc.h"
 
 /*  ######   #######  ##     ## ##    ## ########  ######  */
 /* ##    ## ##     ## ##     ## ###   ##    ##    ##    ## */
@@ -392,16 +393,16 @@ int hdr_init(
         return r;
     }
 
-    counts = (int64_t*) calloc((size_t) cfg.counts_len, sizeof(int64_t));
+    counts = (int64_t*) hdr_calloc((size_t) cfg.counts_len, sizeof(int64_t));
     if (!counts)
     {
         return ENOMEM;
     }
 
-    histogram = (struct hdr_histogram*) calloc(1, sizeof(struct hdr_histogram));
+    histogram = (struct hdr_histogram*) hdr_calloc(1, sizeof(struct hdr_histogram));
     if (!histogram)
     {
-        free(counts);
+        hdr_free(counts);
         return ENOMEM;
     }
 
@@ -416,8 +417,8 @@ int hdr_init(
 void hdr_close(struct hdr_histogram* h)
 {
     if (h) {
-	free(h->counts);
-	free(h);
+	hdr_free(h->counts);
+	hdr_free(h);
     }
 }
 

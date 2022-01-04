@@ -181,6 +181,14 @@ void *ztrycalloc_usable(size_t size, size_t *usable) {
 #endif
 }
 
+/* Allocate memory and zero it or panic.
+ * We need this wrapper to have a calloc compatible signature */
+void *zcalloc_num(size_t num, size_t size) {
+    void *ptr = ztrycalloc_usable(num*size, NULL);
+    if (!ptr) zmalloc_oom_handler(num*size);
+    return ptr;
+}
+
 /* Allocate memory and zero it or panic */
 void *zcalloc(size_t size) {
     void *ptr = ztrycalloc_usable(size, NULL);

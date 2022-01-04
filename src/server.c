@@ -1796,6 +1796,15 @@ void initServerConfig(void) {
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
+    /* Specify the allocation function for the hdr histogram */
+    hdrAllocFuncs hdrallocfn = {
+        .mallocFn = zmalloc,
+        .callocFn = zcalloc_num,
+        .reallocFn = zrealloc,
+        .freeFn = zfree,
+    };
+    hdrSetAllocators(&hdrallocfn);
+
     /* Replication related */
     server.masterhost = NULL;
     server.masterport = 6379;
