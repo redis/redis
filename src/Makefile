@@ -50,7 +50,7 @@ INSTALL=install
 PKG_CONFIG?=pkg-config
 
 ifndef PYTHON
-PYTHON := $(shell which python || which python3)
+PYTHON := $(shell which python3 || which python)
 endif
 
 # Default allocator defaults to Jemalloc if it's not an ARM
