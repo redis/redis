@@ -1746,7 +1746,7 @@ void initServerConfig(void) {
 
     server.latency_tracking_enabled = 1;
     server.latency_tracking_info_percentiles_len = 3;
-    server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len+1));
+    server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
     server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
     server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
     server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
