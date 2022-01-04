@@ -1556,7 +1556,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
     if (server.aof_use_rdb_preamble) {
         int error;
-        if (rdbSaveRio(SLAVE_REQ_RDB_ALL,&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
+        if (rdbSaveRio(SLAVE_REQ_NONE,&aof,&error,RDBFLAGS_AOF_PREAMBLE,NULL) == C_ERR) {
             errno = error;
             goto werr;
         }

@@ -1348,19 +1348,19 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
-    if ((req & SLAVE_REQ_RDB_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
     /* save functions */
-    if ((req & SLAVE_REQ_RDB_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
 
     /* save all databases, skip this if we're in functions-only mode */
-    if (req & SLAVE_REQ_RDB_DATA) {
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
         for (j = 0; j < server.dbnum; j++) {
             if (rdbSaveDb(rdb, j, rdbflags, &key_counter) == -1) goto werr;
         }
     }
 
-    if ((req & SLAVE_REQ_RDB_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -3402,7 +3402,7 @@ void saveCommand(client *c) {
     }
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(SLAVE_REQ_RDB_ALL,server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3439,7 +3439,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(SLAVE_REQ_RDB_ALL,server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);
