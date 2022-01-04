@@ -4728,16 +4728,61 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
     }
 }
 
-dict *genInfoSectionDict(char **argv, int argc, int *out_all, int *out_everything) {
+dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything) {
     char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
-    char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats"};
+    char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats", "sentinel"};
 
 
     dict *section_dict = dictCreate(&stringSetDictType); /* Set to add the subsections to print*/
+    if (server.sentinel_mode) {
+        if (argc == 1) {
+            addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
+        } else {
+            for (int i = 1; i < argc; i++) {
+                if (!strcasecmp(argv[i]->ptr,"default")) 
+                    addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
+                else if (!strcasecmp(argv[i]->ptr,"all")) 
+                    (*out_all) = 1;
+                else if (!strcasecmp(argv[i]->ptr,"everything")) 
+                    (*out_everything) = 1;
+                else {
+                    sds section = sdsnew(argv[i]->ptr);
+                    sdstolower(section);
+                    dictAdd(section_dict,section,NULL);
+                }
+            }
+        }
+    } else {
+        // process server dict
+        if (argc == 1) {
+            if (!strcasecmp(argv[0]->ptr,"info")) 
+                addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
+            else {  // This is for RM_GetServerInfo Module case
+                sds section = sdsnew(argv[0]->ptr);
+                sdstolower(section);
+                dictAdd(section_dict,section,NULL);
+            }
+        } else {
+            for (int i = 1; i < argc; i++) {
+                if (!strcasecmp(argv[i]->ptr,"default")) 
+                    addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
+                else if (!strcasecmp(argv[i]->ptr,"all")) 
+                    (*out_all) = 1;
+                else if (!strcasecmp(argv[i]->ptr,"everything")) 
+                    (*out_everything) = 1;
+                else {
+                    sds section = sdsnew(argv[i]->ptr);
+                    sdstolower(section);
+                    dictAdd(section_dict,section,NULL);
+                }
+            }
+        }
+    } 
 
+    /*
     if (c == NULL || c->argc == 1) {
         if (!strcasecmp(source,"sentinel")) {
-            addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
+            
         }
         else if (!strcasecmp(source,"server")) {
             addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
@@ -4768,12 +4813,13 @@ dict *genInfoSectionDict(char **argv, int argc, int *out_all, int *out_everythin
             } else if (!strcasecmp(source,"everything")) {
                 (*everything) = 1;
             } else {
-                sds section = sdsnew(source); /* Got this from module */
+                sds section = sdsnew(source); 
                 sdstolower(section);
                 dictAdd(section_dict,section,NULL);
             }
         }
-    }  
+        */
+      
     return section_dict;
 }
 
@@ -5542,6 +5588,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
 
 void infoCommand(client *c) {
+    int all_sections = 0;
+    int everything = 0;
+    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
+
     if (server.sentinel_mode) {
         sentinelInfoCommand(c);
         return;
@@ -5779,9 +5829,6 @@ void infoCommand(client *c) {
 >>>>>>> Update code according to comments (#47)
 =======
 
-    int all_sections = 0;
-    int everything = 0;
-    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);

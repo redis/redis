@@ -8079,7 +8079,9 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
     int out_all = 0;
     int out_everything = 0;
-    dict *section_dict = genInfoSectionDict(section, 1, &out_all, &out_everything);
+    robj **argv = zmalloc(sizeof(robj*));
+    argv[0] = createStringObject(section, strlen(section));
+    dict *section_dict = genInfoSectionDict(argv, 1, &out_all, &out_everything);
     sds info = genRedisInfoString(section_dict, out_all, out_everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
