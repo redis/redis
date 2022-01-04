@@ -640,6 +640,14 @@ start_server {tags {"scripting"}} {
     } {*attempted to access nonexistent global variable 'redis'*}
 
     test {LIBRARIES - malicious access test} {
+        # the 'library' API is not expose inside a
+        # function context and the 'redis' API is not
+        # expose on the library registration context.
+        # But a malicious user might find a way to hack it
+        # (like demonstrate in the test). For this we
+        # have another level of protection on the C
+        # code itself and we want to test it and verify
+        # that it works properly.
         r function load LUA lib1 replace {
             local lib = library
             lib.register_function('f1', function ()

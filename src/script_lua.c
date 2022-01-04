@@ -1039,6 +1039,61 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_setglobal(lua,"dofile");
 }
 
+/* Create a global protection function and put it to registry.
+ * This need to be called once in the lua_State lifetime.
+ * After called it is possible to use luaSetGlobalProtection
+ * to set global protection on a give table.
+ *
+ * The function assumes the Lua stack have a least enough
+ * space to push 2 element, its up to the caller to verify
+ * this before calling this function. */
+void luaRegisterGlobalProtectionFunction(lua_State *lua) {
+    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    char *global_protection_func =       "local dbg = debug\n"
+                                         "local globals_protection = function (t)\n"
+                                         "   local mt = {}\n"
+                                         "   setmetatable(t, mt)\n"
+                                         "   mt.__newindex = function (t, n, v)\n"
+                                         "       if dbg.getinfo(2) then\n"
+                                         "           local w = dbg.getinfo(2, \"S\").what\n"
+                                         "           if w ~= \"C\" then\n"
+                                         "               error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "           end"
+                                         "       end"
+                                         "       rawset(t, n, v)\n"
+                                         "   end\n"
+                                         "   mt.__index = function (t, n)\n"
+                                         "       if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n"
+                                         "           error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "       end\n"
+                                         "       return rawget(t, n)\n"
+                                         "   end\n"
+                                         "end\n"
+                                         "return globals_protection";
+    int res = luaL_loadbuffer(lua, global_protection_func, strlen(global_protection_func), "@global_protection_def");
+    serverAssert(res == 0);
+    res = lua_pcall(lua,0,1,0);
+    serverAssert(res == 0);
+    lua_settable(lua, LUA_REGISTRYINDEX);
+}
+
+/* Set global protection on a given table.
+ * The table need to be located on the top of the lua stack.
+ * After called, it will no longer be possible to set
+ * new items on the table. The function is not removing
+ * the table from the top of the stack!
+ *
+ * The function assumes the Lua stack have a least enough
+ * space to push 2 element, its up to the caller to verify
+ * this before calling this function. */
+void luaSetGlobalProtection(lua_State *lua) {
+    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    lua_gettable(lua, LUA_REGISTRYINDEX);
+    lua_pushvalue(lua, -2);
+    int res = lua_pcall(lua, 1, 0, 0);
+    serverAssert(res == 0);
+}
+
 /* This function installs metamethods in the global table _G that prevent
  * the creation of globals accidentally.
  *

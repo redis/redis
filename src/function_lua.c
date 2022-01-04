@@ -48,7 +48,6 @@
 #define LUA_ENGINE_NAME "LUA"
 #define REGISTRY_ENGINE_CTX_NAME "__ENGINE_CTX__"
 #define REGISTRY_ERROR_HANDLER_NAME "__ERROR_HANDLER__"
-#define REGISTRY_SET_GLOBALS_PROTECTION_NAME "__GLOBAL_PROTECTION__"
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
 #define LIBRARY_API_NAME "library"
 #define LOAD_TIMEOUT_MS 500
@@ -96,6 +95,25 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
 
+    /* Each library will have its own global distinct table.
+     * We will create a new fresh Lua table and use
+     * lua_setfenv to set the table as the library globals
+     * (https://www.lua.org/manual/5.1/manual.html#lua_setfenv)
+     *
+     * At first, populate this new table with only the 'library' API
+     * to make sure only 'library' API is available at start. After the
+     * initial run is finished and all functions is registered, add
+     * all the default globals to the library global table and delete
+     * the library API.
+     *
+     * There is 2 ways to achieve the last part (add default
+     * globals to the new table):
+     *
+     * 1. Initialize the new table with all the default globals
+     * 2. Inheritance using metatable (https://www.lua.org/pil/14.3.html)
+     *
+     * For now we are choosing the second, we can change it in the future to
+     * achieve a better isolation between functions. */
     lua_newtable(lua); /* Global table for the library */
     lua_pushstring(lua, LIBRARY_API_NAME);
     lua_pushstring(lua, LIBRARY_API_NAME);
@@ -103,11 +121,7 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     lua_settable(lua, -3); /* push the library table to the new global table */
 
     /* Set global protection on the new global table */
-    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
-    lua_gettable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
-    lua_pushvalue(lua_engine_ctx->lua, -2);
-    int res = lua_pcall(lua_engine_ctx->lua, 1, 0, 0);
-    serverAssert(res == 0);
+    luaSetGlobalProtection(lua_engine_ctx->lua);
 
     /* compile the code */
     if (luaL_loadbuffer(lua, blob, sdslen(blob), "@user_function")) {
@@ -144,7 +158,6 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     lua_pushstring(lua, LIBRARY_API_NAME);
     lua_pushnil(lua);
     lua_settable(lua, -3);
-
 
     /* create metatable */
     lua_newtable(lua);
@@ -308,40 +321,12 @@ int luaEngineInitEngine() {
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
     /* Save global protection to registry */
-    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
-    char *global_protection_func =       "local dbg = debug\n"
-                                         "local globals_protection = function (t)\n"
-                                         "   local mt = {}\n"
-                                         "   setmetatable(t, mt)\n"
-                                         "   mt.__newindex = function (t, n, v)\n"
-                                         "       if dbg.getinfo(2) then\n"
-                                         "           local w = dbg.getinfo(2, \"S\").what\n"
-                                         "           if w ~= \"C\" then\n"
-                                         "               error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n"
-                                         "           end"
-                                         "       end"
-                                         "       rawset(t, n, v)\n"
-                                         "   end\n"
-                                         "   mt.__index = function (t, n)\n"
-                                         "       if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n"
-                                         "           error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n"
-                                         "       end\n"
-                                         "       return rawget(t, n)\n"
-                                         "   end\n"
-                                         "end\n"
-                                         "return globals_protection";
-    int res = luaL_loadbuffer(lua_engine_ctx->lua, global_protection_func, strlen(global_protection_func), "@global_protection_def");
-    serverAssert(res == 0);
-    res = lua_pcall(lua_engine_ctx->lua,0,1,0);
-    serverAssert(res == 0);
-    lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
+    luaRegisterGlobalProtectionFunction(lua_engine_ctx->lua);
 
     /* Set global protection on globals */
-    lua_pushstring(lua_engine_ctx->lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
-    lua_gettable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
     lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
-    res = lua_pcall(lua_engine_ctx->lua, 1, 0, 0);
-    serverAssert(res == 0);
+    luaSetGlobalProtection(lua_engine_ctx->lua);
+    lua_pop(lua_engine_ctx->lua, 1);
 
     /* save the engine_ctx on the registry so we can get it from the Lua interpreter */
     luaSaveOnRegistry(lua_engine_ctx->lua, REGISTRY_ENGINE_CTX_NAME, lua_engine_ctx);

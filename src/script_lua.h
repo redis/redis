@@ -55,10 +55,13 @@
 #include <lualib.h>
 
 #define REGISTRY_RUN_CTX_NAME "__RUN_CTX__"
+#define REGISTRY_SET_GLOBALS_PROTECTION_NAME "__GLOBAL_PROTECTION__"
 #define REDIS_API_NAME "redis"
 
 void luaRegisterRedisAPI(lua_State* lua);
 void luaEnableGlobalsProtection(lua_State *lua, int is_eval);
+void luaRegisterGlobalProtectionFunction(lua_State *lua);
+void luaSetGlobalProtection(lua_State *lua);
 void luaRegisterLogFunction(lua_State* lua);
 void luaPushError(lua_State *lua, char *error);
 int luaRaiseError(lua_State *lua);
