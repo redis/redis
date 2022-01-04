@@ -8542,6 +8542,7 @@ int main(int argc, char **argv) {
     if (config.slave_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendReplconf("rdb-filter-only", "");
         slaveMode();
     }
 
