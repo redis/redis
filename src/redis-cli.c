@@ -1198,6 +1198,8 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
                 key->type == REDIS_REPLY_VERB) {
                 out = cliFormatReplyJson(out, key);
             } else {
+                /* Accoring to JSON spec, JSON map keys must be strings, */
+                /* and in RESP3, they can be other types. */
                 sds tmp = cliFormatReplyJson(sdsempty(), key);
                 out = sdscatrepr(out,tmp,sdslen(tmp));
                 sdsfree(tmp);
