@@ -490,7 +490,7 @@ sds createLatencyReport(void) {
 
 /* ---------------------- Latency command implementation -------------------- */
 
-/* latencyCommand() helper to produce an map of time buckets,
+/* latencyCommand() helper to produce a map of time buckets,
  * each representing a latency range,
  * between 1 nanosecond and roughly 1 second.
  * Each bucket covers twice the previous bucket's range.
@@ -722,7 +722,7 @@ void latencyCommand(client *c) {
 "    Reset latency data of one or more <event> classes.",
 "    (default: reset all data for all event classes)",
 "HISTOGRAM [COMMAND ...]",
-"    Return a cumulative distribution of latencies in the format of an histogram for the specified command names.",
+"    Return a cumulative distribution of latencies in the format of a histogram for the specified command names.",
 "    If no commands are specified then all histograms are replied.",
 NULL
         };

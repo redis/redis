@@ -2614,7 +2614,7 @@ static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sd
     else
         server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*argc);
 
-    for (int j = 0; j < argc; j++) {
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
         double percentile;
         if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
             *err = "Invalid latency-tracking-info-percentiles parameters";
@@ -2656,11 +2656,10 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, cons
      * defaults from being used.
      */
     if (!server.latency_tracking_info_percentiles_len) {
-        line = sdscat(line,"\"\"");
+        line = sdscat(line," \"\"");
     } else {
         for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-            line = sdscat(line," ");
-            line = sdscatprintf(line,"%f",
+            line = sdscatprintf(line," %f",
                 server.latency_tracking_info_percentiles[j]);
         }
     }
