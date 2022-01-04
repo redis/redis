@@ -1200,6 +1200,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
             } else {
                 sds tmp = cliFormatReplyJson(sdsempty(), key);
                 out = sdscatrepr(out,tmp,sdslen(tmp));
+                sdsfree(tmp);
             }
             out = sdscat(out,":");
 
