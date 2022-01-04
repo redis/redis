@@ -1192,8 +1192,18 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     case REDIS_REPLY_MAP:
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
-            out = cliFormatReplyJson(out, r->element[i]);
-
+            redisReply *key = r->element[i];
+            if (key->type == REDIS_REPLY_STATUS ||
+                key->type == REDIS_REPLY_STRING ||
+                key->type == REDIS_REPLY_VERB) {
+                out = cliFormatReplyJson(out, key);
+            } else {
+                /* According to JSON spec, JSON map keys must be strings, */
+                /* and in RESP3, they can be other types. */
+                sds tmp = cliFormatReplyJson(sdsempty(), key);
+                out = sdscatrepr(out,tmp,sdslen(tmp));
+                sdsfree(tmp);
+            }
             out = sdscat(out,":");
 
             out = cliFormatReplyJson(out, r->element[i+1]);
