@@ -12,8 +12,8 @@ start_server {tags {"modules"}} {
             dict append mydict $k $v
         }
         set subcmds [lsort [dict get $mydict subcommands]]
-        assert_equal [lindex $subcmds 0] {get -2 module 1 1 1 {} {summary {} since {} group module key-specs {{flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
-        assert_equal [lindex $subcmds 1] {set -2 module 1 1 1 {} {summary {} since {} group module key-specs {{flags write begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
+        assert_equal [lindex $subcmds 0] {get -2 module 1 1 1 {} {summary {} since {} group module key_specs {{flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
+        assert_equal [lindex $subcmds 1] {set -2 module 1 1 1 {} {summary {} since {} group module key_specs {{flags write begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}}}}
     }
 
     test "Module pure-container command fails on arity error" {

@@ -6,6 +6,12 @@
         "since": "2.2.0",
         "arity": -4,
         "function": "zrevrangebyscoreCommand",
+        "history": [
+            [
+                "2.1.6",
+                "`min` and `max` can be exclusive."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`ZRANGE` with the `REV` and `BYSCORE` arguments",
         "doc_flags": [

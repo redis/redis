@@ -174,6 +174,8 @@ tags "modules" {
 
                     # Note whenever there's double notification: SET with EX issues two separate
                     # notifications: one for "set" and one for "expire"
+                    # Note that although CONFIG SET maxmemory is called in this flow (see issue #10014),
+                    # eviction will happen and will not induce propagation of the CONFIG command (see #10019).
                     assert_replication_stream $repl {
                         {select *}
                         {multi}

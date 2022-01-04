@@ -32,12 +32,14 @@
                     {
                         "name": "async",
                         "type": "pure-token",
-                        "token": "ASYNC"
+                        "token": "ASYNC",
+                        "since": "4.0.0"
                     },
                     {
                         "name": "sync",
                         "type": "pure-token",
-                        "token": "SYNC"
+                        "token": "SYNC",
+                        "since": "6.2.0"
                     }
                 ]
             }

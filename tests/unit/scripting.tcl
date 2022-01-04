@@ -36,6 +36,20 @@ if {$is_eval == 1} {
 
 start_server {tags {"scripting"}} {
 
+    test {Script - disallow write on OOM} {
+        r FUNCTION create lua f1 replace { return redis.call('set', 'x', '1') }
+
+        r config set maxmemory 1
+
+        catch {[r fcall f1 1 k]} e
+        assert_match {*command not allowed when used memory*} $e
+
+        catch {[r eval "redis.call('set', 'x', 1)" 0]} e
+        assert_match {*command not allowed when used memory*} $e
+
+        r config set maxmemory 0
+    }
+
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0
     } {hello}
@@ -522,7 +536,7 @@ start_server {tags {"scripting"}} {
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {MGET: mget shouldn't be propagated in Lua} {
         set repl [attach_to_replication_stream]
@@ -536,7 +550,7 @@ start_server {tags {"scripting"}} {
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {EXPIRE: We can call scripts rewriting client->argv from Lua} {
         set repl [attach_to_replication_stream]
@@ -550,7 +564,7 @@ start_server {tags {"scripting"}} {
             {pexpireat expirekey *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     } ;# is_eval
 

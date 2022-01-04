@@ -710,7 +710,7 @@ start_server {tags {"multi"}} {
             {set foo bar}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {
