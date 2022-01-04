@@ -294,7 +294,7 @@ start_server {tags {"geo"}} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
     
-    test {GEORADIUSBYMEMBER search areas contain satified points in oblique direction} {
+    test {GEORADIUSBYMEMBER search areas contain satisfied points in oblique direction} {
         r del k1
         
         r geoadd k1 -0.15307903289794921875 85 n1 0.3515625 85.00019260486917005437 n2
