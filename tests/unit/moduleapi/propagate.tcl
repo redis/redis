@@ -174,7 +174,8 @@ tags "modules" {
 
                     # Note whenever there's double notification: SET with EX issues two separate
                     # notifications: one for "set" and one for "expire"
-                    # "config set" should not be here, see https://github.com/redis/redis/issues/10014
+                    # Note that although CONFIG SET maxmemory is called in this flow (see issue #10014),
+                    # eviction will happen and will not induce propagation of the CONFIG command (see #10019).
                     assert_replication_stream $repl {
                         {select *}
                         {multi}
@@ -198,7 +199,6 @@ tags "modules" {
                         {del asdf*}
                         {incr notifications}
                         {del asdf*}
-                        {config set maxmemory 1}
                         {multi}
                         {incr notifications}
                         {set asdf4 4}
