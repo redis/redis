@@ -809,7 +809,7 @@ start_server {tags {"multi"}} {
 
 start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
     test {MULTI with FLUSHALL and AOF} {
-        set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
+        set aof [get_last_incr_aof_path r]
         r multi
         r set foo bar
         r flushall
