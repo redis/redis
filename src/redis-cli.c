@@ -497,13 +497,12 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
         !strcmp(type, "double") ||
         !strcmp(type, "pattern") ||
         !strcmp(type, "unix-time") ||
-        !strcmp(type, "token")) {
-            repeatPart = sdscat_orempty(repeatPart, name);
-    }
-    else if (!strcmp(type, "oneof")) {
+        !strcmp(type, "token"))
+    {
+        repeatPart = sdscat_orempty(repeatPart, name);
+    } else if (!strcmp(type, "oneof")) {
         repeatPart = cliConcatArguments(repeatPart, arguments, "|");
-    }
-    else if (!strcmp(type, "block")) {
+    } else if (!strcmp(type, "block")) {
         repeatPart = cliConcatArguments(repeatPart, arguments, " ");
     }
     else if (strcmp(type, "pure-token") != 0) {
