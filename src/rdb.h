@@ -95,11 +95,12 @@
 #define RDB_TYPE_ZSET_LISTPACK 17
 #define RDB_TYPE_LIST_QUICKLIST_2   18
 #define RDB_TYPE_LINK 19
+#define RDB_TYPE_LINK_POINTER 20
 
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 19))
+#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 20))
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_FUNCTION   246   /* engine data */
 #define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */

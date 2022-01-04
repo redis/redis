@@ -744,6 +744,7 @@ typedef struct RedisModuleDigest {
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of listpacks */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
+#define OBJ_ENCODING_POINTER 12 /* Encoded as a pointer */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -2463,7 +2464,7 @@ robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
-robj *createLinkObject(void *ptr);
+robj *createLinkObject(void *ptr, int soft);
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);

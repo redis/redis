@@ -287,8 +287,9 @@ robj *createModuleObject(moduleType *mt, void *value) {
     return createObject(OBJ_MODULE,mv);
 }
 
-robj *createLinkObject(void *ptr) {
+robj *createLinkObject(void *ptr, int soft) {
     robj *o = createObject(OBJ_LINK, ptr);
+    if (!soft) o->encoding = OBJ_ENCODING_POINTER;
     return o;
 }
 
@@ -1659,9 +1660,18 @@ NULL
  *
  * Usage: LINK <key> <target> */
 void linkCommand(client *c) {
-    int found = 0;
+    int found = 0, soft = 0;
     robj *o = NULL, *target = NULL;
     
+    if (c->argc == 4) {
+        if (!strcasecmp(c->argv[3]->ptr, "soft")) { 
+            soft = 1; 
+        } else {
+            addReply(c, shared.syntaxerr);
+            return;
+        }
+    }
+
     o = lookupKeyReadWithFlags(c->db, c->argv[1], LOOKUP_NONE);
     if (!o) {
         addReply(c, shared.nokeyerr);
@@ -1669,8 +1679,13 @@ void linkCommand(client *c) {
     }
     found = (lookupKeyWrite(c->db, c->argv[2]) != NULL);
     
-    incrRefCount(c->argv[1]);
-    target = createLinkObject(c->argv[1]);
+    if (soft) {
+        incrRefCount(c->argv[1]);
+        target = createLinkObject(c->argv[1], soft);
+    } else {
+        incrRefCount(o);
+        target = createLinkObject(o, soft);
+    }
     if (!target) {
         addReply(c, shared.oomerr);
         return;

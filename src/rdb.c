@@ -696,7 +696,12 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_LINK:
-        return rdbSaveType(rdb,RDB_TYPE_LINK);
+        if (o->encoding == OBJ_ENCODING_RAW)
+            return rdbSaveType(rdb,RDB_TYPE_LINK);
+        else if (o->encoding == OBJ_ENCODING_POINTER)
+            return rdbSaveType(rdb,RDB_TYPE_LINK_POINTER);
+        else
+            serverPanic("Unknown link encoding");
     default:
         serverPanic("Unknown object type");
     }
@@ -2609,9 +2614,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             return NULL;
         }
         o = createModuleObject(mt,ptr);
-    } else if (rdbtype == RDB_TYPE_LINK) {
+    } else if (rdbtype == RDB_TYPE_LINK || rdbtype == RDB_TYPE_LINK_POINTER) {
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
-        o = createLinkObject(o);
+        if (rdbtype == RDB_TYPE_LINK) {
+            o = createLinkObject(o, 0);
+        }
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
@@ -2782,6 +2789,82 @@ error:
     return res;
 }
 
+typedef struct pendingLoadElements {
+    redisDb *db;
+    sds key;
+    robj *val;
+    long long lru_idle;
+    long long lfu_freq;
+    long long expiretime;
+    long long lru_clock;
+} ple;
+
+static void addToPendingLoadList(list *plist, redisDb *db, sds key, robj *val,
+                                long long lru_idle, long long lfu_freq, long long expiretime, long long lru_clock) {
+                                    ple *pleObject = zmalloc(sizeof(ple));
+
+                                    pleObject->db = db;
+                                    pleObject->key = key;
+                                    pleObject->val = val;
+                                    pleObject->lru_idle = lru_idle;
+                                    pleObject->lfu_freq = lfu_freq;
+                                    pleObject->expiretime = expiretime;
+                                    pleObject->lru_clock = lru_clock;
+
+                                    listAddNodeTail(plist, pleObject);
+                                }
+
+static void pendingLoad(list *plist, int rdbflags) {
+    listIter iter;
+    listNode *node;
+    ple *pleObject;
+    robj *o;
+    robj keyobj;
+    
+    listRewind(plist, &iter);
+    while((node = listNext(&iter)) != NULL) {
+        pleObject = node->value;
+        initStaticStringObject(keyobj,pleObject->key);
+
+        /* 1. Find the link source and create link object */
+        o = lookupKeyReadWithFlags(pleObject->db, pleObject->val, LOOKUP_NONE);
+        decrRefCount(pleObject->val);
+        incrRefCount(o);
+        pleObject->val = createLinkObject(o, 0);
+
+        /* 2. Add the new object in the hash table */
+        int added = dbAddRDBLoad(pleObject->db,pleObject->key,pleObject->val);
+        server.rdb_last_load_keys_loaded++;
+        if (!added) {
+            if (rdbflags & RDBFLAGS_ALLOW_DUP) {
+                /* This flag is useful for DEBUG RELOAD special modes.
+                    * When it's set we allow new keys to replace the current
+                    * keys with the same name. */
+                dbSyncDelete(pleObject->db,&keyobj);
+                dbAddRDBLoad(pleObject->db,pleObject->key,pleObject->val);
+            } else {
+                serverLog(LL_WARNING,
+                    "RDB has duplicated key '%s' in DB %d",pleObject->key,pleObject->db->id);
+                serverPanic("Duplicated key found in RDB file");
+            }
+        }
+
+        /* Set the expire time if needed */
+        if (pleObject->expiretime != -1) {
+            setExpire(NULL,pleObject->db,&keyobj,pleObject->expiretime);
+        }
+
+        /* Set usage information (for eviction). */
+        objectSetLRUOrLFU(pleObject->val,pleObject->lfu_freq,pleObject->lru_idle,pleObject->lru_clock,1000);
+
+        /* call key space notification on key loaded for modules only */
+        moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, pleObject->db->id);
+
+        zfree(pleObject);
+        listDelNode(plist, node);
+    }
+}
+
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
@@ -2825,6 +2908,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
 
+    list *pendingLoadList = listCreate();
+
     while(1) {
         sds key;
         robj *val;
@@ -2863,6 +2948,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             /* EOF: End of file, exit the main loop. */
             break;
         } else if (type == RDB_OPCODE_SELECTDB) {
+            pendingLoad(pendingLoadList, rdbflags);
             /* SELECTDB: Select the specified database. */
             if ((dbid = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
@@ -3058,33 +3144,37 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
-            /* Add the new object in the hash table */
-            int added = dbAddRDBLoad(db,key,val);
-            server.rdb_last_load_keys_loaded++;
-            if (!added) {
-                if (rdbflags & RDBFLAGS_ALLOW_DUP) {
-                    /* This flag is useful for DEBUG RELOAD special modes.
-                     * When it's set we allow new keys to replace the current
-                     * keys with the same name. */
-                    dbSyncDelete(db,&keyobj);
-                    dbAddRDBLoad(db,key,val);
-                } else {
-                    serverLog(LL_WARNING,
-                        "RDB has duplicated key '%s' in DB %d",key,db->id);
-                    serverPanic("Duplicated key found in RDB file");
+            if (type == RDB_TYPE_LINK_POINTER) {
+                addToPendingLoadList(pendingLoadList, db, key, val, lru_idle, lfu_freq, expiretime, lru_clock);
+            } else {
+                /* Add the new object in the hash table */
+                int added = dbAddRDBLoad(db,key,val);
+                server.rdb_last_load_keys_loaded++;
+                if (!added) {
+                    if (rdbflags & RDBFLAGS_ALLOW_DUP) {
+                        /* This flag is useful for DEBUG RELOAD special modes.
+                        * When it's set we allow new keys to replace the current
+                        * keys with the same name. */
+                        dbSyncDelete(db,&keyobj);
+                        dbAddRDBLoad(db,key,val);
+                    } else {
+                        serverLog(LL_WARNING,
+                            "RDB has duplicated key '%s' in DB %d",key,db->id);
+                        serverPanic("Duplicated key found in RDB file");
+                    }
                 }
+
+                /* Set the expire time if needed */
+                if (expiretime != -1) {
+                    setExpire(NULL,db,&keyobj,expiretime);
+                }
+
+                /* Set usage information (for eviction). */
+                objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
+
+                /* call key space notification on key loaded for modules only */
+                moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
             }
-
-            /* Set the expire time if needed */
-            if (expiretime != -1) {
-                setExpire(NULL,db,&keyobj,expiretime);
-            }
-
-            /* Set usage information (for eviction). */
-            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
-
-            /* call key space notification on key loaded for modules only */
-            moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
         }
 
         /* Loading the database more slowly is useful in order to test
@@ -3098,6 +3188,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         lfu_freq = -1;
         lru_idle = -1;
     }
+    pendingLoad(pendingLoadList, rdbflags);
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5) {
         uint64_t cksum, expected = rdb->cksum;
@@ -3127,6 +3218,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
                 server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
     }
+    listRelease(pendingLoadList);
     return C_OK;
 
     /* Unexpected end of file is handled here calling rdbReportReadError():
