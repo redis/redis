@@ -2,4 +2,4 @@
 quiet-level = 2
 count =
 skip = ./deps,./src/crc16_slottable.h,tmp*,./.git,./lcov-html
-ignore-words = ./.github/wordlist.txt
+ignore-words = ./.codespell/wordlist.txt

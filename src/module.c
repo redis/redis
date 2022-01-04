@@ -7422,7 +7422,7 @@ RedisModuleString *RM_GetCurrentUserName(RedisModuleCtx *ctx) {
  * Returns NULL if the user is disabled or the user does not exist.
  * The caller should later free the user using the function RM_FreeModuleUser().*/
 RedisModuleUser *RM_GetModuleUserFromUserName(RedisModuleString *name) {
-    /* First, verfify that the user exist */
+    /* First, verify that the user exist */
     user *acl_user = ACLGetUserByName(name->ptr, sdslen(name->ptr));
     if (acl_user == NULL) {
         return NULL;
