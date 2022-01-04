@@ -50,7 +50,9 @@ TEST_MODULES = \
     aclcheck.so \
     list.so \
     subcommands.so \
-    reply.so
+    reply.so \
+    cmdintrospection.so 
+
 
 .PHONY: all
 
