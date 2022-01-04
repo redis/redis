@@ -33,6 +33,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "script.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -364,7 +365,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     }
 
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
+        overhead += sdsAllocSize(server.aof_buf);
     }
     return overhead;
 }
@@ -465,6 +466,14 @@ static int evictionTimeProc(
     return AE_NOMORE;
 }
 
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
+}
+
 /* Check if it's safe to perform evictions.
  *   Returns 1 if evictions can be performed
  *   Returns 0 if eviction processing should be skipped
@@ -472,7 +481,7 @@ static int evictionTimeProc(
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (server.lua_timedout || server.loading) return 0;
+    if (scriptIsTimedout() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
@@ -482,6 +491,10 @@ static int isSafeToPerformEvictions(void) {
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
+
+    /* We cannot evict if we already have stuff to propagate (for example,
+     * CONFIG SET maxmemory inside a MULTI/EXEC) */
+    if (server.also_propagate.numops != 0) return 0;
 
     return 1;
 }
@@ -559,6 +572,13 @@ int performEvictions(void) {
 
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
+
+    /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
+     * so we have to back-up and restore server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+    server.propagate_no_multi = 1;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -647,7 +667,6 @@ int performEvictions(void) {
         if (bestkey) {
             db = server.db+bestdbid;
             robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-            propagateExpire(db,keyobj,server.lazyfree_lazy_eviction);
             /* We compute the amount of memory freed by db*Delete() alone.
              * It is possible that actually the memory needed to propagate
              * the DEL in AOF and replication link is greater than the one
@@ -672,6 +691,7 @@ int performEvictions(void) {
             signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -700,11 +720,7 @@ int performEvictions(void) {
                  * memory, don't want to spend too much time here.  */
                 if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
-                    if (!isEvictionProcRunning) {
-                        isEvictionProcRunning = 1;
-                        aeCreateTimeEvent(server.el, 0,
-                                evictionTimeProc, NULL, NULL);
-                    }
+                    startEvictionTimeProc();
                     break;
                 }
             }
@@ -727,6 +743,14 @@ cant_free:
             }
         }
     }
+
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    /* Propagate all DELs */
+    propagatePendingCommands();
+
+    server.core_propagates = prev_core_propagates;
+    server.propagate_no_multi = 0;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

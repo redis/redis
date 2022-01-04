@@ -515,11 +515,17 @@ foreach testType {Successful Aborted} {
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
             $replica debug populate 2000 slave 10
-            $master debug populate 1000 master 100000
+            $master debug populate 2000 master 100000
             $master config set rdbcompression no
 
             # Set a key value on replica to check status during loading, on failure and after swapping db
             $replica set mykey myvalue
+
+            # Set a function value on replica to check status during loading, on failure and after swapping db
+            $replica function create LUA test {return 'hello1'}
+
+            # Set a function value on master to check it reaches the replica when replication ends
+            $master function create LUA test {return 'hello2'}
 
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
@@ -534,7 +540,7 @@ foreach testType {Successful Aborted} {
             switch $testType {
                 "Aborted" {
                     # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 10ms per key, with 1000 keys is 10 seconds
+                    # 10ms per key, with 2000 keys is 20 seconds
                     $master config set rdb-key-save-delay 10000
 
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
@@ -552,11 +558,31 @@ foreach testType {Successful Aborted} {
                         # Ensure we still see old values while async_loading is in progress and also not LOADING status
                         assert_equal [$replica get mykey] "myvalue"
 
+                        # Ensure we still can call old function while async_loading is in progress
+                        assert_equal [$replica fcall test 0] "hello1"
+
                         # Make sure we're still async_loading to validate previous assertion
                         assert_equal [s -1 async_loading] 1
 
                         # Make sure amount of replica keys didn't change
                         assert_equal [$replica dbsize] 2001
+                    }
+
+                    test {Busy script during async loading} {
+                        set rd_replica [redis_deferring_client -1]
+                        $replica config set lua-time-limit 10
+                        $rd_replica eval {while true do end} 0
+                        after 200
+                        assert_error {BUSY*} {$replica ping}
+                        $replica script kill
+                        after 200 ; # Give some time to Lua to call the hook again...
+                        assert_equal [$replica ping] "PONG"
+                        $rd_replica close
+                    }
+
+                    test {Blocked commands and configs during async-loading} {
+                        assert_error {LOADING*} {$replica config set appendonly no}
+                        assert_error {LOADING*} {$replica REPLICAOF no one}
                     }
 
                     # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
@@ -575,6 +601,9 @@ foreach testType {Successful Aborted} {
                     test {Diskless load swapdb (async_loading): old database is exposed after async replication fails} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
+
+                        # Ensure we still can call old function
+                        assert_equal [$replica fcall test 0] "hello1"
 
                         # Make sure amount of replica keys didn't change
                         assert_equal [$replica dbsize] 2001
@@ -595,8 +624,11 @@ foreach testType {Successful Aborted} {
                         # Ensure we don't see anymore the key that was stored only to replica and also that we don't get LOADING status
                         assert_equal [$replica GET mykey] ""
 
+                        # Ensure we got the new function
+                        assert_equal [$replica fcall test 0] "hello2"
+
                         # Make sure amount of keys matches master
-                        assert_equal [$replica dbsize] 1010
+                        assert_equal [$replica dbsize] 2010
                     }
                 }
             }
@@ -624,6 +656,10 @@ test {diskless loading short read} {
             $replica config set dynamic-hz no
             # Try to fill the master with all types of data types / encodings
             set start [clock clicks -milliseconds]
+
+            # Set a function value to check short read handling on functions
+            r function create LUA test {return 'hello1'}
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]
@@ -908,6 +944,7 @@ test "diskless replication child being killed is collected" {
             set loglines [count_log_lines 0]
             $replica config set repl-diskless-load swapdb
             $replica config set key-load-delay 1000000
+            $replica config set loading-process-events-interval-bytes 1024
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
@@ -926,6 +963,9 @@ test "diskless replication child being killed is collected" {
             } else {
                 fail "rdb child didn't terminate"
             }
+
+            # Speed up shutdown
+            $replica config set key-load-delay 0
         }
     }
 } {} {external:skip}

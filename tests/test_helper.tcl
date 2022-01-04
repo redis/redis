@@ -6,6 +6,7 @@ package require Tcl 8.5
 
 set tcl_precision 17
 source tests/support/redis.tcl
+source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
@@ -44,7 +45,9 @@ set ::all_tests {
     integration/replication-4
     integration/replication-psync
     integration/replication-buffer
+    integration/shutdown
     integration/aof
+    integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
@@ -61,8 +64,10 @@ set ::all_tests {
     integration/redis-benchmark
     integration/dismiss-mem
     unit/pubsub
+    unit/pubsubshard
     unit/slowlog
     unit/scripting
+    unit/functions
     unit/maxmemory
     unit/introspection
     unit/introspection-2
@@ -85,6 +90,7 @@ set ::all_tests {
     unit/networking
     unit/cluster
     unit/client-eviction
+    unit/violations
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

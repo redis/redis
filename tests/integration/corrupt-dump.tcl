@@ -118,6 +118,15 @@ test {corrupt payload: quicklist encoded_len is 0} {
     }
 }
 
+test {corrupt payload: quicklist listpack entry start with EOF} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch { r restore _list 0 "\x12\x01\x02\x0b\x0b\x00\x00\x00\x01\x00\x81\x61\x02\xff\xff\x0a\x00\x7e\xd8\xde\x5b\x0d\xd7\x70\xb8" replace } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: #3080 - ziplist} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         # shallow sanitization is enough for restore to safely reject the payload with wrong size
@@ -213,6 +222,17 @@ test {corrupt payload: listpack too long entry prev len} {
         } err
         assert_match "*Bad data format*" $err
         verify_log_message 0 "*Stream listpack integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: stream with duplicate consumers} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x0F\x00\x00\x00\x00\x01\x07\x6D\x79\x67\x72\x6F\x75\x70\x00\x00\x00\x02\x04\x6E\x61\x6D\x65\x2A\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x04\x6E\x61\x6D\x65\x2B\x4C\xAA\x9A\x7D\x01\x00\x00\x00\x0A\x00\xCC\xED\x8C\xA7\x62\xEE\xC7\xC8"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Duplicate stream consumer detected*" 0
+        r ping
     }
 }
 
@@ -733,7 +753,7 @@ test {corrupt payload: fuzzer findings - gcc asan reports false leak on assert} 
     }
 }
 
-test {corrupt payload: fuzzer findings - lpFind invalid access } {
+test {corrupt payload: fuzzer findings - lpFind invalid access} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r debug set-skip-checksum-validation 1
         r config set sanitize-dump-payload no
@@ -748,6 +768,16 @@ test {corrupt payload: fuzzer findings - invalid access in ziplist tail prevlen 
         r debug set-skip-checksum-validation 1
         r config set sanitize-dump-payload no
         catch {r restore _listbig 0 "\x0e\x02\x1B\x1B\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\x02\x5F\x39\x04\xF9\x02\x02\x5F\x37\x04\xF7\x02\x02\x5F\x35\xFF\x19\x19\x00\x00\x00\x16\x00\x00\x00\x05\x00\x00\xF5\x02\x02\x5F\x33\x04\xF3\x02\x02\x5F\x31\xFE\xF1\xFF\x0A\x00\x6B\x43\x32\x2F\xBB\x29\x0a\xBE"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - zset zslInsert with a NAN score} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _nan_zset 0 "\x05\x0A\x02\x5F\x39\x00\x00\x00\x00\x00\x00\x22\x40\xC0\x08\x00\x00\x00\x00\x00\x00\x20\x40\x02\x5F\x37\x00\x00\x00\x00\x00\x00\x1C\x40\xC0\x06\x00\x00\x00\x00\x00\x00\x18\x40\x02\x5F\x35\x00\x00\x00\x00\x00\x00\x14\x40\xC0\x04\x00\x00\x00\x00\x00\x00\x10\x40\x02\x5F\x33\x00\x00\x00\x00\x00\x00\x08\x40\xC0\x02\x00\x00\x00\x00\x00\x00\x00\x40\x02\x5F\x31\x00\x00\x00\x00\x00\x55\xF0\x7F\xC0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0A\x00\xEC\x94\x86\xD8\xFD\x5C\x5F\xD8"} err
         assert_match "*Bad data format*" $err
         r ping
     }

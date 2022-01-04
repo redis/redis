@@ -87,12 +87,25 @@ start_server {tags {"acl external:skip"}} {
         r PUBLISH foo bar
     } {0}
 
+    test {By default users are able to publish to any shard channel} {
+        r SPUBLISH foo bar
+    } {0}
+
     test {By default users are able to subscribe to any channel} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
         $rd read
         $rd SUBSCRIBE foo
         assert_match {subscribe foo 1} [$rd read]
+        $rd close
+    } {0}
+
+    test {By default users are able to subscribe to any shard channel} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SSUBSCRIBE foo
+        assert_match {ssubscribe foo 1} [$rd read]
         $rd close
     } {0}
 
@@ -110,6 +123,14 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {0} [r PUBLISH foo:1 somemessage]
         assert_equal {0} [r PUBLISH bar:2 anothermessage]
         catch {r PUBLISH zap:3 nosuchmessage} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow publishing to a subset of shard channels} {
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        assert_equal {0} [r SPUBLISH foo:1 somemessage]
+        assert_equal {0} [r SPUBLISH bar:2 anothermessage]
+        catch {r SPUBLISH zap:3 nosuchmessage} e
         set e
     } {*NOPERM*channel*}
 
@@ -166,6 +187,19 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*channel*}
 
+    test {It's possible to allow subscribing to a subset of shard channels} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SSUBSCRIBE foo:1
+        assert_match {ssubscribe foo:1 1} [$rd read]
+        $rd SSUBSCRIBE bar:2
+        assert_match {ssubscribe bar:2 2} [$rd read]
+        $rd SSUBSCRIBE zap:3
+        catch {$rd read} e
+        set e
+    } {*NOPERM*channel*}
+
     test {It's possible to allow subscribing to a subset of channel patterns} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
@@ -193,6 +227,20 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    test {Subscribers are killed when revoked of channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd SSUBSCRIBE foo:1
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
     test {Subscribers are killed when revoked of pattern permission} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &bar:*
@@ -209,16 +257,18 @@ start_server {tags {"acl external:skip"}} {
 
     test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
         set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &orders
         $rd AUTH psuser pspass
         $rd read
         $rd CLIENT SETNAME pardoned
         $rd read
         $rd SUBSCRIBE foo:1
         $rd read
+        $rd SSUBSCRIBE orders
+        $rd read
         $rd PSUBSCRIBE bar:*
         $rd read
-        r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &orders &baz:qaz &zoo:*
         assert_match {*pardoned*} [r CLIENT LIST]
         r ACL setuser psuser allchannels
         assert_match {*pardoned*} [r CLIENT LIST]

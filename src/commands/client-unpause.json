@@ -1,0 +1,20 @@
+{
+    "UNPAUSE": {
+        "summary": "Resume processing of clients that were paused",
+        "complexity": "O(N) Where N is the number of paused clients",
+        "group": "connection",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ]
+    }
+}

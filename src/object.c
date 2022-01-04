@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "functions.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -1195,25 +1196,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
     mem_total += mh->clients_normal;
 
+    mh->cluster_links = server.stat_cluster_links_memory;
+    mem_total += mh->cluster_links;
+
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
-        mem += aofRewriteBufferMemoryUsage();
     }
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = server.lua_scripts_mem;
-    mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
-        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
-    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
-        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
-    if (listLength(server.repl_scriptcache_fifo) > 0) {
-        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) +
-            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
-    }
+    mem = evalScriptsMemory();
     mh->lua_caches = mem;
     mem_total+=mem;
+    mh->functions_caches = functionsMemoryOverhead();
+    mem_total+=mh->functions_caches;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1233,6 +1230,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem = dictSize(db->expires) * sizeof(dictEntry) +
               dictSlots(db->expires) * sizeof(dictEntry*);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
+        mem_total+=mem;
+
+        /* Account for the slot to keys map in cluster mode */
+        mem = dictSize(db->dict) * dictMetadataSize(db->dict);
+        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 
         mh->num_dbs++;
@@ -1325,7 +1327,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Too many scripts are cached? */
-        if (dictSize(server.lua_scripts) > 1000) {
+        if (dictSize(evalScriptsDict()) > 1000) {
             many_scripts = 1;
             num_reports++;
         }
@@ -1525,11 +1527,12 @@ NULL
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
+        usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,25+mh->num_dbs);
+        addReplyMapLen(c,26+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1555,18 +1558,25 @@ NULL
         addReplyBulkCString(c,"lua.caches");
         addReplyLongLong(c,mh->lua_caches);
 
+        addReplyBulkCString(c,"functions.caches");
+        addReplyLongLong(c,mh->functions_caches);
+
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
+            addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
+
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);

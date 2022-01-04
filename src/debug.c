@@ -417,9 +417,6 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
-"    Setting it to 1 makes Lua replication defaulting to replicating single",
-"    commands, without the script having to enable effects replication.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -428,13 +425,17 @@ void debugCommand(client *c) {
 #endif
 "OBJECT <key>",
 "    Show low level info about `key` and associated value.",
+"DROP-CLUSTER-PACKET-FILTER <packet-type>",
+"    Drop all packets that match the filtered type. Set to -1 allow all packets.",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
 "    Crash the server simulating a panic.",
 "POPULATE <count> [<prefix>] [<size>]",
 "    Create <count> string keys named key:<num>. If <prefix> is specified then",
-"    it is used instead of the 'key' prefix.",
+"    it is used instead of the 'key' prefix. These are not propagated to",
+"    replicas. Cluster slots are not respected so keys not belonging to the",
+"    current node can be created in cluster mode.",
 "PROTOCOL <type>",
 "    Reply with a test value of the specified type. <type> can be: string,",
 "    integer, double, bignum, null, array, set, map, attrib, push, verbatim,",
@@ -476,7 +477,7 @@ void debugCommand(client *c) {
 "LISTPACK <key>",
 "    Show low level info about the listpack encoding of <key>.",
 "QUICKLIST <key> [<0|1>]",
-"    Show low level info about the quicklist encoding of <key>."
+"    Show low level info about the quicklist encoding of <key>.",
 "    The optional argument (0 by default) sets the level of detail",
 "CLIENT-EVICTION",
 "    Show low level client eviction pools info (maxmemory-clients).",
@@ -545,7 +546,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -554,7 +555,7 @@ NULL
         /* The default behavior is to remove the current dataset from
          * memory before loading the RDB file, however when MERGE is
          * used together with NOFLUSH, we are able to merge two datasets. */
-        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        if (flush) emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
 
         protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
@@ -567,14 +568,23 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+        aofLoadManifestFromDisk();
+        aofDelHistoryFiles();
+        int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
+        long packet_type;
+        if (getLongFromObjectOrReply(c, c->argv[2], &packet_type, NULL) != C_OK)
+            return;
+        server.cluster_drop_packet_filter = packet_type;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
@@ -830,11 +840,6 @@ NULL
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"lua-always-replicate-commands") &&
-               c->argc == 3)
-    {
-        server.lua_always_replicate_commands = atoi(c->argv[2]->ptr);
-        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
 
@@ -917,7 +922,7 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.lua_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {

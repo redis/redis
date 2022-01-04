@@ -31,6 +31,8 @@
 #include "cluster.h"
 #include "atomicvar.h"
 #include "latency.h"
+#include "script.h"
+#include "functions.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -88,7 +90,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
              * commands is to make writable replicas behave consistently. It
              * shall not be used in readonly commands. Modules are accepted so
              * that we don't break old modules. */
-            client *c = server.in_eval ? server.lua_client : server.current_client;
+            client *c = server.in_script ? scriptGetClient() : server.current_client;
             serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
         }
         if (expireIfNeeded(db, key, force_delete_expired)) {
@@ -411,22 +413,24 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     return removed;
 }
 
-/* Remove all keys from all the databases in a Redis server.
- * If callback is given the function is called from time to time to
- * signal that work is in progress.
+/* Remove all data (keys and functions) from all the databases in a
+ * Redis server. If callback is given the function is called from
+ * time to time to signal that work is in progress.
  *
  * The dbnum can be -1 if all the DBs should be flushed, or the specified
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
  * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
- * and the function to return ASAP.
+ * and the function to return ASAP. EMPTYDB_NOFUNCTIONS can also be set
+ * to specify that we do not want to delete the functions.
  *
  * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
+long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     int async = (flags & EMPTYDB_ASYNC);
+    int with_functions = !(flags & EMPTYDB_NOFUNCTIONS);
     RedisModuleFlushInfoV1 fi = {REDISMODULE_FLUSHINFO_VERSION,!async,dbnum};
     long long removed = 0;
 
@@ -454,6 +458,11 @@ long long emptyDb(int dbnum, int flags, void(callback)(dict*)) {
     if (server.cluster_enabled) slotToKeyFlush(server.db);
 
     if (dbnum == -1) flushSlaveKeysWithExpireList();
+
+    if (with_functions) {
+        serverAssert(dbnum == -1);
+        functionsCtxClearCurrent(async);
+    }
 
     /* Also fire the end event. Note that this event will fire almost
      * immediately after the start event if the flush is asynchronous. */
@@ -582,7 +591,7 @@ int getFlushCommandFlags(client *c, int *flags) {
 
 /* Flushes the whole server data set. */
 void flushAllDataAndResetRDB(int flags) {
-    server.dirty += emptyDb(-1,flags,NULL);
+    server.dirty += emptyData(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
@@ -590,7 +599,7 @@ void flushAllDataAndResetRDB(int flags) {
         int saved_dirty = server.dirty;
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(server.rdb_filename,rsiptr);
+        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
 
@@ -613,7 +622,8 @@ void flushdbCommand(client *c) {
     int flags;
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    server.dirty += emptyDb(c->db->id,flags,NULL);
+    /* flushdb should not flush the functions */
+    server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
@@ -630,7 +640,8 @@ void flushdbCommand(client *c) {
 void flushallCommand(client *c) {
     int flags;
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    flushAllDataAndResetRDB(flags);
+    /* flushall should not flush the functions */
+    flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     addReply(c,shared.ok);
 }
 
@@ -1022,23 +1033,59 @@ void typeCommand(client *c) {
 }
 
 void shutdownCommand(client *c) {
-    int flags = 0;
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    } else if (c->argc == 2) {
-        if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+    int flags = SHUTDOWN_NOFLAGS;
+    int abort = 0;
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"nosave")) {
             flags |= SHUTDOWN_NOSAVE;
-        } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+        } else if (!strcasecmp(c->argv[i]->ptr,"save")) {
             flags |= SHUTDOWN_SAVE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "now")) {
+            flags |= SHUTDOWN_NOW;
+        } else if (!strcasecmp(c->argv[i]->ptr, "force")) {
+            flags |= SHUTDOWN_FORCE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "abort")) {
+            abort = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
+    if ((abort && flags != SHUTDOWN_NOFLAGS) ||
+        (flags & SHUTDOWN_NOSAVE && flags & SHUTDOWN_SAVE))
+    {
+        /* Illegal combo. */
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    if (abort) {
+        if (abortShutdown() == C_OK)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "No shutdown in progress.");
+        return;
+    }
+
+    if (!(flags & SHUTDOWN_NOW) && c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "SHUTDOWN without NOW or ABORT isn't allowed for DENY BLOCKING client");
+        return;
+    }
+
+    if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
+        /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
+         * also processCommand where these errors are returned. */
+        if (scriptIsEval())
+            addReplyErrorObject(c, shared.slowevalerr);
+        else
+            addReplyErrorObject(c, shared.slowscripterr);
+        return;
+    }
+
+    blockClient(c, BLOCKED_SHUTDOWN);
     if (prepareForShutdown(flags) == C_OK) exit(0);
-    addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
+    /* If we're here, then shutdown is ongoing (the client is still blocked) or
+     * failed (the client has received an error). */
 }
 
 void renameGenericCommand(client *c, int nx) {
@@ -1455,7 +1502,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
     signalModifiedKey(NULL, db, keyobj);
-    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    propagateDeletion(db,keyobj,server.lazyfree_lazy_expire);
     server.stat_expiredkeys++;
 }
 
@@ -1466,8 +1513,18 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  * This way the key expiry is centralized in one place, and since both
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
- * keys. */
-void propagateExpire(redisDb *db, robj *key, int lazy) {
+ * keys.
+ *
+ * This function may be called from:
+ * 1. Within call(): Example: Lazy-expire on key access.
+ *    In this case the caller doesn't have to do anything
+ *    because call() handles server.also_propagate(); or
+ * 2. Outside of call(): Example: Active-expire, eviction.
+ *    In this the caller must remember to call
+ *    propagatePendingCommands, preferably at the end of
+ *    the deletion batch, so that DELs will be wrapped
+ *    in MULTI/EXEC */
+void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
     argv[0] = lazy ? shared.unlink : shared.del;
@@ -1479,7 +1536,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
-    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);
@@ -1501,8 +1558,8 @@ int keyIsExpired(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    if (server.lua_caller) {
-        now = server.lua_time_snapshot;
+    if (server.script_caller) {
+        now = evalTimeSnapshot();
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -1739,6 +1796,11 @@ int zunionInterDiffGetKeys(struct redisCommand *cmd, robj **argv, int argc, getK
 }
 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 2, 3, 1, argv, argc, result);
+}
+
+int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }

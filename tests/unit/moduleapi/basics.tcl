@@ -32,3 +32,9 @@ start_server {tags {"modules"}} {
 
     r module unload test
 }
+
+start_server {tags {"modules external:skip"} overrides {enable-module-command no}} {
+    test {module command disabled} {
+       assert_error "ERR*MODULE command not allowed*" {r module load $testmodule}
+    }
+}

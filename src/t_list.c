@@ -112,7 +112,7 @@ void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction)
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    zfree(li->iter);
+    quicklistReleaseIterator(li->iter);
     zfree(li);
 }
 
@@ -154,11 +154,9 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
         sds str = value->ptr;
         size_t len = sdslen(str);
         if (where == LIST_TAIL) {
-            quicklistInsertAfter((quicklist *)entry->entry.quicklist,
-                                 &entry->entry, str, len);
+            quicklistInsertAfter(entry->li->iter, &entry->entry, str, len);
         } else if (where == LIST_HEAD) {
-            quicklistInsertBefore((quicklist *)entry->entry.quicklist,
-                                  &entry->entry, str, len);
+            quicklistInsertBefore(entry->li->iter, &entry->entry, str, len);
         }
         decrRefCount(value);
     } else {
@@ -172,8 +170,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
-        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
-                              &entry->entry, str, len);
+        quicklistReplaceEntry(entry->li->iter, &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -348,7 +345,8 @@ void lindexCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
-        if (quicklistIndex(o->ptr, index, &entry)) {
+        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(o->ptr, index, &entry);
+        if (iter) {
             if (entry.value) {
                 addReplyBulkCBuffer(c, entry.value, entry.sz);
             } else {
@@ -357,6 +355,7 @@ void lindexCommand(client *c) {
         } else {
             addReplyNull(c);
         }
+        quicklistReleaseIterator(iter);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -961,7 +960,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             serverAssert(llen > 0);
 
             argv[2] = createStringObjectFromLongLong((count > llen) ? llen : count);
-            propagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[2]);
 
             /* Pop a range of elements in a nested arrays way. */
@@ -969,7 +968,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             return;
         }
 
-        propagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
+        alsoPropagate(db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
         value = listTypePop(o, wherefrom);
@@ -1000,7 +999,7 @@ void serveClientBlockedOnList(client *receiver, robj *o, robj *key, robj *dstkey
             argv[2] = dstkey;
             argv[3] = getStringObjectFromListPosition(wherefrom);
             argv[4] = getStringObjectFromListPosition(whereto);
-            propagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(db->id,argv,(isbrpoplpush ? 3 : 5),PROPAGATE_AOF|PROPAGATE_REPL);
 
             /* Notify event ("lpush" or "rpush" was notified by lmoveHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,wherefrom == LIST_TAIL ? "rpop" : "lpop",
