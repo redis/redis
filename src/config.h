@@ -63,6 +63,13 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
     defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\

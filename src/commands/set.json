@@ -12,15 +12,15 @@
                 "Added the `EX`, `PX`, `NX` and `XX` options."
             ],
             [
-                "6.0",
+                "6.0.0",
                 "Added the `KEEPTTL` option."
             ],
             [
-                "6.2",
+                "6.2.0",
                 "Added the `GET`, `EXAT` and `PXAT` option."
             ],
             [
-                "7.0",
+                "7.0.0",
                 "Allowed the `NX` and `GET` options to be used together."
             ]
         ],
@@ -69,27 +69,32 @@
                     {
                         "name": "seconds",
                         "type": "integer",
-                        "token": "EX"
+                        "token": "EX",
+                        "since": "2.6.12"
                     },
                     {
                         "name": "milliseconds",
                         "type": "integer",
-                        "token": "PX"
+                        "token": "PX",
+                        "since": "2.6.12"
                     },
                     {
                         "name": "unix-time-seconds",
                         "type": "unix-time",
-                        "token": "EXAT"
+                        "token": "EXAT",
+                        "since": "6.2.0"
                     },
                     {
                         "name": "unix-time-milliseconds",
                         "type": "unix-time",
-                        "token": "PXAT"
+                        "token": "PXAT",
+                        "since": "6.2.0"
                     },
                     {
                         "name": "keepttl",
                         "type": "pure-token",
-                        "token": "KEEPTTL"
+                        "token": "KEEPTTL",
+                        "since": "6.0.0"
                     }
                 ]
             },
@@ -97,6 +102,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
+                "since": "2.6.12",
                 "arguments": [
                     {
                         "name": "nx",
