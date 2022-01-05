@@ -55,27 +55,28 @@ start_server {tags {"modules"}} {
     }
 
     test {Busy module} {
-        set start [clock clicks -milliseconds]
-        set elapsed 1
-        set scriptTimeLimit 5
+        set scriptTimeLimit 50
         r config set script-time-limit $scriptTimeLimit
+
+        # run blocking command
         set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
         $rd test.busy_module
-        wait_for_condition 50 1000 {
-            [expr [clock clicks -milliseconds]-$start] > $scriptTimeLimit
-        } else {
-            fail "Failed waiting for busy command to pass script-time-limit"
-       }
-        for {set j 0} {$j<10} {incr j} {
-            catch {r ping} e
-            assert_match {BUSY*} $e
-        }
-        catch {r test.stop_busy_module} e
+        $rd flush
+        # after 1 ;# an attempt to make sure the blocking command is handled before we proceed
+
+        # make sure we get BUSY error, and that we didn't get it too early
+        assert_error {*BUSY*} {r ping}
+        assert_morethan [expr [clock clicks -milliseconds]-$start] $scriptTimeLimit
+
+        # abort the blocking operation
+        r test.stop_busy_module
         wait_for_condition 50 100 {
             [r ping] eq {PONG}
         } else {
             fail "Failed waiting for busy command to end"
         }
+        $rd close
     }
 }
 

@@ -158,9 +158,7 @@ struct RedisModuleCtx {
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
-    /* this var is used to monitor busy commands,
-     * and according to it decide sending SlowContextHeartbeat */
-    long long next_event;
+    long long next_heartbeat_event;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -445,12 +443,14 @@ char *RM_Strdup(const char *str) {
  * marked with the `allow-busy` flag to be executed. */
 void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
     long long now = getMonotonicUs();
-    if (now >= ctx->next_event) {
-        server.busy_module = 1;
+    if (now >= ctx->next_heartbeat_event) {
+        if (!server.busy_module) {
+            server.busy_module = 1;
+            blockingOperationStarts();
+        }
         processEventsWhileBlocked();
-        server.busy_module = 0;
         /* decide when the next event should fire. */
-        ctx->next_event = now + 1000000 / server.hz;
+        ctx->next_heartbeat_event = now + 1000000 / server.hz;
     }
 }
 
@@ -633,10 +633,11 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0 && !server.core_propagates)
             propagatePendingCommands();
-        if (!server.module_ctx_nesting)
+        if (!server.module_ctx_nesting && server.busy_module) {
             blockingOperationEnds();
+            server.busy_module = 0;
+        }
     }
-
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -663,10 +664,9 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
-    out_ctx->next_event = getMonotonicUs() + server.script_time_limit;
+    out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
-        blockingOperationStarts();
     }
 }
 
@@ -6693,7 +6693,6 @@ void moduleGILAfterLock() {
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
     server.module_ctx_nesting++;
-    blockingOperationStarts();
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -6732,7 +6731,10 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    blockingOperationEnds();
+    if (!server.module_ctx_nesting && server.busy_module) {
+        blockingOperationEnds();
+        server.busy_module = 0;
+    }
     propagatePendingCommands();
 }
 
