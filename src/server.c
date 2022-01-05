@@ -5862,8 +5862,10 @@ void closeChildUnusedResourceAfterFork() {
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
     if (isMutuallyExclusiveChildType(purpose)) {
-        if (hasActiveChildProcess())
+        if (hasActiveChildProcess()) {
+            errno = EEXIST;
             return -1;
+        }
 
         openChildInfoPipe();
     }

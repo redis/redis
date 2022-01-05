@@ -32,4 +32,11 @@ start_server {tags {"modules"}} {
         assert {[count_log_message "fork child exiting"] eq "1"}
     }
 
+    test {Module fork twice} {
+        r fork.create 0
+        after 250
+        catch {r fork.create 0}
+        assert {[count_log_message "Can't fork for module: File exists"] eq "1"}
+    }
+
 }
