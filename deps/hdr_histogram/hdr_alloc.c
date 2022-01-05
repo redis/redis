@@ -16,19 +16,19 @@ hdrAllocFuncs hdrAllocFns = {
 
 /* Override hdr' allocators with ones supplied by the user */
 hdrAllocFuncs hdrSetAllocators(hdrAllocFuncs *override) {
-  hdrAllocFuncs orig = hdrAllocFns;
+    hdrAllocFuncs orig = hdrAllocFns;
 
-  hdrAllocFns = *override;
+    hdrAllocFns = *override;
 
-  return orig;
+    return orig;
 }
 
 /* Reset allocators to use build time defaults */
 void hdrResetAllocators(void) {
-  hdrAllocFns = (hdrAllocFuncs){
-      .mallocFn = malloc,
-      .callocFn = calloc,
-      .reallocFn = realloc,
-      .freeFn = free,
-  };
+    hdrAllocFns = (hdrAllocFuncs){
+        .mallocFn = malloc,
+        .callocFn = calloc,
+        .reallocFn = realloc,
+        .freeFn = free,
+    };
 }

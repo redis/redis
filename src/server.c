@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "hdr_alloc.h"
 
 #include <time.h>
 #include <signal.h>
@@ -6160,11 +6161,11 @@ void loadDataFromDisk(void) {
     }
 }
 
-void redisOutOfMemoryHandler(size_t allocation_size) {
-    serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
-    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu bytes!",
-        allocation_size);
+void redisOutOfMemoryHandler(size_t num, size_t allocation_size) {
+    serverLog(LL_WARNING,"Out Of Memory allocating %zu blocks of %zu bytes!",
+        num, allocation_size);
+    serverPanic("Redis aborting for OUT OF MEMORY. Allocating %zu blocks of %zu bytes!",
+        num, allocation_size);
 }
 
 /* Callback for sdstemplate on proc-title-template. See redis.conf for

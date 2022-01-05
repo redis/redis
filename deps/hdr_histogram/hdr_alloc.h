@@ -17,10 +17,10 @@
 
 /* Structure pointing to our actually configured allocators */
 typedef struct hdrAllocFuncs {
-  void *(*mallocFn)(size_t);
-  void *(*callocFn)(size_t, size_t);
-  void *(*reallocFn)(void *, size_t);
-  void (*freeFn)(void *);
+    void *(*mallocFn)(size_t);
+    void *(*callocFn)(size_t, size_t);
+    void *(*reallocFn)(void *, size_t);
+    void (*freeFn)(void *);
 } hdrAllocFuncs;
 
 /* hdr' configured allocator function pointer struct */
@@ -30,21 +30,19 @@ hdrAllocFuncs hdrSetAllocators(hdrAllocFuncs *ha);
 void hdrResetAllocators(void);
 
 static inline void *hdr_malloc(size_t size) {
-  return hdrAllocFns.mallocFn(size);
+    return hdrAllocFns.mallocFn(size);
 }
 
 static inline void *hdr_calloc(size_t nmemb, size_t size) {
-  /* Overflow check as the user can specify any arbitrary allocator */
-  if (SIZE_MAX / size < nmemb)
-    return NULL;
-
-  return hdrAllocFns.callocFn(nmemb, size);
+    return hdrAllocFns.callocFn(nmemb, size);
 }
 
 static inline void *hdr_realloc(void *ptr, size_t size) {
-  return hdrAllocFns.reallocFn(ptr, size);
+    return hdrAllocFns.reallocFn(ptr, size);
 }
 
-static inline void hdr_free(void *ptr) { hdrAllocFns.freeFn(ptr); }
+static inline void hdr_free(void *ptr) {
+    hdrAllocFns.freeFn(ptr);
+}
 
 #endif /* HDR_ALLOC_H */

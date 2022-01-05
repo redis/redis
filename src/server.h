@@ -51,7 +51,6 @@
 #include <lua.h>
 #include <signal.h>
 #include "hdr_histogram.h"
-#include "hdr_alloc.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
