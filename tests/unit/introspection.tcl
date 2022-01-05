@@ -464,7 +464,7 @@ start_server {config "minimal.conf" tags {"introspection external:skip"} overrid
 }
 
 test {config during loading} {
-    start_server [list overrides [list key-load-delay 50 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
         # 100mb of rdb, 100k keys will load in more than 5 seconds
