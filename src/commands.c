@@ -3804,6 +3804,20 @@ struct redisCommandArg BGSAVE_Args[] = {
 /* COMMAND COUNT hints */
 #define COMMAND_COUNT_Hints NULL
 
+/********** COMMAND DETAILS ********************/
+
+/* COMMAND DETAILS history */
+#define COMMAND_DETAILS_History NULL
+
+/* COMMAND DETAILS hints */
+#define COMMAND_DETAILS_Hints NULL
+
+/* COMMAND DETAILS argument table */
+struct redisCommandArg COMMAND_DETAILS_Args[] = {
+{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** COMMAND GETKEYS ********************/
 
 /* COMMAND GETKEYS history */
@@ -3859,6 +3873,7 @@ struct redisCommandArg COMMAND_LIST_Args[] = {
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_Hints,commandCountCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
+{"details","Get array of specific Redis command documentation","O(N) when N is number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DETAILS_History,COMMAND_DETAILS_Hints,commandDetailsCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_DETAILS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_Hints,commandGetKeysCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_Hints,commandHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_Hints,commandInfoCommand,-3,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
