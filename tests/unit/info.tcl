@@ -85,7 +85,7 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p50_debug >= 50000}
             assert {$p50_set >= 0}
             assert {$p50_debug >= $p50_set}
-        }
+        } {} {needs:debug}
 
         test {errorstats: failed call authentication error} {
             r config resetstat
