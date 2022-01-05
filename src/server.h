@@ -50,6 +50,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include "hdr_histogram.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -570,6 +571,13 @@ typedef enum {
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
+
+/* latency histogram per command init settings */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
+#define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
+#define LATENCY_HISTOGRAM_PRECISION 2  /* Maintain a value precision of 2 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
+                                        * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
+                                        * The total size per histogram should sit around 40 KiB Bytes. */
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -1583,6 +1591,9 @@ struct redisServer {
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     int pause_cron;                 /* Don't run cron tasks (debug) */
+    int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
+    double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
+    int latency_tracking_info_percentiles_len;
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -2175,6 +2186,7 @@ struct redisCommand {
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */
     keySpec *key_specs;
     keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
                                      * still maintained (if applicable) so that
@@ -2782,6 +2794,7 @@ void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);

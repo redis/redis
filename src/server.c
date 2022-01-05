@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "hdr_alloc.h"
 
 #include <time.h>
 #include <signal.h>
@@ -1781,6 +1782,13 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
+    server.latency_tracking_enabled = 1;
+    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
+    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
+    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
+    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
@@ -1788,6 +1796,15 @@ void initServerConfig(void) {
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+
+    /* Specify the allocation function for the hdr histogram */
+    hdrAllocFuncs hdrallocfn = {
+        .mallocFn = zmalloc,
+        .callocFn = zcalloc_num,
+        .reallocFn = zrealloc,
+        .freeFn = zfree,
+    };
+    hdrSetAllocators(&hdrallocfn);
 
     /* Replication related */
     server.masterhost = NULL;
@@ -2610,6 +2627,10 @@ void populateCommandStructure(struct redisCommand *c) {
     c->key_specs = c->key_specs_static;
     c->key_specs_max = STATIC_KEY_SPECS_NUM;
 
+    /* We start with an unallocated histogram and only allocate memory when a command
+     * has been issued for the first time */
+    c->latency_histogram = NULL;
+
     for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
             break;
@@ -2683,6 +2704,10 @@ void resetCommandTableStats(dict* commands) {
         c->calls = 0;
         c->rejected_calls = 0;
         c->failed_calls = 0;
+        if(c->latency_histogram) {
+            hdr_close(c->latency_histogram);
+            c->latency_histogram = NULL;
+        }
         if (c->subcommands_dict)
             resetCommandTableStats(c->subcommands_dict);
     }
@@ -2918,6 +2943,19 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
 }
 
+/* This function is called in order to update the total command histogram duration.
+ * The latency unit is nano-seconds.
+ * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
+void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int64_t duration_hist){
+    if (duration_hist < LATENCY_HISTOGRAM_MIN_VALUE)
+        duration_hist=LATENCY_HISTOGRAM_MIN_VALUE;
+    if (duration_hist>LATENCY_HISTOGRAM_MAX_VALUE)
+        duration_hist=LATENCY_HISTOGRAM_MAX_VALUE;
+    if (*latency_histogram==NULL)
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
+    hdr_record_value(*latency_histogram,duration_hist);
+}
+
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
@@ -3104,6 +3142,9 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
+        /* If the client is blocked we will handle latency stats when it is unblocked. */
+        if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
+            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -4573,6 +4614,19 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+/* Fill percentile distribution of latencies. */
+sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
+    info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        info = sdscatprintf(info,"p%f=%.3f", server.latency_tracking_info_percentiles[j],
+            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
+        if (j != server.latency_tracking_info_percentiles_len-1)
+            info = sdscatlen(info,",",1);
+        }
+    info = sdscatprintf(info,"\r\n");
+    return info;
+}
+
 sds getFullCommandName(struct redisCommand *cmd) {
     if (!cmd->parent) {
         return sdsnew(cmd->name);
@@ -5344,6 +5398,27 @@ sds genRedisInfoString(const char *section) {
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
+    }
+
+    /* Latency by percentile distribution per command */
+    if (allsections || !strcasecmp(section,"latencystats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Latencystats\r\n");
+        if (server.latency_tracking_enabled) {
+            struct redisCommand *c;
+            dictEntry *de;
+            dictIterator *di;
+            di = dictGetSafeIterator(server.commands);
+            while((de = dictNext(di)) != NULL) {
+                char *tmpsafe;
+                c = (struct redisCommand *) dictGetVal(de);
+                if (!c->latency_histogram)
+                    continue;
+                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+                if (tmpsafe != NULL) zfree(tmpsafe);
+            }
+            dictReleaseIterator(di);
+        }
     }
 
     /* Cluster */

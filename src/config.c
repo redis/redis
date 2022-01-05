@@ -2660,6 +2660,71 @@ int allowProtectedAction(int config, client *c) {
            (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
 }
 
+
+static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sds *argv, int argc, const char **err) {
+    UNUSED(data);
+    zfree(server.latency_tracking_info_percentiles);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = argc;
+
+    /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
+    if (argc == 1 && sdslen(argv[0]) == 0)
+        server.latency_tracking_info_percentiles_len = 0;
+    else
+        server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*argc);
+
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        double percentile;
+        if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
+            *err = "Invalid latency-tracking-info-percentiles parameters";
+            goto configerr;
+        }
+        if (percentile > 100.0 || percentile < 0.0) {
+            *err = "latency-tracking-info-percentiles parameters should sit between [0.0,100.0]";
+            goto configerr;
+        }
+        server.latency_tracking_info_percentiles[j] = percentile;
+    }
+
+    return 1;
+configerr:
+    zfree(server.latency_tracking_info_percentiles);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = 0;
+    return 0;
+}
+
+static sds getConfigLatencyTrackingInfoPercentilesOutputOption(typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        buf = sdscatprintf(buf,"%f",
+                        server.latency_tracking_info_percentiles[j]);
+        if (j != server.latency_tracking_info_percentiles_len-1)
+            buf = sdscatlen(buf," ",1);
+    }
+    return buf;
+}
+
+/* Rewrite the latency-tracking-info-percentiles option. */
+void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
+    sds line = sdsnew(name);
+    /* Rewrite latency-tracking-info-percentiles parameters,
+     * or an empty 'latency-tracking-info-percentiles ""' line to avoid the
+     * defaults from being used.
+     */
+    if (!server.latency_tracking_info_percentiles_len) {
+        line = sdscat(line," \"\"");
+    } else {
+        for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+            line = sdscatprintf(line," %f",
+                server.latency_tracking_info_percentiles[j]);
+        }
+    }
+    rewriteConfigRewriteLine(state,name,line,1);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2705,6 +2770,7 @@ standardConfig configs[] = {
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
+    createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
     createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
     
     /* String Configs */
@@ -2857,6 +2923,7 @@ standardConfig configs[] = {
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
+    createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
 
     /* NULL Terminator */
     {NULL}
