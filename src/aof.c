@@ -702,7 +702,7 @@ int aofFileExist(char *filename) {
 }
 
 /* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state`
- * is 'AOF_ON' or ‘AOF_WAIT_REWRITE', It will do two things:
+ * is 'AOF_ON' or 'AOF_WAIT_REWRITE', It will do two things:
  * 1. Open a new INCR type AOF for writing
  * 2. Synchronously update the manifest file to the disk
  *
