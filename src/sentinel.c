@@ -4069,7 +4069,7 @@ void sentinelInfoCommand(client *c) {
 
     sds info = sdsempty();
     info = genRedisInfoString(sections_dict, out_all, out_everything);
-    if (c->argc == 1 || !strcasecmp(c->argv[1]->ptr,"all") || !strcasecmp(c->argv[1]->ptr,"default") || !strcasecmp(c->argv[1]->ptr,"sentinel")) {
+    if (c->argc == 1 || out_all || (dictFind(sections_dict, "sentinel") != NULL)) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
