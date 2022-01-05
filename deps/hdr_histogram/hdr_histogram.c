@@ -15,6 +15,12 @@
 
 #include "hdr_histogram.h"
 #include "hdr_atomic.h"
+#include "hdr_alloc.h"
+
+#define malloc hdr_malloc
+#define calloc hdr_calloc
+#define free hdr_free
+#define realloc hdr_realloc
 
 /*  ######   #######  ##     ## ##    ## ########  ######  */
 /* ##    ## ##     ## ##     ## ###   ##    ##    ##    ## */

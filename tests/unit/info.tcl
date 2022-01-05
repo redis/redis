@@ -6,8 +6,89 @@ proc errorstat {cmd} {
     return [errorrstat $cmd r]
 }
 
+proc latency_percentiles_usec {cmd} {
+    return [latencyrstat_percentiles $cmd r]
+}
+
 start_server {tags {"info" "external:skip"}} {
     start_server {} {
+
+        test {latencystats: disable/enable} {
+            r config resetstat
+            r CONFIG SET latency-tracking no
+            r set a b
+            assert_match {} [latency_percentiles_usec set]
+            r CONFIG SET latency-tracking yes
+            r set a b
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
+            r config resetstat
+            assert_match {} [latency_percentiles_usec set]
+        }
+
+        test {latencystats: configure percentiles} {
+            r config resetstat
+            assert_match {} [latency_percentiles_usec set]
+            r CONFIG SET latency-tracking yes
+            r SET a b
+            r GET a
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec get]
+            r CONFIG SET latency-tracking-info-percentiles "0.0 50.0 100.0"
+            assert_match [r config get latency-tracking-info-percentiles] {latency-tracking-info-percentiles {0.000000 50.000000 100.000000}}
+            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec set]
+            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec get]
+            r config resetstat
+            assert_match {} [latency_percentiles_usec set]
+        }
+
+        test {latencystats: bad configure percentiles} {
+            r config resetstat
+            set configlatencyline [r config get latency-tracking-info-percentiles]
+            catch {r CONFIG SET latency-tracking-info-percentiles "10.0 50.0 a"} e
+            assert_match {ERR CONFIG SET failed*} $e
+            assert_equal [s total_error_replies] 1
+            assert_match [r config get latency-tracking-info-percentiles] $configlatencyline
+            catch {r CONFIG SET latency-tracking-info-percentiles "10.0 50.0 101.0"} e
+            assert_match {ERR CONFIG SET failed*} $e
+            assert_equal [s total_error_replies] 2
+            assert_match [r config get latency-tracking-info-percentiles] $configlatencyline
+            r config resetstat
+            assert_match {} [errorstat ERR]
+        }
+
+        test {latencystats: blocking commands} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-info-percentiles "50.0 99.0 99.9"
+            set rd [redis_deferring_client]
+            r del list1{t}
+
+            $rd blpop list1{t} 0
+            wait_for_blocked_client
+            r lpush list1{t} a
+            assert_equal [$rd read] {list1{t} a}
+            $rd blpop list1{t} 0
+            wait_for_blocked_client
+            r lpush list1{t} b
+            assert_equal [$rd read] {list1{t} b}
+            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec blpop]
+            $rd close
+        }
+
+        test {latencystats: measure latency} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-info-percentiles "50.0"
+            r DEBUG sleep 0.05
+            r SET k v
+            set latencystatline_debug [latency_percentiles_usec debug]
+            set latencystatline_set [latency_percentiles_usec set]
+            regexp "p50.000000=(.+\..+)" $latencystatline_debug -> p50_debug
+            regexp "p50.000000=(.+\..+)" $latencystatline_set -> p50_set
+            assert {$p50_debug >= 50000}
+            assert {$p50_set >= 0}
+            assert {$p50_debug >= $p50_set}
+        } {} {needs:debug}
 
         test {errorstats: failed call authentication error} {
             r config resetstat

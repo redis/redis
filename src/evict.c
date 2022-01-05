@@ -365,7 +365,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     }
 
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
+        overhead += sdsAllocSize(server.aof_buf);
     }
     return overhead;
 }
@@ -464,6 +464,14 @@ static int evictionTimeProc(
      * For EVICT_FAIL - there is nothing left to evict.  */
     isEvictionProcRunning = 0;
     return AE_NOMORE;
+}
+
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
 }
 
 /* Check if it's safe to perform evictions.
@@ -712,11 +720,7 @@ int performEvictions(void) {
                  * memory, don't want to spend too much time here.  */
                 if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
-                    if (!isEvictionProcRunning) {
-                        isEvictionProcRunning = 1;
-                        aeCreateTimeEvent(server.el, 0,
-                                evictionTimeProc, NULL, NULL);
-                    }
+                    startEvictionTimeProc();
                     break;
                 }
             }

@@ -315,33 +315,52 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
-    proc test_redis_cli_rdb_dump {} {
+    proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
+        r function flush
 
         set dir [lindex [r config get dir] 1]
 
         assert_equal "OK" [r debug populate 100000 key 1000]
-        catch {run_cli --rdb "$dir/cli.rdb"} output
+        assert_equal "OK" [r function create lua func1 "return 123"]
+        if {$functions_only} {
+            set args "--functions-rdb $dir/cli.rdb"
+        } else {
+            set args "--rdb $dir/cli.rdb"
+        }
+        catch {run_cli {*}$args} output
         assert_match {*Transfer finished with success*} $output
 
         file delete "$dir/dump.rdb"
         file rename "$dir/cli.rdb" "$dir/dump.rdb"
 
         assert_equal "OK" [r set should-not-exist 1]
+        assert_equal "OK" [r function create lua should_not_exist_func "return 456"]
         assert_equal "OK" [r debug reload nosave]
         assert_equal {} [r get should-not-exist]
+        assert_error "ERR Function does not exists" {r function info should_not_exist_func}
+        assert_equal "func1" [dict get [r function info func1] name]
+        if {$functions_only} {
+            assert_equal 0 [r dbsize]
+        } else {
+            assert_equal 100000 [r dbsize]
+        }
     }
 
-    test "Dumping an RDB" {
+    foreach {functions_only} {no yes} {
+
+    test "Dumping an RDB - functions only: $functions_only" {
         # Disk-based master
         assert_match "OK" [r config set repl-diskless-sync no]
-        test_redis_cli_rdb_dump
+        test_redis_cli_rdb_dump $functions_only
 
         # Disk-less master
         assert_match "OK" [r config set repl-diskless-sync yes]
         assert_match "OK" [r config set repl-diskless-sync-delay 0]
-        test_redis_cli_rdb_dump
+        test_redis_cli_rdb_dump $functions_only
     } {} {needs:repl needs:debug}
+
+    } ;# foreach functions_only
 
     test "Scan mode" {
         r flushdb
@@ -430,5 +449,33 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_error "*Unrecognized option or bad number*" {run_cli -X}
 
         assert_error "*tag not match*" {run_cli_with_input_pipe X "echo foo" set key wrong_tag}
+    }
+
+    test "DUMP RESTORE with -x option" {
+        set cmdline [rediscli [srv host] [srv port]]
+
+        exec {*}$cmdline DEL set new_set
+        exec {*}$cmdline SADD set 1 2 3 4 5 6
+        assert_equal 6 [exec {*}$cmdline SCARD set]
+
+        assert_equal "OK" [exec {*}$cmdline -D "" --raw DUMP set | \
+                                {*}$cmdline -x RESTORE new_set 0]
+
+        assert_equal 6 [exec {*}$cmdline SCARD new_set]
+        assert_equal "1\n2\n3\n4\n5\n6" [exec {*}$cmdline SMEMBERS new_set]
+    }
+
+    test "DUMP RESTORE with -X option" {
+        set cmdline [rediscli [srv host] [srv port]]
+
+        exec {*}$cmdline DEL zset new_zset
+        exec {*}$cmdline ZADD zset 1 a 2 b 3 c
+        assert_equal 3 [exec {*}$cmdline ZCARD zset]
+
+        assert_equal "OK" [exec {*}$cmdline -D "" --raw DUMP zset | \
+                                {*}$cmdline -X dump_tag RESTORE new_zset 0 dump_tag REPLACE]
+
+        assert_equal 3 [exec {*}$cmdline ZCARD new_zset]
+        assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
     }
 }
