@@ -1,4 +1,3 @@
-
 /**
  * hdr_alloc.h
  * Written by Filipe Oliveira and released to the public domain,
