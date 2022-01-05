@@ -631,8 +631,10 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0 && !server.core_propagates)
             propagatePendingCommands();
+        if (!server.module_ctx_nesting)
+            blockingOperationEnds();
     }
-    blockingOperationEnds();
+
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
@@ -660,9 +662,9 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
     out_ctx->next_event = getMonotonicUs() + server.script_time_limit;
-    blockingOperationStarts();
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
+        blockingOperationStarts();
     }
 }
 
@@ -6684,6 +6686,7 @@ void moduleGILAfterLock() {
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
     server.module_ctx_nesting++;
+    blockingOperationStarts();
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -6722,6 +6725,7 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
+    blockingOperationEnds();
     propagatePendingCommands();
 }
 
