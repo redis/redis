@@ -97,6 +97,7 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
+#define CLUSTERMSG_TYPE_PUBLISHSHARD 11 /* Pub/Sub Publish shard propagation */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -134,6 +135,7 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
+    char *hostname;           /* The known hostname for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
@@ -173,6 +175,7 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
+    rax *slots_to_channels;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -243,11 +246,38 @@ typedef struct {
     unsigned char bulk_data[3]; /* 3 bytes just as placeholder. */
 } clusterMsgModule;
 
+/* The cluster supports optional extension messages that can be sent
+ * along with ping/pong/meet messages to give additional info in a 
+ * consistent manner. */
+typedef enum {
+    CLUSTERMSG_EXT_TYPE_HOSTNAME,
+} clusterMsgPingtypes; 
+
+/* Helper function for making sure extensions are eight byte aligned. */
+#define EIGHT_BYTE_ALIGN(size) ((((size) + 7) / 8) * 8)
+
+typedef struct {
+    char hostname[1]; /* The announced hostname, ends with \0. */
+} clusterMsgPingExtHostname;
+
+typedef struct {
+    uint32_t length; /* Total length of this extension message (including this header) */
+    uint16_t type; /* Type of this extension message (see clusterMsgPingExtTypes) */
+    uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
+    union {
+        clusterMsgPingExtHostname hostname;
+    } ext[]; /* Actual extension information, formatted so that the data is 8 
+              * byte aligned, regardless of its content. */
+} clusterMsgPingExt;
+
 union clusterMsgData {
     /* PING, MEET and PONG */
     struct {
         /* Array of N clusterMsgDataGossip structures */
         clusterMsgDataGossip gossip[1];
+        /* Extension data that can optionally be sent for ping/meet/pong
+         * messages. We can't explicitly define them here though, since
+         * the gossip array isn't the real length of the gossip data. */
     } ping;
 
     /* FAIL */
@@ -290,7 +320,8 @@ typedef struct {
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
-    char notused1[32];  /* 32 bytes reserved for future usage. */
+    uint16_t extensions; /* Number of extensions sent along with this packet. */
+    char notused1[16];  /* 16 bytes reserved for future usage. */
     uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
@@ -306,6 +337,7 @@ typedef struct {
 #define CLUSTERMSG_FLAG0_PAUSED (1<<0) /* Master paused for manual failover. */
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
+#define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);
@@ -320,6 +352,7 @@ int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message);
+void clusterPropagatePublishShard(robj *channel, robj *message);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
@@ -329,5 +362,8 @@ void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
 void clusterUpdateMyselfFlags(void);
 void clusterUpdateMyselfIp(void);
+void slotToChannelAdd(sds channel);
+void slotToChannelDel(sds channel);
+void clusterUpdateMyselfHostname(void);
 
 #endif /* __CLUSTER_H */

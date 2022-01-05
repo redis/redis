@@ -2,7 +2,7 @@
 
 source "../tests/includes/init-tests.tcl"
 
-proc cluster_allocate_with_continuous_slots {n} {
+proc cluster_allocate_with_continuous_slots_local {n} {
     R 0 cluster ADDSLOTSRANGE 0 3276
     R 1 cluster ADDSLOTSRANGE 3277 6552
     R 2 cluster ADDSLOTSRANGE 6553 9828
@@ -10,8 +10,8 @@ proc cluster_allocate_with_continuous_slots {n} {
     R 4 cluster ADDSLOTSRANGE 13105 16383
 }
 
-proc cluster_create_with_continuous_slots {masters slaves} {
-    cluster_allocate_with_continuous_slots $masters
+proc cluster_create_with_continuous_slots_local {masters slaves} {
+    cluster_allocate_with_continuous_slots_local $masters
     if {$slaves} {
         cluster_allocate_slaves $masters $slaves
     }
@@ -20,7 +20,7 @@ proc cluster_create_with_continuous_slots {masters slaves} {
 
 
 test "Create a 5 nodes cluster" {
-    cluster_create_with_continuous_slots 5 5
+    cluster_create_with_continuous_slots_local 5 5
 }
 
 test "Cluster should start ok" {

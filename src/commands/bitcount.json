@@ -8,7 +8,7 @@
         "function": "bitcountCommand",
         "history": [
             [
-                "7.0",
+                "7.0.0",
                 "Added the `BYTE|BIT` option."
             ]
         ],
@@ -60,6 +60,7 @@
                         "name": "index_unit",
                         "type": "oneof",
                         "optional": true,
+                        "since": "7.0.0",
                         "arguments": [
                             {
                                 "name": "byte",

@@ -8,7 +8,7 @@
         "function": "helloCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "`protover` made optional; when called without arguments the command reports the current connection's context."
             ]
         ],

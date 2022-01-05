@@ -944,6 +944,7 @@ test "diskless replication child being killed is collected" {
             set loglines [count_log_lines 0]
             $replica config set repl-diskless-load swapdb
             $replica config set key-load-delay 1000000
+            $replica config set loading-process-events-interval-bytes 1024
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
@@ -962,6 +963,9 @@ test "diskless replication child being killed is collected" {
             } else {
                 fail "rdb child didn't terminate"
             }
+
+            # Speed up shutdown
+            $replica config set key-load-delay 0
         }
     }
 } {} {external:skip}
