@@ -92,6 +92,43 @@ start_server {tags {"modules"}} {
         }
     }
 
+    test {RM_Call from blocked client} {
+        set script_time_limit 50
+        set old_time_limit [lindex [r config get script-time-limit] 1]
+        r config set script-time-limit $script_time_limit
+
+        # trigger slow operation
+        r set_slow_operation 1
+        r hset hash foo bar
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd do_bg_rm_call hgetall hash
+
+        # wait till we know we're blocked inside the module
+        wait_for_condition 50 100 {
+            [r is_in_slow_operation] eq 1
+        } else {
+            fail "Failed waiting for slow operation to start"
+        }
+
+        # make sure we get BUSY error, and that we didn't get here too early
+        assert_error {*BUSY*} {r ping}
+        assert_morethan [expr [clock clicks -milliseconds]-$start] $script_time_limit
+        # abort the blocking operation
+        r set_slow_operation 0
+        wait_for_condition 50 100 {
+            [r is_in_slow_operation] eq 0
+        } else {
+            fail "Failed waiting for slow operation to stop"
+        }
+        assert_equal [r ping] {PONG}
+
+        r config set script-time-limit $old_time_limit
+        set res [$rd read]
+        $rd close
+        set _ $res
+    } {foo bar}
+
     test {blocked client reaches client output buffer limit} {
         r hset hash big [string repeat x 50000]
         r hset hash bada [string repeat x 50000]

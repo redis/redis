@@ -1,3 +1,7 @@
+/* define macros for having usleep */
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
+#include <unistd.h>
 
 #include "redismodule.h"
 
@@ -86,7 +90,7 @@ int test_stoptimer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 /* this flag is used to work with busy commands, that might take a while
  * and ability to stop the busy work with a different command*/
-static int abort_flag = 0;
+static volatile int abort_flag = 0;
 
 int test_busy_module(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);

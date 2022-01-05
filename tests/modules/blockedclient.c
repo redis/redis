@@ -1,9 +1,18 @@
+/* define macros for having usleep */
+#define _BSD_SOURCE
+#define _DEFAULT_SOURCE
+#include <unistd.h>
+
 #include "redismodule.h"
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>
 
 #define UNUSED(V) ((void) V)
+
+/* used to test processing events during slow bg operation */
+static volatile int g_slow_operation = 0;
+static volatile int g_is_in_slow_operation = 0;
 
 void *sub_worker(void *arg) {
     // Get Redis module context
@@ -98,6 +107,16 @@ void *bg_call_worker(void *arg) {
 
     // Acquire GIL
     RedisModule_ThreadSafeContextLock(ctx);
+
+    // Test slow operation heatbeat
+    if (g_slow_operation) {
+        g_is_in_slow_operation = 1;
+        while (g_slow_operation) {
+            RedisModule_SlowContextHeartbeat(ctx);
+            usleep(1000);
+        }
+        g_is_in_slow_operation = 0;
+    }
 
     // Call the command
     const char* cmd = RedisModule_StringPtrLen(bg->argv[1], NULL);
@@ -203,6 +222,34 @@ int do_fake_bg_true(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* used to enable or disable slow operation in do_bg_rm_call */
+static int set_slow_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    long long ll;
+    if (RedisModule_StringToLongLong(argv[1], &ll) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid integer value");
+        return REDISMODULE_OK;
+    }
+    g_slow_operation = ll;
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+/* used to test if we reached the slow operation in do_bg_rm_call */
+static int is_in_slow_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_ReplyWithLongLong(ctx, g_is_in_slow_operation);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -221,6 +268,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_fake_bg_true", do_fake_bg_true, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "set_slow_operation", set_slow_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "is_in_slow_operation", is_in_slow_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

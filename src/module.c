@@ -646,7 +646,10 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
-    out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
+    if (!server.loading)
+        out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
+    else
+        out_ctx->next_heartbeat_event = getMonotonicUs() +  + 1000000 / server.hz;
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
     }
@@ -1317,7 +1320,7 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
 void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
     long long now = getMonotonicUs();
     if (now >= ctx->next_heartbeat_event) {
-        if (!server.busy_module) {
+        if (!server.busy_module && !server.loading) {
             server.busy_module = 1;
             blockingOperationStarts();
         }
