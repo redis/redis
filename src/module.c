@@ -436,24 +436,6 @@ char *RM_Strdup(const char *str) {
     return zstrdup(str);
 }
 
-/* This API allows modules to let Redis process some commands during long
- * blocking execution of a module command. The module can call this API
- * periodically, and after the time defined by the `script-time-limit` config,
- * Redis will start rejecting most commands with `-BUSY`, but allow the ones
- * marked with the `allow-busy` flag to be executed. */
-void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
-    long long now = getMonotonicUs();
-    if (now >= ctx->next_heartbeat_event) {
-        if (!server.busy_module) {
-            server.busy_module = 1;
-            blockingOperationStarts();
-        }
-        processEventsWhileBlocked();
-        /* decide when the next event should fire. */
-        ctx->next_heartbeat_event = now + 1000000 / server.hz;
-    }
-}
-
 /* --------------------------------------------------------------------------
  * Pool allocator
  * -------------------------------------------------------------------------- */
@@ -1325,6 +1307,24 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
         return REDISMODULE_ERR;
     bc->background_duration += elapsedUs(bc->background_timer);
     return REDISMODULE_OK;
+}
+
+/* This API allows modules to let Redis process some commands during long
+ * blocking execution of a module command. The module can call this API
+ * periodically, and after the time defined by the `script-time-limit` config,
+ * Redis will start rejecting most commands with `-BUSY`, but allow the ones
+ * marked with the `allow-busy` flag to be executed. */
+void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
+    long long now = getMonotonicUs();
+    if (now >= ctx->next_heartbeat_event) {
+        if (!server.busy_module) {
+            server.busy_module = 1;
+            blockingOperationStarts();
+        }
+        processEventsWhileBlocked();
+        /* decide when the next event should fire. */
+        ctx->next_heartbeat_event = now + 1000000 / server.hz;
+    }
 }
 
 /* Set flags defining capabilities or behavior bit flags.
