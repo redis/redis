@@ -123,9 +123,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.stoptimer", test_stoptimer,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.busy_module", test_busy_module,"",1,1,1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "test.busy_module", test_busy_module,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.stop_busy_module", test_stop_busy_module,"allow-busy",1,1,1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "test.stop_busy_module", test_stop_busy_module,"allow-busy",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

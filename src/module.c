@@ -438,9 +438,11 @@ char *RM_Strdup(const char *str) {
     return zstrdup(str);
 }
 
-/* this func is an API for modules to be able to process commands
- * (that are marked as allowed to process during busy jobs)
- * during a module busy job*/
+/* This API allows modules to let Redis process some commands during long
+ * blocking execution of a module command. The module can call this API
+ * periodically, and after the time defined by the `script-time-limit` config,
+ * Redis will start rejecting most commands with `-BUSY`, but allow the ones
+ * marked with the `allow-busy` flag to be executed. */
 void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
     long long now = getMonotonicUs();
     if (now >= ctx->next_event) {
@@ -884,6 +886,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
  * * **"no-mandatory-keys"**: All the keys this command may take are optional
+ * * **"allow-busy"**: Permit the command to run while another command is
+ *                     blocking Redis, see RM_SlowContextHeartbeat.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -9663,7 +9667,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
             moduleFreeModuleStructure(ctx.module);
         }
         dlclose(handle);
-
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
         return C_ERR;

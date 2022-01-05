@@ -1602,7 +1602,7 @@ void createSharedObjects(void) {
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.slowmoduleerr = createObject(OBJ_STRING,sdsnew(
-            "-BUSY Redis is busy running a module command.\r\n"));
+        "-BUSY Redis is busy running a module command.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -3557,15 +3557,15 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* when a busy job is being done (Lua script/Module command)
-    * Only allow a limited number of commands.
-    * Note that we need to allow the transactions commands, otherwise clients
-    * sending a transaction with pipelining without error checking, may have
-    * the MULTI plus a few initial commands refused, then the timeout
-    * condition resolves, and the bottom-half of the transaction gets
-    * executed, see Github PR #7022. */
+    /* when a busy job is being done (script / module)
+     * Only allow a limited number of commands.
+     * Note that we need to allow the transactions commands, otherwise clients
+     * sending a transaction with pipelining without error checking, may have
+     * the MULTI plus a few initial commands refused, then the timeout
+     * condition resolves, and the bottom-half of the transaction gets
+     * executed, see Github PR #7022. */
     if ((scriptIsTimedout() || server.busy_module) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if(server.busy_module) {
+        if (server.busy_module) {
             rejectCommand(c, shared.slowmoduleerr);
         } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
