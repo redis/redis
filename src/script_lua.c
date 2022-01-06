@@ -1046,8 +1046,8 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * sequence, because it may interact with creation of globals.
  *
  * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
- * to create the global 'function <sha> ()' variable. On Lua engine we do not use this trick
- * so its not needed. */
+ * to create the global 'function <sha> ()' variable. On Functions Lua engine we do not use
+ * this trick so it's not needed. */
 void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     char *s[32];
     sds code = sdsempty();
