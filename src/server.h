@@ -155,9 +155,11 @@ typedef long long ustime_t; /* microsecond time type. */
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
-#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
+#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network. */
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_COUNT 3
+#define STATS_METRIC_NET_REPL_INPUT 3    /* Bytes read from network during replication for fullresync and command stream. */
+#define STATS_METRIC_NET_REPL_OUTPUT 4   /* Bytes written to network during replication for fullresync and command stream. */
+#define STATS_METRIC_COUNT 5
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
@@ -1587,6 +1589,8 @@ struct redisServer {
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
+    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read from network during replication for fullresync and command streams. */
+    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written to network during replication for fullresync and command streams. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */

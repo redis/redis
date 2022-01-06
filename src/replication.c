@@ -1359,6 +1359,7 @@ void sendBulkToSlave(connection *conn) {
             return;
         }
         atomicIncr(server.stat_net_output_bytes, nwritten);
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
         sdsrange(slave->replpreamble,nwritten,-1);
         if (sdslen(slave->replpreamble) == 0) {
             sdsfree(slave->replpreamble);
@@ -1388,6 +1389,7 @@ void sendBulkToSlave(connection *conn) {
     }
     slave->repldboff += nwritten;
     atomicIncr(server.stat_net_output_bytes, nwritten);
+    atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
@@ -1432,6 +1434,7 @@ void rdbPipeWriteHandler(struct connection *conn) {
     } else {
         slave->repldboff += nwritten;
         atomicIncr(server.stat_net_output_bytes, nwritten);
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
         if (slave->repldboff < server.rdb_pipe_bufflen) {
             slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
@@ -1512,6 +1515,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
                 atomicIncr(server.stat_net_output_bytes, nwritten);
+                atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
             }
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
@@ -1817,11 +1821,18 @@ void readSyncBulkPayload(connection *conn) {
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.repl_transfer_size == -1) {
-        if (connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000) == -1) {
+        nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
+        if (nread == -1) {
             serverLog(LL_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
                 strerror(errno));
             goto error;
+        } else {
+            /* nread here is returned by connSyncReadLine(), which would lose 1 byte count
+             * for those strings ended with "\r\n". connSyncReadLine() calls syncReadLine(),
+             * which would convert "\r\n" to '\0' so 1 byte is lost. */
+            atomicIncr(server.stat_net_input_bytes, nread+1);
+            atomicIncr(server.stat_net_repl_input_bytes, nread+1); /* Repl bytes from fullresync. */
         }
 
         if (buf[0] == '-') {
@@ -1893,6 +1904,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         atomicIncr(server.stat_net_input_bytes, nread);
+        atomicIncr(server.stat_net_repl_input_bytes, nread); /* Repl bytes from fullresync. */
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
