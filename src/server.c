@@ -4728,6 +4728,15 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
     }
 }
 
+/* Create a dictionary according to the user input or call function 
+   The input parameter **argv indicate the 2D array which could includes multiply string,
+   abd argc indicates the 2D array length
+
+   Another two parameter *out_all and *out)everything will be set value in this fucntion based 
+   on the argv paramater.
+
+   The return value will be the dictionary for genRedisInfoString function
+ */
 dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything) {
     char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace", "latencystats"};
     char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats", "sentinel"};
