@@ -7902,7 +7902,6 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
     if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
     if (name != NULL && strlen(name) > 0)
         ctx->info = sdscatfmt(ctx->info, "# %S_%s\r\n", ctx->module->name, name);
-    
     else
         ctx->info = sdscatfmt(ctx->info, "# %S\r\n", ctx->module->name);
     ctx->in_section = 1;

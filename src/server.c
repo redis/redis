@@ -4742,7 +4742,7 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
     char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats", "sentinel"};
 
 
-    dict *section_dict = dictCreate(&stringSetDictType); /* Set to add the subsections to print*/
+    dict *section_dict = dictCreate(&stringSetDictType);
     if (server.sentinel_mode) {
         if (argc == 1) {
             addSectionsToDict(section_dict, defSectionsSentinel, sizeof(defSectionsSentinel)/sizeof(*defSectionsSentinel));
@@ -4760,7 +4760,6 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
             }
         }
     } else {
-        
         if (argc == 1) {
             if (!strcasecmp(argv[0]->ptr,"info") || !strcasecmp(argv[0]->ptr,"default")) 
                 addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
@@ -4810,7 +4809,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
     int sections = 0;
-    
     if (everything) all_sections = 1;
 
     /* Server */
@@ -5573,7 +5571,6 @@ void infoCommand(client *c) {
     int all_sections = 0;
     int everything = 0;
     dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
-
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
