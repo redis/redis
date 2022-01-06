@@ -4732,8 +4732,8 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
    The input parameter **argv indicate the 2D array which could includes multiply string,
    abd argc indicates the 2D array length
 
-   Another two parameter *out_all and *out)everything will be set value in this fucntion based 
-   on the argv paramater.
+   Another two parameter *out_all and *out)everything will be set value in this function based 
+   on the argv parameter.
 
    The return value will be the dictionary for genRedisInfoString function
  */
