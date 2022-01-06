@@ -2631,12 +2631,10 @@ void populateCommandStructure(struct redisCommand *c) {
     }
 
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
-    if (c->history)
-        while (c->history[c->num_history].since)
-            c->num_history++;
-    if (c->hints)
-        while (c->hints[c->num_hints])
-            c->num_hints++;
+    while (c->history && c->history[c->num_history].since)
+        c->num_history++;
+    while (c->hints && c->hints[c->num_hints])
+        c->num_hints++;
     c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
@@ -4323,11 +4321,10 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd, int show_full_name
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
 
-        addReplyArrayLen(c, !cmd->subcommands_dict? 9: 10);
-        if (show_full_name && cmd->parent) {
-            sds fullname = sdscatfmt(sdsempty(), "%s %s", cmd->parent->name, cmd->name);
-            addReplyBulkSds(c, fullname);
-        } else
+        addReplyArrayLen(c, 10);
+        if (show_full_name && cmd->parent)
+            addReplyBulkSds(c, getFullCommandName(cmd));
+        else
             addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
@@ -4337,12 +4334,11 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd, int show_full_name
         addReplyCommandCategories(c, cmd);
         addReplyCommandHints(c, cmd);
         addReplyCommandKeySpecs(c, cmd);
-        if (cmd->subcommands_dict) /* don't add sub-commands on sub-commands */
-            addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
+        addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }
 }
 
-/* Output the representation of a Redis command. Used by the COMMAND command and COMMAND DETAILS. */
+/* Output the representation of a Redis command. Used by the COMMAND DETAILS. */
 void addReplyCommandDetails(client *c, struct redisCommand *cmd, int show_full_name) {
     UNUSED(show_full_name);
     /* Count our reply len so we don't have to use deferred reply. */
@@ -4578,10 +4574,9 @@ void commandDetailsCommand(client *c) {
             struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
             if (!cmd)
                 continue;
-            if (cmd->parent) {
-                sds fullname = sdscatfmt(sdsempty(), "%s %s", cmd->parent->name, cmd->name);
-                addReplyBulkSds(c, fullname);
-            } else
+            if (cmd->parent)
+                addReplyBulkSds(c, getFullCommandName(cmd));
+            else
                 addReplyBulkCString(c, cmd->name);
             addReplyCommandDetails(c, cmd, 1);
             numcmds++;

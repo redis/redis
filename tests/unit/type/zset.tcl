@@ -2262,10 +2262,7 @@ start_server {tags {"zset"}} {
             assert_encoding $type myzset
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r zrange myzset 0 -1 withscores] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r zrange myzset 0 -1 withscores]]
 
             # We'll stress different parts of the code, see the implementation
             # of ZRANDMEMBER for more information, but basically there are

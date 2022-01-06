@@ -4,6 +4,7 @@ import json
 import subprocess
 from collections import OrderedDict
 from sys import argv, stdin
+import os
 
 
 def convert_flags_to_boolean_dict(flags):
@@ -95,6 +96,9 @@ def convert_entry_to_objects_array(container, cmd, details):
     return rep
 
 
+# Figure out where the sources are
+srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
+
 # MAIN
 if __name__ == '__main__':
     opts = {
@@ -104,7 +108,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(**opts)
     parser.add_argument('--host', type=str, default='localhost')
     parser.add_argument('--port', type=int, default=6379)
-    parser.add_argument('--cli', type=str, default='src/redis-cli')
+    parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
     args = parser.parse_args()
 
     payload = OrderedDict()
