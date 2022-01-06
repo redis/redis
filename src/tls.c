@@ -788,12 +788,14 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
 }
 
 static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt) {
+    if (iovcnt == 1) return connTLSWrite(conn_, iov[0].iov_base, iov[0].iov_len);
+
     size_t cum = 0;
     for (int i = 0; i < iovcnt; i++) cum += iov[i].iov_len;
 
     char buf[cum];
     size_t offset = 0;
-    for (int i = 0; i < iovcnt; i++){
+    for (int i = 0; i < iovcnt; i++) {
         memcpy(buf + offset, iov[i].iov_base, iov[i].iov_len);
         offset += iov[i].iov_len;
     }
