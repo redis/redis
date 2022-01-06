@@ -4729,7 +4729,7 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
 }
 
 dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything) {
-    char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace"};
+    char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace", "latencystats"};
     char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats", "sentinel"};
 
 
@@ -5556,14 +5556,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
 
 void infoCommand(client *c) {
-    int all_sections = 0;
-    int everything = 0;
-    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
-
     if (server.sentinel_mode) {
         sentinelInfoCommand(c);
         return;
     }
+
+    int all_sections = 0;
+    int everything = 0;
+    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
 
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
