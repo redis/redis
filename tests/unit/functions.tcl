@@ -565,7 +565,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*wrong number of arguments to redis.register_function*}
+    } {*calling redis.register_function with a single argument is only applicable to Lua table*}
 
     test {LIBRARIES - test registration with to many arguments} {
         catch {
@@ -740,6 +740,104 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*attempted to create global variable 'a'*}
+
+    test {LIBRARIES - named arguments} {
+        r function load LUA lib {
+            redis.register_function{
+                function_name='f1',
+                callback=function()
+                    return 'hello'
+                end,
+                description='some desc'
+            }
+        }
+        r function list
+    } {{library_name lib engine LUA description {} functions {{name f1 description {some desc}}}}}
+
+    test {LIBRARIES - named arguments, bad function name} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    function_name=function() return 1 end,
+                    callback=function()
+                        return 'hello'
+                    end,
+                    description='some desc'
+                }
+            }
+        } e
+        set _ $e
+    } {*function_name argument given to redis.register_function must be a string*}
+
+    test {LIBRARIES - named arguments, bad callback type} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    function_name='f1',
+                    callback='bad',
+                    description='some desc'
+                }
+            }
+        } e
+        set _ $e
+    } {*callback argument given to redis.register_function must be a function*}
+
+    test {LIBRARIES - named arguments, bad description} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    function_name='f1',
+                    callback=function()
+                        return 'hello'
+                    end,
+                    description=function() return 1 end
+                }
+            }
+        } e
+        set _ $e
+    } {*description argument given to redis.register_function must be a string*}
+
+    test {LIBRARIES - named arguments, unknown argument} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    function_name='f1',
+                    callback=function()
+                        return 'hello'
+                    end,
+                    description='desc',
+                    some_unknown='unknown'
+                }
+            }
+        } e
+        set _ $e
+    } {*unknown argument given to redis.register_function*}
+
+    test {LIBRARIES - named arguments, missing function name} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    callback=function()
+                        return 'hello'
+                    end,
+                    description='desc'
+                }
+            }
+        } e
+        set _ $e
+    } {*redis.register_function must get a function name argument*}
+
+    test {LIBRARIES - named arguments, missing callback} {
+        catch {
+            r function load LUA lib replace {
+                redis.register_function{
+                    function_name='f1',
+                    description='desc'
+                }
+            }
+        } e
+        set _ $e
+    } {*redis.register_function must get a callback argument*}
 
     test {FUNCTION - test function restore with function name collision} {
         r function flush

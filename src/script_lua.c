@@ -1039,6 +1039,19 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_setglobal(lua,"dofile");
 }
 
+/* Return sds of the string value located on stack at the given index.
+ * Return NULL if the value is not a string. */
+sds luaGetStringSds(lua_State *lua, int index) {
+    if (!lua_isstring(lua, index)) {
+        return NULL;
+    }
+
+    size_t len;
+    const char *str = lua_tolstring(lua, index, &len);
+    sds str_sds = sdsnewlen(str, len);
+    return str_sds;
+}
+
 /* This function installs metamethods in the global table _G that prevent
  * the creation of globals accidentally.
  *

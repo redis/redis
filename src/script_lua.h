@@ -59,6 +59,7 @@
 #define REDIS_API_NAME "redis"
 
 void luaRegisterRedisAPI(lua_State* lua);
+sds luaGetStringSds(lua_State *lua, int index);
 void luaEnableGlobalsProtection(lua_State *lua, int is_eval);
 void luaRegisterGlobalProtectionFunction(lua_State *lua);
 void luaSetGlobalProtection(lua_State *lua);
