@@ -80,6 +80,9 @@ void* luaGetFromRegistry(lua_State* lua, const char* name) {
     lua_pushstring(lua, name);
     lua_gettable(lua, LUA_REGISTRYINDEX);
 
+    if (lua_isnil(lua, -1)) {
+        return NULL;
+    }
     /* must be light user data */
     serverAssert(lua_islightuserdata(lua, -1));
 
@@ -427,7 +430,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
  * with a single "err" field set to the error string. Note that this
  * table is never a valid reply by proper commands, since the returned
  * tables are otherwise always indexed by integers, never by strings. */
-static void luaPushError(lua_State *lua, char *error) {
+void luaPushError(lua_State *lua, char *error) {
     lua_Debug dbg;
 
     /* If debugging is active and in step mode, log errors resulting from
@@ -455,7 +458,7 @@ static void luaPushError(lua_State *lua, char *error) {
  * by the non-error-trapping version of redis.pcall(), which is redis.call(),
  * this function will raise the Lua error so that the execution of the
  * script will be halted. */
-static int luaRaiseError(lua_State *lua) {
+int luaRaiseError(lua_State *lua) {
     lua_pushstring(lua,"err");
     lua_gettable(lua,-2);
     return lua_error(lua);
@@ -656,6 +659,10 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
+        return luaRaiseError(lua);
+    }
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
@@ -911,6 +918,10 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.set_repl can only be called inside a script invocation");
+        return lua_error(lua);
+    }
 
     if (argc != 1) {
          lua_pushstring(lua, "redis.set_repl() requires two arguments.");
@@ -966,6 +977,11 @@ static int luaLogCommand(lua_State *lua) {
 
 /* redis.setresp() */
 static int luaSetResp(lua_State *lua) {
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.setresp can only be called inside a script invocation");
+        return lua_error(lua);
+    }
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
@@ -978,7 +994,6 @@ static int luaSetResp(lua_State *lua) {
         lua_pushstring(lua, "RESP version must be 2 or 3.");
         return lua_error(lua);
     }
-    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     scriptSetResp(rctx, resp);
     return 0;
 }
@@ -1031,8 +1046,8 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * sequence, because it may interact with creation of globals.
  *
  * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
- * to create the global 'function <sha> ()' variable. On Lua engine we do not use this trick
- * so its not needed. */
+ * to create the global 'function <sha> ()' variable. On Functions Lua engine we do not use
+ * this trick so it's not needed. */
 void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     char *s[32];
     sds code = sdsempty();
@@ -1067,6 +1082,89 @@ void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     sdsfree(code);
 }
 
+/* Create a global protection function and put it to registry.
+ * This need to be called once in the lua_State lifetime.
+ * After called it is possible to use luaSetGlobalProtection
+ * to set global protection on a give table.
+ *
+ * The function assumes the Lua stack have a least enough
+ * space to push 2 element, its up to the caller to verify
+ * this before calling this function.
+ *
+ * Notice, the difference between this and luaEnableGlobalsProtection
+ * is that luaEnableGlobalsProtection is enabling global protection
+ * on the current Lua globals. This registering a global protection
+ * function that later can be applied on any table. */
+void luaRegisterGlobalProtectionFunction(lua_State *lua) {
+    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    char *global_protection_func =       "local dbg = debug\n"
+                                         "local globals_protection = function (t)\n"
+                                         "   local mt = {}\n"
+                                         "   setmetatable(t, mt)\n"
+                                         "   mt.__newindex = function (t, n, v)\n"
+                                         "       if dbg.getinfo(2) then\n"
+                                         "           local w = dbg.getinfo(2, \"S\").what\n"
+                                         "           if w ~= \"C\" then\n"
+                                         "               error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "           end"
+                                         "       end"
+                                         "       rawset(t, n, v)\n"
+                                         "   end\n"
+                                         "   mt.__index = function (t, n)\n"
+                                         "       if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n"
+                                         "           error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n"
+                                         "       end\n"
+                                         "       return rawget(t, n)\n"
+                                         "   end\n"
+                                         "end\n"
+                                         "return globals_protection";
+    int res = luaL_loadbuffer(lua, global_protection_func, strlen(global_protection_func), "@global_protection_def");
+    serverAssert(res == 0);
+    res = lua_pcall(lua,0,1,0);
+    serverAssert(res == 0);
+    lua_settable(lua, LUA_REGISTRYINDEX);
+}
+
+/* Set global protection on a given table.
+ * The table need to be located on the top of the lua stack.
+ * After called, it will no longer be possible to set
+ * new items on the table. The function is not removing
+ * the table from the top of the stack!
+ *
+ * The function assumes the Lua stack have a least enough
+ * space to push 2 element, its up to the caller to verify
+ * this before calling this function. */
+void luaSetGlobalProtection(lua_State *lua) {
+    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
+    lua_gettable(lua, LUA_REGISTRYINDEX);
+    lua_pushvalue(lua, -2);
+    int res = lua_pcall(lua, 1, 0, 0);
+    serverAssert(res == 0);
+}
+
+void luaRegisterLogFunction(lua_State* lua) {
+    /* redis.log and log levels. */
+    lua_pushstring(lua,"log");
+    lua_pushcfunction(lua,luaLogCommand);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_DEBUG");
+    lua_pushnumber(lua,LL_DEBUG);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_VERBOSE");
+    lua_pushnumber(lua,LL_VERBOSE);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_NOTICE");
+    lua_pushnumber(lua,LL_NOTICE);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"LOG_WARNING");
+    lua_pushnumber(lua,LL_WARNING);
+    lua_settable(lua,-3);
+}
+
 void luaRegisterRedisAPI(lua_State* lua) {
     luaLoadLibraries(lua);
     luaRemoveUnsupportedFunctions(lua);
@@ -1084,30 +1182,11 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_pushcfunction(lua,luaRedisPCallCommand);
     lua_settable(lua,-3);
 
-    /* redis.log and log levels. */
-    lua_pushstring(lua,"log");
-    lua_pushcfunction(lua,luaLogCommand);
-    lua_settable(lua,-3);
+    luaRegisterLogFunction(lua);
 
     /* redis.setresp */
     lua_pushstring(lua,"setresp");
     lua_pushcfunction(lua,luaSetResp);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_DEBUG");
-    lua_pushnumber(lua,LL_DEBUG);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_VERBOSE");
-    lua_pushnumber(lua,LL_VERBOSE);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_NOTICE");
-    lua_pushnumber(lua,LL_NOTICE);
-    lua_settable(lua,-3);
-
-    lua_pushstring(lua,"LOG_WARNING");
-    lua_pushnumber(lua,LL_WARNING);
     lua_settable(lua,-3);
 
     /* redis.sha1hex */
@@ -1149,7 +1228,7 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
     lua_settable(lua,-3);
     /* Finally set the table as 'redis' global var. */
-    lua_setglobal(lua,"redis");
+    lua_setglobal(lua,REDIS_API_NAME);
 
     /* Replace math.random and math.randomseed with our implementations. */
     lua_getglobal(lua,"math");
@@ -1167,7 +1246,7 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+static void luaCreateArray(lua_State *lua, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);
@@ -1175,7 +1254,6 @@ static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) 
         lua_pushlstring(lua,(char*)elev[j]->ptr,sdslen(elev[j]->ptr));
         lua_rawseti(lua,-2,j+1);
     }
-    lua_setglobal(lua,var);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1189,6 +1267,11 @@ static void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) 
 /* The following implementation is the one shipped with Lua itself but with
  * rand() replaced by redisLrand48(). */
 static int redis_math_random (lua_State *L) {
+  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
+  if (!rctx) {
+    return luaL_error(L, "math.random can only be called inside a script invocation");
+  }
+
   /* the `%' avoids the (rare) case of r==1, and is needed also because on
      some systems (SunOS!) `rand()' may return a value larger than RAND_MAX */
   lua_Number r = (lua_Number)(redisLrand48()%REDIS_LRAND48_MAX) /
@@ -1217,6 +1300,10 @@ static int redis_math_random (lua_State *L) {
 }
 
 static int redis_math_randomseed (lua_State *L) {
+  scriptRunCtx* rctx = luaGetFromRegistry(L, REGISTRY_RUN_CTX_NAME);
+  if (!rctx) {
+    return luaL_error(L, "math.randomseed can only be called inside a script invocation");
+  }
   redisSrand48(luaL_checkint(L, 1));
   return 0;
 }
@@ -1260,13 +1347,24 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",keys,nkeys);
-    luaSetGlobalArray(lua,"ARGV",args,nargs);
+    luaCreateArray(lua,keys,nkeys);
+    /* On eval, keys and arguments are globals. */
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"KEYS");
+    luaCreateArray(lua,args,nargs);
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"ARGV");
 
     /* At this point whether this script was never seen before or if it was
-     * already defined, we can call it. We have zero arguments and expect
-     * a single return value. */
-    int err = lua_pcall(lua,0,1,-2);
+     * already defined, we can call it.
+     * On eval mode, we have zero arguments and expect a single return value.
+     * In addition the error handler is located on position -2 on the Lua stack.
+     * On function mode, we pass 2 arguments (the keys and args tables),
+     * and the error handler is located on position -4 (stack: error_handler, callback, keys, args) */
+    int err;
+    if (run_ctx->flags & SCRIPT_EVAL_MODE) {
+        err = lua_pcall(lua,0,1,-2);
+    } else {
+        err = lua_pcall(lua,2,1,-4);
+    }
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.

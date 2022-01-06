@@ -4886,6 +4886,7 @@ sds genRedisInfoString(const char *section) {
             "used_memory_scripts_eval:%lld\r\n"
             "number_of_cached_scripts:%lu\r\n"
             "number_of_functions:%lu\r\n"
+            "number_of_libraries:%lu\r\n"
             "used_memory_vm_functions:%lld\r\n"
             "used_memory_vm_total:%lld\r\n"
             "used_memory_vm_total_human:%s\r\n"
@@ -4936,6 +4937,7 @@ sds genRedisInfoString(const char *section) {
             (long long) mh->lua_caches,
             dictSize(evalScriptsDict()),
             functionsNum(),
+            functionsLibNum(),
             memory_functions,
             memory_functions + memory_lua,
             used_memory_vm_total_hmem,
