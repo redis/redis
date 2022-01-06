@@ -425,7 +425,7 @@ static sds cliVersion(void) {
     return version;
 }
 
-// Concatenate a string to an sds string, but if it's empty substitute double quote marks.
+/* Concatenate a string to an sds string, but if it's empty substitute double quote marks. */
 static sds sdscat_orempty(sds params, char *value) {
     if (value[0] == '\0') {
         return sdscat(params, "\"\"");
@@ -435,7 +435,7 @@ static sds sdscat_orempty(sds params, char *value) {
 
 static sds cliAddArgument(sds params, redisReply *argMap);
 
-// Concatenate a list of arguments to the parameter string, separated by a separator string.
+/* Concatenate a list of arguments to the parameter string, separated by a separator string. */
 static sds cliConcatArguments(sds params, redisReply *arguments, char *separator) {
     for (size_t j = 0; j < arguments->elements; j++) {
         params = cliAddArgument(params, arguments->element[j]);
@@ -446,7 +446,7 @@ static sds cliConcatArguments(sds params, redisReply *arguments, char *separator
     return params;
 }
 
-// Add an argument to the parameter string.
+/* Add an argument to the parameter string. */
 static sds cliAddArgument(sds params, redisReply *argMap) {
     char *name = NULL;
     char *type = NULL;
@@ -457,7 +457,7 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
     sds tokenPart = sdsempty();
     sds repeatPart = sdsempty();
 
-    // First read the fields describing the argument.
+    /* First read the fields describing the argument. */
     for (size_t i = 0; i < argMap->elements; i += 2) {
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
@@ -490,7 +490,7 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
         }
     }
 
-    // Then build the "repeating part" of the argument string.
+    /* Then build the "repeating part" of the argument string. */
     if (!strcmp(type, "key") ||
         !strcmp(type, "string") ||
         !strcmp(type, "integer") ||
@@ -504,12 +504,11 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
         repeatPart = cliConcatArguments(repeatPart, arguments, "|");
     } else if (!strcmp(type, "block")) {
         repeatPart = cliConcatArguments(repeatPart, arguments, " ");
-    }
-    else if (strcmp(type, "pure-token") != 0) {
+    } else if (strcmp(type, "pure-token") != 0) {
         fprintf(stderr, "Unknown type '%s' set for argument '%s'\n", type, name);
     }
 
-    // Finally, build the parameter string.
+    /* Finally, build the parameter string. */
     if (tokenPart[0] != '\0' && strcmp(type, "pure-token") != 0) {
         tokenPart = sdscat(tokenPart, " ");
     }
