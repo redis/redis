@@ -71,6 +71,7 @@ int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
 int includeSpace(char *s);
+char *rstrstr(const char *haystack, const char *needle);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);

@@ -186,7 +186,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 1 [count_message_lines $server_path/stdout "Mismatched manifest key"]
+            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -213,7 +213,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -267,7 +267,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 4 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -672,6 +672,33 @@ tags {"external:skip"} {
                     assert {$d1 eq $d2}
                 }
             }
+        }
+    }
+
+    test {Multi Part AOF can handle appendfilename contains spaces} {
+        start_server [list overrides [list appendonly yes appendfilename "\" file seq .aof \""]] {
+            set dir [get_redis_dir]
+            set redis [redis [srv host] [srv port] 0 $::tls]
+
+            assert_equal OK [$redis set k1 v1]
+
+            $redis bgrewriteaof
+            waitForBgrewriteaof $redis
+
+            set d1 [$redis debug digest]
+            $redis debug loadaof
+            set d2 [$redis debug digest]
+            assert {$d1 eq $d2}
+
+            assert_equal OK [$redis set k2 v2]
+
+            $redis bgrewriteaof
+            waitForBgrewriteaof $redis
+
+            set d1 [$redis debug digest]
+            $redis debug loadaof
+            set d2 [$redis debug digest]
+            assert {$d1 eq $d2}
         }
     }
 

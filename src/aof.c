@@ -280,22 +280,46 @@ void aofLoadManifestFromDisk(void) {
         }
 
         line = sdstrim(sdsnew(buf), " \t\r\n");
-        argv = sdssplitargs(line, &argc);
-        /* 'argc < 6' was done for forward compatibility. */
-        if (argv == NULL || argc < 6 || (argc % 2)) {
+        if (!sdslen(line)) {
+            err = "The AOF manifest file is invalid format";
+            goto loaderr;
+        }
+
+        /* Because we need to deal with the ugly design that 'appendfilename' may 
+         * contain spaces, we have to deal with it separately. */
+        char *file_pos = strstr(line, AOF_MANIFEST_KEY_FILE_NAME);
+        char *seq_pos = rstrstr(line, AOF_MANIFEST_KEY_FILE_SEQ);
+        if (file_pos == NULL || seq_pos == NULL) {
+            err = "The AOF manifest file is invalid format";
+            goto loaderr;
+        }
+
+        char *filename_pos = file_pos + strlen(AOF_MANIFEST_KEY_FILE_NAME) + 1;
+        sds file_name = sdsnewlen(filename_pos, seq_pos - filename_pos - 1);
+        if (!sdslen(file_name)) {
+            sdsfree(file_name);
+            err = "The AOF manifest file is invalid format";
+            goto loaderr;
+        }
+
+        /* The remaining parameters are processed uniformly. */
+        argv = sdssplitargs(seq_pos, &argc);
+        /* 'argc < 4' was done for forward compatibility. */
+        if (argv == NULL || argc < 4 || (argc % 2)) {
+            sdsfree(file_name);
             err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
 
         ai = aofInfoCreate();
+        ai->file_name = file_name;
+        if (!pathIsBaseName(ai->file_name)) {
+            err = "File can't be a path, just a filename";
+            goto loaderr;
+        }
+
         for (int i = 0; i < argc; i += 2) {
-            if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_NAME)) {
-                ai->file_name = sdsnew(argv[i+1]);
-                if (!pathIsBaseName(ai->file_name)) {
-                    err = "File can't be a path, just a filename";
-                    goto loaderr;
-                }
-            } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_SEQ)) {
+            if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_SEQ)) {
                 ai->file_seq = atoll(argv[i+1]);
             } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
                 ai->file_type = (argv[i+1])[0];
@@ -305,7 +329,7 @@ void aofLoadManifestFromDisk(void) {
 
         /* We have to make sure we load all the information. */
         if (!ai->file_name || !ai->file_seq || !ai->file_type) {
-            err = "Mismatched manifest key";
+            err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
 

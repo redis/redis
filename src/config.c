@@ -2154,10 +2154,6 @@ static int isValidAOFfilename(char *val, const char **err) {
         *err = "appendfilename can't be empty";
         return 0;
     }
-    if (includeSpace(val)) {
-        *err = "appendfilename can't contain whitespace characters";
-        return 0;
-    }
     if (!pathIsBaseName(val)) {
         *err = "appendfilename can't be a path, just a filename";
         return 0;
