@@ -4042,7 +4042,8 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
-        {0,NULL} };
+        {0,NULL}
+    };
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     addReplyCommandFlags(c, cmd->flags, flagNames);
 }
@@ -4051,7 +4052,8 @@ void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
     replyFlagNames docFlagNames[] = {
         {CMD_DOC_DEPRECATED,         "deprecated"},
         {CMD_DOC_SYSCMD,             "syscmd"},
-        {0,NULL} };
+        {0,NULL}
+    };
     addReplyCommandFlags(c, cmd->doc_flags, docFlagNames);
 }
 
@@ -4061,7 +4063,8 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_READ,               "read"},
         {CMD_KEY_SHARD_CHANNEL,      "shard_channel"},
         {CMD_KEY_INCOMPLETE,         "incomplete"},
-        {0,NULL} };
+        {0,NULL}
+    };
     addReplyCommandFlags(c, flags, docFlagNames);
 }
 
@@ -4083,7 +4086,8 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
         {CMD_ARG_OPTIONAL,          "optional"},
         {CMD_ARG_MULTIPLE,          "multiple"},
         {CMD_ARG_MULTIPLE_TOKEN,    "multiple_token"},
-        {0,NULL} };
+        {0,NULL}
+    };
     addReplyCommandFlags(c, flags, argFlagNames);
 }
 
