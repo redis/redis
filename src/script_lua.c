@@ -1039,6 +1039,49 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_setglobal(lua,"dofile");
 }
 
+/* This function installs metamethods in the global table _G that prevent
+ * the creation of globals accidentally.
+ *
+ * It should be the last to be called in the scripting engine initialization
+ * sequence, because it may interact with creation of globals.
+ *
+ * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
+ * to create the global 'function <sha> ()' variable. On Lua engine we do not use this trick
+ * so its not needed. */
+void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
+    char *s[32];
+    sds code = sdsempty();
+    int j = 0;
+
+    /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
+     * Modified to be adapted to Redis. */
+    s[j++]="local dbg=debug\n";
+    s[j++]="local mt = {}\n";
+    s[j++]="setmetatable(_G, mt)\n";
+    s[j++]="mt.__newindex = function (t, n, v)\n";
+    s[j++]="  if dbg.getinfo(2) then\n";
+    s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
+    s[j++]=     is_eval ? "    if w ~= \"main\" and w ~= \"C\" then\n" : "    if w ~= \"C\" then\n";
+    s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
+    s[j++]="    end\n";
+    s[j++]="  end\n";
+    s[j++]="  rawset(t, n, v)\n";
+    s[j++]="end\n";
+    s[j++]="mt.__index = function (t, n)\n";
+    s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
+    s[j++]="    error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n";
+    s[j++]="  end\n";
+    s[j++]="  return rawget(t, n)\n";
+    s[j++]="end\n";
+    s[j++]="debug = nil\n";
+    s[j++]=NULL;
+
+    for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
+    luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
+    lua_pcall(lua,0,0,0);
+    sdsfree(code);
+}
+
 /* Create a global protection function and put it to registry.
  * This need to be called once in the lua_State lifetime.
  * After called it is possible to use luaSetGlobalProtection
@@ -1046,7 +1089,12 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
  *
  * The function assumes the Lua stack have a least enough
  * space to push 2 element, its up to the caller to verify
- * this before calling this function. */
+ * this before calling this function.
+ *
+ * Notice, the difference between this and luaEnableGlobalsProtection
+ * is that luaEnableGlobalsProtection is enabling global protection
+ * on the current Lua globals. This registering a global protection
+ * function that later can be applied on any table. */
 void luaRegisterGlobalProtectionFunction(lua_State *lua) {
     lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
     char *global_protection_func =       "local dbg = debug\n"
@@ -1092,49 +1140,6 @@ void luaSetGlobalProtection(lua_State *lua) {
     lua_pushvalue(lua, -2);
     int res = lua_pcall(lua, 1, 0, 0);
     serverAssert(res == 0);
-}
-
-/* This function installs metamethods in the global table _G that prevent
- * the creation of globals accidentally.
- *
- * It should be the last to be called in the scripting engine initialization
- * sequence, because it may interact with creation of globals.
- *
- * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
- * to create the global 'function <sha> ()' variable. On Lua engine we do not use this trick
- * so its not needed. */
-void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
-    char *s[32];
-    sds code = sdsempty();
-    int j = 0;
-
-    /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
-     * Modified to be adapted to Redis. */
-    s[j++]="local dbg=debug\n";
-    s[j++]="local mt = {}\n";
-    s[j++]="setmetatable(_G, mt)\n";
-    s[j++]="mt.__newindex = function (t, n, v)\n";
-    s[j++]="  if dbg.getinfo(2) then\n";
-    s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]=     is_eval ? "    if w ~= \"main\" and w ~= \"C\" then\n" : "    if w ~= \"C\" then\n";
-    s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="    end\n";
-    s[j++]="  end\n";
-    s[j++]="  rawset(t, n, v)\n";
-    s[j++]="end\n";
-    s[j++]="mt.__index = function (t, n)\n";
-    s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
-    s[j++]="    error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="  end\n";
-    s[j++]="  return rawget(t, n)\n";
-    s[j++]="end\n";
-    s[j++]="debug = nil\n";
-    s[j++]=NULL;
-
-    for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
-    luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
-    lua_pcall(lua,0,0,0);
-    sdsfree(code);
 }
 
 void luaRegisterLogFunction(lua_State* lua) {

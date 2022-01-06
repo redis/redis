@@ -49,7 +49,7 @@
 #define REGISTRY_ENGINE_CTX_NAME "__ENGINE_CTX__"
 #define REGISTRY_ERROR_HANDLER_NAME "__ERROR_HANDLER__"
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
-#define LIBRARY_API_NAME "library"
+#define LIBRARY_API_NAME "__LIBRARY_API__"
 #define LOAD_TIMEOUT_MS 500
 
 /* Lua engine ctx */
@@ -115,7 +115,7 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
      * For now we are choosing the second, we can change it in the future to
      * achieve a better isolation between functions. */
     lua_newtable(lua); /* Global table for the library */
-    lua_pushstring(lua, LIBRARY_API_NAME);
+    lua_pushstring(lua, REDIS_API_NAME);
     lua_pushstring(lua, LIBRARY_API_NAME);
     lua_gettable(lua, LUA_REGISTRYINDEX); /* get library function from registry */
     lua_settable(lua, -3); /* push the library table to the new global table */
@@ -154,8 +154,8 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
 
     /* stack contains the global table, lets rearrange it to contains the entire API. */
-    /* delete 'library' API */
-    lua_pushstring(lua, LIBRARY_API_NAME);
+    /* delete 'redis' API */
+    lua_pushstring(lua, REDIS_API_NAME);
     lua_pushnil(lua);
     lua_settable(lua, -3);
 
@@ -227,27 +227,27 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
 static int luaRegisterFunction(lua_State *lua) {
     int argc = lua_gettop(lua);
     if (argc < 2 || argc > 3) {
-        luaPushError(lua, "wrong number of arguments to library.register_function");
+        luaPushError(lua, "wrong number of arguments to redis.register_function");
         return luaRaiseError(lua);
     }
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
     if (!load_ctx) {
-        luaPushError(lua, "library.register_function can only be called on FUNCTION LOAD command");
+        luaPushError(lua, "redis.register_function can only be called on FUNCTION LOAD command");
         return luaRaiseError(lua);
     }
 
     if (!lua_isstring(lua, 1)) {
-        luaPushError(lua, "first argument to library.register_function must be a string");
+        luaPushError(lua, "first argument to redis.register_function must be a string");
         return luaRaiseError(lua);
     }
 
     if (!lua_isfunction(lua, 2)) {
-        luaPushError(lua, "second argument to library.register_function must be a function");
+        luaPushError(lua, "second argument to redis.register_function must be a function");
         return luaRaiseError(lua);
     }
 
     if (argc == 3 && !lua_isstring(lua, 3)) {
-        luaPushError(lua, "third argument to library.register_function must be a string");
+        luaPushError(lua, "third argument to redis.register_function must be a string");
         return luaRaiseError(lua);
     }
 
