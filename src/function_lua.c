@@ -102,11 +102,11 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
      *
      * At first, populate this new table with only the 'library' API
      * to make sure only 'library' API is available at start. After the
-     * initial run is finished and all functions is registered, add
+     * initial run is finished and all functions are registered, add
      * all the default globals to the library global table and delete
      * the library API.
      *
-     * There is 2 ways to achieve the last part (add default
+     * There are 2 ways to achieve the last part (add default
      * globals to the new table):
      *
      * 1. Initialize the new table with all the default globals

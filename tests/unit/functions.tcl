@@ -640,11 +640,11 @@ start_server {tags {"scripting"}} {
     } {*attempted to access nonexistent global variable 'redis'*}
 
     test {LIBRARIES - malicious access test} {
-        # the 'library' API is not expose inside a
+        # the 'library' API is not exposed inside a
         # function context and the 'redis' API is not
         # expose on the library registration context.
         # But a malicious user might find a way to hack it
-        # (like demonstrate in the test). For this we
+        # (as demonstrated in this test). This is why we
         # have another level of protection on the C
         # code itself and we want to test it and verify
         # that it works properly.
