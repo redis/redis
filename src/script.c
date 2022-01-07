@@ -148,11 +148,7 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
         unprotectClient(run_ctx->original_client);
     }
 
-    /* emit EXEC if MULTI has been propagated. */
     preventCommandPropagation(run_ctx->original_client);
-    if (run_ctx->flags & SCRIPT_MULTI_EMMITED) {
-        execCommandPropagateExec(run_ctx->original_client->db->id);
-    }
 
     /*  unset curr_run_ctx so we will know there is no running script */
     curr_run_ctx = NULL;
@@ -332,25 +328,6 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
     return C_OK;
 }
 
-static void scriptEmitMultiIfNeeded(scriptRunCtx *run_ctx) {
-    /* If we are using single commands replication, we need to wrap what
-     * we propagate into a MULTI/EXEC block, so that it will be atomic like
-     * a Lua script in the context of AOF and slaves. */
-    client *c = run_ctx->c;
-    if (!(run_ctx->flags & SCRIPT_MULTI_EMMITED)
-         && !(run_ctx->original_client->flags & CLIENT_MULTI)
-         && (run_ctx->flags & SCRIPT_WRITE_DIRTY)
-         && ((run_ctx->repl_flags & PROPAGATE_AOF)
-             || (run_ctx->repl_flags & PROPAGATE_REPL)))
-    {
-        execCommandPropagateMulti(run_ctx->original_client->db->id);
-        run_ctx->flags |= SCRIPT_MULTI_EMMITED;
-        /* Now we are in the MULTI context, the lua_client should be
-         * flag as CLIENT_MULTI. */
-        c->flags |= CLIENT_MULTI;
-    }
-}
-
 /* set RESP for a given run_ctx */
 int scriptSetResp(scriptRunCtx *run_ctx, int resp) {
     if (resp != 2 && resp != 3) {
@@ -422,8 +399,6 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
         return;
     }
-
-    scriptEmitMultiIfNeeded(run_ctx);
 
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {

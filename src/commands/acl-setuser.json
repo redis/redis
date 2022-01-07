@@ -9,7 +9,7 @@
         "function": "aclCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added Pub/Sub channel patterns."
             ]
         ],

@@ -8,7 +8,7 @@
         "function": "zrangeCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `REV`, `BYSCORE`, `BYLEX` and `LIMIT` options."
             ]
         ],
@@ -55,6 +55,7 @@
                 "name": "sortby",
                 "type": "oneof",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "byscore",
@@ -72,13 +73,15 @@
                 "name": "rev",
                 "token": "REV",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             },
             {
                 "token": "LIMIT",
                 "name": "offset_count",
                 "type": "block",
                 "optional": true,
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "offset",

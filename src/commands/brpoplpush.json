@@ -8,7 +8,7 @@
         "function": "brpoplpushCommand",
         "history": [
             [
-                "6.0",
+                "6.0.0",
                 "`timeout` is interpreted as a double instead of an integer."
             ]
         ],

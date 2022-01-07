@@ -47,7 +47,8 @@
             {
                 "name": "count",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "2.6.0"
             }
         ]
     }

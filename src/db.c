@@ -69,7 +69,7 @@ void updateLFU(robj *val) {
  *  LOOKUP_NONE (or zero): No special flags are passed.
  *  LOOKUP_NOTOUCH: Don't alter the last access time of the key.
  *  LOOKUP_NONOTIFY: Don't trigger keyspace event on key miss.
- *  LOOKUP_NOSTATS: Don't increment key hits/misses couters.
+ *  LOOKUP_NOSTATS: Don't increment key hits/misses counters.
  *  LOOKUP_WRITE: Prepare the key for writing (delete expired keys even on
  *                replicas, use separate keyspace stats and events (TODO)).
  *
@@ -461,7 +461,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 
     if (with_functions) {
         serverAssert(dbnum == -1);
-        functionsCtxClearCurrent(async);
+        functionsLibCtxClearCurrent(async);
     }
 
     /* Also fire the end event. Note that this event will fire almost
@@ -599,7 +599,7 @@ void flushAllDataAndResetRDB(int flags) {
         int saved_dirty = server.dirty;
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(server.rdb_filename,rsiptr);
+        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
         server.dirty = saved_dirty;
     }
 
@@ -1033,23 +1033,59 @@ void typeCommand(client *c) {
 }
 
 void shutdownCommand(client *c) {
-    int flags = 0;
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    } else if (c->argc == 2) {
-        if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+    int flags = SHUTDOWN_NOFLAGS;
+    int abort = 0;
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr,"nosave")) {
             flags |= SHUTDOWN_NOSAVE;
-        } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+        } else if (!strcasecmp(c->argv[i]->ptr,"save")) {
             flags |= SHUTDOWN_SAVE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "now")) {
+            flags |= SHUTDOWN_NOW;
+        } else if (!strcasecmp(c->argv[i]->ptr, "force")) {
+            flags |= SHUTDOWN_FORCE;
+        } else if (!strcasecmp(c->argv[i]->ptr, "abort")) {
+            abort = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
     }
+    if ((abort && flags != SHUTDOWN_NOFLAGS) ||
+        (flags & SHUTDOWN_NOSAVE && flags & SHUTDOWN_SAVE))
+    {
+        /* Illegal combo. */
+        addReplyErrorObject(c,shared.syntaxerr);
+        return;
+    }
+
+    if (abort) {
+        if (abortShutdown() == C_OK)
+            addReply(c, shared.ok);
+        else
+            addReplyError(c, "No shutdown in progress.");
+        return;
+    }
+
+    if (!(flags & SHUTDOWN_NOW) && c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyError(c, "SHUTDOWN without NOW or ABORT isn't allowed for DENY BLOCKING client");
+        return;
+    }
+
+    if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
+        /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
+         * also processCommand where these errors are returned. */
+        if (scriptIsEval())
+            addReplyErrorObject(c, shared.slowevalerr);
+        else
+            addReplyErrorObject(c, shared.slowscripterr);
+        return;
+    }
+
+    blockClient(c, BLOCKED_SHUTDOWN);
     if (prepareForShutdown(flags) == C_OK) exit(0);
-    addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
+    /* If we're here, then shutdown is ongoing (the client is still blocked) or
+     * failed (the client has received an error). */
 }
 
 void renameGenericCommand(client *c, int nx) {
@@ -1466,7 +1502,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);
     signalModifiedKey(NULL, db, keyobj);
-    propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
+    propagateDeletion(db,keyobj,server.lazyfree_lazy_expire);
     server.stat_expiredkeys++;
 }
 
@@ -1477,8 +1513,18 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  * This way the key expiry is centralized in one place, and since both
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
- * keys. */
-void propagateExpire(redisDb *db, robj *key, int lazy) {
+ * keys.
+ *
+ * This function may be called from:
+ * 1. Within call(): Example: Lazy-expire on key access.
+ *    In this case the caller doesn't have to do anything
+ *    because call() handles server.also_propagate(); or
+ * 2. Outside of call(): Example: Active-expire, eviction.
+ *    In this the caller must remember to call
+ *    propagatePendingCommands, preferably at the end of
+ *    the deletion batch, so that DELs will be wrapped
+ *    in MULTI/EXEC */
+void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
     argv[0] = lazy ? shared.unlink : shared.del;
@@ -1490,7 +1536,7 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
-    propagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
 
     decrRefCount(argv[0]);

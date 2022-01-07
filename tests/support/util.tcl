@@ -84,7 +84,7 @@ proc status {r property} {
 
 proc waitForBgsave r {
     while 1 {
-        if {[status r rdb_bgsave_in_progress] eq 1} {
+        if {[status $r rdb_bgsave_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
@@ -98,7 +98,7 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status r aof_rewrite_in_progress] eq 1} {
+        if {[status $r aof_rewrite_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
@@ -591,8 +591,11 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num {prefix key:} {size 3}} {
-    set rd [redis_deferring_client]
+# Write num keys with the given key prefix and value size (in bytes). If idx is
+# given, it's the index (AKA level) used with the srv procedure and it specifies
+# to which Redis instance to write the keys.
+proc populate {num {prefix key:} {size 3} {idx 0}} {
+    set rd [redis_deferring_client $idx]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
     }
@@ -624,6 +627,12 @@ proc cmdrstat {cmd r} {
 
 proc errorrstat {cmd r} {
     if {[regexp "\r\nerrorstat_$cmd:(.*?)\r\n" [$r info errorstats] _ value]} {
+        set _ $value
+    }
+}
+
+proc latencyrstat_percentiles {cmd r} {
+    if {[regexp "\r\nlatency_percentiles_usec_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
         set _ $value
     }
 }
@@ -1001,4 +1010,14 @@ proc prepare_value {size} {
         append _v 0
     }
     return $_v
+}
+
+proc memory_usage {key} {
+    set usage [r memory usage $key]
+    if {![string match {*jemalloc*} [s mem_allocator]]} {
+        # libc allocator can sometimes return a different size allocation for the same requested size
+        # this makes tests that rely on MEMORY USAGE unreliable, so instead we return a constant 1
+        set usage 1
+    }
+    return $usage
 }

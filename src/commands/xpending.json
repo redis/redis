@@ -57,7 +57,8 @@
                         "token": "IDLE",
                         "name": "min-idle-time",
                         "type": "integer",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     },
                     {
                         "name": "start",

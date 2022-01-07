@@ -15,16 +15,16 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function create LUA test replace [lindex $args 0]
+        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function create LUA test replace [lindex $args 0]
+        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function create LUA test replace [lindex $args 1]
+        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
         # read the ok reply of function create
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
@@ -35,6 +35,20 @@ if {$is_eval == 1} {
 }
 
 start_server {tags {"scripting"}} {
+
+    test {Script - disallow write on OOM} {
+        r FUNCTION load lua f1 replace { redis.register_function('f1', function() return redis.call('set', 'x', '1') end) }
+
+        r config set maxmemory 1
+
+        catch {[r fcall f1 1 k]} e
+        assert_match {*command not allowed when used memory*} $e
+
+        catch {[r eval "redis.call('set', 'x', 1)" 0]} e
+        assert_match {*command not allowed when used memory*} $e
+
+        r config set maxmemory 0
+    }
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0
@@ -508,7 +522,7 @@ start_server {tags {"scripting"}} {
         assert {[r eval {return redis.call('spop', 'myset')} 0] ne {}}
         assert {[r eval {return redis.call('spop', 'myset', 1)} 0] ne {}}
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] ne {}}
-        #this one below should be replicated by an empty MULTI/EXEC
+        # this one below should not be replicated
         assert {[r eval {return redis.call('spop', KEYS[1])} 1 myset] eq {}}
         r set trailingkey 1
         assert_replication_stream $repl {
@@ -516,21 +530,13 @@ start_server {tags {"scripting"}} {
             {sadd *}
             {del *}
             {sadd *}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
             {srem myset *}
-            {exec}
-            {multi}
-            {exec}
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {MGET: mget shouldn't be propagated in Lua} {
         set repl [attach_to_replication_stream]
@@ -544,7 +550,7 @@ start_server {tags {"scripting"}} {
             {set *}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     test {EXPIRE: We can call scripts rewriting client->argv from Lua} {
         set repl [attach_to_replication_stream]
@@ -555,12 +561,10 @@ start_server {tags {"scripting"}} {
         assert_replication_stream $repl {
             {select *}
             {set *}
-            {multi}
             {pexpireat expirekey *}
-            {exec}
         }
         close_replication_stream $repl
-    } {} {need:repl}
+    } {} {needs:repl}
 
     } ;# is_eval
 
@@ -733,7 +737,7 @@ start_server {tags {"scripting"}} {
             set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         } else {
-            set buf "*6\r\n\$8\r\nfunction\r\n\$6\r\ncreate\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n"
+            set buf "*6\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$81\r\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
             append buf "*3\r\n\$5\r\nfcall\r\n\$4\r\ntest\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         }
