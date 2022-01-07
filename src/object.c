@@ -1573,7 +1573,7 @@ NULL
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
 
-            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
+            addReplyBulkCString(c,"overhead.hashtable.slot_to_keys");
             addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
 
@@ -1584,7 +1584,7 @@ NULL
         addReplyBulkCString(c,"keys.count");
         addReplyLongLong(c,mh->total_keys);
 
-        addReplyBulkCString(c,"keys.bytes-per-key");
+        addReplyBulkCString(c,"keys.bytes_per_key");
         addReplyLongLong(c,mh->bytes_per_key);
 
         addReplyBulkCString(c,"dataset.bytes");
@@ -1605,22 +1605,22 @@ NULL
         addReplyBulkCString(c,"allocator.resident");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
 
-        addReplyBulkCString(c,"allocator-fragmentation.ratio");
+        addReplyBulkCString(c,"allocator_fragmentation.ratio");
         addReplyDouble(c,mh->allocator_frag);
 
-        addReplyBulkCString(c,"allocator-fragmentation.bytes");
+        addReplyBulkCString(c,"allocator_fragmentation.bytes");
         addReplyLongLong(c,mh->allocator_frag_bytes);
 
-        addReplyBulkCString(c,"allocator-rss.ratio");
+        addReplyBulkCString(c,"allocator_rss.ratio");
         addReplyDouble(c,mh->allocator_rss);
 
-        addReplyBulkCString(c,"allocator-rss.bytes");
+        addReplyBulkCString(c,"allocator_rss.bytes");
         addReplyLongLong(c,mh->allocator_rss_bytes);
 
-        addReplyBulkCString(c,"rss-overhead.ratio");
+        addReplyBulkCString(c,"rss_overhead.ratio");
         addReplyDouble(c,mh->rss_extra);
 
-        addReplyBulkCString(c,"rss-overhead.bytes");
+        addReplyBulkCString(c,"rss_overhead.bytes");
         addReplyLongLong(c,mh->rss_extra_bytes);
 
         addReplyBulkCString(c,"fragmentation"); /* this is the total RSS overhead, including fragmentation */
@@ -1630,7 +1630,7 @@ NULL
         addReplyLongLong(c,mh->total_frag_bytes);
 
         freeMemoryOverheadData(mh);
-    } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"malloc_stats") && c->argc == 2) {
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
         je_malloc_stats_print(inputCatSds, &info, NULL);

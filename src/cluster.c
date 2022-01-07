@@ -4750,7 +4750,7 @@ void addReplyClusterLinkDescription(client *c, clusterLink *link) {
     addReplyBulkCString(c, node_name);
     sdsfree(node_name);
 
-    addReplyBulkCString(c, "create-time");
+    addReplyBulkCString(c, "create_time");
     addReplyLongLong(c, link->ctime);
 
     char events[3], *p;
@@ -4763,10 +4763,10 @@ void addReplyClusterLinkDescription(client *c, clusterLink *link) {
     addReplyBulkCString(c, "events");
     addReplyBulkCString(c, events);
 
-    addReplyBulkCString(c, "send-buffer-allocated");
+    addReplyBulkCString(c, "send_buffer_allocated");
     addReplyLongLong(c, sdsalloc(link->sndbuf));
 
-    addReplyBulkCString(c, "send-buffer-used");
+    addReplyBulkCString(c, "send_buffer_used");
     addReplyLongLong(c, sdslen(link->sndbuf));
 }
 

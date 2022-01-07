@@ -957,16 +957,16 @@ void sentinelPendingScriptsCommand(client *c) {
         addReplyBulkLongLong(c,sj->pid);
 
         if (sj->flags & SENTINEL_SCRIPT_RUNNING) {
-            addReplyBulkCString(c,"run-time");
+            addReplyBulkCString(c,"run_time");
             addReplyBulkLongLong(c,mstime() - sj->start_time);
         } else {
             mstime_t delay = sj->start_time ? (sj->start_time-mstime()) : 0;
             if (delay < 0) delay = 0;
-            addReplyBulkCString(c,"run-delay");
+            addReplyBulkCString(c,"run_delay");
             addReplyBulkLongLong(c,delay);
         }
 
-        addReplyBulkCString(c,"retry-num");
+        addReplyBulkCString(c,"retry_num");
         addReplyBulkLongLong(c,sj->retry_num);
     }
 }
@@ -3163,37 +3163,37 @@ void sentinelConfigGetCommand(client *c) {
     int matches = 0;
 
     if (stringmatch(pattern,"resolve-hostnames",1)) {
-        addReplyBulkCString(c,"resolve-hostnames");
+        addReplyBulkCString(c,"resolve_hostnames");
         addReplyBulkCString(c,sentinel.resolve_hostnames ? "yes" : "no");
         matches++;
     }
 
     if (stringmatch(pattern, "announce-hostnames", 1)) {
-        addReplyBulkCString(c,"announce-hostnames");
+        addReplyBulkCString(c,"announce_hostnames");
         addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
         matches++;
     }
 
     if (stringmatch(pattern, "announce-ip", 1)) {
-        addReplyBulkCString(c,"announce-ip");
+        addReplyBulkCString(c,"announce_ip");
         addReplyBulkCString(c,sentinel.announce_ip ? sentinel.announce_ip : "");
         matches++;
     }
 
     if (stringmatch(pattern, "announce-port", 1)) {
-        addReplyBulkCString(c, "announce-port");
+        addReplyBulkCString(c, "announce_port");
         addReplyBulkLongLong(c, sentinel.announce_port);
         matches++;
     }
 
     if (stringmatch(pattern, "sentinel-user", 1)) {
-        addReplyBulkCString(c, "sentinel-user");
+        addReplyBulkCString(c, "sentinel_user");
         addReplyBulkCString(c, sentinel.sentinel_auth_user ? sentinel.sentinel_auth_user : "");
         matches++;
     }
 
     if (stringmatch(pattern, "sentinel-pass", 1)) {
-        addReplyBulkCString(c, "sentinel-pass");
+        addReplyBulkCString(c, "sentinel_pass");
         addReplyBulkCString(c, sentinel.sentinel_auth_pass ? sentinel.sentinel_auth_pass : "");
         matches++;
     }
@@ -3260,77 +3260,77 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     sdsfree(flags);
     fields++;
 
-    addReplyBulkCString(c,"link-pending-commands");
+    addReplyBulkCString(c,"link_pending_commands");
     addReplyBulkLongLong(c,ri->link->pending_commands);
     fields++;
 
-    addReplyBulkCString(c,"link-refcount");
+    addReplyBulkCString(c,"link_refcount");
     addReplyBulkLongLong(c,ri->link->refcount);
     fields++;
 
     if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
-        addReplyBulkCString(c,"failover-state");
+        addReplyBulkCString(c,"failover_state");
         addReplyBulkCString(c,(char*)sentinelFailoverStateStr(ri->failover_state));
         fields++;
     }
 
-    addReplyBulkCString(c,"last-ping-sent");
+    addReplyBulkCString(c,"last_ping_sent");
     addReplyBulkLongLong(c,
         ri->link->act_ping_time ? (mstime() - ri->link->act_ping_time) : 0);
     fields++;
 
-    addReplyBulkCString(c,"last-ok-ping-reply");
+    addReplyBulkCString(c,"last_ok_ping_reply");
     addReplyBulkLongLong(c,mstime() - ri->link->last_avail_time);
     fields++;
 
-    addReplyBulkCString(c,"last-ping-reply");
+    addReplyBulkCString(c,"last_ping_reply");
     addReplyBulkLongLong(c,mstime() - ri->link->last_pong_time);
     fields++;
 
     if (ri->flags & SRI_S_DOWN) {
-        addReplyBulkCString(c,"s-down-time");
+        addReplyBulkCString(c,"s_down_time");
         addReplyBulkLongLong(c,mstime()-ri->s_down_since_time);
         fields++;
     }
 
     if (ri->flags & SRI_O_DOWN) {
-        addReplyBulkCString(c,"o-down-time");
+        addReplyBulkCString(c,"o_down_time");
         addReplyBulkLongLong(c,mstime()-ri->o_down_since_time);
         fields++;
     }
 
-    addReplyBulkCString(c,"down-after-milliseconds");
+    addReplyBulkCString(c,"down_after_milliseconds");
     addReplyBulkLongLong(c,ri->down_after_period);
     fields++;
 
     /* Masters and Slaves */
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
-        addReplyBulkCString(c,"info-refresh");
+        addReplyBulkCString(c,"info_refresh");
         addReplyBulkLongLong(c,
             ri->info_refresh ? (mstime() - ri->info_refresh) : 0);
         fields++;
 
-        addReplyBulkCString(c,"role-reported");
+        addReplyBulkCString(c,"role_reported");
         addReplyBulkCString(c, (ri->role_reported == SRI_MASTER) ? "master" :
                                                                    "slave");
         fields++;
 
-        addReplyBulkCString(c,"role-reported-time");
+        addReplyBulkCString(c,"role_reported_time");
         addReplyBulkLongLong(c,mstime() - ri->role_reported_time);
         fields++;
     }
 
     /* Only masters */
     if (ri->flags & SRI_MASTER) {
-        addReplyBulkCString(c,"config-epoch");
+        addReplyBulkCString(c,"config_epoch");
         addReplyBulkLongLong(c,ri->config_epoch);
         fields++;
 
-        addReplyBulkCString(c,"num-slaves");
+        addReplyBulkCString(c,"num_slaves");
         addReplyBulkLongLong(c,dictSize(ri->slaves));
         fields++;
 
-        addReplyBulkCString(c,"num-other-sentinels");
+        addReplyBulkCString(c,"num_other_sentinels");
         addReplyBulkLongLong(c,dictSize(ri->sentinels));
         fields++;
 
@@ -3338,22 +3338,22 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkLongLong(c,ri->quorum);
         fields++;
 
-        addReplyBulkCString(c,"failover-timeout");
+        addReplyBulkCString(c,"failover_timeout");
         addReplyBulkLongLong(c,ri->failover_timeout);
         fields++;
 
-        addReplyBulkCString(c,"parallel-syncs");
+        addReplyBulkCString(c,"parallel_syncs");
         addReplyBulkLongLong(c,ri->parallel_syncs);
         fields++;
 
         if (ri->notification_script) {
-            addReplyBulkCString(c,"notification-script");
+            addReplyBulkCString(c,"notification_script");
             addReplyBulkCString(c,ri->notification_script);
             fields++;
         }
 
         if (ri->client_reconfig_script) {
-            addReplyBulkCString(c,"client-reconfig-script");
+            addReplyBulkCString(c,"client_reconfig_script");
             addReplyBulkCString(c,ri->client_reconfig_script);
             fields++;
         }
@@ -3361,49 +3361,49 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 
     /* Only slaves */
     if (ri->flags & SRI_SLAVE) {
-        addReplyBulkCString(c,"master-link-down-time");
+        addReplyBulkCString(c,"master_link_down_time");
         addReplyBulkLongLong(c,ri->master_link_down_time);
         fields++;
 
-        addReplyBulkCString(c,"master-link-status");
+        addReplyBulkCString(c,"master_link_status");
         addReplyBulkCString(c,
             (ri->slave_master_link_status == SENTINEL_MASTER_LINK_STATUS_UP) ?
             "ok" : "err");
         fields++;
 
-        addReplyBulkCString(c,"master-host");
+        addReplyBulkCString(c,"master_host");
         addReplyBulkCString(c,
             ri->slave_master_host ? ri->slave_master_host : "?");
         fields++;
 
-        addReplyBulkCString(c,"master-port");
+        addReplyBulkCString(c,"master_port");
         addReplyBulkLongLong(c,ri->slave_master_port);
         fields++;
 
-        addReplyBulkCString(c,"slave-priority");
+        addReplyBulkCString(c,"slave_priority");
         addReplyBulkLongLong(c,ri->slave_priority);
         fields++;
 
-        addReplyBulkCString(c,"slave-repl-offset");
+        addReplyBulkCString(c,"slave_repl_offset");
         addReplyBulkLongLong(c,ri->slave_repl_offset);
         fields++;
 
-        addReplyBulkCString(c,"replica-announced");
+        addReplyBulkCString(c,"replica_announced");
         addReplyBulkLongLong(c,ri->replica_announced);
         fields++;
     }
 
     /* Only sentinels */
     if (ri->flags & SRI_SENTINEL) {
-        addReplyBulkCString(c,"last-hello-message");
+        addReplyBulkCString(c,"last_hello_message");
         addReplyBulkLongLong(c,mstime() - ri->last_hello_time);
         fields++;
 
-        addReplyBulkCString(c,"voted-leader");
+        addReplyBulkCString(c,"voted_leader");
         addReplyBulkCString(c,ri->leader ? ri->leader : "?");
         fields++;
 
-        addReplyBulkCString(c,"voted-leader-epoch");
+        addReplyBulkCString(c,"voted_leader_epoch");
         addReplyBulkLongLong(c,ri->leader_epoch);
         fields++;
     }
@@ -3565,55 +3565,55 @@ void addReplySentinelDebugInfo(client *c) {
 
     mbl = addReplyDeferredLen(c);
 
-    addReplyBulkCString(c,"INFO-PERIOD");
+    addReplyBulkCString(c,"INFO_PERIOD");
     addReplyBulkLongLong(c,sentinel_info_period);
     fields++;
 
-    addReplyBulkCString(c,"PING-PERIOD");
+    addReplyBulkCString(c,"PING_PERIOD");
     addReplyBulkLongLong(c,sentinel_ping_period);
     fields++;
 
-    addReplyBulkCString(c,"ASK-PERIOD");
+    addReplyBulkCString(c,"ASK_PERIOD");
     addReplyBulkLongLong(c,sentinel_ask_period);
     fields++;
 
-    addReplyBulkCString(c,"PUBLISH-PERIOD");
+    addReplyBulkCString(c,"PUBLISH_PERIOD");
     addReplyBulkLongLong(c,sentinel_publish_period);
     fields++;
 
-    addReplyBulkCString(c,"DEFAULT-DOWN-AFTER");
+    addReplyBulkCString(c,"DEFAULT_DOWN_AFTER");
     addReplyBulkLongLong(c,sentinel_default_down_after);
     fields++;
 
-    addReplyBulkCString(c,"DEFAULT-FAILOVER-TIMEOUT");
+    addReplyBulkCString(c,"DEFAULT_FAILOVER_TIMEOUT");
     addReplyBulkLongLong(c,sentinel_default_failover_timeout);
     fields++;
     
-    addReplyBulkCString(c,"TILT-TRIGGER");
+    addReplyBulkCString(c,"TILT_TRIGGER");
     addReplyBulkLongLong(c,sentinel_tilt_trigger);
     fields++;
 
-    addReplyBulkCString(c,"TILT-PERIOD");
+    addReplyBulkCString(c,"TILT_PERIOD");
     addReplyBulkLongLong(c,sentinel_tilt_period);
     fields++;
 
-    addReplyBulkCString(c,"SLAVE-RECONF-TIMEOUT");
+    addReplyBulkCString(c,"SLAVE_RECONF_TIMEOUT");
     addReplyBulkLongLong(c,sentinel_slave_reconf_timeout);
     fields++;
 
-    addReplyBulkCString(c,"MIN-LINK-RECONNECT-PERIOD");
+    addReplyBulkCString(c,"MIN_LINK_RECONNECT_PERIOD");
     addReplyBulkLongLong(c,sentinel_min_link_reconnect_period);
     fields++;
 
-    addReplyBulkCString(c,"ELECTION-TIMEOUT");
+    addReplyBulkCString(c,"ELECTION_TIMEOUT");
     addReplyBulkLongLong(c,sentinel_election_timeout);
     fields++;
 
-    addReplyBulkCString(c,"SCRIPT-MAX-RUNTIME");
+    addReplyBulkCString(c,"SCRIPT_MAX_RUNTIME");
     addReplyBulkLongLong(c,sentinel_script_max_runtime);
     fields++;
 
-    addReplyBulkCString(c,"SCRIPT-RETRY-DELAY");
+    addReplyBulkCString(c,"SCRIPT_RETRY_DELAY");
     addReplyBulkLongLong(c,sentinel_script_retry_delay);
     fields++;
 
@@ -4035,8 +4035,8 @@ NULL
                     "will crash after promoting the selected replica to master");
             } else if (!strcasecmp(c->argv[j]->ptr,"help")) {
                 addReplyArrayLen(c,2);
-                addReplyBulkCString(c,"crash-after-election");
-                addReplyBulkCString(c,"crash-after-promotion");
+                addReplyBulkCString(c,"crash_after_election");
+                addReplyBulkCString(c,"crash_after_promotion");
                 return;
             } else {
                 addReplyError(c,"Unknown failure simulation specified");

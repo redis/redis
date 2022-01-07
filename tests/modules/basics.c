@@ -100,7 +100,7 @@ int TestCallResp3Attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     RedisModuleCallReply *key, *val;
     if (RedisModule_CallReplyAttributeElement(reply,0,&key,&val) != REDISMODULE_OK) goto fail;
-    if (!TestMatchReply(key,"key-popularity")) goto fail;
+    if (!TestMatchReply(key,"key_popularity")) goto fail;
     if (RedisModule_CallReplyType(val) != REDISMODULE_REPLY_ARRAY) goto fail;
     if (RedisModule_CallReplyLength(val) != 2) goto fail;
     if (!TestMatchReply(RedisModule_CallReplyArrayElement(val, 0),"key:123")) goto fail;

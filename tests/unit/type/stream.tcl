@@ -473,7 +473,7 @@ start_server {
             lappend ids [r xadd somestream * item $x]
             incr x
             # Add enough elements to have a few radix tree nodes inside the stream.
-            if {[dict get [r xinfo stream somestream] radix-tree-keys] > 20} break
+            if {[dict get [r xinfo stream somestream] radix_tree_keys] > 20} break
         }
 
         # Now remove all the elements till we reach an empty stream
@@ -754,7 +754,7 @@ start_server {tags {"stream xsetid"}} {
 
     test {XSETID can set a specific ID} {
         r XSETID mystream "200-0"
-        assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
+        assert {[dict get [r xinfo stream mystream] last_generated_id] == "200-0"}
     }
 
     test {XSETID cannot SETID with smaller ID} {
@@ -790,7 +790,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         waitForBgrewriteaof r
         r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
-        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+        assert {[dict get [r xinfo stream mystream] last_generated_id] == "2-2"}
     }
 }
 

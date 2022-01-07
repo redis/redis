@@ -155,7 +155,7 @@ start_server {tags {"protocol network"}} {
         r debug protocol attrib
         assert_equal [r read] {|1}
         assert_equal [r read] {$14}
-        assert_equal [r read] {key-popularity}
+        assert_equal [r read] {key_popularity}
         assert_equal [r read] {*2}
         assert_equal [r read] {$7}
         assert_equal [r read] {key:123}

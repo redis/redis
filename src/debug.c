@@ -781,7 +781,7 @@ NULL
         } else if (!strcasecmp(name,"attrib")) {
             if (c->resp >= 3) {
                 addReplyAttributeLen(c,1);
-                addReplyBulkCString(c,"key-popularity");
+                addReplyBulkCString(c,"key_popularity");
                 addReplyArrayLen(c,2);
                 addReplyBulkCString(c,"key:123");
                 addReplyLongLong(c,90);
@@ -791,7 +791,7 @@ NULL
             addReplyBulkCString(c,"Some real reply following the attribute");
         } else if (!strcasecmp(name,"push")) {
             addReplyPushLen(c,2);
-            addReplyBulkCString(c,"server-cpu-usage");
+            addReplyBulkCString(c,"server_cpu_usage");
             addReplyLongLong(c,42);
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the

@@ -2275,10 +2275,10 @@ void aclCommand(client *c) {
             addReplyBulkCBuffer(c,le->object,sdslen(le->object));
             addReplyBulkCString(c,"username");
             addReplyBulkCBuffer(c,le->username,sdslen(le->username));
-            addReplyBulkCString(c,"age-seconds");
+            addReplyBulkCString(c,"age_seconds");
             double age = (double)(now - le->ctime)/1000;
             addReplyDouble(c,age);
-            addReplyBulkCString(c,"client-info");
+            addReplyBulkCString(c,"client_info");
             addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
         }
     } else if (c->argc == 2 && !strcasecmp(sub,"help")) {

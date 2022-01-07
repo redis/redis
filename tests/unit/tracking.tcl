@@ -627,7 +627,7 @@ start_server {tags {"tracking network"}} {
         r CLIENT CACHING yes
         set res [r client trackinginfo]
         set flags [dict get $res flags]
-        assert_equal {on optin caching-yes} $flags
+        assert_equal {on optin caching_yes} $flags
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking optout} {
@@ -644,7 +644,7 @@ start_server {tags {"tracking network"}} {
         r CLIENT CACHING no
         set res [r client trackinginfo]
         set flags [dict get $res flags]
-        assert_equal {on optout caching-no} $flags
+        assert_equal {on optout caching_no} $flags
     }
 
     test {CLIENT TRACKINGINFO provides reasonable results when tracking bcast mode} {

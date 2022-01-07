@@ -3362,11 +3362,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyMapLen(c,full ? 6 : 7);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
-    addReplyBulkCString(c,"radix-tree-keys");
+    addReplyBulkCString(c,"radix_tree_keys");
     addReplyLongLong(c,raxSize(s->rax));
-    addReplyBulkCString(c,"radix-tree-nodes");
+    addReplyBulkCString(c,"radix_tree_nodes");
     addReplyLongLong(c,s->rax->numnodes);
-    addReplyBulkCString(c,"last-generated-id");
+    addReplyBulkCString(c,"last_generated_id");
     addReplyStreamID(c,&s->last_id);
 
     if (!full) {
@@ -3380,11 +3380,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         streamID start, end;
         start.ms = start.seq = 0;
         end.ms = end.seq = UINT64_MAX;
-        addReplyBulkCString(c,"first-entry");
+        addReplyBulkCString(c,"first_entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
                                        STREAM_RWR_RAWENTRIES,NULL);
         if (!emitted) addReplyNull(c);
-        addReplyBulkCString(c,"last-entry");
+        addReplyBulkCString(c,"last_entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
                                        STREAM_RWR_RAWENTRIES,NULL);
         if (!emitted) addReplyNull(c);
@@ -3413,11 +3413,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 addReplyBulkCBuffer(c,ri_cgroups.key,ri_cgroups.key_len);
 
                 /* Last delivered ID */
-                addReplyBulkCString(c,"last-delivered-id");
+                addReplyBulkCString(c,"last_delivered_id");
                 addReplyStreamID(c,&cg->last_id);
 
                 /* Group PEL count */
-                addReplyBulkCString(c,"pel-count");
+                addReplyBulkCString(c,"pel_count");
                 addReplyLongLong(c,raxSize(cg->pel));
 
                 /* Group PEL */
@@ -3467,11 +3467,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                     addReplyBulkCBuffer(c,consumer->name,sdslen(consumer->name));
 
                     /* Seen-time */
-                    addReplyBulkCString(c,"seen-time");
+                    addReplyBulkCString(c,"seen_time");
                     addReplyLongLong(c,consumer->seen_time);
 
                     /* Consumer PEL count */
-                    addReplyBulkCString(c,"pel-count");
+                    addReplyBulkCString(c,"pel_count");
                     addReplyLongLong(c,raxSize(consumer->pel));
 
                     /* Consumer PEL */
@@ -3600,7 +3600,7 @@ NULL
             addReplyLongLong(c,raxSize(cg->consumers));
             addReplyBulkCString(c,"pending");
             addReplyLongLong(c,raxSize(cg->pel));
-            addReplyBulkCString(c,"last-delivered-id");
+            addReplyBulkCString(c,"last_delivered_id");
             addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);

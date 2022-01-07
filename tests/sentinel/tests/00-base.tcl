@@ -102,7 +102,7 @@ test "Failover works if we configure for absolute agreement" {
     # Wait for Sentinels to monitor the master again
     foreach_sentinel_id id {
         wait_for_condition 1000 100 {
-            [dict get [S $id SENTINEL MASTER mymaster] info-refresh] < 100000
+            [dict get [S $id SENTINEL MASTER mymaster] info_refresh] < 100000
         } else {
             fail "At least one Sentinel is not monitoring the master"
         }

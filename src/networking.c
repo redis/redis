@@ -3090,7 +3090,7 @@ NULL
             addReplyBulkCString(c,"optin");
             numflags++;
             if (c->flags & CLIENT_TRACKING_CACHING) {
-                addReplyBulkCString(c,"caching-yes");
+                addReplyBulkCString(c,"caching_yes");
                 numflags++;        
             }
         }
@@ -3098,7 +3098,7 @@ NULL
             addReplyBulkCString(c,"optout");
             numflags++;
             if (c->flags & CLIENT_TRACKING_CACHING) {
-                addReplyBulkCString(c,"caching-no");
+                addReplyBulkCString(c,"caching_no");
                 numflags++;        
             }
         }
