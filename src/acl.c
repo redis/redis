@@ -61,27 +61,27 @@ struct ACLCategoryItem {
     const char *name;
     uint64_t flag;
 } ACLCommandCategories[] = { /* See redis.conf for details on each category. */
-    {"keyspace", CMD_CATEGORY_KEYSPACE},
-    {"read", CMD_CATEGORY_READ},
-    {"write", CMD_CATEGORY_WRITE},
-    {"set", CMD_CATEGORY_SET},
-    {"sortedset", CMD_CATEGORY_SORTEDSET},
-    {"list", CMD_CATEGORY_LIST},
-    {"hash", CMD_CATEGORY_HASH},
-    {"string", CMD_CATEGORY_STRING},
-    {"bitmap", CMD_CATEGORY_BITMAP},
-    {"hyperloglog", CMD_CATEGORY_HYPERLOGLOG},
-    {"geo", CMD_CATEGORY_GEO},
-    {"stream", CMD_CATEGORY_STREAM},
-    {"pubsub", CMD_CATEGORY_PUBSUB},
-    {"admin", CMD_CATEGORY_ADMIN},
-    {"fast", CMD_CATEGORY_FAST},
-    {"slow", CMD_CATEGORY_SLOW},
-    {"blocking", CMD_CATEGORY_BLOCKING},
-    {"dangerous", CMD_CATEGORY_DANGEROUS},
-    {"connection", CMD_CATEGORY_CONNECTION},
-    {"transaction", CMD_CATEGORY_TRANSACTION},
-    {"scripting", CMD_CATEGORY_SCRIPTING},
+    {"keyspace", ACL_CATEGORY_KEYSPACE},
+    {"read", ACL_CATEGORY_READ},
+    {"write", ACL_CATEGORY_WRITE},
+    {"set", ACL_CATEGORY_SET},
+    {"sortedset", ACL_CATEGORY_SORTEDSET},
+    {"list", ACL_CATEGORY_LIST},
+    {"hash", ACL_CATEGORY_HASH},
+    {"string", ACL_CATEGORY_STRING},
+    {"bitmap", ACL_CATEGORY_BITMAP},
+    {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},
+    {"geo", ACL_CATEGORY_GEO},
+    {"stream", ACL_CATEGORY_STREAM},
+    {"pubsub", ACL_CATEGORY_PUBSUB},
+    {"admin", ACL_CATEGORY_ADMIN},
+    {"fast", ACL_CATEGORY_FAST},
+    {"slow", ACL_CATEGORY_SLOW},
+    {"blocking", ACL_CATEGORY_BLOCKING},
+    {"dangerous", ACL_CATEGORY_DANGEROUS},
+    {"connection", ACL_CATEGORY_CONNECTION},
+    {"transaction", ACL_CATEGORY_TRANSACTION},
+    {"scripting", ACL_CATEGORY_SCRIPTING},
     {NULL,0} /* Terminator. */
 };
 
@@ -436,7 +436,7 @@ void ACLSetUserCommandBitsForCategoryLogic(dict *commands, user *u, uint64_t cfl
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
-        if (cmd->flags & cflag) {
+        if (cmd->acl_categories & cflag) {
             ACLChangeCommandPerm(u,cmd,value);
         }
         if (cmd->subcommands_dict) {
@@ -464,7 +464,7 @@ void ACLCountCategoryBitsForCommands(dict *commands, user *u, unsigned long *on,
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & cflag) {
+        if (cmd->acl_categories & cflag) {
             if (ACLGetUserCommandBit(u,cmd->id))
                 (*on)++;
             else
@@ -1307,8 +1307,11 @@ int ACLCheckCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, in
     }
 
     /* Check if the user can execute commands explicitly touching the keys
-     * mentioned in the command arguments. */
+     * mentioned in the command arguments. Shard channels are treated as
+     * special keys for client library to rely on `COMMAND` command
+     * to discover the node to connect to. These don't need acl key check. */
     if (!(u->flags & USER_FLAG_ALLKEYS) &&
+        !(cmd->flags & CMD_PUBSUB) &&
         (cmd->getkeys_proc || cmd->key_specs_num))
     {
         getKeysResult result = GETKEYS_RESULT_INIT;
@@ -1392,6 +1395,7 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
             }
             /* Check for channel violations. */
             if (!kill) {
+                /* Check for global channels violation. */
                 dictIterator *di = dictGetIterator(c->pubsub_channels);
                 dictEntry *de;                
                 while (!kill && ((de = dictNext(di)) != NULL)) {
@@ -1399,6 +1403,16 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
                     kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
                             ACL_DENIED_CHANNEL);
                 }
+                dictReleaseIterator(di);
+
+                /* Check for shard channels violation. */
+                di = dictGetIterator(c->pubsubshard_channels);
+                while (!kill && ((de = dictNext(di)) != NULL)) {
+                    o = dictGetKey(de);
+                    kill = (ACLCheckPubsubChannelPerm(o->ptr,upcoming,0) ==
+                            ACL_DENIED_CHANNEL);
+                }
+
                 dictReleaseIterator(di);
             }
 
@@ -1448,9 +1462,9 @@ int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **a
     int acl_retval = ACLCheckCommandPerm(u,cmd,argv,argc,idxptr);
     if (acl_retval != ACL_OK)
         return acl_retval;
-    if (cmd->proc == publishCommand)
+    if (cmd->proc == publishCommand || cmd->proc == spublishCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,1,0,idxptr);
-    else if (cmd->proc == subscribeCommand)
+    else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,0,idxptr);
     else if (cmd->proc == psubscribeCommand)
         acl_retval = ACLCheckPubsubPerm(u,argv,1,argc-1,1,idxptr);
@@ -1875,6 +1889,8 @@ void ACLFreeLogEntry(void *leptr) {
  *
  * The last 2 arguments are a manual override to be used, instead of any of the automatic
  * ones which depend on the client and reason arguments (use NULL for default).
+ *
+ * If `object` is not NULL, this functions takes over it.
  */
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Create a new entry. */
@@ -1885,7 +1901,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     le->ctime = mstime();
 
     if (object) {
-        le->object = sdsnew(object);
+        le->object = object;
     } else {
         switch(reason) {
             case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
@@ -1966,6 +1982,12 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
+        /* Initially redact all of the arguments to not leak any information
+         * about the user. */
+        for (int j = 2; j < c->argc; j++) {
+            redactClientCommandArgument(c, j);
+        }
+
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
@@ -1981,12 +2003,6 @@ void aclCommand(client *c) {
         user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
-
-        /* Initially redact all of the arguments to not leak any information
-         * about the user. */
-        for (int j = 2; j < c->argc; j++) {
-            redactClientCommandArgument(c, j);
-        }
 
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
@@ -2171,7 +2187,7 @@ void aclCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (cmd->flags & CMD_MODULE) continue;
-            if (cmd->flags & cflag) {
+            if (cmd->acl_categories & cflag) {
                 addReplyBulkCString(c,cmd->name);
                 arraylen++;
             }
@@ -2303,7 +2319,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     int flagcount = 0;
     void *flaglen = addReplyDeferredLen(c);
     for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
-        if (cmd->flags & ACLCommandCategories[j].flag) {
+        if (cmd->acl_categories & ACLCommandCategories[j].flag) {
             addReplyStatusFormat(c, "@%s", ACLCommandCategories[j].name);
             flagcount++;
         }

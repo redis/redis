@@ -1,0 +1,25 @@
+{
+    "PUNSUBSCRIBE": {
+        "summary": "Stop listening for messages posted to channels matching the given patterns",
+        "complexity": "O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).",
+        "group": "pubsub",
+        "since": "2.0.0",
+        "arity": -1,
+        "function": "punsubscribeCommand",
+        "command_flags": [
+            "PUBSUB",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "optional": true,
+                "multiple": true
+            }
+        ]
+    }
+}

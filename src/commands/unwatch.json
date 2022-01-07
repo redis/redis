@@ -1,0 +1,19 @@
+{
+    "UNWATCH": {
+        "summary": "Forget about all watched keys",
+        "complexity": "O(1)",
+        "group": "transactions",
+        "since": "2.2.0",
+        "arity": 1,
+        "function": "unwatchCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "TRANSACTION"
+        ]
+    }
+}

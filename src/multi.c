@@ -120,30 +120,6 @@ void discardCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void beforePropagateMulti() {
-    /* Propagating MULTI */
-    serverAssert(!server.propagate_in_transaction);
-    server.propagate_in_transaction = 1;
-}
-
-void afterPropagateExec() {
-    /* Propagating EXEC */
-    serverAssert(server.propagate_in_transaction == 1);
-    server.propagate_in_transaction = 0;
-}
-
-/* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implementation for more information. */
-void execCommandPropagateMulti(int dbid) {
-    beforePropagateMulti();
-    propagate(dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-}
-
-void execCommandPropagateExec(int dbid) {
-    propagate(dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
-    afterPropagateExec();
-}
-
 /* Aborts a transaction, with a specific error message.
  * The transaction is always aborted with -EXECABORT so that the client knows
  * the server exited the multi state, but the actual reason for the abort is
@@ -166,7 +142,6 @@ void execCommand(client *c) {
     robj **orig_argv;
     int orig_argc, orig_argv_len;
     struct redisCommand *orig_cmd;
-    int was_master = server.masterhost == NULL;
 
     if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"EXEC without MULTI");
@@ -267,23 +242,6 @@ void execCommand(client *c) {
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
-
-    /* Make sure the EXEC command will be propagated as well if MULTI
-     * was already propagated. */
-    if (server.propagate_in_transaction) {
-        int is_master = server.masterhost == NULL;
-        server.dirty++;
-        /* If inside the MULTI/EXEC block this instance was suddenly
-         * switched from master to slave (using the SLAVEOF command), the
-         * initial MULTI was propagated into the replication backlog, but the
-         * rest was not. We need to make sure to at least terminate the
-         * backlog with the final EXEC. */
-        if (server.repl_backlog && was_master && !is_master) {
-            char *execcmd = "*1\r\n$4\r\nEXEC\r\n";
-            feedReplicationBuffer(execcmd,strlen(execcmd));
-        }
-        afterPropagateExec();
-    }
 
     server.in_exec = 0;
 }

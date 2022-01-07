@@ -54,7 +54,6 @@ TEST_MODULES = \
     subscribe_channel.so \
     test_subscribe_channel.so
 
-
 .PHONY: all
 
 all: $(TEST_MODULES)

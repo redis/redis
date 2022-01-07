@@ -46,3 +46,4 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/reply \
 --single unit/moduleapi/subscribe_channel \
 "${@}"
+

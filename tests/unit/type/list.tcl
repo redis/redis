@@ -1,38 +1,3 @@
-set ::str500 [string repeat x 500000000] ;# 500mb
-
-# Utility function to write big argument into redis client connection
-proc write_big_bulk {size} {
-    r write "\$$size\r\n"
-    while {$size >= 500000000} {
-        r write $::str500
-        incr size -500000000
-    }
-    if {$size > 0} {
-        r write [string repeat x $size]
-    }
-    r write "\r\n"
-    r flush
-    r read
-}
-
-# Utility to read big bulk response (work around Tcl limitations)
-proc read_big_bulk {code} {
-    r readraw 1
-    set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
-    assert_equal [string range $resp_len 0 0] "$"
-    set resp_len [string range $resp_len 1 end]
-    set remaining $resp_len
-    while {$remaining > 0} {
-        set l $remaining
-        if {$l > 2147483647} {set l 2147483647}
-        set nbytes [string length [r rawread $l]]
-        incr remaining [expr {- $nbytes}]
-    }
-    assert_equal [r rawread 2] "\r\n"
-    r readraw 0
-    return $resp_len
-}
-
 # check functionality compression of plain and zipped nodes
 start_server [list overrides [list save ""] ] {
     r config set list-compress-depth 2
@@ -1050,7 +1015,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd read
     } {k hello} {singledb:skip}
 
-    test {SWAPDB awakes blocked client, but the key already expired} {
+    test {SWAPDB wants to wake blocked client, but the key already expired} {
+        set repl [attach_to_replication_stream]
         r flushall
         r debug set-active-expire 0
         r select 1
@@ -1071,10 +1037,59 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {select 1}
+            {rpush k hello}
+            {pexpireat k *}
+            {swapdb 1 9}
+            {select 9}
+            {del k}
+        }
+        close_replication_stream $repl
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
-    } {OK} {singledb:skip}
+    } {OK} {singledb:skip needs:debug}
+
+    test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 0
+        wait_for_blocked_clients_count 1
+
+        r multi
+        r rpush k hello
+        r pexpire k 100
+        r debug sleep 0.2
+        r exec
+
+        # The EXEC command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {multi}
+            {rpush k hello}
+            {pexpireat k *}
+            {exec}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip needs:debug}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
@@ -1246,6 +1261,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {rpop mylist2{t} 3}
             {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {LPUSHX, RPUSHX - generic} {
@@ -1667,6 +1683,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpop mylist2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach {type large} [array get largevalue] {
