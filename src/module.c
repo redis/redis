@@ -2613,6 +2613,10 @@ int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModu
     return receivers;
 }
 
+int robjMatchObjects(void *a, void *b) {
+    return equalStringObjects(a,b);
+}
+
 /* Function pointer type for subscription from modules. */
 typedef void (*RedisModuleSubscribeFunc) (RedisModuleCtx *ctx, RedisModuleString *channel,  RedisModuleString *message);
 
@@ -2633,7 +2637,6 @@ static dict *moduleChannelSubscribers;
 
 int removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
     list *modules = NULL;
-    listIter li;
     int retval = C_ERR;
     dictEntry *de = dictFind(moduleChannelSubscribers,module);
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
@@ -2643,56 +2646,68 @@ int removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
 
     listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions,channel);
     // subscription to channel not found for module.
-    if (ln == NULL)
-        return C_OK;
-
-    // Clean up channel from module subscription list.
-    robj *internal_channel = listNodeValue(ln);
-    decrRefCount(internal_channel);
+    if (ln == NULL) return C_OK;
     listDelNode(moduleChannelSubscriber->subscriptions,ln);
+    decrRefCount(listNodeValue(ln));
+
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        listRelease(moduleChannelSubscriber->subscriptions);
+        zfree(moduleChannelSubscriber);
+        dictDelete(moduleChannelSubscribers,module);
+    }
 
     // Clean up module from channelModuleSubscribers dict.
     de = dictFind(channelModuleSubscribers,channel);
     modules = dictGetVal(de);
-    listRewind(modules,&li);
-    while((ln = listNext(&li))) {
-        listDelNode(modules,ln);
-        retval = C_OK;
-        if (listLength(modules) == 0) {
-            /* Free the list and associated hash entry. */
-            dictDelete(channelModuleSubscribers,channel);
-        }
+    ln = listSearchKey(modules,module);
+    if(ln == NULL) return C_OK;
+    listDelNode(modules,ln);
+    retval = C_OK;
+    if (listLength(modules) == 0) {
+        dictDelete(channelModuleSubscribers,channel);
+    }
+    if (retval == C_OK) {
+        serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",
+                  module->name, (char *)channel->ptr);
     }
     return retval;
 }
 
 /* Subscribe the module to a channel with a callback.  */
 int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback) {
-    RedisModuleChannelSubscriber *moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
-    moduleChannelSubscriber->subscribe_callback = callback;
-
-    if (moduleChannelSubscriber->subscriptions == NULL) {
+    dictEntry *de = dictFind(moduleChannelSubscribers,ctx->module);
+    RedisModuleChannelSubscriber *moduleChannelSubscriber;
+    if (de == NULL) {
+        moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
+        moduleChannelSubscriber->subscribe_callback = callback;
         moduleChannelSubscriber->subscriptions = listCreate();
+        listSetMatchMethod(moduleChannelSubscriber->subscriptions,robjMatchObjects);
+        dictAdd(moduleChannelSubscribers,ctx->module,moduleChannelSubscriber);
+    } else {
+        moduleChannelSubscriber = dictGetVal(de);
     }
+
     if (listSearchKey(moduleChannelSubscriber->subscriptions,channel)) {
         return REDISMODULE_OK;
     }
 
     /* Add the channel to the list of subscriptions. */
-    incrRefCount(channel);
     listAddNodeTail(moduleChannelSubscriber->subscriptions,channel);
+    incrRefCount(channel);
 
     /* Add the module to the (channel -> list of module subscribers hash table). */
     list *subscribers = NULL;
-    dictEntry *de = dictFind(channelModuleSubscribers,channel);
+    de = dictFind(channelModuleSubscribers,channel);
     if (de == NULL) {
         subscribers = listCreate();
         dictAdd(channelModuleSubscribers,channel,subscribers);
     } else {
         subscribers = dictGetVal(de);
     }
-    incrRefCount(channel);
     listAddNodeTail(subscribers,ctx->module);
+    incrRefCount(channel);
+
+    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channel->ptr);
 
     return REDISMODULE_OK;
 }
@@ -2703,7 +2718,9 @@ int RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) {
 
     /* Find and remove the module subscriber to the channel. */
     retval = removeModuleFromChannelSubscription(ctx->module,channel);
-
+    if (retval == C_OK) {
+        serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.", ctx->module->name, (char *)channel->ptr);
+    }
     return retval == C_OK ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
@@ -2712,11 +2729,9 @@ int moduleUnsubscribeAllChannels(RedisModule *module) {
     listNode *ln;
     listIter li;
     int count = 0;
-    if (dictSize(moduleChannelSubscribers) == 0)
-        return 0;
+    if (dictSize(moduleChannelSubscribers) == 0) return 0;
     dictEntry *de = dictFind(moduleChannelSubscribers,module);
-    if (de == NULL)
-        return 0;
+    if (de == NULL) return 0;
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
     listRewind(moduleChannelSubscriber->subscriptions,&li);
     while ((ln = listNext(&li))) {
@@ -9645,6 +9660,18 @@ int dictCStringKeyCompare(dict *d, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
+uint64_t dictEncModuleObjectHash(const void *key) {
+    RedisModule *module = (RedisModule *) key;
+    return dictGenHashFunction((unsigned char*)module->name, strlen((char*)module->name));
+}
+
+int dictModuleObjectKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    RedisModule *o1 = (RedisModule *)key1;
+    RedisModule *o2 = (RedisModule *)key2;
+    return strcmp(o1->name,o2->name) == 0;
+}
+
 dictType moduleAPIDictType = {
     dictCStringKeyHash,        /* hash function */
     NULL,                      /* key dup */
@@ -9653,6 +9680,16 @@ dictType moduleAPIDictType = {
     NULL,                      /* key destructor */
     NULL,                      /* val destructor */
     NULL                       /* allow to expand */
+};
+
+dictType moduleObjectDictType = {
+        dictEncModuleObjectHash,             /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictModuleObjectKeyCompare,        /* key compare */
+        NULL,                /* key destructor */
+        NULL,                /* val destructor */
+        NULL               /* allow to expand */
 };
 
 int moduleRegisterApi(const char *funcname, void *funcptr) {
@@ -9684,7 +9721,7 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
 
     channelModuleSubscribers = dictCreate(&keylistDictType);
-    moduleChannelSubscribers = dictCreate(&objectKeyPointerValueDictType);
+    moduleChannelSubscribers = dictCreate(&moduleObjectDictType);
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();

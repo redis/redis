@@ -51,7 +51,8 @@ TEST_MODULES = \
     list.so \
     subcommands.so \
     reply.so \
-    subscribe_channel.so
+    subscribe_channel.so \
+    test_subscribe_channel.so
 
 
 .PHONY: all

@@ -37,16 +37,14 @@
 RedisModuleString *event;
 
 int ChannelSubscriptionCallback(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
+    REDISMODULE_NOT_USED(ctx);
     RedisModule_AutoMemory(ctx);
 
-    RedisModuleString *msg = RedisModule_CreateString(ctx, "clear", 5);
-    RedisModuleString *unsubscribe_msg = RedisModule_CreateString(ctx, "unsubscribe", 11);
-    if (!RedisModule_StringCompare(event,channel)) {
-        if (!RedisModule_StringCompare(msg, message)) {
-            RedisModule_Call(ctx, "FLUSHALL", "");
-        } else if (!RedisModule_StringCompare(unsubscribe_msg, message)) {
-            RedisModule_UnsubscribeFromChannel(ctx,channel);
-        }
+    RedisModuleString *msg = RedisModule_CreateString(ctx, "unsubscribe", 11);
+    RedisModule_Log(ctx,"debug","Module test_subscribe_channel received message.");
+    if (!RedisModule_StringCompare(event,channel) &&  !RedisModule_StringCompare(msg,message)) {
+        int unsubscribe = RedisModule_UnsubscribeFromChannel(ctx,channel);
+        RedisModule_Log(ctx,"debug","Module test_subscribe_channel unsubscribed %d.", unsubscribe);
     }
     return REDISMODULE_OK;
 }
@@ -57,7 +55,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx, "subscribech", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+    if (RedisModule_Init(ctx, "testsubscribech", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     event = RedisModule_CreateString(ctx, "event", 5);

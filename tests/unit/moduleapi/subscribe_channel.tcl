@@ -8,5 +8,14 @@ tags "modules" {
             assert_equal {0} [r publish event clear]
             assert_equal "" [r keys *]
         }
+
+        test {Test unsubscribe channel} {
+            r set foo bar
+            assert_equal "foo" [r keys *]
+            assert_equal {0} [r publish event unsubscribe]
+            assert_equal {0} [r publish event clear]
+            assert_equal "foo" [r keys *]
+        }
+
     }
 }
