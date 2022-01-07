@@ -285,8 +285,9 @@ void aofLoadManifestFromDisk(void) {
             goto loaderr;
         }
 
-        /* Because we need to deal with the ugly design that 'appendfilename' may 
-         * contain spaces, we have to deal with it separately. */
+        /* Because we have to deal with the case where 'appendfilename' 
+         * contains spaces, we have to deal with AOF_MANIFEST_KEY_FILE_NAME
+         * separately. */
         char *file_pos = strstr(line, AOF_MANIFEST_KEY_FILE_NAME);
         char *seq_pos = rstrstr(line, AOF_MANIFEST_KEY_FILE_SEQ);
         if (file_pos == NULL || seq_pos == NULL) {
