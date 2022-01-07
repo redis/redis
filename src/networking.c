@@ -1442,6 +1442,12 @@ void freeClient(client *c) {
      * places where active clients may be referenced. */
     unlinkClient(c);
 
+    if (c->flags & CLIENT_MONITOR) {
+        ln = listSearchKey(server.monitors,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.monitors,ln);
+    }
+
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
@@ -1464,10 +1470,9 @@ void freeClient(client *c) {
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
-        list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
-        ln = listSearchKey(l,c);
+        ln = listSearchKey(server.slaves,c);
         serverAssert(ln != NULL);
-        listDelNode(l,ln);
+        listDelNode(server.slaves,ln);
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
@@ -2438,12 +2443,8 @@ sds catClientInfoString(sds s, client *client) {
     char flags[16], events[3], conninfo[CONN_INFO_LEN], *p;
 
     p = flags;
-    if (client->flags & CLIENT_SLAVE) {
-        if (client->flags & CLIENT_MONITOR)
-            *p++ = 'O';
-        else
-            *p++ = 'S';
-    }
+    if (client->flags & CLIENT_SLAVE) *p++ = 'S';
+    if (client->flags & CLIENT_MONITOR) *p++ = 'O';
     if (client->flags & CLIENT_MASTER) *p++ = 'M';
     if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
@@ -2578,7 +2579,7 @@ void resetCommand(client *c) {
         serverAssert(ln != NULL);
         listDelNode(server.monitors,ln);
 
-        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
+        c->flags &= ~CLIENT_MONITOR;
     }
 
     if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
@@ -3394,13 +3395,12 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
  * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
+ * CLIENT_TYPE_MONITOR -> Monitor
  */
 int getClientType(client *c) {
     if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
-    /* Even though MONITOR clients are marked as replicas, we
-     * want the expose them as normal clients. */
-    if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR))
-        return CLIENT_TYPE_SLAVE;
+    if (c->flags & CLIENT_SLAVE) return CLIENT_TYPE_SLAVE;
+    if (c->flags & CLIENT_MONITOR) return CLIENT_TYPE_MONITOR;
     if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;
     return CLIENT_TYPE_NORMAL;
 }
@@ -3411,6 +3411,7 @@ int getClientTypeByName(char *name) {
     else if (!strcasecmp(name,"replica")) return CLIENT_TYPE_SLAVE;
     else if (!strcasecmp(name,"pubsub")) return CLIENT_TYPE_PUBSUB;
     else if (!strcasecmp(name,"master")) return CLIENT_TYPE_MASTER;
+    else if (!strcasecmp(name,"monitor")) return CLIENT_TYPE_MONITOR;
     else return -1;
 }
 
@@ -3420,6 +3421,7 @@ char *getClientTypeName(int class) {
     case CLIENT_TYPE_SLAVE:  return "slave";
     case CLIENT_TYPE_PUBSUB: return "pubsub";
     case CLIENT_TYPE_MASTER: return "master";
+    case CLIENT_TYPE_MONITOR: return "monitor";
     default:                       return NULL;
     }
 }
@@ -3435,9 +3437,11 @@ int checkClientOutputBufferLimits(client *c) {
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
     class = getClientType(c);
-    /* For the purpose of output buffer limiting, masters are handled
-     * like normal clients. */
-    if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
+    /* For the purpose of output buffer limiting, masters and monitors
+     * are handled like normal clients. */
+    if (class == CLIENT_TYPE_MASTER || class == CLIENT_TYPE_MONITOR) {
+        class = CLIENT_TYPE_NORMAL;
+    }
 
     /* Note that it doesn't make sense to set the replica clients output buffer
      * limit lower than the repl-backlog-size config (partial sync will succeed
