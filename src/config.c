@@ -2721,7 +2721,7 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, cons
     } else {
         for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
             char fbuf[128];
-            size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+            size_t len = sprintf(fbuf, " %f", server.latency_tracking_info_percentiles[j]);
             len = trimDoubleString(fbuf, len);
             line = sdscatlen(line, fbuf, len);
         }
