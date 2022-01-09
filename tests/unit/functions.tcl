@@ -1052,5 +1052,5 @@ start_server {tags {"scripting"}} {
 
         r replicaof no one
         r config set replica-serve-stale-data yes
-    }
+    } {} {external:skip}
 }
