@@ -1040,6 +1040,8 @@ start_server {tags {"scripting"}} {
         r FUNCTION load lua test replace { 
             redis.register_function('f1', function() return 'hello' end, {})
             redis.register_function('f2', function() return 'hello' end, {'allow-stale'})
+            redis.register_function('f3', function() return redis.call('get', 'x') end, {'allow-stale'})
+            redis.register_function('f4', function() return redis.call('info', 'server') end, {'allow-stale'})
         }
         
         r config set replica-serve-stale-data no
@@ -1049,6 +1051,11 @@ start_server {tags {"scripting"}} {
         assert_match {*'allow-stale' flag is not set on the function*} $e
 
         assert_equal {hello} [r fcall f2 0]
+
+        catch {[r fcall f3 0]} e
+        assert_match {*Can not execute the command on a stale replica*} $e
+
+        assert_match {*redis_version*} [r fcall f4 0]
 
         r replicaof no one
         r config set replica-serve-stale-data yes

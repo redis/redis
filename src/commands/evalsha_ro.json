@@ -10,7 +10,8 @@
         "command_flags": [
             "NOSCRIPT",
             "SKIP_MONITOR",
-            "NO_MANDATORY_KEYS"
+            "NO_MANDATORY_KEYS",
+            "STALE"
         ],
         "acl_categories": [
             "SCRIPTING"
