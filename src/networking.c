@@ -362,13 +362,10 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        sds client = catClientInfoString(sdsempty(), c);
         sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
-        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it: %s",
-                  cmdname ? cmdname : "<unknown>", client);
-        sdsfree(client);
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
         sdsfree(cmdname);
-        freeClientAsync(c);
         return;
     }
 
@@ -613,13 +610,10 @@ void *addReplyDeferredLen(client *c) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        sds client = catClientInfoString(sdsempty(), c);
         sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
-        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it: %s",
-                  cmdname ? cmdname : "<unknown>", client);
-        sdsfree(client);
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
         sdsfree(cmdname);
-        freeClientAsync(c);
         return NULL;
     }
 
@@ -1546,6 +1540,22 @@ void freeClientAsync(client *c) {
     pthread_mutex_lock(&async_free_queue_mutex);
     listAddNodeTail(server.clients_to_close,c);
     pthread_mutex_unlock(&async_free_queue_mutex);
+}
+
+/* Log errors for invalid use and free the client in async way.
+ * We will add additional information about the client to the message. */
+void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    sds info = sdscatvprintf(sdsempty(), fmt, ap);
+    va_end(ap);
+
+    sds client = catClientInfoString(sdsempty(), c);
+    serverLog(LL_WARNING, "%s, disconnecting it: %s", info, client);
+
+    sdsfree(info);
+    sdsfree(client);
+    freeClientAsync(c);
 }
 
 /* Perform processing of the client before moving on to processing the next client
