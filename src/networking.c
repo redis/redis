@@ -962,7 +962,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     sdstoupper(cmd);
     addReplyErrorFormat(c,
-        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
+        "Unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP.",
         (char*)c->argv[1]->ptr,cmd);
     sdsfree(cmd);
 }
