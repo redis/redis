@@ -72,6 +72,7 @@ typedef struct registerFunctionArgs {
     sds name;
     sds desc;
     luaFunctionCtx *lua_f_ctx;
+    uint64_t f_flags;
 } registerFunctionArgs;
 
 /* Hook for FUNCTION LOAD execution.
@@ -233,12 +234,14 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
                                               sds name,
                                               sds desc,
-                                              luaFunctionCtx *lua_f_ctx)
+                                              luaFunctionCtx *lua_f_ctx,
+                                              uint64_t flags)
 {
     *register_f_args = (registerFunctionArgs){
             .name = name,
             .desc = desc,
             .lua_f_ctx = lua_f_ctx,
+            .f_flags = flags,
     };
 }
 
@@ -249,11 +252,57 @@ static void luaRegisterFunctionArgsDispose(lua_State *lua, registerFunctionArgs 
     zfree(register_f_args->lua_f_ctx);
 }
 
+/* Read function flags located on the top of the Lua stack.
+ * On success, return C_OK and set the flags to 'flags' out parameter
+ * Return C_ERR if encounter an unknown flag. */
+static int luaRegisterFunctionReadFlags(lua_State *lua, uint64_t *flags) {
+    int j = 1;
+    int ret = C_ERR;
+    int f_flags = 0;
+    while(1) {
+        lua_pushnumber(lua,j++);
+        lua_gettable(lua,-2);
+        int t = lua_type(lua,-1);
+        if (t == LUA_TNIL) {
+            lua_pop(lua,1);
+            break;
+        }
+        if (!lua_isstring(lua, -1)) {
+            lua_pop(lua,1);
+            goto done;
+        }
+
+        const char *flag = lua_tostring(lua, -1);
+        if (!strcasecmp("write", flag)) {
+            f_flags |= FUNCTION_FLAG_WRITE;
+        } else if (!strcasecmp("deny-oom", flag)) {
+            f_flags |= FUNCTION_FLAG_DENY_OOM;
+        } else if (!strcasecmp("allow-stale", flag)) {
+            f_flags |= FUNCTION_FLAG_ALLOW_STALE;
+        } else if (!strcasecmp("no-cluster", flag)) {
+            f_flags |= FUNCTION_FLAG_NO_CLUSTER;
+        } else {
+            lua_pop(lua,1);
+            goto done;
+        }
+
+        /* pops the value to continue the iteration */
+        lua_pop(lua,1);
+    }
+
+    *flags = f_flags;
+    ret = C_OK;
+
+done:
+    return ret;
+}
+
 static int luaRegisterFunctionReadNamedArgs(lua_State *lua, registerFunctionArgs *register_f_args) {
     char *err = NULL;
     sds name = NULL;
     sds desc = NULL;
     luaFunctionCtx *lua_f_ctx = NULL;
+    uint64_t flags = 0;
     if (!lua_istable(lua, 1)) {
         err = "calling redis.register_function with a single argument is only applicable to Lua table (representing named arguments).";
         goto error;
@@ -288,6 +337,15 @@ static int luaRegisterFunctionReadNamedArgs(lua_State *lua, registerFunctionArgs
             lua_f_ctx = zmalloc(sizeof(*lua_f_ctx));
             lua_f_ctx->lua_function_ref = lua_function_ref;
             continue; /* value was already popped, so no need to pop it out. */
+        } else if (!strcasecmp(key, "flags")) {
+            if (!lua_istable(lua, -1)) {
+                err = "flags argument to redis.register_function must be a table representing function flags";
+                goto error;
+            }
+            if (luaRegisterFunctionReadFlags(lua, &flags) != C_OK) {
+                err = "unknown flag given";
+                goto error;
+            }
         } else {
             /* unknown argument was given, raise an error */
             err = "unknown argument given to redis.register_function";
@@ -306,7 +364,7 @@ static int luaRegisterFunctionReadNamedArgs(lua_State *lua, registerFunctionArgs
         goto error;
     }
 
-    luaRegisterFunctionArgsInitialize(register_f_args, name, desc, lua_f_ctx);
+    luaRegisterFunctionArgsInitialize(register_f_args, name, desc, lua_f_ctx, flags);
 
     return C_OK;
 
@@ -327,6 +385,7 @@ static int luaRegisterFunctionReadPositionalArgs(lua_State *lua, registerFunctio
     sds name = NULL;
     sds desc = NULL;
     luaFunctionCtx *lua_f_ctx = NULL;
+    uint64_t flags = 0;
     if (!(name = luaGetStringSds(lua, 1))) {
         err = "first argument to redis.register_function must be a string";
         goto error;
@@ -337,12 +396,24 @@ static int luaRegisterFunctionReadPositionalArgs(lua_State *lua, registerFunctio
         goto error;
     }
 
-    if (argc == 3) {
-        if (!(desc = luaGetStringSds(lua, 3))) {
-            err = "third argument to redis.register_function must be a string";
+    if (argc >= 4) {
+        if (!(desc = luaGetStringSds(lua, 4))) {
+            err = "fourth argument to redis.register_function must be a string";
             goto error;
         }
         lua_pop(lua, 1); /* pop out the description */
+    }
+
+    if (argc >= 3) {
+        if (!lua_istable(lua, 3)) {
+            err = "third argument to redis.register_function must be a table representing function flags";
+            goto error;
+        }
+        if (luaRegisterFunctionReadFlags(lua, &flags) != C_OK) {
+            err = "unknown flag given";
+            goto error;
+        }
+        lua_pop(lua, 1); /* pop out the flags argument */
     }
 
     int lua_function_ref = luaL_ref(lua, LUA_REGISTRYINDEX);
@@ -350,7 +421,7 @@ static int luaRegisterFunctionReadPositionalArgs(lua_State *lua, registerFunctio
     lua_f_ctx = zmalloc(sizeof(*lua_f_ctx));
     lua_f_ctx->lua_function_ref = lua_function_ref;
 
-    luaRegisterFunctionArgsInitialize(register_f_args, name, desc, lua_f_ctx);
+    luaRegisterFunctionArgsInitialize(register_f_args, name, desc, lua_f_ctx, flags);
 
     return C_OK;
 
@@ -363,7 +434,7 @@ error:
 
 static int luaRegisterFunctionReadArgs(lua_State *lua, registerFunctionArgs *register_f_args) {
     int argc = lua_gettop(lua);
-    if (argc < 1 || argc > 3) {
+    if (argc < 1 || argc > 4) {
         luaPushError(lua, "wrong number of arguments to redis.register_function");
         return C_ERR;
     }
@@ -389,7 +460,7 @@ static int luaRegisterFunction(lua_State *lua) {
     }
 
     sds err = NULL;
-    if (functionLibCreateFunction(register_f_args.name, register_f_args.lua_f_ctx, load_ctx->li, register_f_args.desc, &err) != C_OK) {
+    if (functionLibCreateFunction(register_f_args.name, register_f_args.lua_f_ctx, load_ctx->li, register_f_args.desc, register_f_args.f_flags, &err) != C_OK) {
         luaRegisterFunctionArgsDispose(lua, &register_f_args);
         luaPushError(lua, err);
         sdsfree(err);

@@ -198,7 +198,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  *       the function will verify that the given name is following the naming format
  *       and return an error if its not.
  */
-int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err) {
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
         *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
         return C_ERR;
@@ -215,6 +215,7 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
         .function = function,
         .li = li,
         .desc = desc,
+        .f_flags = f_flags,
     };
 
     int res = dictAdd(li->functions, fi->name, fi);
@@ -549,10 +550,58 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
+    if ((fi->f_flags & FUNCTION_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+        addReplyError(c, "Can not run function on cluster, 'no-cluster' flag is set.");
+        return;
+    }
+
+    if ((fi->f_flags & FUNCTION_FLAG_DENY_OOM) && server.script_oom) {
+        addReplyError(c, "-OOM can not run the function");
+        return;
+    }
+
+    if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
+        server.repl_serve_stale_data == 0 && !(fi->f_flags & FUNCTION_FLAG_ALLOW_STALE))
+    {
+        addReplyError(c, "-MASTERDOWN Link with MASTER is down, "
+                         "replica-serve-stale-data is set to 'no' "
+                         "and 'allow-stale' flag is not set on the function.");
+        return;
+    }
+
+    if (fi->f_flags & FUNCTION_FLAG_WRITE) {
+        /* Function has the 'write' flag, make sure:
+         * 1. we are not a readonly replica
+         * 2. no disc error detected
+         * 3. command is not 'fcall_ro' */
+        if (server.masterhost && server.repl_slave_ro && c->id != CLIENT_ID_AOF
+            && !(c->flags & CLIENT_MASTER))
+        {
+            addReplyError(c, "Can not run a function with write flag on readonly replica");
+            return;
+        }
+
+        int deny_write_type = writeCommandsDeniedByDiskError();
+        if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
+            if (deny_write_type == DISK_ERROR_TYPE_RDB)
+                addReplyError(c, shared.bgsaveerr->ptr);
+            else
+                addReplyErrorFormat(c, "-MISCONF Errors writing to the AOF file: %s", strerror(server.aof_last_write_errno));
+            return;
+        }
+
+        if (ro) {
+            addReplyError(c, "Can not execute a function with write flag using fcall_ro.");
+            return;
+        }
+    }
+
     scriptRunCtx run_ctx;
 
     scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro) {
+    if (ro || !(fi->f_flags & FUNCTION_FLAG_WRITE)) {
+        /* On fcall_ro or on functions that do not have the 'write'
+         * flag, we will not allow write commands. */
         run_ctx.flags |= SCRIPT_READ_ONLY;
     }
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,

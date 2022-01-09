@@ -47,6 +47,12 @@
 #include "script.h"
 #include "redismodule.h"
 
+/* Functions flags */
+#define FUNCTION_FLAG_WRITE (1ULL<<0)
+#define FUNCTION_FLAG_DENY_OOM (1ULL<<1)
+#define FUNCTION_FLAG_ALLOW_STALE (1ULL<<3)
+#define FUNCTION_FLAG_NO_CLUSTER (1ULL<<4)
+
 typedef struct functionLibInfo functionLibInfo;
 
 typedef struct engine {
@@ -96,6 +102,7 @@ typedef struct functionInfo {
                             to run the function, usually it's the function compiled code. */
     functionLibInfo* li; /* Pointer to the library created the function */
     sds desc;            /* Function description */
+    uint64_t f_flags;    /* Function flags */
 } functionInfo;
 
 /* Hold information about the specific library.
@@ -124,7 +131,7 @@ void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);
 void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
-int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err);
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
 
 int luaEngineInitEngine();
 int functionsInit();
