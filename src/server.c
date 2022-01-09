@@ -2766,6 +2766,16 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
+int isContainerCommandBySdsLogic(dict *commands, sds s) {
+    struct redisCommand *base_cmd = dictFetchValue(commands, s);
+    int has_subcommands = base_cmd && base_cmd->subcommands_dict;
+    return has_subcommands;
+}
+
+int isContainerCommandBySds(sds s) {
+    return isContainerCommandBySdsLogic(server.commands, s);
+}
+
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
@@ -3330,10 +3340,14 @@ int processCommand(client *c) {
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
-        if (lookupCommandBySds(c->argv[0]->ptr)) {
+        if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command
              * it means we're dealing with an invalid subcommand. Print Help. */
-            addReplySubcommandSyntaxError(c);
+            sds cmd = sdsnew((char *)c->argv[0]->ptr);
+            sdstoupper(cmd);
+            rejectCommandFormat(c, "Unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP.",
+                                (char *)c->argv[1]->ptr, cmd);
+            sdsfree(cmd);
             return C_OK;
         }
         sds args = sdsempty();
