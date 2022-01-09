@@ -2766,14 +2766,10 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
-int isContainerCommandBySdsLogic(dict *commands, sds s) {
-    struct redisCommand *base_cmd = dictFetchValue(commands, s);
+int isContainerCommandBySds(sds s) {
+    struct redisCommand *base_cmd = dictFetchValue(server.commands, s);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     return has_subcommands;
-}
-
-int isContainerCommandBySds(sds s) {
-    return isContainerCommandBySdsLogic(server.commands, s);
 }
 
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
