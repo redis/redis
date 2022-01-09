@@ -3341,7 +3341,7 @@ int processCommand(client *c) {
              * it means we're dealing with an invalid subcommand. Print Help. */
             sds cmd = sdsnew((char *)c->argv[0]->ptr);
             sdstoupper(cmd);
-            rejectCommandFormat(c, "Unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP.",
+            rejectCommandFormat(c, "Unknown subcommand '%.128s'. Try %s HELP.",
                                 (char *)c->argv[1]->ptr, cmd);
             sdsfree(cmd);
             return C_OK;
