@@ -362,8 +362,12 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it",
-                  c->lastcmd ? c->lastcmd->name : "<unknown>");
+        sds client = catClientInfoString(sdsempty(), c);
+        sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
+        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it: %s",
+                  cmdname ? cmdname : "<unknown>", client);
+        sdsfree(client);
+        sdsfree(cmdname);
         freeClientAsync(c);
         return;
     }
@@ -603,6 +607,22 @@ void *addReplyDeferredLen(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
+
+    /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
+     * replication link that caused a reply to be generated we'll simply disconnect it.
+     * Note this is the simplest way to check a command added a response. Replication links are used to write data but
+     * not for responses, so we should normally never get here on a replica client. */
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        sds client = catClientInfoString(sdsempty(), c);
+        sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
+        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it: %s",
+                  cmdname ? cmdname : "<unknown>", client);
+        sdsfree(client);
+        sdsfree(cmdname);
+        freeClientAsync(c);
+        return NULL;
+    }
+
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
