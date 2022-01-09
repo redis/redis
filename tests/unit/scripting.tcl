@@ -50,23 +50,6 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 0
     }
 
-    if {$is_eval eq 1} {
-    # stale for functions is tested on functions.tcl
-    test {Script - verify stale state} {
-        r config set replica-serve-stale-data no
-        r replicaof 127.0.0.1 1
-
-        catch {run_script {return redis.call('get', 'x')} 0} e
-        assert_match {*Can not execute the command on a stale replica*} $e
-
-        assert_match {*redis_version*} [run_script {return redis.call('info', 'server')} 0]
-
-        r replicaof no one
-        r config set replica-serve-stale-data yes
-        set _ {}
-    } {} {external:skip}
-    } ;# is_eval
-
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0
     } {hello}
