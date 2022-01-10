@@ -285,7 +285,7 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
      * In certain conditions we can't fail the command, for example if we've dirtied the dataset
      * we can't usually abort in the middle of the script without breaking script atomicity.
      *
-     * The foloowing conditions will cause the command to fail: */
+     * The following conditions will cause the command to fail: */
 
     if (/* Maxmemory is actually enabled. */
         server.maxmemory &&
