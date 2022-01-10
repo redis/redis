@@ -1031,7 +1031,7 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 1
 
         catch {[r fcall f1 1 k]} e
-        assert_match {*OOM can not run the function*} $e
+        assert_match {*can not run it when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
     }
