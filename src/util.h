@@ -60,6 +60,7 @@ int string2ull(const char *s, unsigned long long *value);
 int string2l(const char *s, size_t slen, long *value);
 int string2ld(const char *s, size_t slen, long double *dp);
 int string2d(const char *s, size_t slen, double *dp);
+int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 sds getAbsolutePath(char *filename);
