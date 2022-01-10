@@ -3721,6 +3721,7 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
 
         if (slaves_waiting &&
             (!server.repl_diskless_sync ||
+             (server.repl_diskless_sync_max_replicas > 0 && slaves_waiting >= server.repl_diskless_sync_max_replicas) ||
              max_idle >= server.repl_diskless_sync_delay))
         {
             if (mincapa_out)

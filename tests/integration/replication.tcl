@@ -255,7 +255,8 @@ foreach mdl {no yes} {
         start_server {tags {"repl external:skip"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
-            $master config set repl-diskless-sync-delay 1
+            $master config set repl-diskless-sync-delay 5
+            $master config set repl-diskless-sync-max-replicas 3
             set master_host [srv 0 host]
             set master_port [srv 0 port]
             set slaves {}
@@ -780,7 +781,8 @@ proc compute_cpu_usage {start end} {
 start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
-    $master config set repl-diskless-sync-delay 1
+    $master config set repl-diskless-sync-delay 5
+    $master config set repl-diskless-sync-max-replicas 2
     set master_host [srv 0 host]
     set master_port [srv 0 port]
     set master_pid [srv 0 pid]
