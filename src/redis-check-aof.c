@@ -78,14 +78,14 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
     aofManifest *am = aofManifestCreate();
 
     if (!fileExist(am_filepath)) {
-        printf("The AOF manifest file %s doesn't exist", am_filepath);
+        printf("The AOF manifest file %s doesn't exist\n", am_filepath);
         exit(1);
     }
 
     FILE *fp = fopen(am_filepath, "r");
     if (fp == NULL) {
         printf("Fatal error: can't open the AOF manifest "
-            "file %s for reading: %s", am_filepath, strerror(errno));
+            "file %s for reading: %s\n", am_filepath, strerror(errno));
         exit(1);
     }
 
@@ -144,7 +144,13 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
                     goto loaderr;
                 }
             } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_SEQ)) {
-                ai->file_seq = atoll(argv[i+1]);
+                char *endptr;
+                errno = 0;
+                ai->file_seq = strtoll(argv[i+1], &endptr, 10);
+                if (errno != 0 || *endptr != '\0') {
+                    err = "The AOF manifest file is invalid format";
+                    goto loaderr;
+                }
             } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
                 ai->file_type = (argv[i+1])[0];
             }
@@ -192,6 +198,7 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
 loaderr:
     fclose(fp);
     if (am) aofManifestFree(am);
+    if (ai) zfree(ai);
     printf("\n*** FATAL AOF MANIFEST FILE ERROR ***\n");
     if (line) {
         printf("Reading the manifest file, at line %d\n", linenum);
@@ -294,32 +301,34 @@ int processAnnotations(FILE *fp, char *filename, int last_file) {
     epos = ftello(fp);
     if (fgets(buf, sizeof(buf), fp) == NULL) {
         printf("Failed to read annotations from AOF %s, aborting...\n", filename);
-        fclose(fp);
         exit(1);
     }
 
     if (to_timestamp && strncmp(buf, "#TS:", 4) == 0) {
-        time_t ts = strtol(buf+4, NULL, 10);
+        char *endptr;
+        errno = 0;
+        time_t ts = strtol(buf+4, &endptr, 10);
+        if (errno != 0) {
+            printf("Invalid timestamp annotation\n");
+            exit(1);
+        }
         if (ts <= to_timestamp) return 1;
         if (epos == 0) {
             printf("AOF %s has nothing before timestamp %ld, "
                     "aborting...\n", filename, to_timestamp);
-            fclose(fp);
             exit(1);
         }
         if (!last_file) {
-            printf("Failed to truncate AOF %s to timestamp %ld to offset %ld because it is not the last file\n",
+            printf("Failed to truncate AOF %s to timestamp %ld to offset %ld because it is not the last file.\n",
                 filename, to_timestamp, (long int)epos);
-            printf("If you insist, please delete all files after this file according to the manifest"
-                "file and delete the corresponding records in manifest file manually. Then re-run redis-check-aof\n");
-            fclose(fp);
+            printf("If you insist, please delete all files after this file according to the manifest "
+                "file and delete the corresponding records in manifest file manually. Then re-run redis-check-aof.\n");
             exit(1);
         }
         /* Truncate remaining AOF if exceeding 'to_timestamp' */
         if (ftruncate(fileno(fp), epos) == -1) {
             printf("Failed to truncate AOF %s to timestamp %ld\n",
                     filename, to_timestamp);
-            fclose(fp);
             exit(1);
         } else {
             return 0;
@@ -342,7 +351,6 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
     struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s, aborting...\n", aof_filename);
-        fclose(fp);
         exit(1);
     }
 
@@ -355,7 +363,6 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
         char *argv[2] = {NULL, aof_filename};
         if (redis_check_rdb_main(2, argv, fp) == C_ERR) {
             printf("RDB preamble of AOF file is not sane, aborting.\n");
-            fclose(fp);
             exit(1);
         } else {
             printf("RDB preamble is OK, proceeding with AOF tail...\n");
@@ -369,13 +376,11 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
                 break;
             }
             printf("Failed to read from AOF %s, aborting...\n", aof_filename);
-            fclose(fp);
             exit(1);
         }
 
         if (fseek(fp, -1, SEEK_CUR) == -1) {
-            printf("Failed to fseek in AOF %s : %s", aof_filename, strerror(errno));
-            fclose(fp);
+            printf("Failed to fseek in AOF %s: %s", aof_filename, strerror(errno));
             exit(1);
         }
     
@@ -415,7 +420,6 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
         if (fix) {
             if (!last_file) {
                 printf("Failed to truncate AOF %s because it is not the last file\n", aof_filename);
-                fclose(fp);
                 exit(1);
             }
 
@@ -425,12 +429,10 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
             printf("Continue? [y/N]: ");
             if (fgets(buf, sizeof(buf), stdin) == NULL || strncasecmp(buf, "y", 1) != 0) {
                 printf("Aborting...\n");
-                fclose(fp);
                 exit(1);
             }
             if (ftruncate(fileno(fp), pos) == -1) {
                 printf("Failed to truncate AOF %s\n", aof_filename);
-                fclose(fp);
                 exit(1);
             } else {
                 fclose(fp);
@@ -438,7 +440,6 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
             }
         } else {
             printf("AOF %s is not valid. Use the --fix option to try fixing it.\n", aof_filename);
-            fclose(fp);
             exit(1);
         }
     }
@@ -447,7 +448,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
 }
 
 int fileIsRDB(char *filepath) {
-    FILE *fp = fopen(filepath, "r+");
+    FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
         printf("Cannot open file: %s\n", filepath);
         exit(1);
@@ -480,7 +481,7 @@ int fileIsRDB(char *filepath) {
 }
 
 int fileIsManifest(char *filepath) {
-    FILE *fp = fopen(filepath, "r+");
+    FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
         printf("Cannot open file: %s\n", filepath);
         exit(1);
@@ -548,8 +549,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
             
             printf("Start to check BASE AOF (RDB format).\n");
             if (redis_check_rdb_main(2, argv, fp) == C_ERR) {
-                printf("BASE AOF (RDB format) %s is not sane, aborting.\n", aof_filename);
-                fclose(fp);
+                printf("BASE AOF (RDB format) %s is invalid, aborting.\n", aof_filename);
                 sdsfree(aof_filepath);
                 exit(1);
             } else {
@@ -637,7 +637,13 @@ int redis_check_aof_main(int argc, char **argv) {
         }
     } else if (argc == 4) {
         if (!strcmp(argv[1], "--truncate-to-timestamp")) {
-            to_timestamp = strtol(argv[2],NULL,10);
+            char *endptr;
+            errno = 0;
+            to_timestamp = strtol(argv[2], &endptr, 10);
+            if (errno != 0 || *endptr != '\0') {
+                printf("Invalid timestamp, aborting...\n");
+                exit(1);
+            }
             filepath = argv[3];
         } else {
             goto invalid_args;

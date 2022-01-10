@@ -1484,15 +1484,15 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
-    serverLog(LL_WARNING,"Unexpected end of file reading the append only file %s. You can: \
-        1) Make a backup of your AOF file, then use ./redis-check-aof --fix <file.manifest>.    \
-        2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.", filename);
+    serverLog(LL_WARNING, "Unexpected end of file reading the append only file %s. You can: "
+        "1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>."
+        "2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.", filename);
     ret = AOF_FAILED;
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING,"Bad file format reading the append only file %s: \
-        make a backup of your AOF file, then use ./redis-check-aof --fix <file.manifest>", filename);
+    serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
+        "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
