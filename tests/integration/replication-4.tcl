@@ -48,12 +48,11 @@ start_server {tags {"repl external:skip"}} {
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
-            wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
-            } else {
-                fail "Replication not started."
-            }
+            wait_for_sync $slave
+            wait_for_ofs_sync $slave $master
         }
+
+
 
         test {With min-slaves-to-write (1,3): master should be writable} {
             $master config set min-slaves-max-lag 3
