@@ -4042,7 +4042,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ALLOW_BUSY, "allow-busy");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ALLOW_BUSY, "allow_busy");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");

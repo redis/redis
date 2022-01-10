@@ -613,11 +613,13 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0 && !server.core_propagates)
-            propagatePendingCommands();
-        if (!server.module_ctx_nesting && server.busy_module) {
-            blockingOperationEnds();
-            server.busy_module = 0;
+        if (--server.module_ctx_nesting == 0) {
+            if(!server.core_propagates)
+                propagatePendingCommands();
+            if (server.busy_module) {
+                blockingOperationEnds();
+                server.busy_module = 0;
+            }
         }
     }
     autoMemoryCollect(ctx);
@@ -646,10 +648,15 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
-    if (!server.loading)
-        out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
+
+    /* Calculate the initial heartbeat trigger for long blocked contexes.
+     * in loading we depend on the server hz, but in other cases we also wait
+     * for script_time_limit. */
+    if (server.loading)
+        out_ctx->next_heartbeat_event = getMonotonicUs() + 1000000 / server.hz;
     else
-        out_ctx->next_heartbeat_event = getMonotonicUs() +  + 1000000 / server.hz;
+        out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
+
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
     }
@@ -871,8 +878,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
  * * **"no-mandatory-keys"**: All the keys this command may take are optional
- * * **"allow-busy"**: Permit the command to run while another command is
- *                     blocking Redis, see RM_SlowContextHeartbeat.
+ * * **"allow-busy"**: Permit the command while the server is blocked either by
+ *                     a script or by a slow module command, see
+ *                     RM_SlowContextHeartbeat.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -6736,11 +6744,12 @@ void moduleGILBeforeUnlock() {
      * (because it's u clear when thread safe contexts are
      * released we have to propagate here). */
     server.module_ctx_nesting--;
-    if (!server.module_ctx_nesting && server.busy_module) {
+    propagatePendingCommands();
+
+    if (server.busy_module) {
         blockingOperationEnds();
         server.busy_module = 0;
     }
-    propagatePendingCommands();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
