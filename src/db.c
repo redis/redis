@@ -1559,7 +1559,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.script_caller) {
-        now = evalTimeSnapshot();
+        now = scriptTimeSnapshot();
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
