@@ -281,17 +281,26 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
-    /* If we reached the memory limit configured via maxmemory, commands that
-     * could enlarge the memory usage are not allowed, but only if this is the
-     * first write in the context of this script, otherwise we can't stop
-     * in the middle. */
+    /* If we reached the memory limit configured via maxmemory we need to fail the command.
+     * In certain conditions we can't fail the command, for example if we've dirtied the dataset
+     * we can't usually abort in the middle of the script without breaking script atomicity.
+     *
+     * The foloowing conditions will cause the command to fail: */
 
-    if (server.maxmemory &&                            /* Maxmemory is actually enabled. */
-        run_ctx->original_client->id != CLIENT_ID_AOF && /* Don't care about mem if loading from AOF. */
-        !server.masterhost &&                          /* Slave must execute the script. */
-        !(run_ctx->flags & SCRIPT_WRITE_DIRTY) &&        /* Script had no side effects so far. */
-        server.script_oom &&                           /* Detected OOM when script start. */
-        (run_ctx->c->cmd->flags & CMD_DENYOOM))
+    if (/* Maxmemory is actually enabled. */
+        server.maxmemory &&
+        /* Detected OOM when script started (maxmemory might have changed already if this is a timed out script). */
+        server.script_oom &&
+        /* We're not loading from an AOF */
+        run_ctx->original_client->id != CLIENT_ID_AOF &&
+        /* We're not a slave executing a script */
+        !server.masterhost &&
+        /* Script had no side effects so far or we're allowed to abort in the middle of a script even with side
+         * effects */
+        (!(run_ctx->flags & SCRIPT_WRITE_DIRTY) || run_ctx->flags & SCRIPT_ALLOW_OOM_ABORT) &&
+        /* Command is a write command and we don't allow write commands during OOM (the default) or the command is an
+         * explicit deny-oom command */
+        ((run_ctx->c->cmd->flags & CMD_WRITE && !(run_ctx->flags & SCRIPT_ALLOW_OOM_WRITE)) || run_ctx->c->cmd->flags & CMD_DENYOOM))
     {
         *err = sdsdup(shared.oomerr->ptr);
         return C_ERR;

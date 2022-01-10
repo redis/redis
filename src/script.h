@@ -63,6 +63,21 @@
 #define SCRIPT_KILLED                 (1ULL<<4) /* indicate that the current script was marked to be killed */
 #define SCRIPT_READ_ONLY              (1ULL<<5) /* indicate that the current script should only perform read commands */
 #define SCRIPT_EVAL_MODE              (1ULL<<7) /* Indicate that the current script called from legacy Lua */
+#define SCRIPT_ALLOW_OOM_WRITE        (1ULL<<8) /* Indicate that the current script is allowed write operations when
+                                                   Redis is out-of-memory. */
+#define SCRIPT_ALLOW_OOM_ABORT        (1ULL<<9) /* Indicate that the current script is allowed to fail a redis call even
+                                                   after dirtying the dataset if we're in an OOM state. Breaks script
+                                                   atomicity. */
+
+/* Script OOM handling modes */
+#define OOM_NO_WRITES 0                         /* Script will fail on any write attempt when OOM */
+#define OOM_ALLOW_WRITES 1                      /* Script can perform non DENY-OOM write commands when OOM. This can
+                                                   lead to a dirty dataset which will automatically enable all writes
+                                                   even when OOM to avoid breaking atomicity. See #8478. */
+#define OOM_ALLOW_WRITES_ALLOW_ABORT 2          /* Script can perform non DENY-OOM write commands when OOM and will
+                                                   abort or fail the command (call vs pcall) breaking atomicity if it
+                                                   encounters a write after dirtying the dataset. */
+
 typedef struct scriptRunCtx scriptRunCtx;
 
 struct scriptRunCtx {

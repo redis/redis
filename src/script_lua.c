@@ -924,7 +924,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     }
 
     if (argc != 1) {
-         lua_pushstring(lua, "redis.set_repl() requires two arguments.");
+         lua_pushstring(lua, "redis.set_repl() requires one argument.");
          return lua_error(lua);
     }
 
@@ -935,6 +935,41 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     }
 
     scriptSetRepl(rctx, flags);
+    return 0;
+}
+
+static int luaRedisSetOOMModeCommnad(lua_State *lua) {
+    int mode, argc = lua_gettop(lua);
+
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.set_oom_mode can only be called inside a script invocation");
+        return lua_error(lua);
+    }
+
+    if (argc != 1) {
+        lua_pushstring(lua, "redis.set_oom_mode() requires one argument.");
+        return lua_error(lua);
+    }
+
+    mode = lua_tonumber(lua, -1);
+    switch (mode) {
+        case OOM_NO_WRITES:
+            rctx->flags &= ~(SCRIPT_ALLOW_OOM_ABORT | SCRIPT_ALLOW_OOM_WRITE);
+            break;
+        case OOM_ALLOW_WRITES:
+            rctx->flags |= SCRIPT_ALLOW_OOM_WRITE;
+            rctx->flags &= ~SCRIPT_ALLOW_OOM_ABORT;
+            break;
+        case OOM_ALLOW_WRITES_ALLOW_ABORT:
+            rctx->flags |= SCRIPT_ALLOW_OOM_WRITE | SCRIPT_ALLOW_OOM_ABORT;
+            break;
+        default:
+            lua_pushstring(lua,
+               "Invalid oom mode. Use OOM_NO_WRITES, OOM_ALLOW_WRITES or OOM_ALLOW_WRITES_ALLOW_ABORT.");
+            return lua_error(lua);
+    }
+
     return 0;
 }
 
@@ -1225,8 +1260,24 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
     lua_pushstring(lua,"REPL_ALL");
     lua_pushnumber(lua,PROPAGATE_AOF|PROPAGATE_REPL);
-
     lua_settable(lua,-3);
+
+    lua_pushstring(lua,"OOM_NO_WRITES");
+    lua_pushnumber(lua,OOM_NO_WRITES);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"OOM_ALLOW_WRITES");
+    lua_pushnumber(lua,OOM_ALLOW_WRITES);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"OOM_ALLOW_WRITES_ALLOW_ABORT");
+    lua_pushnumber(lua,OOM_ALLOW_WRITES_ALLOW_ABORT);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"set_oom_mode");
+    lua_pushcfunction(lua,luaRedisSetOOMModeCommnad);
+    lua_settable(lua,-3);
+
     /* Finally set the table as 'redis' global var. */
     lua_setglobal(lua,REDIS_API_NAME);
 
