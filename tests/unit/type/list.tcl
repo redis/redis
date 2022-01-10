@@ -520,7 +520,7 @@ foreach resp {3 2} {
         r del non_existing_key
 
         verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
-        verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+        verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
     }
 
     test "RPOP/LPOP with <count> against non existing key in RESP$resp" {
