@@ -1315,8 +1315,10 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
 /* This API allows modules to let Redis process some commands during long
  * blocking execution of a module command. The module can call this API
  * periodically, and after the time defined by the `script-time-limit` config,
- * Redis will start rejecting most commands with `-BUSY`, but allow the ones
- * marked with the `allow-busy` flag to be executed. */
+ * Redis will start rejecting most commands with `-BUSY` error, but allow the
+ * ones marked with the `allow-busy` flag to be executed. This API can also be
+ * used in thread safe context (while locked), and during loading (in the
+ * rdb_load, in which case it'll reject commands with -LOADING error) */
 void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
     long long now = getMonotonicUs();
     if (now >= ctx->next_heartbeat_event) {
