@@ -900,13 +900,6 @@ int includeSpace(char *s) {
     return 0;
 }
 
-char *rstrstr(const char *haystack, const char *needle) {
-    char *ptr, *last=NULL;
-    ptr = (char*)haystack;
-    while((ptr = strstr(ptr, needle))) last = ptr++;
-    return last;
-}
-
 #ifdef REDIS_TEST
 #include <assert.h>
 
