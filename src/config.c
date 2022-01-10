@@ -2166,6 +2166,10 @@ static int isValidAOFdirname(char *val, const char **err) {
         *err = "appenddirname can't be empty";
         return 0;
     }
+    if (includeSpace(val)) {
+        *err = "appenddirname can't contain whitespace characters";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
         return 0;

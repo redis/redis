@@ -113,6 +113,22 @@ aofInfo *aofInfoDup(aofInfo *orig) {
     return ai;
 }
 
+/* Format aofInfo as a string and it will be a line in the manifest. */
+sds aofInfoFormat(sds buf, aofInfo *ai) {
+    if (includeSpace(ai->file_name)) {
+        /* If file_name contains spaces we wrap it in quotes. */
+        return sdscatprintf(buf, "%s \"%s\" %s %lld %s %c\n", 
+            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
+            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
+            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
+    } else {
+        return sdscatprintf(buf, "%s %s %s %lld %s %c\n", 
+            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
+            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
+            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
+    }
+}
+
 /* Method to free AOF list elements. */
 void aofListFree(void *item) {
     aofInfo *ai = (aofInfo *)item;
@@ -169,12 +185,6 @@ sds getTempAofManifestFileName() {
  * The base file, if exists, will always be first, followed by history files,
  * and incremental files.
  */
-#define AOF_INFO_FORMAT_AND_CAT(buf, info)                      \
-    sdscatprintf((buf), "%s %s %s %lld %s %c\n",                \
-                 AOF_MANIFEST_KEY_FILE_NAME, (info)->file_name, \
-                 AOF_MANIFEST_KEY_FILE_SEQ, (info)->file_seq,   \
-                 AOF_MANIFEST_KEY_FILE_TYPE, (info)->file_type)
-
 sds getAofManifestAsString(aofManifest *am) {
     serverAssert(am != NULL);
 
@@ -185,21 +195,21 @@ sds getAofManifestAsString(aofManifest *am) {
     /* 1. Add BASE File information, it is always at the beginning
      * of the manifest file. */
     if (am->base_aof_info) {
-        buf = AOF_INFO_FORMAT_AND_CAT(buf, am->base_aof_info);
+        buf = aofInfoFormat(buf, am->base_aof_info);
     }
 
     /* 2. Add HISTORY type AOF information. */
     listRewind(am->history_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
-        buf = AOF_INFO_FORMAT_AND_CAT(buf, ai);
+        buf = aofInfoFormat(buf, ai);
     }
 
     /* 3. Add INCR type AOF information. */
     listRewind(am->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
-        buf = AOF_INFO_FORMAT_AND_CAT(buf, ai);
+        buf = aofInfoFormat(buf, ai);
     }
 
     return buf;
@@ -280,6 +290,11 @@ void aofLoadManifestFromDisk(void) {
         }
 
         line = sdstrim(sdsnew(buf), " \t\r\n");
+        if (!sdslen(line)) {
+            err = "The AOF manifest file is invalid format";
+            goto loaderr;
+        }
+
         argv = sdssplitargs(line, &argc);
         /* 'argc < 6' was done for forward compatibility. */
         if (argv == NULL || argc < 6 || (argc % 2)) {
@@ -305,7 +320,7 @@ void aofLoadManifestFromDisk(void) {
 
         /* We have to make sure we load all the information. */
         if (!ai->file_name || !ai->file_seq || !ai->file_type) {
-            err = "Mismatched manifest key";
+            err = "The AOF manifest file is invalid format";
             goto loaderr;
         }
 
