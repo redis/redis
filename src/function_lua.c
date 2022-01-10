@@ -232,16 +232,16 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
 }
 
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
-                                              sds name,
-                                              sds desc,
-                                              luaFunctionCtx *lua_f_ctx,
-                                              uint64_t flags)
+    sds name,
+    sds desc,
+    luaFunctionCtx *lua_f_ctx,
+    uint64_t flags)
 {
     *register_f_args = (registerFunctionArgs){
-            .name = name,
-            .desc = desc,
-            .lua_f_ctx = lua_f_ctx,
-            .f_flags = flags,
+        .name = name,
+        .desc = desc,
+        .lua_f_ctx = lua_f_ctx,
+        .f_flags = flags,
     };
 }
 

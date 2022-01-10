@@ -556,7 +556,8 @@ static void fcallCommandGeneric(client *c, int ro) {
     }
 
     if ((fi->f_flags & FUNCTION_FLAG_DENY_OOM) && server.script_oom) {
-        addReplyError(c, "-OOM can not run the function");
+        addReplyError(c, "-OOM deny-oom flag is set on the function, "
+                         "can not run it when used memory > 'maxmemory'");
         return;
     }
 
@@ -584,9 +585,14 @@ static void fcallCommandGeneric(client *c, int ro) {
         int deny_write_type = writeCommandsDeniedByDiskError();
         if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
             if (deny_write_type == DISK_ERROR_TYPE_RDB)
-                addReplyError(c, shared.bgsaveerr->ptr);
+                addReplyError(c, "-MISCONF Redis is configured to save RDB snapshots, "
+                                 "but it is currently not able to persist on disk. "
+                                 "So its impossible to run functions that has 'write' flag on.");
             else
-                addReplyErrorFormat(c, "-MISCONF Errors writing to the AOF file: %s", strerror(server.aof_last_write_errno));
+                addReplyErrorFormat(c, "-MISCONF Redis is configured to persist data to AOF, "
+                                       "but it is currently not able to persist on disk. "
+                                       "So its impossible to run functions that has 'write' flag on. "
+                                       "AOF error: %s", strerror(server.aof_last_write_errno));
             return;
         }
 
