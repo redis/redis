@@ -308,7 +308,7 @@ int processAnnotations(FILE *fp, char *filename, int last_file) {
         char *endptr;
         errno = 0;
         time_t ts = strtol(buf+4, &endptr, 10);
-        if (errno != 0) {
+        if (errno != 0 || *endptr != '\r') {
             printf("Invalid timestamp annotation\n");
             exit(1);
         }
