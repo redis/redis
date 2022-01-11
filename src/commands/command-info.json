@@ -1,7 +1,7 @@
 {
     "INFO": {
         "summary": "Get array of specific Redis command details, or all when no argument is given.",
-        "complexity": "O(N) when N is number of commands to look up",
+        "complexity": "O(N) where N is the number of commands to look up",
         "group": "server",
         "since": "2.8.13",
         "arity": -2,
