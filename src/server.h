@@ -3095,7 +3095,7 @@ void commandListCommand(client *c);
 void commandInfoCommand(client *c);
 void commandGetKeysCommand(client *c);
 void commandHelpCommand(client *c);
-void commandDetailsCommand(client *c);
+void commandDocsCommand(client *c);
 void setCommand(client *c);
 void setnxCommand(client *c);
 void setexCommand(client *c);

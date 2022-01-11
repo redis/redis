@@ -1,12 +1,12 @@
 {
-    "DETAILS": {
+    "DOCS": {
         "summary": "Get array of specific Redis command documentation",
         "complexity": "O(N) when N is number of commands to look up",
         "group": "server",
         "since": "7.0.0",
         "arity": -2,
         "container": "COMMAND",
-        "function": "commandDetailsCommand",
+        "function": "commandDocsCommand",
         "command_flags": [
             "LOADING",
             "STALE"

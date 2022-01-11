@@ -4318,7 +4318,7 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
 }
 
 /* Reply with an array of sub-command using the provided reply callback. */
-void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*reply_function)(client*, struct redisCommand*, int), int use_map) {
+void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*reply_function)(client*, struct redisCommand*), int use_map) {
     if (!cmd->subcommands_dict) {
         addReplySetLen(c, 0);
         return;
@@ -4333,8 +4333,8 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         if (use_map)
-            addReplyBulkCString(c, sub->name);
-        reply_function(c, sub, 0);
+            addReplyBulkSds(c, getFullCommandName(sub));
+        reply_function(c, sub);
     }
     dictReleaseIterator(di);
 }
@@ -4362,7 +4362,7 @@ const char *COMMAND_GROUP_STR[] = {
 };
 
 /* Output the representation of a Redis command. Used by the COMMAND command and COMMAND INFO. */
-void addReplyCommandInfo(client *c, struct redisCommand *cmd, int show_full_name) {
+void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
@@ -4376,7 +4376,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd, int show_full_name
         }
 
         addReplyArrayLen(c, 10);
-        if (show_full_name && cmd->parent)
+        if (cmd->parent)
             addReplyBulkSds(c, getFullCommandName(cmd));
         else
             addReplyBulkCString(c, cmd->name);
@@ -4392,9 +4392,8 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd, int show_full_name
     }
 }
 
-/* Output the representation of a Redis command. Used by the COMMAND DETAILS. */
-void addReplyCommandDetails(client *c, struct redisCommand *cmd, int show_full_name) {
-    UNUSED(show_full_name);
+/* Output the representation of a Redis command. Used by the COMMAND DOCS. */
+void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     /* Count our reply len so we don't have to use deferred reply. */
     long maplen = 3;
     if (cmd->complexity) maplen++;
@@ -4441,7 +4440,7 @@ void addReplyCommandDetails(client *c, struct redisCommand *cmd, int show_full_n
     }
     if (cmd->subcommands_dict) {
         addReplyBulkCString(c, "subcommands");
-        addReplyCommandSubCommands(c, cmd, addReplyCommandDetails, 1);
+        addReplyCommandSubCommands(c, cmd, addReplyCommandDocs, 1);
     }
 }
 
@@ -4487,7 +4486,7 @@ void commandCommand(client *c) {
     addReplyArrayLen(c, dictSize(server.commands));
     di = dictGetIterator(server.commands);
     while ((de = dictNext(di)) != NULL) {
-        addReplyCommandInfo(c, dictGetVal(de), 0);
+        addReplyCommandInfo(c, dictGetVal(de));
     }
     dictReleaseIterator(di);
 }
@@ -4601,12 +4600,12 @@ void commandInfoCommand(client *c) {
     int i;
     addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc; i++) {
-        addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr), 1);
+        addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr));
     }
 }
 
-/* COMMAND DETAILS [<command-name> ...] */
-void commandDetailsCommand(client *c) {
+/* COMMAND DOCS [<command-name> ...] */
+void commandDocsCommand(client *c) {
     int i;
     if (c->argc == 2) {
         /* Reply with an array of all commands */
@@ -4617,7 +4616,7 @@ void commandDetailsCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             addReplyBulkCString(c, cmd->name);
-            addReplyCommandDetails(c, cmd, 0);
+            addReplyCommandDocs(c, cmd);
         }
         dictReleaseIterator(di);
     } else {
@@ -4632,7 +4631,7 @@ void commandDetailsCommand(client *c) {
                 addReplyBulkSds(c, getFullCommandName(cmd));
             else
                 addReplyBulkCString(c, cmd->name);
-            addReplyCommandDetails(c, cmd, 1);
+            addReplyCommandDocs(c, cmd);
             numcmds++;
         }
         setDeferredMapLen(c,replylen,numcmds);
@@ -4655,6 +4654,8 @@ void commandHelpCommand(client *c) {
 "    Return a list of all commands in this Redis server.",
 "INFO <command-name> [<command-name> ...]",
 "    Return details about multiple Redis commands.",
+"DOCS [<command-name> ...]",
+"    Return documentation details about all / multiple Redis commands.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL
