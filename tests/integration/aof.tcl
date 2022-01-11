@@ -491,9 +491,11 @@ tags {"aof external:skip"} {
             set start [clock clicks -milliseconds]
             $rd debug loadaof
             $rd flush
-            after 100
-            catch {r ping} err
-            assert_match {LOADING*} $err
+            wait_for_condition 50 100 {
+                [catch {r ping} e] == 1
+            } else {
+                fail "Redis didn't enter LOADING"
+            }
             $rd read
             set elapsed [expr [clock clicks -milliseconds]-$start]
             if {$::verbose} { puts "loading took $elapsed milliseconds" }
