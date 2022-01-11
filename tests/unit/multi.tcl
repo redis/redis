@@ -8,7 +8,7 @@ proc wait_for_dbsize {size} {
     $r2 close
 }
 
-start_server {tags {"multi"}} {
+start_server {tags {"multi"} } {
     test {MULTI / EXEC basics} {
         r del mylist
         r rpush mylist a
@@ -757,6 +757,8 @@ start_server {tags {"multi"}} {
     }
 
     test "MULTI with BGREWRITEAOF" {
+        r config set appendonly yes
+        waitForBgrewriteaof r
         set forks [s total_forks]
         r multi
         r set foo bar
@@ -769,7 +771,8 @@ start_server {tags {"multi"}} {
             fail "aofrw didn't start"
         }
         waitForBgrewriteaof r
-    } {} {external:skip}
+        r config set appendonly no 
+    } {OK} {external:skip}
 
     test "MULTI with config set appendonly" {
         set lines [count_log_lines 0]

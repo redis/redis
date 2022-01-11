@@ -1551,6 +1551,9 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
+        /* If we start with an empty dataset and ‘aof_use_rdb_preamble’ is set to yes, we 
+         * will force create a BASE (rdb format) file. */
+        if (server.aof_use_rdb_preamble) server.aof_rewrite_scheduled = 1;
         return AOF_NOT_EXIST;
     }
 
@@ -2321,6 +2324,10 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(client *c) {
+    if (server.aof_state == AOF_OFF) {
+        addReplyError(c, "Can't execute an AOF background rewriting when AOF is disable.");
+        return;
+    }
     if (server.child_type == CHILD_TYPE_AOF) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess() || server.in_exec) {

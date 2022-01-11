@@ -58,10 +58,9 @@ start_server {tags {"aofrw external:skip"}} {
 }
 
 start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} {
+    r config set appendonly yes
+    waitForBgrewriteaof r
     test {Turning off AOF kills the background writing child if any} {
-        r config set appendonly yes
-        waitForBgrewriteaof r
-
         # start a slow AOFRW
         set k v
         r config set rdb-key-save-delay 10000000
@@ -74,6 +73,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }
+        r config set appendonly yes
     }
 
     foreach d {string int} {
@@ -206,5 +206,13 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         assert_match {*ERR*already*} $e
         r config set rdb-key-save-delay 0
         catch {exec kill -9 [get_child_pid 0]}
+    }
+
+    test {BGREWRITEAOF is refused if AOF in disable} {
+        r config set appendonly no
+        catch {
+            r bgrewriteaof
+        } e
+        assert_match {*ERR*disable*} $e
     }
 }

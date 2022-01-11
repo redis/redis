@@ -48,8 +48,9 @@ start_server {tags {"dismiss external:skip"}} {
 
         set digest [debug_digest]
         r config set aof-use-rdb-preamble no
-        r bgrewriteaof
+        r config set appendonly yes
         waitForBgrewriteaof r
+        r config set appendonly no
         r debug loadaof
         set newdigest [debug_digest]
         assert {$digest eq $newdigest}
