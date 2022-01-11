@@ -24,7 +24,7 @@
             {
                 "name": "command-name",
                 "type": "string",
-                "optional": true
+                "optional": true,
                 "multiple": true
             }
         ]
