@@ -9578,7 +9578,7 @@ void modulesCron(void) {
     /* We are freeing clients if we have more than 8 unused clients. Keeping
      * small amount of clients to avoid client allocation costs if temporary
      * clients are required after some idle period. */
-    const int min_client = 8;
+    const unsigned int min_client = 8;
     while (iteration > 0 && moduleTempClientCount > 0 && moduleTempClientMinCount > min_client) {
         client *c = moduleTempClients[--moduleTempClientCount];
         freeClient(c);
