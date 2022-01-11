@@ -90,5 +90,51 @@ start_server {tags {"modules"}} {
         assert_match {*infotest_unsafe_field:value=1*} $info
     }
 
+    test {module info multiply sections without all, everything, default keywords} {
+        set info [r info replication cluster cpu]
+        assert { [string match "*cluster*" $info] }
+        assert { [string match "*used_cpu_user*" $info] }
+        assert { [string match "*repl_offset*" $info] }        
+        assert { ![string match "*used_memory*" $info] }
+        assert { ![string match "*client_recent*" $info] }
+    }
+
+    test {module info multiply sections with all keyword, but without modules} {
+        set info [r info replication all cluster cpu]
+        assert { [string match "*cluster*" $info] }
+        assert { [string match "*used_cpu_user*" $info] }
+        assert { [string match "*repl_offset*" $info] }        
+        assert { [string match "*used_memory*" $info] }
+        assert { [string match "*client_recent*" $info] }
+        assert { [string match "*cmdstat_info*" $info] }
+        assert { ![string match "*infotest_global*" $info] }
+    }
+
+    test {module info multiply sections with everything keyword} {
+        set info [r info replication everything cluster cpu]
+        assert { [string match "*cluster*" $info] }
+        assert { [string match "*used_cpu_user*" $info] }
+        assert { [string match "*repl_offset*" $info] }        
+        assert { [string match "*used_memory*" $info] }
+        assert { [string match "*client_recent*" $info] }
+        assert { [string match "*cmdstat_info*" $info] }
+        assert { [string match "*infotest_global*" $info] }
+        assert { [string match "*Spanish*" $info] }
+        assert { [string match "*Italian*" $info] }
+        field $info infotest_dos
+    } {2}
+
+    test {module info multiply sections with modules keyword} {
+        set info [r info replication modules cluster cpu]
+        assert { [string match "*cluster*" $info] }
+        assert { [string match "*used_cpu_user*" $info] }
+        assert { [string match "*repl_offset*" $info] }        
+        assert { ![string match "*used_memory*" $info] }        
+        assert { [string match "*infotest_global*" $info] }
+        assert { [string match "*Spanish*" $info] }
+        assert { [string match "*Italian*" $info] }
+        field $info infotest_dos
+    } {2}
+
     # TODO: test crash report.
 } 

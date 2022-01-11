@@ -289,11 +289,13 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-uint64_t hashCallback(const void *key) {
+/* Dict hash function for null terminated string */
+uint64_t distCStrHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(dict *d, const void *key1, const void *key2) {
+/* Dict compare function for null terminated string */
+int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
     UNUSED(d);
 
@@ -526,10 +528,10 @@ dictType replScriptCacheDictType = {
 };
 
 dictType stringSetDictType = {
-    hashCallback,               /* hash function */
+    distCStrHash,               /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    compareCallback,            /* key compare */
+    distCStrKeyCompare,            /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -4738,7 +4740,7 @@ void addSectionsToDict(dict *section_dict, char **sections, int len) {
    The return value will be the dictionary for genRedisInfoString function
  */
 dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything) {
-    char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "modules", "errorstats", "cluster", "keyspace", "latencystats"};
+    char *defSections[] = {"server", "clients", "memory", "persistence", "stats", "replication", "cpu", "module_list", "errorstats", "cluster", "keyspace", "latencystats"};
     char *defSectionsSentinel[] = {"server", "clients", "cpu", "stats", "sentinel"};
 
 
@@ -4771,10 +4773,6 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
                 sds section = sdsnew(argv[0]->ptr);
                 sdstolower(section);
                 dictAdd(section_dict,section,NULL);
-                if (!strcasecmp(argv[0]->ptr,"modules")) {
-                    sds section = sdsnew("input-modules");
-                    dictAdd(section_dict,section,NULL);
-                }
             }
         } else {
             for (int i = 1; i < argc; i++) {
@@ -4788,15 +4786,10 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
                     sds section = sdsnew(argv[i]->ptr);
                     sdstolower(section);
                     dictAdd(section_dict,section,NULL);
-                    if (!strcasecmp(argv[i]->ptr,"modules")) {
-                        sds section = sdsnew("input-modules");
-                        dictAdd(section_dict,section,NULL);
-                    }
                 }
             }
         }
     } 
-
     return section_dict;
 }
 
@@ -4804,7 +4797,6 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
 sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
-    int modules = 0; 
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
@@ -5468,11 +5460,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     }
 
     /* Modules */
-    if (!server.sentinel_mode && (all_sections || (dictFind(section_dict,"modules") != NULL))) {
+    if (!server.sentinel_mode && (all_sections || (dictFind(section_dict,"module_list") != NULL))) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,"# Modules\r\n");
         info = genModulesInfoString(info);
-        if(section_dict != NULL && dictFind(section_dict,"input-modules") != NULL) modules = 1;
     }
 
     /* Command statistics */
@@ -5551,23 +5542,21 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Get info from modules.
      * if user asked for "everything" or "modules", or a specific section
      * that's not found yet. */
-    if (!server.sentinel_mode && (everything || modules || (!all_sections && sections==0))) {
+    if (!server.sentinel_mode && (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict))) {
 
         info = modulesCollectInfo(info,
-                                  everything || modules ? NULL: section_dict,
+                                  everything || dictFind(section_dict, "modules") != NULL ? NULL: section_dict,
                                   0, /* not a crash report */
                                   sections);
     }
     return info;
 }
 
-
 void infoCommand(client *c) {
     if (server.sentinel_mode) {
         sentinelInfoCommand(c);
         return;
     }
-
     int all_sections = 0;
     int everything = 0;
     dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything);
@@ -5576,7 +5565,6 @@ void infoCommand(client *c) {
     sdsfree(info);
     dictRelease(sections_dict);
     return;
-
 }
 
 void monitorCommand(client *c) {

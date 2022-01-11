@@ -7876,17 +7876,13 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
  * NULL or empty string indicates the default section (only `<modulename>`) is used.
  * When return value is REDISMODULE_ERR, the section should and will be skipped. */
 int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
-
     sds full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0)
         full_name = sdscatfmt(full_name, "_%s", name);
-        
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
         RM_InfoEndDictField(ctx);
-
     sdstolower(full_name);
-
     /* proceed only if:
      * 1) no section was requested (emit all)
      * 2) the module name was requested (emit all)
@@ -8077,7 +8073,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
     int out_all = 0;
     int out_everything = 0;
-    robj **argv = zmalloc(sizeof(robj*));
+    robj *argv[1];
     argv[0] = createStringObject(section, strlen(section));
     dict *section_dict = genInfoSectionDict(argv, 1, &out_all, &out_everything);
     sds info = genRedisInfoString(section_dict, out_all, out_everything);
@@ -8098,7 +8094,6 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     sdsfreesplitres(lines,totlines);
     dictRelease(section_dict);
     zfree(argv[0]);
-    zfree(argv);
     return d;
 }
 
