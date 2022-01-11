@@ -1207,6 +1207,8 @@ start_server {tags {"scripting needs:debug"}} {
         r DEBUG set-active-expire 0
         r SET key value PX 1
         after 2
+
+        # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
         r DEBUG OBJECT key
 
         assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
