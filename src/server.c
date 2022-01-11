@@ -4655,7 +4655,9 @@ void commandHelpCommand(client *c) {
 "INFO <command-name> [<command-name> ...]",
 "    Return details about multiple Redis commands.",
 "DOCS [<command-name> ...]",
-"    Return documentation details about all / multiple Redis commands.",
+"    Return documentation details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL
