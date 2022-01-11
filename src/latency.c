@@ -490,6 +490,78 @@ sds createLatencyReport(void) {
 
 /* ---------------------- Latency command implementation -------------------- */
 
+/* latencyCommand() helper to produce a map of time buckets,
+ * each representing a latency range,
+ * between 1 nanosecond and roughly 1 second.
+ * Each bucket covers twice the previous bucket's range.
+ * Empty buckets are not printed.
+ * Everything above 1 sec is considered +Inf.
+ * At max there will be log2(1000000000)=30 buckets */
+void fillCommandCDF(client *c, struct hdr_histogram* histogram) {
+    addReplyMapLen(c,2);
+    addReplyBulkCString(c,"calls");
+    addReplyLongLong(c,(long long) histogram->total_count);
+    addReplyBulkCString(c,"histogram_usec");
+    void *replylen = addReplyDeferredLen(c);
+    int samples = 0;
+    struct hdr_iter iter;
+    hdr_iter_log_init(&iter,histogram,1024,2);
+    int64_t previous_count = 0;
+    while (hdr_iter_next(&iter)) {
+        const int64_t micros = iter.highest_equivalent_value / 1000;
+        const int64_t cumulative_count = iter.cumulative_count;
+        if(cumulative_count > previous_count){
+            addReplyLongLong(c,(long long) micros);
+            addReplyLongLong(c,(long long) cumulative_count);
+            samples++;
+        }
+        previous_count = cumulative_count;
+    }
+    setDeferredMapLen(c,replylen,samples);
+}
+
+/* latencyCommand() helper to produce for all commands,
+ * a per command cumulative distribution of latencies. */
+void latencyAllCommandsFillCDF(client *c) {
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    struct redisCommand *cmd;
+    void *replylen = addReplyDeferredLen(c);
+    int command_with_data = 0;
+    while((de = dictNext(di)) != NULL) {
+        cmd = (struct redisCommand *) dictGetVal(de);
+        if (!cmd->latency_histogram)
+            continue;
+        addReplyBulkCString(c,cmd->name);
+        fillCommandCDF(c, cmd->latency_histogram);
+        command_with_data++;
+    }
+    dictReleaseIterator(di);
+    setDeferredMapLen(c,replylen,command_with_data);
+}
+
+/* latencyCommand() helper to produce for a specific command set,
+ * a per command cumulative distribution of latencies. */
+void latencySpecificCommandsFillCDF(client *c) {
+    void *replylen = addReplyDeferredLen(c);
+    int command_with_data = 0;
+    for (int j = 2; j < c->argc; j++){
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        /* If the command does not exist we skip the reply */
+        if (cmd == NULL) {
+            continue;
+        }
+        /* If no latency info we reply with the same format as non empty histograms */
+        if (!cmd->latency_histogram) {
+            continue;
+        }
+        addReplyBulkCString(c,c->argv[j]->ptr);
+        fillCommandCDF(c, cmd->latency_histogram);
+        command_with_data++;
+    }
+    setDeferredMapLen(c,replylen,command_with_data);
+}
+
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
 void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
@@ -582,6 +654,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY DOCTOR: returns a human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
+ * LATENCY HISTOGRAM: return a cumulative distribution of latencies in the format of an histogram for the specified command names.
  */
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
@@ -628,6 +701,13 @@ void latencyCommand(client *c) {
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"histogram") && c->argc >= 2) {
+        /* LATENCY HISTOGRAM*/
+        if (c->argc == 2) {
+            latencyAllCommandsFillCDF(c);
+        } else {
+            latencySpecificCommandsFillCDF(c);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
 "DOCTOR",
@@ -641,6 +721,9 @@ void latencyCommand(client *c) {
 "RESET [<event> ...]",
 "    Reset latency data of one or more <event> classes.",
 "    (default: reset all data for all event classes)",
+"HISTOGRAM [COMMAND ...]",
+"    Return a cumulative distribution of latencies in the format of a histogram for the specified command names.",
+"    If no commands are specified then all histograms are replied.",
 NULL
         };
         addReplyHelp(c, help);

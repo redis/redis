@@ -305,10 +305,18 @@ start_server {tags {"other"}} {
 
         assert_equal [r acl whoami] default
     } {} {needs:reset}
+
+    test "Subcommand syntax error crash (issue #10070)" {
+        assert_error {*unknown command*} {r GET|}
+        assert_error {*unknown command*} {r GET|SET}
+        assert_error {*unknown command*} {r GET|SET|OTHER}
+        assert_error {*unknown command*} {r CONFIG|GET GET_XX}
+        assert_error {*Unknown subcommand*} {r CONFIG GET_XX}
+    }
 }
 
 start_server {tags {"other external:skip"}} {
-    test {Don't rehash if redis has child proecess} {
+    test {Don't rehash if redis has child process} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 

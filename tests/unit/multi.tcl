@@ -9,7 +9,7 @@ proc wait_for_dbsize {size} {
 }
 
 start_server {tags {"multi"}} {
-    test {MUTLI / EXEC basics} {
+    test {MULTI / EXEC basics} {
         r del mylist
         r rpush mylist a
         r rpush mylist b

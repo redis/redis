@@ -372,7 +372,7 @@ proc accept_test_clients {fd addr port} {
 proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
-    foreach {status data} $payload break
+    foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
 
     if {$status eq {ready}} {
@@ -391,7 +391,7 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
         if {!$::quiet} {
-            puts "\[[colorstr green $status]\]: $data"
+            puts "\[[colorstr green $status]\]: $data ($elapsed ms)"
         }
         set ::active_clients_task($fd) "(OK) $data"
     } elseif {$status eq {skip}} {
@@ -557,8 +557,8 @@ proc test_client_main server_port {
     }
 }
 
-proc send_data_packet {fd status data} {
-    set payload [list $status $data]
+proc send_data_packet {fd status data {elapsed 0}} {
+    set payload [list $status $data $elapsed]
     puts $fd [string length $payload]
     puts -nonewline $fd $payload
     flush $fd

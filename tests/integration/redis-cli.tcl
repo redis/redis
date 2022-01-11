@@ -322,7 +322,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         set dir [lindex [r config get dir] 1]
 
         assert_equal "OK" [r debug populate 100000 key 1000]
-        assert_equal "OK" [r function create lua func1 "return 123"]
+        assert_equal "OK" [r function load lua lib1 "redis.register_function('func1', function() return 123 end)"]
         if {$functions_only} {
             set args "--functions-rdb $dir/cli.rdb"
         } else {
@@ -335,11 +335,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file rename "$dir/cli.rdb" "$dir/dump.rdb"
 
         assert_equal "OK" [r set should-not-exist 1]
-        assert_equal "OK" [r function create lua should_not_exist_func "return 456"]
+        assert_equal "OK" [r function load lua should_not_exist_func "redis.register_function('should_not_exist_func', function() return 456 end)"]
         assert_equal "OK" [r debug reload nosave]
         assert_equal {} [r get should-not-exist]
-        assert_error "ERR Function does not exists" {r function info should_not_exist_func}
-        assert_equal "func1" [dict get [r function info func1] name]
+        assert_equal {{library_name lib1 engine LUA description {} functions {{name func1 description {}}}}} [r function list]
         if {$functions_only} {
             assert_equal 0 [r dbsize]
         } else {
