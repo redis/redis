@@ -329,7 +329,7 @@ void feedReplicationBuffer(char *s, size_t len) {
     /* Install write handler for all replicas. */
     prepareReplicasToWrite();
 
-    size_t start_pos = 0; /* The position of referenced blok to start sending. */
+    size_t start_pos = 0; /* The position of referenced block to start sending. */
     listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
     int add_new_block = 0; /* Create new block if current block is total used. */
     listNode *ln = listLast(server.repl_buffer_blocks);
@@ -833,11 +833,11 @@ int startBgsaveForReplication(int mincapa, int req) {
     listNode *ln;
 
     /* We use a socket target if slave can handle the EOF marker and we're configured to do diskless syncs.
-     * Note that in case we're creating a "filtered" RDB (functions-only) we also force socket replication
+     * Note that in case we're creating a "filtered" RDB (functions-only, for example) we also force socket replication
      * to avoid overwriting the snapshot RDB file with filtered data. */
-    socket_target = (server.repl_diskless_sync || (req & SLAVE_REQ_RDB_FUNCTIONS_ONLY)) && (mincapa & SLAVE_CAPA_EOF);
+    socket_target = (server.repl_diskless_sync || req & SLAVE_REQ_RDB_MASK) && (mincapa & SLAVE_CAPA_EOF);
     /* `SYNC` should have failed with error if we don't support socket and require a filter, assert this here */
-    serverAssert(socket_target || !(req & SLAVE_REQ_RDB_FUNCTIONS_ONLY));
+    serverAssert(socket_target || !(req & SLAVE_REQ_RDB_MASK));
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "replicas sockets" : "disk");
@@ -958,7 +958,7 @@ void syncCommand(client *c) {
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
-    if ((c->slave_req & SLAVE_REQ_RDB_FUNCTIONS_ONLY) && !(c->slave_capa & SLAVE_CAPA_EOF)) {
+    if (c->slave_req & SLAVE_REQ_RDB_MASK && !(c->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
     }
@@ -1124,7 +1124,8 @@ void syncCommand(client *c) {
  *
  * - rdb-filter-only <include-filters>
  * Define "include" filters for the RDB snapshot. Currently we only support
- * a single include filter: "functions". */
+ * a single include filter: "functions". Passing an empty string "" will
+ * result in an empty RDB. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1214,9 +1215,12 @@ void replconfCommand(client *c) {
                 addReplyErrorFormat(c, "Missing rdb-filter-only values");
                 return;
             }
+            /* By default filter out all parts of the rdb */
+            c->slave_req |= SLAVE_REQ_RDB_EXCLUDE_DATA;
+            c->slave_req |= SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
             for (i = 0; i < filter_count; i++) {
                 if (!strcasecmp(filters[i], "functions"))
-                    c->slave_req |= SLAVE_REQ_RDB_FUNCTIONS_ONLY;
+                    c->slave_req &= ~SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS;
                 else {
                     addReplyErrorFormat(c, "Unsupported rdb-filter-only option: %s", (char*)filters[i]);
                     sdsfreesplitres(filters, filter_count);
@@ -1788,7 +1792,7 @@ void readSyncBulkPayload(connection *conn) {
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_tempDb = NULL;
-    functionsCtx* temp_functions_ctx = NULL;
+    functionsLibCtx* temp_functions_lib_ctx = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1964,7 +1968,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
         /* Initialize empty tempDb dictionaries. */
         diskless_load_tempDb = disklessLoadInitTempDb();
-        temp_functions_ctx = functionsCtxCreate();
+        temp_functions_lib_ctx = functionsLibCtxCreate();
 
         moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                               REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
@@ -1987,7 +1991,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load) {
         rio rdb;
         redisDb *dbarray;
-        functionsCtx* functions_ctx;
+        functionsLibCtx* functions_lib_ctx;
         int asyncLoading = 0;
 
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -2000,11 +2004,11 @@ void readSyncBulkPayload(connection *conn) {
                 asyncLoading = 1;
             }
             dbarray = diskless_load_tempDb;
-            functions_ctx = temp_functions_ctx;
+            functions_lib_ctx = temp_functions_lib_ctx;
         } else {
             dbarray = server.db;
-            functions_ctx = functionsCtxGetCurrent();
-            functionsCtxClear(functions_ctx);
+            functions_lib_ctx = functionsLibCtxGetCurrent();
+            functionsLibCtxClear(functions_lib_ctx);
         }
 
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
@@ -2016,7 +2020,7 @@ void readSyncBulkPayload(connection *conn) {
         startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
         int loadingFailed = 0;
-        rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_ctx = functions_ctx };
+        rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_lib_ctx = functions_lib_ctx };
         if (rdbLoadRioWithLoadingCtx(&rdb,RDBFLAGS_REPLICATION,&rsi,&loadingCtx) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
@@ -2045,7 +2049,7 @@ void readSyncBulkPayload(connection *conn) {
                                       NULL);
 
                 disklessLoadDiscardTempDb(diskless_load_tempDb);
-                functionsCtxFree(temp_functions_ctx);
+                functionsLibCtxFree(temp_functions_lib_ctx);
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
@@ -2069,7 +2073,7 @@ void readSyncBulkPayload(connection *conn) {
             swapMainDbWithTempDb(diskless_load_tempDb);
 
             /* swap existing functions ctx with the temporary one */
-            functionsCtxSwapWithCurrent(temp_functions_ctx);
+            functionsLibCtxSwapWithCurrent(temp_functions_lib_ctx);
 
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,

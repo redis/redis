@@ -180,6 +180,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
 
     send_data_packet $::test_server_fd testing $name
 
+    set test_start_time [clock milliseconds]
     if {[catch {set retval [uplevel 1 $code]} error]} {
         set assertion [string match "assertion:*" $error]
         if {$assertion || $::durable} {
@@ -207,7 +208,8 @@ proc test {name code {okpattern undefined} {tags {}}} {
     } else {
         if {$okpattern eq "undefined" || $okpattern eq $retval || [string match $okpattern $retval]} {
             incr ::num_passed
-            send_data_packet $::test_server_fd ok $name
+            set elapsed [expr {[clock milliseconds]-$test_start_time}]
+            send_data_packet $::test_server_fd ok $name $elapsed
         } else {
             set msg "Expected '$okpattern' to equal or match '$retval'"
             lappend details $msg

@@ -466,6 +466,14 @@ static int evictionTimeProc(
     return AE_NOMORE;
 }
 
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
+}
+
 /* Check if it's safe to perform evictions.
  *   Returns 1 if evictions can be performed
  *   Returns 0 if eviction processing should be skipped
@@ -712,11 +720,7 @@ int performEvictions(void) {
                  * memory, don't want to spend too much time here.  */
                 if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
-                    if (!isEvictionProcRunning) {
-                        isEvictionProcRunning = 1;
-                        aeCreateTimeEvent(server.el, 0,
-                                evictionTimeProc, NULL, NULL);
-                    }
+                    startEvictionTimeProc();
                     break;
                 }
             }

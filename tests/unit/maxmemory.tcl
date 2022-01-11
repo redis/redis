@@ -326,6 +326,10 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
+            # disable latency tracking
+            $master config set latency-tracking no
+            $slave config set latency-tracking no
+
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
@@ -412,6 +416,7 @@ test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
@@ -432,6 +437,7 @@ start_server {tags {"maxmemory external:skip"}} {
 
 start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru
         r config set maxmemory-eviction-tenacity 100

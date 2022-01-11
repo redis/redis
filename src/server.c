@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "hdr_alloc.h"
 
 #include <time.h>
 #include <signal.h>
@@ -1222,7 +1223,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                     sp->changes, (int)sp->seconds);
                 rdbSaveInfo rsi, *rsiptr;
                 rsiptr = rdbPopulateSaveInfo(&rsi);
-                rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename,rsiptr);
+                rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
                 break;
             }
         }
@@ -1315,7 +1316,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSaveBackground(SLAVE_REQ_NONE, server.rdb_filename,rsiptr) == C_OK)
+        if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -1781,6 +1782,12 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
+    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
+    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
+    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
+    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
@@ -1788,6 +1795,15 @@ void initServerConfig(void) {
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+
+    /* Specify the allocation function for the hdr histogram */
+    hdrAllocFuncs hdrallocfn = {
+        .mallocFn = zmalloc,
+        .callocFn = zcalloc_num,
+        .reallocFn = zrealloc,
+        .freeFn = zfree,
+    };
+    hdrSetAllocators(&hdrallocfn);
 
     /* Replication related */
     server.masterhost = NULL;
@@ -2610,6 +2626,10 @@ void populateCommandStructure(struct redisCommand *c) {
     c->key_specs = c->key_specs_static;
     c->key_specs_max = STATIC_KEY_SPECS_NUM;
 
+    /* We start with an unallocated histogram and only allocate memory when a command
+     * has been issued for the first time */
+    c->latency_histogram = NULL;
+
     for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
         if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
             break;
@@ -2683,6 +2703,10 @@ void resetCommandTableStats(dict* commands) {
         c->calls = 0;
         c->rejected_calls = 0;
         c->failed_calls = 0;
+        if(c->latency_histogram) {
+            hdr_close(c->latency_histogram);
+            c->latency_histogram = NULL;
+        }
         if (c->subcommands_dict)
             resetCommandTableStats(c->subcommands_dict);
     }
@@ -2740,6 +2764,12 @@ void redisOpArrayFree(redisOpArray *oa) {
 }
 
 /* ====================== Commands lookup and execution ===================== */
+
+int isContainerCommandBySds(sds s) {
+    struct redisCommand *base_cmd = dictFetchValue(server.commands, s);
+    int has_subcommands = base_cmd && base_cmd->subcommands_dict;
+    return has_subcommands;
+}
 
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
@@ -2916,6 +2946,19 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
+}
+
+/* This function is called in order to update the total command histogram duration.
+ * The latency unit is nano-seconds.
+ * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
+void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int64_t duration_hist){
+    if (duration_hist < LATENCY_HISTOGRAM_MIN_VALUE)
+        duration_hist=LATENCY_HISTOGRAM_MIN_VALUE;
+    if (duration_hist>LATENCY_HISTOGRAM_MAX_VALUE)
+        duration_hist=LATENCY_HISTOGRAM_MAX_VALUE;
+    if (*latency_histogram==NULL)
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
+    hdr_record_value(*latency_histogram,duration_hist);
 }
 
 /* Handle the alsoPropagate() API to handle commands that want to propagate
@@ -3104,6 +3147,9 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
         real_cmd->calls++;
+        /* If the client is blocked we will handle latency stats when it is unblocked. */
+        if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
+            updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -3289,10 +3335,14 @@ int processCommand(client *c) {
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
-        if (lookupCommandBySds(c->argv[0]->ptr)) {
+        if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command
              * it means we're dealing with an invalid subcommand. Print Help. */
-            addReplySubcommandSyntaxError(c);
+            sds cmd = sdsnew((char *)c->argv[0]->ptr);
+            sdstoupper(cmd);
+            rejectCommandFormat(c, "Unknown subcommand '%.128s'. Try %s HELP.",
+                                (char *)c->argv[1]->ptr, cmd);
+            sdsfree(cmd);
             return C_OK;
         }
         sds args = sdsempty();
@@ -3348,6 +3398,11 @@ int processCommand(client *c) {
             rejectCommand(c,shared.noautherr);
             return C_OK;
         }
+    }
+
+    if (c->flags & CLIENT_MULTI && c->cmd->flags & CMD_NO_MULTI) {
+        rejectCommandFormat(c,"Command not allowed inside a transaction");
+        return C_OK;
     }
 
     /* Check if the user can run this command according to the current
@@ -3847,7 +3902,7 @@ int finishShutdown(void) {
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        if (rdbSave(SLAVE_REQ_NONE, server.rdb_filename,rsiptr) != C_OK) {
+        if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -3997,6 +4052,10 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
     flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
+    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");
+
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
     if (cmd->movablekeys) {
         addReplyStatus(c, "movablekeys");
@@ -4564,6 +4623,22 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+/* Fill percentile distribution of latencies. */
+sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
+    info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        char fbuf[128];
+        size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+        len = trimDoubleString(fbuf, len);
+        info = sdscatprintf(info,"p%s=%.3f", fbuf,
+            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
+        if (j != server.latency_tracking_info_percentiles_len-1)
+            info = sdscatlen(info,",",1);
+        }
+    info = sdscatprintf(info,"\r\n");
+    return info;
+}
+
 sds getFullCommandName(struct redisCommand *cmd) {
     if (!cmd->parent) {
         return sdsnew(cmd->name);
@@ -4823,6 +4898,7 @@ sds genRedisInfoString(const char *section) {
             "used_memory_scripts_eval:%lld\r\n"
             "number_of_cached_scripts:%lu\r\n"
             "number_of_functions:%lu\r\n"
+            "number_of_libraries:%lu\r\n"
             "used_memory_vm_functions:%lld\r\n"
             "used_memory_vm_total:%lld\r\n"
             "used_memory_vm_total_human:%s\r\n"
@@ -4873,6 +4949,7 @@ sds genRedisInfoString(const char *section) {
             (long long) mh->lua_caches,
             dictSize(evalScriptsDict()),
             functionsNum(),
+            functionsLibNum(),
             memory_functions,
             memory_functions + memory_lua,
             used_memory_vm_total_hmem,
@@ -5335,6 +5412,27 @@ sds genRedisInfoString(const char *section) {
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         raxStop(&ri);
+    }
+
+    /* Latency by percentile distribution per command */
+    if (allsections || !strcasecmp(section,"latencystats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Latencystats\r\n");
+        if (server.latency_tracking_enabled) {
+            struct redisCommand *c;
+            dictEntry *de;
+            dictIterator *di;
+            di = dictGetSafeIterator(server.commands);
+            while((de = dictNext(di)) != NULL) {
+                char *tmpsafe;
+                c = (struct redisCommand *) dictGetVal(de);
+                if (!c->latency_histogram)
+                    continue;
+                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
+                if (tmpsafe != NULL) zfree(tmpsafe);
+            }
+            dictReleaseIterator(di);
+        }
     }
 
     /* Cluster */
@@ -5853,8 +5951,10 @@ void closeChildUnusedResourceAfterFork() {
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
     if (isMutuallyExclusiveChildType(purpose)) {
-        if (hasActiveChildProcess())
+        if (hasActiveChildProcess()) {
+            errno = EEXIST;
             return -1;
+        }
 
         openChildInfoPipe();
     }

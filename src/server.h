@@ -50,6 +50,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include "hdr_histogram.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -206,6 +207,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_MODULE_GETKEYS (1ULL<<21)  /* Use the modules getkeys interface. */
 #define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
 #define CMD_NO_ASYNC_LOADING (1ULL<<23)
+#define CMD_NO_MULTI (1ULL<<24)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -386,7 +388,10 @@ typedef enum {
 
 /* Slave requirements */
 #define SLAVE_REQ_NONE 0
-#define SLAVE_REQ_RDB_FUNCTIONS_ONLY (1 << 0)
+#define SLAVE_REQ_RDB_EXCLUDE_DATA (1 << 0)      /* Exclude data from RDB */
+#define SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS (1 << 1) /* Exclude functions from RDB */
+/* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
+#define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS)
 
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
@@ -566,6 +571,13 @@ typedef enum {
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
+
+/* latency histogram per command init settings */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
+#define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
+#define LATENCY_HISTOGRAM_PRECISION 2  /* Maintain a value precision of 2 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
+                                        * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
+                                        * The total size per histogram should sit around 40 KiB Bytes. */
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -861,7 +873,7 @@ typedef struct redisDb {
 } redisDb;
 
 /* forward declaration for functions ctx */
-typedef struct functionsCtx functionsCtx;
+typedef struct functionsLibCtx functionsLibCtx;
 
 /* Holding object that need to be populated during
  * rdb loading. On loading end it is possible to decide
@@ -870,7 +882,7 @@ typedef struct functionsCtx functionsCtx;
  *              successful loading and dropped on failure. */
 typedef struct rdbLoadingCtx {
     redisDb* dbarray;
-    functionsCtx* functions_ctx;
+    functionsLibCtx* functions_lib_ctx;
 }rdbLoadingCtx;
 
 /* Client MULTI/EXEC state */
@@ -1579,6 +1591,9 @@ struct redisServer {
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     int pause_cron;                 /* Don't run cron tasks (debug) */
+    int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
+    double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
+    int latency_tracking_info_percentiles_len;
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -2081,7 +2096,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  * CMD_LOADING:     Allow the command while loading the database.
  *
  * CMD_NO_ASYNC_LOADING: Deny during async loading (when a replica uses diskless
-                         sync swapdb, and allows access to the old dataset)
+ *                       sync swapdb, and allows access to the old dataset)
  *
  * CMD_STALE:       Allow the command while a slave has stale data but is not
  *                  allowed to serve this data. Normally no command is accepted
@@ -2114,6 +2129,8 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  * CMD_SENTINEL_ONLY: This command is present only when in sentinel mode.
  *
  * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
+ *
+ * CMD_NO_MULTI: The command is nt allowed inside a transaction
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -2169,6 +2186,7 @@ struct redisCommand {
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */
     keySpec *key_specs;
     keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
                                      * still maintained (if applicable) so that
@@ -2336,6 +2354,7 @@ void redisSetCpuAffinity(const char *cpulist);
 client *createClient(connection *conn);
 void freeClient(client *c);
 void freeClientAsync(client *c);
+void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...);
 int beforeNextClient(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
@@ -2776,6 +2795,7 @@ void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);
@@ -2909,7 +2929,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)  /* Don't update LRU. */
 #define LOOKUP_NONOTIFY (1<<1) /* Don't trigger keyspace event on key misses. */
-#define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses couters. */
+#define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses counters. */
 #define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
 
 void dbAdd(redisDb *db, robj *key, robj *val);
@@ -2998,7 +3018,7 @@ int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
-void freeFunctionsAsync(functionsCtx *f_ctx);
+void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
@@ -3044,7 +3064,7 @@ unsigned long LFUDecrAndReturn(robj *o);
 #define EVICT_RUNNING 1
 #define EVICT_FAIL 2
 int performEvictions(void);
-
+void startEvictionTimeProc(void);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
@@ -3260,11 +3280,10 @@ void evalShaRoCommand(client *c);
 void scriptCommand(client *c);
 void fcallCommand(client *c);
 void fcallroCommand(client *c);
-void functionCreateCommand(client *c);
+void functionLoadCommand(client *c);
 void functionDeleteCommand(client *c);
 void functionKillCommand(client *c);
 void functionStatsCommand(client *c);
-void functionInfoCommand(client *c);
 void functionListCommand(client *c);
 void functionHelpCommand(client *c);
 void functionFlushCommand(client *c);

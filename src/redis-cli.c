@@ -1192,8 +1192,18 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     case REDIS_REPLY_MAP:
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
-            out = cliFormatReplyJson(out, r->element[i]);
-
+            redisReply *key = r->element[i];
+            if (key->type == REDIS_REPLY_STATUS ||
+                key->type == REDIS_REPLY_STRING ||
+                key->type == REDIS_REPLY_VERB) {
+                out = cliFormatReplyJson(out, key);
+            } else {
+                /* According to JSON spec, JSON map keys must be strings, */
+                /* and in RESP3, they can be other types. */
+                sds tmp = cliFormatReplyJson(sdsempty(), key);
+                out = sdscatrepr(out,tmp,sdslen(tmp));
+                sdsfree(tmp);
+            }
             out = sdscat(out,":");
 
             out = cliFormatReplyJson(out, r->element[i+1]);
@@ -1415,7 +1425,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         if (config.monitor_mode) {
             do {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout);
 
                 /* This happens when the MONITOR command returns an error. */
@@ -1434,7 +1447,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             redisSetPushCallback(context, NULL);
 
             while (config.pubsub_mode) {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout); /* Make it grep friendly */
                 if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
@@ -2271,7 +2287,8 @@ static void repl(void) {
                     linenoiseFree(line);
                     return; /* Return to evalMode to restart the session. */
                 } else {
-                    printf("Use 'restart' only in Lua debugging mode.");
+                    printf("Use 'restart' only in Lua debugging mode.\n");
+                    fflush(stdout);
                 }
             } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                 sdsfree(config.conn_info.hostip);
@@ -8535,6 +8552,7 @@ int main(int argc, char **argv) {
     if (config.slave_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendReplconf("rdb-filter-only", "");
         slaveMode();
     }
 

@@ -1,7 +1,58 @@
+proc latency_histogram {cmd} {
+    return [lindex [r latency histogram $cmd] 1]
+}
+
 start_server {tags {"latency-monitor needs:latency"}} {
     # Set a threshold high enough to avoid spurious latency events.
     r config set latency-monitor-threshold 200
     r latency reset
+
+    test {LATENCY HISTOGRAM with empty histogram} {
+        r config resetstat
+        assert_match {} [latency_histogram set]
+        assert {[llength [r latency histogram]] == 0}
+    }
+
+    test {LATENCY HISTOGRAM all commands} {
+        r config resetstat
+        r set a b
+        r set c d
+        assert_match {calls 2 histogram_usec *} [latency_histogram set]
+    }
+
+    test {LATENCY HISTOGRAM with a subset of commands} {
+        r config resetstat
+        r set a b
+        r set c d
+        r get a
+        r hset f k v
+        r hgetall f
+        assert_match {calls 2 histogram_usec *} [latency_histogram set]
+        assert_match {calls 1 histogram_usec *} [latency_histogram hset]
+        assert_match {calls 1 histogram_usec *} [latency_histogram hgetall]
+        assert_match {calls 1 histogram_usec *} [latency_histogram get]
+        assert {[llength [r latency histogram]] == 8}
+        assert {[llength [r latency histogram set get]] == 4}
+    }
+
+    test {LATENCY HISTOGRAM command} {
+        r config resetstat
+        r set a b
+        r get a
+        assert {[llength [r latency histogram]] == 4}
+        assert {[llength [r latency histogram set get]] == 4}
+    }
+
+    test {LATENCY HISTOGRAM with wrong command name skips the invalid one} {
+        r config resetstat
+        assert {[llength [r latency histogram blabla]] == 0}
+        assert {[llength [r latency histogram blabla blabla2 set get]] == 0}
+        r set a b
+        r get a
+        assert_match {calls 1 histogram_usec *} [lindex [r latency histogram blabla blabla2 set get] 1]
+        assert_match {calls 1 histogram_usec *} [lindex [r latency histogram blabla blabla2 set get] 3]
+        assert {[string length [r latency histogram blabla set get]] > 0}
+    }
 
     test {Test latency events logging} {
         r debug sleep 0.3
