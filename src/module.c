@@ -267,9 +267,15 @@ typedef struct RedisModuleBlockedClient {
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
+/* Pool for temporary client objects. Creating and destroying a client object is
+ * costly. We manage a pool of clients to avoid this cost. Pool expands when
+ * more clients are needed and shrinks when unused. Please see modulesCron()
+ * for more details. */
 static client **moduleTempClients;
-static size_t moduleTempClientCount = 0;
 static size_t moduleTempClientCap = 0;
+static size_t moduleTempClientCount = 0;    /* Client count in pool */
+static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
+                                               the last cron. */
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
@@ -504,6 +510,8 @@ client *moduleAllocTempClient() {
 
     if (moduleTempClientCount > 0) {
         c = moduleTempClients[--moduleTempClientCount];
+        if (moduleTempClientMinCount > moduleTempClientCount)
+            moduleTempClientMinCount = moduleTempClientCount;
     } else {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
@@ -9532,17 +9540,24 @@ void moduleInitModulesSystem(void) {
 }
 
 void modulesCron(void) {
-    /* For two reasons, we limit max client count to be freed here. First, if
-     * there are many clients to be freed, this loop might become slow.
-     * Second, we are giving temp clients more chance to be reused. If they are
-     * not used, they'll be freed eventually rather than all at once. */
-    int iteration = 10;
-    /* Keep 32 clients for future use */
-    while (iteration > 0 && moduleTempClientCount > 32) {
+    /* Check number of temporary clients in the pool and free the unused ones
+     * since the last cron. moduleTempClientMinCount tracks minimum count of
+     * clients in the pool since the last cron. This is the number of clients
+     * that we didn't use for the last cron period. */
+
+    /* Limit the max client count to be freed at once to avoid latency spikes.*/
+    int iteration = 500;
+    /* We are freeing clients if we have more than 16 unused clients. Keeping
+     * small amount of clients to avoid client allocation costs if temporary
+     * clients are required after some idle period. */
+    const int min_client = 16;
+    while (iteration > 0 && moduleTempClientCount > 0 && moduleTempClientMinCount > min_client) {
         client *c = moduleTempClients[--moduleTempClientCount];
         freeClient(c);
         iteration--;
+        moduleTempClientMinCount--;
     }
+    moduleTempClientMinCount = moduleTempClientCount;
 }
 
 void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {
