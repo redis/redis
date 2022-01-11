@@ -6433,8 +6433,8 @@ void moduleHandleBlockedClients(void) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     /* Here we unblock all the pending clients blocked in modules operations
      * so we can read every pending "awake byte" in the pipe. */
-    char buf[1];
-    while (read(server.module_blocked_pipe[0],buf,1) == 1);
+    char buf[256];
+    while (read(server.module_blocked_pipe[0],buf,256) > 0);
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
