@@ -3795,6 +3795,20 @@ struct redisCommandArg BGSAVE_Args[] = {
 /* COMMAND COUNT hints */
 #define COMMAND_COUNT_Hints NULL
 
+/********** COMMAND DOCS ********************/
+
+/* COMMAND DOCS history */
+#define COMMAND_DOCS_History NULL
+
+/* COMMAND DOCS hints */
+#define COMMAND_DOCS_Hints NULL
+
+/* COMMAND DOCS argument table */
+struct redisCommandArg COMMAND_DOCS_Args[] = {
+{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** COMMAND GETKEYS ********************/
 
 /* COMMAND GETKEYS history */
@@ -3814,14 +3828,17 @@ struct redisCommandArg BGSAVE_Args[] = {
 /********** COMMAND INFO ********************/
 
 /* COMMAND INFO history */
-#define COMMAND_INFO_History NULL
+commandHistory COMMAND_INFO_History[] = {
+{"7.0.0","Allowed to be called with no argument to get info on all commands."},
+{0}
+};
 
 /* COMMAND INFO hints */
 #define COMMAND_INFO_Hints NULL
 
 /* COMMAND INFO argument table */
 struct redisCommandArg COMMAND_INFO_Args[] = {
-{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3850,9 +3867,10 @@ struct redisCommandArg COMMAND_LIST_Args[] = {
 /* COMMAND command table */
 struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_Hints,commandCountCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
+{"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_Hints,commandDocsCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_Hints,commandGetKeysCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_Hints,commandHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
-{"info","Get array of specific Redis command details","O(N) when N is number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_Hints,commandInfoCommand,-3,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
+{"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_Hints,commandInfoCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
 {"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_Hints,commandListCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args},
 {0}
 };
