@@ -259,7 +259,8 @@ typedef enum {
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
- * the module should use RedisModuleEvent_* variables */
+ * the module should use RedisModuleEvent_* variables.
+ * Note: This must be synced with moduleEventVersions */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
 #define REDISMODULE_EVENT_PERSISTENCE 1
 #define REDISMODULE_EVENT_FLUSHDB 2
@@ -286,6 +287,32 @@ struct RedisModuleCtx;
 struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
+/* IMPORTANT: When adding a new version of one of below structures that contain
+ * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
+ * old RedisModuleEvent structure.
+ * For example, if we want to add RedisModuleFlushInfoV2, the RedisModuleEvent
+ * structures should be:
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDBV2 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * and NOT:
+ *      RedisModuleEvent_FlushDBV1 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * The reason for that is forward-compatibility: We want that module that
+ * compiled with a new redismodule.h to be able to work with a old server,
+ * unless the author explicitly decided to use the newer event type.
+ */
 static const RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
         REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
