@@ -501,7 +501,7 @@ void popGenericCommand(client *c, int where) {
             return;
     }
 
-    robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
+    robj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp]: shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 

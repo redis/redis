@@ -179,6 +179,7 @@ typedef struct clusterManagerCommand {
     char *name;
     int argc;
     char **argv;
+    sds stdin_arg; /* arg from stdin. (-X option) */
     int flags;
     int replicas;
     char *from;
@@ -196,7 +197,7 @@ typedef struct clusterManagerCommand {
     int from_askpass;
 } clusterManagerCommand;
 
-static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
+static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 
 
 static redisContext *context;
@@ -225,6 +226,7 @@ static struct config {
     int pipe_mode;
     int pipe_timeout;
     int getrdb_mode;
+    int get_functions_rdb_mode;
     int stat_mode;
     int scan_mode;
     int intrinsic_latency_mode;
@@ -235,7 +237,9 @@ static struct config {
     int memkeys;
     unsigned memkeys_samples;
     int hotkeys;
-    int stdinarg; /* get last arg from stdin. (-x option) */
+    int stdin_lastarg; /* get last arg from stdin. (-x option) */
+    int stdin_tag_arg; /* get <tag> arg from stdin. (-X option) */
+    char *stdin_tag_name; /* Placeholder(tag name) for user input. */
     int askpass;
     int quoted_input;   /* Force input args to be treated as quoted strings */
     int output; /* output mode, see OUTPUT_* defines */
@@ -1188,8 +1192,18 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     case REDIS_REPLY_MAP:
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
-            out = cliFormatReplyJson(out, r->element[i]);
-
+            redisReply *key = r->element[i];
+            if (key->type == REDIS_REPLY_STATUS ||
+                key->type == REDIS_REPLY_STRING ||
+                key->type == REDIS_REPLY_VERB) {
+                out = cliFormatReplyJson(out, key);
+            } else {
+                /* According to JSON spec, JSON map keys must be strings, */
+                /* and in RESP3, they can be other types. */
+                sds tmp = cliFormatReplyJson(sdsempty(), key);
+                out = sdscatrepr(out,tmp,sdslen(tmp));
+                sdsfree(tmp);
+            }
             out = sdscat(out,":");
 
             out = cliFormatReplyJson(out, r->element[i+1]);
@@ -1377,7 +1391,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     if (!strcasecmp(command,"subscribe") ||
-        !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
+        !strcasecmp(command,"psubscribe") ||
+        !strcasecmp(command,"ssubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
 
@@ -1410,7 +1425,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         if (config.monitor_mode) {
             do {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout);
 
                 /* This happens when the MONITOR command returns an error. */
@@ -1429,7 +1447,10 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             redisSetPushCallback(context, NULL);
 
             while (config.pubsub_mode) {
-                if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                if (cliReadReply(output_raw) != REDIS_OK) {
+                    cliPrintContextError();
+                    exit(1);
+                }
                 fflush(stdout); /* Make it grep friendly */
                 if (!config.pubsub_mode || config.last_cmd_type == REDIS_REPLY_ERROR) {
                     if (config.push_output) {
@@ -1562,7 +1583,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             usage(0);
         } else if (!strcmp(argv[i],"-x")) {
-            config.stdinarg = 1;
+            config.stdin_lastarg = 1;
+        } else if (!strcmp(argv[i], "-X") && !lastarg) {
+            config.stdin_tag_arg = 1;
+            config.stdin_tag_name = argv[++i];
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
@@ -1637,6 +1661,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--rdb") && !lastarg) {
             config.getrdb_mode = 1;
             config.rdb_filename = argv[++i];
+        } else if (!strcmp(argv[i],"--functions-rdb") && !lastarg) {
+            config.get_functions_rdb_mode = 1;
+            config.rdb_filename = argv[++i];
         } else if (!strcmp(argv[i],"--pipe")) {
             config.pipe_mode = 1;
         } else if (!strcmp(argv[i],"--pipe-timeout") && !lastarg) {
@@ -1678,7 +1705,8 @@ static int parseOptions(int argc, char **argv) {
             int j = i;
             while (j < argc && argv[j][0] != '-') j++;
             if (j > i) j--;
-            createClusterManagerCommand(cmd, j - i, argv + i + 1);
+            int err = createClusterManagerCommand(cmd, j - i, argv + i + 1);
+            if (err) exit(err);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
             usage(1);
@@ -1841,6 +1869,16 @@ static int parseOptions(int argc, char **argv) {
               " line interface may not be safe.\n", stderr);
     }
 
+    if (config.get_functions_rdb_mode && config.getrdb_mode) {
+        fprintf(stderr,"Option --functions-rdb and --rdb are mutually exclusive.\n");
+        exit(1);
+    }
+ 
+    if (config.stdin_lastarg && config.stdin_tag_arg) {
+        fprintf(stderr, "Options -x and -X are mutually exclusive.\n");
+        exit(1);
+    }
+
     return i;
 }
 
@@ -1885,7 +1923,8 @@ static void usage(int err) {
 "  -n <db>            Database number.\n"
 "  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
-"  -x                 Read last argument from STDIN.\n"
+"  -x                 Read last argument from STDIN (see example below).\n"
+"  -X                 Read <tag> argument from STDIN (see example below).\n"
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
@@ -1936,6 +1975,8 @@ static void usage(int err) {
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "                     Use filename of \"-\" to write to stdout.\n"
+" --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
+"                     when getting the RDB dump file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -1975,7 +2016,7 @@ static void usage(int err) {
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
-"  redis-cli get mypasswd\n"
+"  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
 "  redis-cli -r 100 lpush mylist x\n"
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
@@ -2246,7 +2287,8 @@ static void repl(void) {
                     linenoiseFree(line);
                     return; /* Return to evalMode to restart the session. */
                 } else {
-                    printf("Use 'restart' only in Lua debugging mode.");
+                    printf("Use 'restart' only in Lua debugging mode.\n");
+                    fflush(stdout);
                 }
             } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                 sdsfree(config.conn_info.hostip);
@@ -2290,14 +2332,33 @@ static void repl(void) {
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
     sds *sds_args = getSdsArrayFromArgv(argc, argv, config.quoted_input);
+
     if (!sds_args) {
         printf("Invalid quoted string\n");
         return 1;
     }
-    if (config.stdinarg) {
+
+    if (config.stdin_lastarg) {
         sds_args = sds_realloc(sds_args, (argc + 1) * sizeof(sds));
         sds_args[argc] = readArgFromStdin();
         argc++;
+    } else if (config.stdin_tag_arg) {
+        int i = 0, tag_match = 0;
+
+        for (; i < argc; i++) {
+            if (strcmp(config.stdin_tag_name, sds_args[i]) != 0) continue;
+
+            tag_match = 1;
+            sdsfree(sds_args[i]);
+            sds_args[i] = readArgFromStdin();
+            break;
+        }
+
+        if (!tag_match) {
+            sdsfreesplitres(sds_args, argc);
+            fprintf(stderr, "Using -X option but stdin tag not match.\n");
+            return 1;
+        }
     }
 
     retval = issueCommand(argc, sds_args);
@@ -2577,14 +2638,41 @@ clusterManagerOptionDef clusterManagerOptions[] = {
 
 static void getRDB(clusterManagerNode *node);
 
-static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
+static int createClusterManagerCommand(char *cmdname, int argc, char **argv) {
     clusterManagerCommand *cmd = &config.cluster_manager_command;
     cmd->name = cmdname;
     cmd->argc = argc;
     cmd->argv = argc ? argv : NULL;
     if (isColorTerm()) cmd->flags |= CLUSTER_MANAGER_CMD_FLAG_COLOR;
-}
 
+    if (config.stdin_lastarg) {
+        char **new_argv = zmalloc(sizeof(char*) * (cmd->argc+1));
+        memcpy(new_argv, cmd->argv, sizeof(char*) * cmd->argc);
+
+        cmd->stdin_arg = readArgFromStdin();
+        new_argv[cmd->argc++] = cmd->stdin_arg;
+        cmd->argv = new_argv;
+    } else if (config.stdin_tag_arg) {
+        int i = 0, tag_match = 0;
+        cmd->stdin_arg = readArgFromStdin();
+
+        for (; i < argc; i++) {
+            if (strcmp(argv[i], config.stdin_tag_name) != 0) continue;
+
+            tag_match = 1;
+            cmd->argv[i] = (char *)cmd->stdin_arg;
+            break;
+        }
+
+        if (!tag_match) {
+            sdsfree(cmd->stdin_arg);
+            fprintf(stderr, "Using -X option but stdin tag not match.\n");
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 static clusterManagerCommandProc *validateClusterManagerCommand(void) {
     int i, commands_count = sizeof(clusterManagerCommands) /
@@ -5591,12 +5679,18 @@ static void clusterManagerMode(clusterManagerCommandProc *proc) {
     int argc = config.cluster_manager_command.argc;
     char **argv = config.cluster_manager_command.argv;
     cluster_manager.nodes = NULL;
-    if (!proc(argc, argv)) goto cluster_manager_err;
+    int success = proc(argc, argv);
+
+    /* Initialized in createClusterManagerCommand. */
+    if (config.stdin_lastarg) {
+        zfree(config.cluster_manager_command.argv);
+        sdsfree(config.cluster_manager_command.stdin_arg);
+    } else if (config.stdin_tag_arg) {
+        sdsfree(config.cluster_manager_command.stdin_arg);
+    }
     freeClusterManager();
-    exit(0);
-cluster_manager_err:
-    freeClusterManager();
-    exit(1);
+
+    exit(success ? 0 : 1);
 }
 
 /* Cluster Manager Commands */
@@ -5880,6 +5974,8 @@ cleanup:
 static int clusterManagerCommandAddNode(int argc, char **argv) {
     int success = 1;
     redisReply *reply = NULL;
+    redisReply *function_restore_reply = NULL;
+    redisReply *function_list_reply = NULL;
     char *ref_ip = NULL, *ip = NULL;
     int ref_port = 0, port = 0;
     if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port))
@@ -5944,6 +6040,43 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     listAddNodeTail(cluster_manager.nodes, new_node);
     added = 1;
 
+    if (!master_node) {
+        /* Send functions to the new node, if new node is a replica it will get the functions from its primary. */
+        clusterManagerLogInfo(">>> Getting functions from cluster\n");
+        reply = CLUSTER_MANAGER_COMMAND(refnode, "FUNCTION DUMP");
+        if (!clusterManagerCheckRedisReply(refnode, reply, &err)) {
+            clusterManagerLogInfo(">>> Failed retrieving Functions from the cluster, "
+                    "skip this step as Redis version do not support function command (error = '%s')\n", err? err : "NULL reply");
+            if (err) zfree(err);
+        } else {
+            assert(reply->type == REDIS_REPLY_STRING);
+            clusterManagerLogInfo(">>> Send FUNCTION LIST to %s:%d to verify there is no functions in it\n", ip, port);
+            function_list_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION LIST");
+            if (!clusterManagerCheckRedisReply(new_node, function_list_reply, &err)) {
+                clusterManagerLogErr(">>> Failed on CLUSTER LIST (error = '%s')\r\n", err? err : "NULL reply");
+                if (err) zfree(err);
+                success = 0;
+                goto cleanup;
+            }
+            assert(function_list_reply->type == REDIS_REPLY_ARRAY);
+            if (function_list_reply->elements > 0) {
+                clusterManagerLogErr(">>> New node already contains functions and can not be added to the cluster. Use FUNCTION FLUSH and try again.\r\n");
+                success = 0;
+                goto cleanup;
+            }
+            clusterManagerLogInfo(">>> Send FUNCTION RESTORE to %s:%d\n", ip, port);
+            function_restore_reply = CLUSTER_MANAGER_COMMAND(new_node, "FUNCTION RESTORE %b", reply->str, reply->len);
+            if (!clusterManagerCheckRedisReply(new_node, function_restore_reply, &err)) {
+                clusterManagerLogErr(">>> Failed loading functions to the new node (error = '%s')\r\n", err? err : "NULL reply");
+                if (err) zfree(err);
+                success = 0;
+                goto cleanup;
+            }
+        }
+    }
+
+    if (reply) freeReplyObject(reply);
+
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
                           "join the cluster.\n", ip, port);
@@ -5968,6 +6101,8 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
 cleanup:
     if (!added && new_node) freeClusterManagerNode(new_node);
     if (reply) freeReplyObject(reply);
+    if (function_restore_reply) freeReplyObject(function_restore_reply);
+    if (function_list_reply) freeReplyObject(function_list_reply);
     return success;
 invalid_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
@@ -7052,7 +7187,8 @@ static void latencyDistMode(void) {
 
 #define RDB_EOF_MARK_SIZE 40
 
-void sendReplconf(const char* arg1, const char* arg2) {
+int sendReplconf(const char* arg1, const char* arg2) {
+    int res = 1;
     fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
@@ -7061,10 +7197,12 @@ void sendReplconf(const char* arg1, const char* arg2) {
         fprintf(stderr, "\nI/O error\n");
         exit(1);
     } else if(reply->type == REDIS_REPLY_ERROR) {
-        fprintf(stderr, "REPLCONF %s error: %s\n", arg1, reply->str);
         /* non fatal, old versions may not support it */
+        fprintf(stderr, "REPLCONF %s error: %s\n", arg1, reply->str);
+        res = 0;
     }
     freeReplyObject(reply);
+    return res;
 }
 
 void sendCapa() {
@@ -8305,6 +8443,7 @@ int main(int argc, char **argv) {
     config.cluster_send_asking = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;
+    config.get_functions_rdb_mode = 0;
     config.stat_mode = 0;
     config.scan_mode = 0;
     config.intrinsic_latency_mode = 0;
@@ -8314,7 +8453,9 @@ int main(int argc, char **argv) {
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
     config.hotkeys = 0;
-    config.stdinarg = 0;
+    config.stdin_lastarg = 0;
+    config.stdin_tag_arg = 0;
+    config.stdin_tag_name = NULL;
     config.conn_info.auth = NULL;
     config.askpass = 0;
     config.conn_info.user = NULL;
@@ -8331,6 +8472,7 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
+    config.cluster_manager_command.stdin_arg = NULL;
     config.cluster_manager_command.flags = 0;
     config.cluster_manager_command.replicas = 0;
     config.cluster_manager_command.from = NULL;
@@ -8410,14 +8552,19 @@ int main(int argc, char **argv) {
     if (config.slave_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
+        sendReplconf("rdb-filter-only", "");
         slaveMode();
     }
 
-    /* Get RDB mode. */
-    if (config.getrdb_mode) {
+    /* Get RDB/functions mode. */
+    if (config.getrdb_mode || config.get_functions_rdb_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         sendCapa();
         sendRdbOnly();
+        if (config.get_functions_rdb_mode && !sendReplconf("rdb-filter-only", "functions")) {
+            fprintf(stderr, "Failed requesting functions only RDB from server, aborting\n");
+            exit(1);
+        }
         getRDB(NULL);
     }
 

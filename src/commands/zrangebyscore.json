@@ -6,6 +6,12 @@
         "since": "1.0.5",
         "arity": -4,
         "function": "zrangebyscoreCommand",
+        "history": [
+            [
+                "2.0.0",
+                "Added the `WITHSCORES` modifier."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`ZRANGE` with the `BYSCORE` argument",
         "doc_flags": [
@@ -54,7 +60,8 @@
                 "name": "withscores",
                 "token": "WITHSCORES",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "2.0.0"
             },
             {
                 "token": "LIMIT",

@@ -8,11 +8,11 @@
         "function": "xaddCommand",
         "history": [
             [
-                "6.2",
+                "6.2.0",
                 "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."
             ],
             [
-                "7.0",
+                "7.0.0",
                 "Added support for the `<ms>-*` explicit ID form."
             ]
         ],
@@ -55,7 +55,7 @@
                 "name": "nomkstream",
                 "type": "pure-token",
                 "optional": true,
-                "since": "6.2"
+                "since": "6.2.0"
             },
             {
                 "name": "trim",
@@ -75,7 +75,7 @@
                                 "name": "minid",
                                 "type": "pure-token",
                                 "token": "MINID",
-                                "since": "6.2"
+                                "since": "6.2.0"
                             }
                         ]
                     },
@@ -105,7 +105,7 @@
                         "name": "count",
                         "type": "integer",
                         "optional": true,
-                        "since": "6.2"
+                        "since": "6.2.0"
                     }
                 ]
             },

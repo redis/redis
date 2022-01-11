@@ -40,9 +40,13 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"
+#include "config.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -590,6 +594,20 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/* Trims off trailing zeros from a string representing a double. */
+int trimDoubleString(char *buf, size_t len) {
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    buf[len] = '\0';
+    return len;
+}
+
 /* Create a string object from a long double.
  * If mode is humanfriendly it does not use exponential format and trims trailing
  * zeroes at the end (may result in loss of precision).
@@ -808,6 +826,92 @@ long getTimeZone(void) {
  * environments where Redis runs. */
 int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
+}
+
+int fileExist(char *filename) {
+    struct stat statbuf;
+    return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
+}
+
+int dirExists(char *dname) {
+    struct stat statbuf;
+    return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
+}
+
+int dirCreateIfMissing(char *dname) {
+    if (mkdir(dname, 0755) != 0) {
+        if (errno != EEXIST) {
+            return -1;
+        } else if (!dirExists(dname)) {
+            errno = ENOTDIR;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int dirRemove(char *dname) {
+    DIR *dir;
+    struct stat stat_entry;
+    struct dirent *entry;
+    char full_path[PATH_MAX + 1];
+
+    if ((dir = opendir(dname)) == NULL) {
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        snprintf(full_path, sizeof(full_path), "%s/%s", dname, entry->d_name);
+
+        int fd = open(full_path, O_RDONLY|O_NONBLOCK);
+        if (fd == -1) {
+            closedir(dir);
+            return -1;
+        }
+
+        if (fstat(fd, &stat_entry) == -1) {
+            close(fd);
+            closedir(dir);
+            return -1;
+        }
+        close(fd);
+
+        if (S_ISDIR(stat_entry.st_mode) != 0) {
+            if (dirRemove(full_path) == -1) {
+                return -1;
+            }
+            continue;
+        }
+
+        if (unlink(full_path) != 0) {
+            closedir(dir);
+            return -1;
+        }
+    }
+
+    if (rmdir(dname) != 0) {
+        closedir(dir);
+        return -1;
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+sds makePath(char *path, char *filename) {
+    return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
+int includeSpace(char *s) {
+    if (s == NULL) return 0;
+    for (size_t i = 0; i < strlen(s); i++) {
+        if (isspace(s[i])) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 #ifdef REDIS_TEST

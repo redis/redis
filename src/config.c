@@ -141,6 +141,13 @@ configEnum protected_action_enum[] = {
     {NULL, 0}
 };
 
+configEnum cluster_preferred_endpoint_type_enum[] = {
+    {"ip", CLUSTER_ENDPOINT_TYPE_IP},
+    {"hostname", CLUSTER_ENDPOINT_TYPE_HOSTNAME},
+    {"unknown-endpoint", CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -2143,9 +2150,53 @@ static int isValidDBfilename(char *val, const char **err) {
 }
 
 static int isValidAOFfilename(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appendfilename can't be empty";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appendfilename can't be a path, just a filename";
         return 0;
+    }
+    return 1;
+}
+
+static int isValidAOFdirname(char *val, const char **err) {
+    if (!strcmp(val, "")) {
+        *err = "appenddirname can't be empty";
+        return 0;
+    }
+    if (includeSpace(val)) {
+        *err = "appenddirname can't contain whitespace characters";
+        return 0;
+    }
+    if (!pathIsBaseName(val)) {
+        *err = "appenddirname can't be a path, just a dirname";
+        return 0;
+    }
+    return 1;
+}
+
+static int isValidAnnouncedHostname(char *val, const char **err) {
+    if (strlen(val) >= NET_HOST_STR_LEN) {
+        *err = "Hostnames must be less than "
+            STRINGIFY(NET_HOST_STR_LEN) " characters";
+        return 0;
+    }
+
+    int i = 0;
+    char c;
+    while ((c = val[i])) {
+        /* We just validate the character set to make sure that everything
+         * is parsed and handled correctly. */
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+            || (c >= '0' && c <= '9') || (c == '-') || (c == '.')))
+        {
+            *err = "Hostnames may only contain alphanumeric characters, "
+                "hyphens or dots";
+            return 0;
+        }
+        c = val[i++];
     }
     return 1;
 }
@@ -2205,11 +2256,8 @@ static int updateMaxmemory(const char **err) {
         if (server.maxmemory < used) {
             serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET (%llu) is smaller than the current memory usage (%zu). This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.", server.maxmemory, used);
         }
-        performEvictions();
+        startEvictionTimeProc();
     }
-    /* The function is called via 'CONFIG SET maxmemory', we don't want to propagate it
-     * because server.dirty might have been incremented by performEvictions() */
-    preventCommandPropagation(server.current_client);
     return 1;
 }
 
@@ -2234,6 +2282,15 @@ static int updateAppendonly(const char **err) {
             return 0;
         }
     }
+    return 1;
+}
+
+static int updateAofAutoGCEnabled(const char **err) {
+    UNUSED(err);
+    if (!server.aof_disable_auto_gc) {
+        aofDelHistoryFiles();
+    }
+
     return 1;
 }
 
@@ -2305,6 +2362,12 @@ int updateClusterFlags(const char **err) {
 static int updateClusterIp(const char **err) {
     UNUSED(err);
     clusterUpdateMyselfIp();
+    return 1;
+}
+
+int updateClusterHostname(const char **err) {
+    UNUSED(err);
+    clusterUpdateMyselfHostname();
     return 1;
 }
 
@@ -2601,6 +2664,75 @@ int allowProtectedAction(int config, client *c) {
            (config == PROTECTED_ACTION_ALLOWED_LOCAL && islocalClient(c));
 }
 
+
+static int setConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, sds *argv, int argc, const char **err) {
+    UNUSED(data);
+    zfree(server.latency_tracking_info_percentiles);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = argc;
+
+    /* Special case: treat single arg "" as zero args indicating empty percentile configuration */
+    if (argc == 1 && sdslen(argv[0]) == 0)
+        server.latency_tracking_info_percentiles_len = 0;
+    else
+        server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*argc);
+
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        double percentile;
+        if (!string2d(argv[j], sdslen(argv[j]), &percentile)) {
+            *err = "Invalid latency-tracking-info-percentiles parameters";
+            goto configerr;
+        }
+        if (percentile > 100.0 || percentile < 0.0) {
+            *err = "latency-tracking-info-percentiles parameters should sit between [0.0,100.0]";
+            goto configerr;
+        }
+        server.latency_tracking_info_percentiles[j] = percentile;
+    }
+
+    return 1;
+configerr:
+    zfree(server.latency_tracking_info_percentiles);
+    server.latency_tracking_info_percentiles = NULL;
+    server.latency_tracking_info_percentiles_len = 0;
+    return 0;
+}
+
+static sds getConfigLatencyTrackingInfoPercentilesOutputOption(typeData data) {
+    UNUSED(data);
+    sds buf = sdsempty();
+    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+        char fbuf[128];
+        size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+        len = trimDoubleString(fbuf, len);
+        buf = sdscatlen(buf, fbuf, len);
+        if (j != server.latency_tracking_info_percentiles_len-1)
+            buf = sdscatlen(buf," ",1);
+    }
+    return buf;
+}
+
+/* Rewrite the latency-tracking-info-percentiles option. */
+void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, const char *name, struct rewriteConfigState *state) {
+    UNUSED(data);
+    sds line = sdsnew(name);
+    /* Rewrite latency-tracking-info-percentiles parameters,
+     * or an empty 'latency-tracking-info-percentiles ""' line to avoid the
+     * defaults from being used.
+     */
+    if (!server.latency_tracking_info_percentiles_len) {
+        line = sdscat(line," \"\"");
+    } else {
+        for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
+            char fbuf[128];
+            size_t len = sprintf(fbuf, " %f", server.latency_tracking_info_percentiles[j]);
+            len = trimDoubleString(fbuf, len);
+            line = sdscatlen(line, fbuf, len);
+        }
+    }
+    rewriteConfigRewriteLine(state,name,line,1);
+}
+
 standardConfig configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -2639,13 +2771,16 @@ standardConfig configs[] = {
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
+    createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
     createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
     createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
-
+    createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
+    createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
+    
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
@@ -2654,9 +2789,11 @@ standardConfig configs[] = {
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
+    createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),
+    createStringConfig("appenddirname", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_dirname, "appendonlydir", isValidAOFdirname, NULL),
     createStringConfig("server_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.server_cpulist, NULL, NULL, NULL),
     createStringConfig("bio_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bio_cpulist, NULL, NULL, NULL),
     createStringConfig("aof_rewrite_cpulist", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.aof_rewrite_cpulist, NULL, NULL, NULL),
@@ -2683,6 +2820,7 @@ standardConfig configs[] = {
     createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_protected_configs, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
+    createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2720,6 +2858,7 @@ standardConfig configs[] = {
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
+    createIntConfig("shutdown-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.shutdown_timeout, 10, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2792,6 +2931,7 @@ standardConfig configs[] = {
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
+    createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
 
     /* NULL Terminator */
     {NULL}

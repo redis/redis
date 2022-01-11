@@ -259,7 +259,8 @@ typedef enum {
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
- * the module should use RedisModuleEvent_* variables */
+ * the module should use RedisModuleEvent_* variables.
+ * Note: This must be synced with moduleEventVersions */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
 #define REDISMODULE_EVENT_PERSISTENCE 1
 #define REDISMODULE_EVENT_FLUSHDB 2
@@ -286,6 +287,32 @@ struct RedisModuleCtx;
 struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
+/* IMPORTANT: When adding a new version of one of below structures that contain
+ * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
+ * old RedisModuleEvent structure.
+ * For example, if we want to add RedisModuleFlushInfoV2, the RedisModuleEvent
+ * structures should be:
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDBV2 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * and NOT:
+ *      RedisModuleEvent_FlushDBV1 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * The reason for that is forward-compatibility: We want that module that
+ * compiled with a new redismodule.h to be able to work with a old server,
+ * unless the author explicitly decided to use the newer event type.
+ */
 static const RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
         REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
@@ -876,9 +903,6 @@ REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModu
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
 
-/* Experimental APIs */
-#ifdef REDISMODULE_EXPERIMENTAL_API
-#define REDISMODULE_EXPERIMENTAL_API_VERSION 3
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -950,7 +974,6 @@ REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, un
 REDISMODULE_API int (*RedisModule_DefragCursorGet)(RedisModuleDefragCtx *ctx, unsigned long *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetDbIdFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
-#endif
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1198,8 +1221,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
-
-#ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
@@ -1271,7 +1292,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DefragCursorGet);
     REDISMODULE_GET_API(GetKeyNameFromDefragCtx);
     REDISMODULE_GET_API(GetDbIdFromDefragCtx);
-#endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
