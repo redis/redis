@@ -124,14 +124,14 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
 
         line = sdstrim(sdsnew(buf), " \t\r\n");
         if (!sdslen(line)) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
         argv = sdssplitargs(line, &argc);
         /* 'argc < 6' was done for forward compatibility. */
         if (argv == NULL || argc < 6 || (argc % 2)) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
@@ -148,7 +148,7 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
                 errno = 0;
                 ai->file_seq = strtoll(argv[i+1], &endptr, 10);
                 if (errno != 0 || *endptr != '\0') {
-                    err = "The AOF manifest file is invalid format";
+                    err = "Invalid AOF manifest file format";
                     goto loaderr;
                 }
             } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
@@ -158,7 +158,7 @@ static aofManifest *loadManifestFromFile(char *am_filepath) {
         }
 
         if (!ai->file_name || !ai->file_seq || !ai->file_type) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 

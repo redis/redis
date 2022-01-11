@@ -100,7 +100,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 1 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 1 [count_message_lines $server_path/stdout "Invalid AOF manifest file format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -213,7 +213,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 2 [count_message_lines $server_path/stdout "Invalid AOF manifest file format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -267,7 +267,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 3 [count_message_lines $server_path/stdout "Invalid AOF manifest file format"]
         }
 
         clean_aof_persistence $aof_dirpath

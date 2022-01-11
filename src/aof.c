@@ -283,7 +283,7 @@ void aofLoadManifestFromDisk(void) {
         argv = sdssplitargs(line, &argc);
         /* 'argc < 6' was done for forward compatibility. */
         if (argv == NULL || argc < 6 || (argc % 2)) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
