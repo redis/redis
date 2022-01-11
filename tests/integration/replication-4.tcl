@@ -48,11 +48,8 @@ start_server {tags {"repl external:skip"}} {
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
-            wait_for_sync $slave
-            wait_for_ofs_sync $slave $master
+            wait_replica_online $master
         }
-
-
 
         test {With min-slaves-to-write (1,3): master should be writable} {
             $master config set min-slaves-max-lag 3
