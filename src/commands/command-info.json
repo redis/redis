@@ -4,7 +4,7 @@
         "complexity": "O(N) when N is number of commands to look up",
         "group": "server",
         "since": "2.8.13",
-        "arity": -3,
+        "arity": -2,
         "container": "COMMAND",
         "function": "commandInfoCommand",
         "command_flags": [

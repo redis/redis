@@ -4595,12 +4595,24 @@ void commandListCommand(client *c) {
     dictReleaseIterator(di);
 }
 
-/* COMMAND INFO <command-name> [<command-name> ...] */
+/* COMMAND INFO [<command-name> ...] */
 void commandInfoCommand(client *c) {
     int i;
-    addReplyArrayLen(c, c->argc-2);
-    for (i = 2; i < c->argc; i++) {
-        addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr));
+
+    if (c->argc == 2) {
+        dictIterator *di;
+        dictEntry *de;
+        addReplyArrayLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommandInfo(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    } else {
+        addReplyArrayLen(c, c->argc-2);
+        for (i = 2; i < c->argc; i++) {
+            addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr));
+        }
     }
 }
 
@@ -4652,8 +4664,10 @@ void commandHelpCommand(client *c) {
 "    Return the total number of commands in this Redis server.",
 "LIST",
 "    Return a list of all commands in this Redis server.",
-"INFO <command-name> [<command-name> ...]",
+"INFO [<command-name> ...]",
 "    Return details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
 "DOCS [<command-name> ...]",
 "    Return documentation details about multiple Redis commands.",
 "    If no command names are given, documentation details for all",
