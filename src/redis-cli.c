@@ -437,10 +437,12 @@ static sds cliAddArgument(sds params, redisReply *argMap);
 
 /* Concatenate a list of arguments to the parameter string, separated by a separator string. */
 static sds cliConcatArguments(sds params, redisReply *arguments, char *separator) {
-    for (size_t j = 0; j < arguments->elements; j++) {
-        params = cliAddArgument(params, arguments->element[j]);
-        if (j != arguments->elements - 1) {
-            params = sdscat(params, separator);
+    if (arguments->type == REDIS_REPLY_ARRAY) {
+        for (size_t j = 0; j < arguments->elements; j++) {
+            params = cliAddArgument(params, arguments->element[j]);
+            if (j != arguments->elements - 1) {
+                params = sdscat(params, separator);
+            }
         }
     }
     return params;
@@ -458,24 +460,42 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
     sds repeatPart = sdsempty();
 
     /* First read the fields describing the argument. */
+    if (argMap->type != REDIS_REPLY_ARRAY) {
+        return params;
+    }
     for (size_t i = 0; i < argMap->elements; i += 2) {
+        if (argMap->element[i]->type != REDIS_REPLY_STRING) {
+            continue;
+        }
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
-            name = argMap->element[i + 1]->str;
+            if (argMap->element[i + 1]->type == REDIS_REPLY_STRING) {
+                name = argMap->element[i + 1]->str;
+            }
         }
         else if (!strcmp(key, "token")) {
-            char *token = argMap->element[i + 1]->str;
-            tokenPart = sdscat_orempty(tokenPart, token);
+            if (argMap->element[i + 1]->type == REDIS_REPLY_STRING) {
+                char *token = argMap->element[i + 1]->str;
+                tokenPart = sdscat_orempty(tokenPart, token);
+            }
         }
         else if (!strcmp(key, "type")) {
-            type = argMap->element[i + 1]->str;
+            if (argMap->element[i + 1]->type == REDIS_REPLY_STRING) {
+                type = argMap->element[i + 1]->str;
+            }
         }
         else if (!strcmp(key, "arguments")) {
             arguments = argMap->element[i + 1];
         }
         else if (!strcmp(key, "flags")) {
             redisReply *flags = argMap->element[i + 1];
+            if (flags->type != REDIS_REPLY_ARRAY) {
+                continue;
+            }
             for (size_t j = 0; j < flags->elements; j++) {
+                if (flags->element[j]->type != REDIS_REPLY_STATUS) {
+                    continue;
+                }
                 char *flag = flags->element[j]->str;
                 if (!strcmp(flag, "optional")) {
                     optional = 1;
@@ -558,33 +578,57 @@ static int cliInitCommandHelpEntry(char *cmdname, char *subcommandname, int help
     ch->name = help->full;
     ch->params = sdsempty();
 
-    if (reply->elements > 7) {
-        redisReply *map = reply->element[7];
-        for (size_t j = 0; j < map->elements; j += 2) {
-            char *key = map->element[j]->str;
-            if (!strcmp(key, "summary")) {
-                redisReply *reply = map->element[j + 1];
+    if (reply->elements < 8) {
+        return helpIndex;
+    }
+    redisReply *map = reply->element[7];
+    if (map->type != REDIS_REPLY_ARRAY) {
+        return helpIndex;
+    }
+    for (size_t j = 0; j < map->elements; j += 2) {
+        if (map->element[j]->type != REDIS_REPLY_STRING) {
+            break;
+        }
+        char *key = map->element[j]->str;
+        if (!strcmp(key, "summary")) {
+            redisReply *reply = map->element[j + 1];
+            if (reply->type == REDIS_REPLY_STRING) {
                 ch->summary = sdsnew(reply->str);
             }
-            else if (!strcmp(key, "since")) {
-                redisReply *reply = map->element[j + 1];
+        }
+        else if (!strcmp(key, "since")) {
+            redisReply *reply = map->element[j + 1];
+            if (reply->type == REDIS_REPLY_STRING) {
                 ch->since = sdsnew(reply->str);
             }
-            else if (!strcmp(key, "group")) {
-                redisReply *reply = map->element[j + 1];
+        }
+        else if (!strcmp(key, "group")) {
+            redisReply *reply = map->element[j + 1];
+            if (reply->type == REDIS_REPLY_STRING) {
                 ch->group = sdsnew(reply->str);
             }
-            else if (!strcmp(key, "arguments")) {
-                redisReply *args = map->element[j + 1];
+        }
+        else if (!strcmp(key, "arguments")) {
+            redisReply *args = map->element[j + 1];
+            if (args->type == REDIS_REPLY_ARRAY) {
                 ch->params = cliConcatArguments(ch->params, args, " ");
             }
-            else if (!strcmp(key, "subcommands")) {
-                redisReply *subcommands = map->element[j + 1];
-                for (size_t i = 0; i < subcommands->elements; i++) {
-                    redisReply *subcommand = subcommands->element[i];
-                    char *subcommandname = subcommand->element[0]->str;
-                    helpIndex = cliInitCommandHelpEntry(cmdname, subcommandname, helpIndex, subcommands->element[i]);
+        }
+        else if (!strcmp(key, "subcommands")) {
+            redisReply *subcommands = map->element[j + 1];
+            if (subcommands->type != REDIS_REPLY_ARRAY) {
+                break;
+            }
+            for (size_t i = 0; i < subcommands->elements; i++) {
+                redisReply *subcommand = subcommands->element[i];
+                if (subcommand->type != REDIS_REPLY_ARRAY) {
+                    break;
                 }
+                if (subcommand->element[0]->type != REDIS_REPLY_STRING) {
+                    break;
+                }
+                char *subcommandname = subcommand->element[0]->str;
+                helpIndex = cliInitCommandHelpEntry(cmdname, subcommandname, helpIndex, subcommands->element[i]);
             }
         }
     }
@@ -602,9 +646,15 @@ static size_t cliCountCommands(redisReply* commandTable) {
         }
         redisReply *map = entry->element[7];
         for (size_t j = 0; j < map->elements; j += 2) {
+            if (map->element[j]->type != REDIS_REPLY_STRING) {
+                continue;
+            }
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
                 redisReply *subcommands = map->element[j + 1];
+                if (subcommands->type != REDIS_REPLY_ARRAY) {
+                    continue;
+                }
                 numCommands += subcommands->elements;
             }
         }
@@ -635,10 +685,8 @@ static void cliInitHelp(void) {
 
     for (size_t j = 0; j < reply->elements; j++) {
         redisReply *command = reply->element[j];
-        if (command->type != REDIS_REPLY_ARRAY || command->elements < 4 ||
-            command->element[0]->type != REDIS_REPLY_STRING ||
-            command->element[1]->type != REDIS_REPLY_INTEGER ||
-            command->element[3]->type != REDIS_REPLY_INTEGER) return;
+        if (command->type != REDIS_REPLY_ARRAY || command->elements < 8 ||
+            command->element[0]->type != REDIS_REPLY_STRING) return;
         char *cmdname = command->element[0]->str;
         nextIndex = cliInitCommandHelpEntry(cmdname, NULL, nextIndex, command);
     }
