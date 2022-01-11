@@ -9546,7 +9546,7 @@ void modulesCron(void) {
      * that we didn't use for the last cron period. */
 
     /* Limit the max client count to be freed at once to avoid latency spikes.*/
-    int iteration = 500;
+    int iteration = 50;
     /* We are freeing clients if we have more than 8 unused clients. Keeping
      * small amount of clients to avoid client allocation costs if temporary
      * clients are required after some idle period. */
