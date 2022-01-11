@@ -676,10 +676,29 @@ start_server {tags {"scripting"}} {
             local a = {}
             for i=1,7999 do
                 a[i] = 1
-            end 
+            end
             return redis.call("lpush", "l", unpack(a))
         } 0
     } {7999}
+
+    test "Script read key with expiration set" {
+        r SET key value EX 10
+        assert_equal [run_script {
+             if redis.call("EXISTS", "key") then
+                 return redis.call("GET", "key")
+             else
+                 return redis.call("EXISTS", "key")
+             end
+        } 0] "value"
+    }
+
+    test "Script del key with expiration set" {
+        r SET key value EX 10
+        assert_equal [run_script {
+             redis.call("DEL", "key")
+             return redis.call("EXISTS", "key")
+        } 0] 0
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -702,7 +721,7 @@ start_server {tags {"scripting"}} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
         run_script_on_connection $rd {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
-        
+
         wait_for_condition 50 100 {
             [catch {r ping} e] == 1
         } else {
@@ -723,7 +742,7 @@ start_server {tags {"scripting"}} {
         catch {$rd read} res
         $rd close
 
-        assert_match {*killed by user*} $res        
+        assert_match {*killed by user*} $res
     }
 
     test {Timedout script does not cause a false dead client} {
@@ -769,7 +788,7 @@ start_server {tags {"scripting"}} {
         assert_match {*killed by user*} $res
 
         set res [$rd read]
-        assert_match {*PONG*} $res        
+        assert_match {*PONG*} $res
 
         $rd close
     }
@@ -1051,17 +1070,19 @@ start_server {tags {"scripting needs:debug external:skip"}} {
 }
 } ;# is_eval
 
-start_server {tags {"scripting resp3 needs:debug"}} {
+start_server {tags {"scripting needs:debug"}} {
     r debug set-disable-deny-scripts 1
+
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            set extra "RESP$i/$client_proto"
             r hello $client_proto
             r readraw 1
 
-            test {test resp3 big number protocol parsing} {
+            test "test $extra big number protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'bignum')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$37}
                     assert_equal [r read] {1234567999999999999999999999999999999}
                 } else {
@@ -1069,10 +1090,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 malformed big number protocol parsing} {
-                set ret [r eval "return {big_number='123\\r\\n123'}" 0]
+            test "test $extra malformed big number protocol parsing" {
+                set ret [run_script "return {big_number='123\\r\\n123'}" 0]
                 if {$client_proto == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$8}
                     assert_equal [r read] {123  123}
                 } else {
@@ -1080,10 +1101,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 map protocol parsing} {
+            test "test $extra map protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {*6}
                 } else {
                     assert_equal $ret {%3}
@@ -1093,10 +1114,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 set protocol parsing} {
+            test "test $extra set protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'set')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {*3}
                 } else {
                     assert_equal $ret {~3}
@@ -1106,10 +1127,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 double protocol parsing} {
+            test "test $extra double protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$5}
                     assert_equal [r read] {3.141}
                 } else {
@@ -1117,7 +1138,7 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 null protocol parsing} {
+            test "test $extra null protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'null')" 0]
                 if {$client_proto == 2} {
                     # null is a special case in which a Lua client format does not effect the reply to the client
@@ -1127,10 +1148,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             } {}
 
-            test {test resp3 verbatim protocol parsing} {
+            test "test $extra verbatim protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'verbatim')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$25}
                     assert_equal [r read] {This is a verbatim}
                     assert_equal [r read] {string}
@@ -1141,20 +1162,20 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 true protocol parsing} {
+            test "test $extra true protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'true')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {:1}
                 } else {
                     assert_equal $ret {#t}
                 }
             }
 
-            test {test resp3 false protocol parsing} {
+            test "test $extra false protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'false')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {:0}
                 } else {
                     assert_equal $ret {#f}
@@ -1171,6 +1192,29 @@ start_server {tags {"scripting resp3 needs:debug"}} {
         # So here we just check the parser handles them and they are ignored.
         run_script "redis.setresp(3);return redis.call('debug', 'protocol', 'attrib')" 0
     } {Some real reply following the attribute}
+
+    test "Script block the time during execution" {
+        assert_equal [run_script {
+            redis.call("SET", "key", "value", "PX", "1")
+            redis.call("DEBUG", "SLEEP", 0.01)
+            return redis.call("EXISTS", "key")
+        } 0] 1
+
+        assert_equal 0 [r EXISTS key]
+    }
+
+    test "Script delete the expired key" {
+        r DEBUG set-active-expire 0
+        r SET key value PX 1
+        after 2
+
+        # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
+        r DEBUG OBJECT key
+
+        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal 0 [r EXISTS key]
+        r DEBUG set-active-expire 1
+    }
 
     r debug set-disable-deny-scripts 0
 }

@@ -421,5 +421,3 @@ long long scriptRunDuration() {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }
-
-

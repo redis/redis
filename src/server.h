@@ -3032,7 +3032,6 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
-mstime_t evalTimeSnapshot();
 
 /* Blocked clients */
 void processUnblockedClients(void);
