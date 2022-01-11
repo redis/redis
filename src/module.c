@@ -9560,8 +9560,8 @@ void modulesCron(void) {
     moduleTempClientMinCount = moduleTempClientCount;
 
     /* Shrink moduleTempClients array itself if it is wasting some space */
-    if (moduleTempClientCap > 32 && moduleTempClientCap > moduleTempClientCount * 2) {
-        moduleTempClientCap /= 2;
+    if (moduleTempClientCap > 32 && moduleTempClientCap > moduleTempClientCount * 4) {
+        moduleTempClientCap /= 4;
         moduleTempClients = zrealloc(moduleTempClients,sizeof(client*)*moduleTempClientCap);
     }
 }
