@@ -171,7 +171,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_TEMP_CLIENT (1<<6) /* Return client object to the pool
                                               when the context is destroyed */
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
- *                                            context is destroyed */
+                                              context is destroyed */
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -510,7 +510,7 @@ client *moduleAllocTempClient() {
 
     if (moduleTempClientCount > 0) {
         c = moduleTempClients[--moduleTempClientCount];
-        if (moduleTempClientMinCount > moduleTempClientCount)
+        if (moduleTempClientCount < moduleTempClientMinCount)
             moduleTempClientMinCount = moduleTempClientCount;
     } else {
         c = createClient(NULL);
@@ -9547,10 +9547,10 @@ void modulesCron(void) {
 
     /* Limit the max client count to be freed at once to avoid latency spikes.*/
     int iteration = 500;
-    /* We are freeing clients if we have more than 16 unused clients. Keeping
+    /* We are freeing clients if we have more than 8 unused clients. Keeping
      * small amount of clients to avoid client allocation costs if temporary
      * clients are required after some idle period. */
-    const int min_client = 16;
+    const int min_client = 8;
     while (iteration > 0 && moduleTempClientCount > 0 && moduleTempClientMinCount > min_client) {
         client *c = moduleTempClients[--moduleTempClientCount];
         freeClient(c);
@@ -9558,6 +9558,12 @@ void modulesCron(void) {
         moduleTempClientMinCount--;
     }
     moduleTempClientMinCount = moduleTempClientCount;
+
+    /* Shrink moduleTempClients array itself if it is wasting some space */
+    if (moduleTempClientCap > 32 && moduleTempClientCap > moduleTempClientCount * 2) {
+        moduleTempClientCap /= 2;
+        moduleTempClients = zrealloc(moduleTempClients,sizeof(client*)*moduleTempClientCap);
+    }
 }
 
 void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {
