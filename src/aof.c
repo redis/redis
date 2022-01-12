@@ -668,11 +668,12 @@ int aofDelHistoryFiles(void) {
 }
 
 /* Called after `loadDataFromDisk` when redis start. If `server.aof_state` is
- * 'AOF_ON', It will do two things:
- * 1. Open the last opened INCR type AOF for writing, If not, create a new one
- * 2. Synchronously update the manifest file to the disk
+ * 'AOF_ON', It will do three things:
+ * 1. Force create a BASE file when redis starts with an empty dataset
+ * 2. Open the last opened INCR type AOF for writing, If not, create a new one
+ * 3. Synchronously update the manifest file to the disk
  *
- * If any of the above two steps fails, the redis process will exit.
+ * If any of the above steps fails, the redis process will exit.
  */
 void aofOpenIfNeededOnServerStart(void) {
     if (server.aof_state != AOF_ON) {
@@ -688,7 +689,7 @@ void aofOpenIfNeededOnServerStart(void) {
         exit(1);
     }
 
-    /* If we start with an empty dataset, we will force create a temp BASE file. */
+    /* If we start with an empty dataset, we will force create a BASE file. */
     if (!server.aof_manifest->base_aof_info &&
         !listLength(server.aof_manifest->incr_aof_list))
     {
