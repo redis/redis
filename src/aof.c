@@ -46,7 +46,7 @@ off_t getAppendOnlyFileSize(sds filename);
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
-int rewriteAppendOnlyFile(char *filename, int aofflags);
+int rewriteAppendOnlyFile(char *filename);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -694,7 +694,7 @@ void aofOpenIfNeededOnServerStart(void) {
     {
         sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
         sds base_filepath = makePath(server.aof_dirname, base_name);
-        if (rewriteAppendOnlyFile(base_filepath, RDBFLAGS_AOF_PREAMBLE_SYNC) != C_OK) {
+        if (rewriteAppendOnlyFile(base_filepath) != C_OK) {
             exit(1);
         }
         sdsfree(base_filepath);
@@ -2209,7 +2209,7 @@ werr:
  * log Redis uses variadic commands when possible, such as RPUSH, SADD
  * and ZADD. However at max AOF_REWRITE_ITEMS_PER_CMD items per time
  * are inserted using a single command. */
-int rewriteAppendOnlyFile(char *filename, int aofflags) {
+int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
@@ -2228,7 +2228,7 @@ int rewriteAppendOnlyFile(char *filename, int aofflags) {
     if (server.aof_rewrite_incremental_fsync)
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
-    startSaving(aofflags);
+    startSaving(RDBFLAGS_AOF_PREAMBLE);
 
     if (server.aof_use_rdb_preamble) {
         int error;
@@ -2310,7 +2310,7 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetProcTitle("redis-aof-rewrite");
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
-        if (rewriteAppendOnlyFile(tmpfile, RDBFLAGS_AOF_PREAMBLE) == C_OK) {
+        if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
             exitFromChild(0);
         } else {
