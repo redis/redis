@@ -11,8 +11,6 @@ start_server {tags {"dismiss external:skip"}} {
     # to satisfy the conditions for release memory pages, especially, we assume
     # the page size of OS is 4KB in some cases.
     test {dismiss all data types memory} {
-        r config set appendonly yes
-        waitForBgrewriteaof r
         set bigstr [string repeat A 8192]
         set 64bytes [string repeat A 64]
 
@@ -49,12 +47,12 @@ start_server {tags {"dismiss external:skip"}} {
         r xadd bigstream * entry1 $bigstr entry2 $bigstr
 
         set digest [debug_digest]
+        r config set aof-use-rdb-preamble no
         r bgrewriteaof
         waitForBgrewriteaof r
         r debug loadaof
         set newdigest [debug_digest]
         assert {$digest eq $newdigest}
-        r config set appendonly no
     }
 
     test {dismiss client output buffer} {

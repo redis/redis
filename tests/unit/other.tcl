@@ -99,13 +99,10 @@ start_server {tags {"other"}} {
                 set _ 1
             } else {
                 check_consistency {aofdump} {
-                    r config set appendonly yes
-                    waitForBgrewriteaof r
                     r config set aof-use-rdb-preamble no
                     r bgrewriteaof
                     waitForBgrewriteaof r
                     r debug loadaof
-                    r config set appendonly no
                 }
             }
         } {1} {needs:debug}
@@ -119,9 +116,8 @@ start_server {tags {"other"}} {
         r debug reload
         set ttl [r ttl x]
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
-        r config set appendonly yes
+        r bgrewriteaof
         waitForBgrewriteaof r
-        r config set appendonly no
         r debug loadaof
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]

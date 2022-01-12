@@ -673,8 +673,6 @@ tags {"external:skip"} {
                 }
             }
         }
-
-        clean_aof_persistence $aof_dirpath
     }
 
     test {Multi Part AOF can handle appendfilename contains spaces} {
@@ -729,7 +727,7 @@ tags {"external:skip"} {
         start_server_aof [list dir $server_path aof-use-rdb-preamble no] {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
-            
+
             assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
@@ -924,6 +922,51 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
         }
 
+        test "AOF rewrite doesn't open new aof when AOF turn off" {
+            r config set appendonly no
+
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            # We only have BASE AOF, no INCR AOF
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.4.base.rdb seq 4 type b}
+            }
+
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.4${::base_aof_sufix}${::rdb_format_suffix}"]
+            wait_for_condition 1000 10 {
+                [check_file_exist $aof_dirpath "${aof_basename}.6${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
+                [check_file_exist $aof_dirpath "${aof_basename}.7${::incr_aof_sufix}${::aof_format_suffix}"] == 0
+            } else {
+                fail "Failed to delete history AOF"
+            }
+
+            set d1 [r debug digest]
+            r debug loadaof
+            set d2 [r debug digest]
+            assert {$d1 eq $d2}
+
+            # Turn on AOF again
+            r config set appendonly yes
+            waitForBgrewriteaof r
+
+            # A new INCR AOF was created
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.5.base.rdb seq 5 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            # Wait bio delete history
+            wait_for_condition 1000 10 {
+                [check_file_exist $aof_dirpath "${aof_basename}.4${::base_aof_sufix}${::rdb_format_suffix}"] == 0
+            } else {
+                fail "Failed to delete history AOF"
+            }
+
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.5${::base_aof_sufix}${::rdb_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"]
+        }
+
         test "AOF enable/disable auto gc" {
             r config set aof-disable-auto-gc yes
 
@@ -935,33 +978,33 @@ tags {"external:skip"} {
 
             # We can see four history AOFs (Evolved from two BASE and two INCR)
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.5.base.rdb seq 5 type b}
-                {file appendonly.aof.7.incr.aof seq 7 type h}
-                {file appendonly.aof.4.base.rdb seq 4 type h}
-                {file appendonly.aof.6.incr.aof seq 6 type h}
-                {file appendonly.aof.3.base.rdb seq 3 type h}
-                {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.7.base.rdb seq 7 type b}
+                {file appendonly.aof.2.incr.aof seq 2 type h}
+                {file appendonly.aof.6.base.rdb seq 6 type h}
+                {file appendonly.aof.1.incr.aof seq 1 type h}
+                {file appendonly.aof.5.base.rdb seq 5 type h}
+                {file appendonly.aof.3.incr.aof seq 3 type i}
             }
 
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.3${::base_aof_sufix}${::rdb_format_suffix}"]
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.4${::base_aof_sufix}${::rdb_format_suffix}"]
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.6${::incr_aof_sufix}${::aof_format_suffix}"]
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.7${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.5${::base_aof_sufix}${::rdb_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.6${::base_aof_sufix}${::rdb_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.2${::incr_aof_sufix}${::aof_format_suffix}"]
 
             r config set aof-disable-auto-gc no
 
             # Auto gc success
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.5.base.rdb seq 5 type b}
-                {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.7.base.rdb seq 7 type b}
+                {file appendonly.aof.3.incr.aof seq 3 type i}
             }
 
             # wait bio delete history
             wait_for_condition 1000 10 {
-                [check_file_exist $aof_dirpath "${aof_basename}.3${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
+                [check_file_exist $aof_dirpath "${aof_basename}.5${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
                 [check_file_exist $aof_dirpath "${aof_basename}.6${::base_aof_sufix}${::rdb_format_suffix}"] == 0 &&
-                [check_file_exist $aof_dirpath "${aof_basename}.6${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
-                [check_file_exist $aof_dirpath "${aof_basename}.7${::incr_aof_sufix}${::aof_format_suffix}"] == 0
+                [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"] == 0 &&
+                [check_file_exist $aof_dirpath "${aof_basename}.2${::incr_aof_sufix}${::aof_format_suffix}"] == 0
             } else {
                 fail "Failed to delete history AOF"
             }
@@ -970,8 +1013,8 @@ tags {"external:skip"} {
         test "AOF can produce consecutive sequence number after reload" {
             # Current manifest, BASE seq 7 and INCR seq 3
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.5.base.rdb seq 5 type b}
-                {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.7.base.rdb seq 7 type b}
+                {file appendonly.aof.3.incr.aof seq 3 type i}
             }
 
             r debug loadaof
@@ -982,8 +1025,8 @@ tags {"external:skip"} {
 
             # Now BASE seq is 8 and INCR seq is 4
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.6.base.rdb seq 6 type b}
-                {file appendonly.aof.9.incr.aof seq 9 type i}
+                {file appendonly.aof.8.base.rdb seq 8 type b}
+                {file appendonly.aof.4.incr.aof seq 4 type i}
             }
         }
 
@@ -1007,8 +1050,8 @@ tags {"external:skip"} {
 
             # Not open new INCR aof
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.6.base.rdb seq 6 type b}
-                {file appendonly.aof.9.incr.aof seq 9 type i}
+                {file appendonly.aof.8.base.rdb seq 8 type b}
+                {file appendonly.aof.4.incr.aof seq 4 type i}
             }
 
             r set k2 v2
@@ -1037,8 +1080,8 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.7.base.rdb seq 7 type b}
-                {file appendonly.aof.10.incr.aof seq 10 type i}
+                {file appendonly.aof.9.base.rdb seq 9 type b}
+                {file appendonly.aof.5.incr.aof seq 5 type i}
             }
 
             r set k3 v3
@@ -1062,10 +1105,10 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.7.base.rdb seq 7 type b}
-                {file appendonly.aof.10.incr.aof seq 10 type i}
-                {file appendonly.aof.11.incr.aof seq 11 type i}
-                {file appendonly.aof.12.incr.aof seq 12 type i}
+                {file appendonly.aof.9.base.rdb seq 9 type b}
+                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.6.incr.aof seq 6 type i}
+                {file appendonly.aof.7.incr.aof seq 7 type i}
             }
 
             set orig_size [r dbsize]
@@ -1087,10 +1130,10 @@ tags {"external:skip"} {
 
             # No new INCR AOF be created
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.7.base.rdb seq 7 type b}
-                {file appendonly.aof.10.incr.aof seq 10 type i}
-                {file appendonly.aof.11.incr.aof seq 11 type i}
-                {file appendonly.aof.12.incr.aof seq 12 type i}
+                {file appendonly.aof.9.base.rdb seq 9 type b}
+                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.6.incr.aof seq 6 type i}
+                {file appendonly.aof.7.incr.aof seq 7 type i}
             }
 
             # Turn off auto rewrite
@@ -1108,11 +1151,11 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.13${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.8${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.8.base.rdb seq 8 type b}
-                {file appendonly.aof.13.incr.aof seq 13 type i}
+                {file appendonly.aof.10.base.rdb seq 10 type b}
+                {file appendonly.aof.8.incr.aof seq 8 type i}
             }
 
             stop_write_load $load_handle0

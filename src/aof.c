@@ -2335,10 +2335,6 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(client *c) {
-    if (server.aof_state == AOF_OFF) {
-        addReplyError(c, "Can't execute an AOF rewrite when appendonly is disabled.");
-        return;
-    }
     if (server.child_type == CHILD_TYPE_AOF) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess() || server.in_exec) {

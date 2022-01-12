@@ -79,8 +79,6 @@ start_server {tags {"modules"}} {
 
     test "datatype2: test aof rewrite" {
         r flushall
-        r config set appendonly yes
-        waitForBgrewriteaof r
 
         r select 0
         set data k1
@@ -111,7 +109,6 @@ start_server {tags {"modules"}} {
         r select 1
         assert_equal k3 [r mem.read k3 1]
         assert_equal k4 [r mem.read k4 0]
-        r config set appendonly no
     }
 
     test "datatype2: test copy" {
