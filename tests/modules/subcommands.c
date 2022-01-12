@@ -20,9 +20,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    int spec_id;
-
-    if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+    if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
@@ -32,23 +30,39 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateSubcommand(parent,"set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
-
-    if (RedisModule_AddCommandKeySpec(subcmd,"write",&spec_id) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
+    RedisModuleCommandInfo cmd_set_info = {
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            (RedisModuleCommandKeySpec){
+                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {0}
+        },
+        0
+    };
+    if (RedisModule_SetCommandInfo(subcmd, &cmd_set_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateSubcommand(parent,"get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
-
-    if (RedisModule_AddCommandKeySpec(subcmd,"read",&spec_id) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
+    RedisModuleCommandInfo cmd_get_info = {
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            (RedisModuleCommandKeySpec){
+                .flags = REDISMODULE_CMD_KEY_READ,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {0}
+        },
+        0
+    };
+    if (RedisModule_SetCommandInfo(subcmd, &cmd_get_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* Sanity */

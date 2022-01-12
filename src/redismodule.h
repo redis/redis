@@ -240,6 +240,8 @@ typedef uint64_t RedisModuleTimerID;
  * are modified from the user's sperspective, to invalidate WATCH. */
 #define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
 
+/* Definitions for RedisModule_SetCommandInfo. */
+
 typedef enum {
     REDISMODULE_ARG_TYPE_STRING,
     REDISMODULE_ARG_TYPE_INTEGER,
@@ -256,6 +258,113 @@ typedef enum {
 #define REDISMODULE_CMD_ARG_OPTIONAL        (1<<0) /* The argument is optional (like GET in SET command) */
 #define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
 #define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
+
+typedef enum {
+    REDISMODULE_KSPEC_BS_INVALID = 0,
+    REDISMODULE_KSPEC_BS_UNKNOWN,
+    REDISMODULE_KSPEC_BS_INDEX,
+    REDISMODULE_KSPEC_BS_KEYWORD
+} RedisModuleKeySpecBeginSearchType;
+
+typedef enum {
+    REDISMODULE_KSPEC_FK_INVALID = 0,
+    REDISMODULE_KSPEC_FK_UNKNOWN,
+    REDISMODULE_KSPEC_FK_RANGE,
+    REDISMODULE_KSPEC_FK_KEYNUM
+} RedisModuleKeySpecFindKeysType;
+
+#define REDISMODULE_CMD_KEY_WRITE (1ULL<<0)
+#define REDISMODULE_CMD_KEY_READ (1ULL<<1)
+#define REDISMODULE_CMD_KEY_SHARD_CHANNEL (1ULL<<2)
+#define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<3)
+
+typedef struct RedisModuleCommandArg {
+    const char *name;
+    RedisModuleCommandArgType type;
+    int key_spec_index;       /* If type is KEY, this is a zero-based index of
+                               * the key_spec in the command. For other types,
+                               * key_spec_index must be -1. */
+    const char *token;        /* If type is PURE_TOKEN, this is the token. */
+    const char *summary;
+    const char *since;
+    int flags;                /* The REDISMODULE_CMD_ARG_* macros. */
+    struct RedisModuleCommandArg *subargs;
+} RedisModuleCommandArgV1;
+
+#define RedisModuleCommandArg RedisModuleCommandArgV1
+
+typedef struct RedisModuleCommandHistoryEntry {
+    const char *since;
+    const char *changes;
+} RedisModuleCommandHistoryEntryV1;
+
+#define RedisModuleCommandHistoryEntry RedisModuleCommandHistoryEntryV1
+
+typedef struct RedisModuleCommandKeySpec {
+    uint64_t flags; /* REDISMODULE_CMD_KEY_* macros. */
+    RedisModuleKeySpecBeginSearchType begin_search_type;
+    union {
+        struct {
+            /* The index from which we start the search for keys */
+            int pos;
+        } index;
+        struct {
+            /* The keyword that indicates the beginning of key args */
+            const char *keyword;
+            /* An index in argv from which to start searching.
+             * Can be negative, which means start search from the end, in reverse
+             * (Example: -2 means to start in reverse from the panultimate arg) */
+            int startfrom;
+        } keyword;
+    } bs;
+    RedisModuleKeySpecFindKeysType find_keys_type;
+    union {
+        struct {
+            /* Index of the last key relative to the result of the begin search
+             * step. Can be negative, in which case it's not relative. -1
+             * indicating till the last argument, -2 one before the last and so
+             * on. */
+            int lastkey;
+            /* How many args should we skip after finding a key, in order to
+             * find the next one. */
+            int keystep;
+            /* If lastkey is -1, we use limit to stop the search by a factor. 0
+             * and 1 mean no limit. 2 means 1/2 of the remaining args, 3 means
+             * 1/3, and so on. */
+            int limit;
+        } range;
+        struct {
+            /* Index of the argument containing the number of keys to come
+             * relative to the result of the begin search step */
+            int keynumidx;
+            /* Index of the fist key. (Usually it's just after keynumidx, in
+             * which case it should be set to keynumidx + 1.) */
+            int firstkey;
+            /* How many args should we skip after finding a key, in order to
+             * find the next one, relative to the result of the begin search
+             * step. */
+            int keystep;
+        } keynum;
+    } fk;
+} RedisModuleCommandKeySpecV1;
+
+#define RedisModuleCommandKeySpec RedisModuleCommandKeySpecV1
+
+typedef struct RedisModuleCommandInfo {
+    const char *summary;          /* Summary of the command */
+    const char *complexity;       /* Complexity description */
+    const char *since;            /* Debut module version of the command */
+    RedisModuleCommandHistoryEntry *history; /* History */
+    /* An array of strings that are meant o be hints for clients/proxies
+     * regarding this command */
+    const char **hints;
+    /* Number of arguments, it is possible to use -N to say >= N */
+    int arity;
+    RedisModuleCommandKeySpec *key_specs;
+    RedisModuleCommandArg *args;
+} RedisModuleCommandInfoV1;
+
+#define RedisModuleCommandInfo RedisModuleCommandInfoV1
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
@@ -597,7 +706,6 @@ typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
 typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
-typedef struct RedisModuleCommandArg RedisModuleCommandArg;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -671,15 +779,7 @@ REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommand *(*RedisModule_GetCommand)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandArity)(RedisModuleCommand *command, int arity) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandSummary)(RedisModuleCommand *command, const char *summary) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandDebutVersion)(RedisModuleCommand *command, const char *since) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandComplexity)(RedisModuleCommand *command, const char *complexity) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandHints)(RedisModuleCommand *command, const char *hints) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AppendCommandHistoryEntry)(RedisModuleCommand *command, const char *since, const char *changes) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleCommandArg *(*RedisModule_CreateCommandArg)(const char* argname, RedisModuleCommandArgType type, int key_spec_index, const char *token, const char *summary, const char* since, int flags) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AppendSubarg)(RedisModuleCommandArg *parent, RedisModuleCommandArg *subarg) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AppendArgToCommand)(RedisModuleCommand *command, RedisModuleCommandArg *arg) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandInfo)(RedisModuleCommand *command, RedisModuleCommandInfo *info) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_WrongArity)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -906,11 +1006,6 @@ REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AddCommandKeySpec)(RedisModuleCommand *command, const char *specflags, int *spec_id) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModuleCommand *command, int spec_id, int index) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommand *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
 
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
@@ -999,15 +1094,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateCommand);
     REDISMODULE_GET_API(GetCommand);
     REDISMODULE_GET_API(CreateSubcommand);
-    REDISMODULE_GET_API(SetCommandArity);
-    REDISMODULE_GET_API(SetCommandSummary);
-    REDISMODULE_GET_API(SetCommandDebutVersion);
-    REDISMODULE_GET_API(SetCommandComplexity);
-    REDISMODULE_GET_API(SetCommandHints);
-    REDISMODULE_GET_API(AppendCommandHistoryEntry);
-    REDISMODULE_GET_API(CreateCommandArg);
-    REDISMODULE_GET_API(AppendSubarg);
-    REDISMODULE_GET_API(AppendArgToCommand);
+    REDISMODULE_GET_API(SetCommandInfo);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(IsModuleNameBusy);
     REDISMODULE_GET_API(WrongArity);
@@ -1234,11 +1321,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
     REDISMODULE_GET_API(GetTypeMethodVersion);
-    REDISMODULE_GET_API(AddCommandKeySpec);
-    REDISMODULE_GET_API(SetCommandKeySpecBeginSearchIndex);
-    REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
-    REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
-    REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
     REDISMODULE_GET_API(GetThreadSafeContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
@@ -1325,7 +1407,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 /* Things only defined for the modules core, not exported to modules
  * including this file. */
 #define RedisModuleString robj
-#define RedisModuleCommandArg redisCommandArg
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */

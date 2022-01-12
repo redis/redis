@@ -12,84 +12,160 @@ int cmd_xadd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-
-    int spec_id;
-
-    if (RedisModule_Init(ctx, "cmdintrospection", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+    if (RedisModule_Init(ctx, "cmdintrospection", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"cmdintrospection.xadd",cmd_xadd,"write deny-oom random fast",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
     RedisModuleCommand *xadd = RedisModule_GetCommand(ctx,"cmdintrospection.xadd");
 
-    if (RedisModule_AddCommandKeySpec(xadd,"write",&spec_id) == REDISMODULE_ERR)
+    RedisModuleCommandInfo info = {
+        .arity = -5,
+        .summary = "Appends a new entry to a stream",
+        .since = "5.0.0",
+        .complexity = "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
+        .hints = (const char *[]){"hint1", "hint2", "hint3", 0},
+        .history = (RedisModuleCommandHistoryEntry[]){
+            /* NOTE: All versions specified should be the module's versions, not
+             * Redis'! We use Redis versions in this example for the purpose of
+             * testing (comparing the output with the output of the vanilla
+             * XADD */
+            {"6.2.0", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
+            {"7.0.0", "Added support for the `<ms>-*` explicit ID form."},
+            {0}
+        },
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            (RedisModuleCommandKeySpec){
+                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {0}
+        },
+        .args = (RedisModuleCommandArg[]){
+            (RedisModuleCommandArg){
+                .name = "key",
+                .type = REDISMODULE_ARG_TYPE_KEY,
+                .key_spec_index = 0
+            },
+            (RedisModuleCommandArg){
+                .name = "nomkstream",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                .key_spec_index = -1,
+                .token = "NOMKSTREAM",
+                .since = "6.2.0",
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL
+            },
+            (RedisModuleCommandArg){
+                .name = "trim",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .key_spec_index = -1,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                    (RedisModuleCommandArg){
+                        .name = "strategy",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
+                        .key_spec_index = -1,
+                        .subargs = (RedisModuleCommandArg[]){
+                            (RedisModuleCommandArg){
+                                .name = "maxlen",
+                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .key_spec_index = -1,
+                                .token = "MAXLEN",
+                            },
+                            (RedisModuleCommandArg){
+                                .name = "minid",
+                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .key_spec_index = -1,
+                                .token = "MINID",
+                                .since = "6.2.0",
+                            },
+                            {0}
+                        }
+                    },
+                    (RedisModuleCommandArg){
+                        .name = "operator",
+                        .type = REDISMODULE_ARG_TYPE_ONEOF,
+                        .key_spec_index = -1,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                        .subargs = (RedisModuleCommandArg[]){
+                            (RedisModuleCommandArg){
+                                .name = "equal",
+                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .key_spec_index = -1,
+                                .token = "="
+                            },
+                            (RedisModuleCommandArg){
+                                .name = "approximately",
+                                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                                .key_spec_index = -1,
+                                .token = "~"
+                            },
+                            {0}
+                        }
+                    },
+                    (RedisModuleCommandArg){
+                        .name = "threshold",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .key_spec_index = -1
+                    },
+                    (RedisModuleCommandArg){
+                        .name = "count",
+                        .type = REDISMODULE_ARG_TYPE_INTEGER,
+                        .key_spec_index = -1,
+                        .token = "LIMIT",
+                        .since = "6.2.0",
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL
+                    },
+                    {0}
+                }
+            },
+            (RedisModuleCommandArg){
+                .name = "id_or_auto",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .key_spec_index = -1,
+                .subargs = (RedisModuleCommandArg[]){
+                    (RedisModuleCommandArg){
+                        .name = "auto_id",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .key_spec_index = -1,
+                        .token = "*"
+                    },
+                    (RedisModuleCommandArg){
+                        .name = "id",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .key_spec_index = -1
+                    },
+                    {0}
+                }
+            },
+            (RedisModuleCommandArg){
+                .name = "field_value",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .key_spec_index = -1,
+                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+                .subargs = (RedisModuleCommandArg[]){
+                    (RedisModuleCommandArg){
+                        .name = "field",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .key_spec_index = -1,
+                    },
+                    (RedisModuleCommandArg){
+                        .name = "value",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                        .key_spec_index = -1,
+                    },
+                    {0}
+                }
+            },
+            {0}
+        }
+    };
+    if (RedisModule_SetCommandInfo(xadd, &info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(xadd,spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(xadd,spec_id,0,1,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    /* NOTE: All versions specified should be the module's versions, not Redis`!
-     * We use Redis versions in this example for the purpose of testing (comparing
-     * the output with the output of the vanilla XADD */
-
-    RedisModule_SetCommandArity(xadd, -5);
-    RedisModule_SetCommandSummary(xadd, "Appends a new entry to a stream");
-    RedisModule_SetCommandDebutVersion(xadd, "5.0.0");
-    RedisModule_SetCommandComplexity(xadd, "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.");
-    RedisModule_AppendCommandHistoryEntry(xadd, "6.2.0", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option.");
-    RedisModule_AppendCommandHistoryEntry(xadd, "7.0.0", "Added support for the `<ms>-*` explicit ID form.");
-    RedisModule_SetCommandHints(xadd, "hint1 hint2 hint3");
-
-    // Trimming args
-    RedisModuleCommandArg *trim_maxlen = RedisModule_CreateCommandArg("maxlen", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MAXLEN", NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *trim_minid = RedisModule_CreateCommandArg("minid", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "MINID", NULL, "6.2.0", REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *trim_startegy = RedisModule_CreateCommandArg("strategy", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModule_AppendSubarg(trim_startegy, trim_maxlen);
-    RedisModule_AppendSubarg(trim_startegy, trim_minid);
-
-    RedisModuleCommandArg *trim_exact = RedisModule_CreateCommandArg("equal", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "=", NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *trim_approx = RedisModule_CreateCommandArg("approximately", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "~", NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *trim_op = RedisModule_CreateCommandArg("operator", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL);
-    RedisModule_AppendSubarg(trim_op, trim_exact);
-    RedisModule_AppendSubarg(trim_op, trim_approx);
-
-    RedisModuleCommandArg *trim_threshold = RedisModule_CreateCommandArg("threshold", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-
-    RedisModuleCommandArg *trim_count = RedisModule_CreateCommandArg("count", REDISMODULE_ARG_TYPE_INTEGER, -1, "LIMIT", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL);
-
-    RedisModuleCommandArg *trimming = RedisModule_CreateCommandArg("trim", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_OPTIONAL);
-    RedisModule_AppendSubarg(trimming, trim_startegy);
-    RedisModule_AppendSubarg(trimming, trim_op);
-    RedisModule_AppendSubarg(trimming, trim_threshold);
-    RedisModule_AppendSubarg(trimming, trim_count);
-
-    // ID arg
-    RedisModuleCommandArg *id_auto = RedisModule_CreateCommandArg("auto_id", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "*", NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *id_given = RedisModule_CreateCommandArg("id", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *id = RedisModule_CreateCommandArg("id_or_auto", REDISMODULE_ARG_TYPE_ONEOF, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModule_AppendSubarg(id, id_auto);
-    RedisModule_AppendSubarg(id, id_given);
-
-    // Fields and values
-    RedisModuleCommandArg *field = RedisModule_CreateCommandArg("field", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *value = RedisModule_CreateCommandArg("value", REDISMODULE_ARG_TYPE_STRING, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-    RedisModuleCommandArg *fieldsvalues = RedisModule_CreateCommandArg("field_value", REDISMODULE_ARG_TYPE_BLOCK, -1, NULL, NULL, NULL, REDISMODULE_CMD_ARG_MULTIPLE);
-    RedisModule_AppendSubarg(fieldsvalues, field);
-    RedisModule_AppendSubarg(fieldsvalues, value);
-
-    // Key
-    RedisModuleCommandArg *key = RedisModule_CreateCommandArg("key", REDISMODULE_ARG_TYPE_KEY, 0, NULL, NULL, NULL, REDISMODULE_CMD_ARG_NONE);
-
-    // NOMKSTREAM
-    RedisModuleCommandArg *nomkstream = RedisModule_CreateCommandArg("nomkstream", REDISMODULE_ARG_TYPE_PURE_TOKEN, -1, "NOMKSTREAM", NULL, "6.2.0", REDISMODULE_CMD_ARG_OPTIONAL);
-
-    // Append all args
-    RedisModule_AppendArgToCommand(xadd, key);
-    RedisModule_AppendArgToCommand(xadd, nomkstream);
-    RedisModule_AppendArgToCommand(xadd, trimming);
-    RedisModule_AppendArgToCommand(xadd, id);
-    RedisModule_AppendArgToCommand(xadd, fieldsvalues);
 
     return REDISMODULE_OK;
 }
