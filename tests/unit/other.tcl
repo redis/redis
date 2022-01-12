@@ -99,11 +99,13 @@ start_server {tags {"other"}} {
                 set _ 1
             } else {
                 check_consistency {aofdump} {
-                    r config set aof-use-rdb-preamble no
                     r config set appendonly yes
                     waitForBgrewriteaof r
-                    r config set appendonly no
+                    r config set aof-use-rdb-preamble no
+                    r bgrewriteaof
+                    waitForBgrewriteaof r
                     r debug loadaof
+                    r config set appendonly no
                 }
             }
         } {1} {needs:debug}
