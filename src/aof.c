@@ -46,6 +46,7 @@ off_t getAppendOnlyFileSize(sds filename);
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
+int rewriteAppendOnlyFile(char *filename);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -695,7 +696,7 @@ void aofOpenIfNeededOnServerStart(void) {
     {
         sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
         sds base_filepath = makePath(server.aof_dirname, base_name);
-        if (rdbSave(SLAVE_REQ_NONE, base_filepath, NULL) != C_OK) {
+        if (rewriteAppendOnlyFile(base_filepath) != C_OK) {
             exit(1);
         }
         sdsfree(base_filepath);
