@@ -489,11 +489,7 @@ tags {"aof external:skip"} {
             set start [clock clicks -milliseconds]
             $rd debug loadaof
             $rd flush
-            wait_for_condition 1000 100 {
-                [count_log_message 0 "Slow script detected"] eq 1
-            } else {
-                fail "Redis didn't detect slow script"
-            }
+            wait_for_log_messages 0 {"*Slow script detected*"} 0 100 100
             $rd read
             set elapsed [expr [clock clicks -milliseconds]-$start]
             if {$::verbose} { puts "loading took $elapsed milliseconds" }
