@@ -1,43 +1,43 @@
-proc get_write_function_code {args} {
-    return [format "redis.register_function('%s', function(KEYS, ARGV)\n %s \nend, {'write'})" [lindex $args 0] [lindex $args 1]]
+proc get_function_code {args} {
+    return [format "redis.register_function('%s', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0] [lindex $args 1]]
 }
 
-proc get_function_code {args} {
-    return [format "redis.register_function('%s', function(KEYS, ARGV)\n %s \nend, {})" [lindex $args 0] [lindex $args 1]]
+proc get_no_writes_function_code {args} {
+    return [format "redis.register_function{function_name='%s', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0] [lindex $args 1]]
 }
 
 
 
 start_server {tags {"scripting"}} {
     test {FUNCTION - Basic usage} {
-        r function load LUA test [get_write_function_code test {return 'hello'}]
+        r function load LUA test [get_function_code test {return 'hello'}]
         r fcall test 0
     } {hello}
 
     test {FUNCTION - Create an already exiting library raise error} {
         catch {
-            r function load LUA test [get_write_function_code test {return 'hello1'}]
+            r function load LUA test [get_function_code test {return 'hello1'}]
         } e
         set _ $e
     } {*already exists*}
 
     test {FUNCTION - Create an already exiting library raise error (case insensitive)} {
         catch {
-            r function load LUA TEST [get_write_function_code test {return 'hello1'}]
+            r function load LUA TEST [get_function_code test {return 'hello1'}]
         } e
         set _ $e
     } {*already exists*}
 
     test {FUNCTION - Create a library with wrong name format} {
         catch {
-            r function load LUA {bad\0foramat} [get_write_function_code test {return 'hello1'}]
+            r function load LUA {bad\0foramat} [get_function_code test {return 'hello1'}]
         } e
         set _ $e
     } {*Library names can only contain letters and numbers*}
 
     test {FUNCTION - Create library with unexisting engine} {
         catch {
-            r function load bad_engine test [get_write_function_code test {return 'hello1'}]
+            r function load bad_engine test [get_function_code test {return 'hello1'}]
         } e
         set _ $e
     } {*Engine not found*}
@@ -50,7 +50,7 @@ start_server {tags {"scripting"}} {
     } {*Error compiling function*}
 
     test {FUNCTION - test replace argument} {
-        r function load LUA test REPLACE [get_write_function_code test {return 'hello1'}]
+        r function load LUA test REPLACE [get_function_code test {return 'hello1'}]
         r fcall test 0
     } {hello1}
 
@@ -72,7 +72,7 @@ start_server {tags {"scripting"}} {
     } {*Function not found*}
 
     test {FUNCTION - test description argument} {
-        r function load LUA test DESCRIPTION {some description} [get_write_function_code test {return 'hello'}]
+        r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
         r function list
     } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
 
@@ -133,9 +133,9 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test debug reload with nosave and noflush} {
         r function delete test
         r set x 1
-        r function load LUA test1 DESCRIPTION {some description} [get_write_function_code test1 {return 'hello'}]
+        r function load LUA test1 DESCRIPTION {some description} [get_function_code test1 {return 'hello'}]
         r debug reload
-        r function load LUA test2 DESCRIPTION {some description} [get_write_function_code test2 {return 'hello'}]
+        r function load LUA test2 DESCRIPTION {some description} [get_function_code test2 {return 'hello'}]
         r debug reload nosave noflush merge
         assert_equal [r fcall test1 0] {hello}
         assert_equal [r fcall test2 0] {hello}
@@ -143,7 +143,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test flushall and flushdb do not clean functions} {
         r function flush
-        r function load lua test REPLACE [get_write_function_code test {return redis.call('set', 'x', '1')}]
+        r function load lua test REPLACE [get_function_code test {return redis.call('set', 'x', '1')}]
         r flushall
         r flushdb
         r function list
@@ -151,7 +151,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function dump and restore} {
         r function flush
-        r function load lua test description {some description} [get_write_function_code test {return 'hello'}]
+        r function load lua test description {some description} [get_function_code test {return 'hello'}]
         set e [r function dump]
         r function delete test
         assert_match {} [r function list]
@@ -171,11 +171,11 @@ start_server {tags {"scripting"}} {
         set e [r function dump]
         r function flush
         assert_match {} [r function list]
-        r function load lua test [get_write_function_code test {return 'hello1'}]
+        r function load lua test [get_function_code test {return 'hello1'}]
         catch {r function restore $e APPEND} err
         assert_match {*already exists*} $err
         r function flush
-        r function load lua test1 [get_write_function_code test1 {return 'hello1'}]
+        r function load lua test1 [get_function_code test1 {return 'hello1'}]
         r function restore $e APPEND
         assert_match {hello} [r fcall test 0]
         assert_match {hello1} [r fcall test1 0]
@@ -183,11 +183,11 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function dump and restore with replace argument} {
         r function flush
-        r function load LUA test DESCRIPTION {some description} [get_write_function_code test {return 'hello'}]
+        r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
         set e [r function dump]
         r function flush
         assert_match {} [r function list]
-        r function load lua test [get_write_function_code test {return 'hello1'}]
+        r function load lua test [get_function_code test {return 'hello1'}]
         assert_match {hello1} [r fcall test 0]
         r function restore $e REPLACE
         assert_match {hello} [r fcall test 0]
@@ -195,7 +195,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function restore with bad payload do not drop existing functions} {
         r function flush
-        r function load LUA test DESCRIPTION {some description} [get_write_function_code test {return 'hello'}]
+        r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
         catch {r function restore bad_payload} e
         assert_match {*payload version or checksum are wrong*} $e
         r function list
@@ -207,19 +207,19 @@ start_server {tags {"scripting"}} {
     } {*wrong number of arguments*}
 
     test {FUNCTION - test fcall_ro with write command} {
-        r function load lua test REPLACE [get_function_code test {return redis.call('set', 'x', '1')}]
+        r function load lua test REPLACE [get_no_writes_function_code test {return redis.call('set', 'x', '1')}]
         catch { r fcall_ro test 0 } e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
     test {FUNCTION - test fcall_ro with read only commands} {
-        r function load lua test REPLACE [get_function_code test {return redis.call('get', 'x')}]
+        r function load lua test REPLACE [get_no_writes_function_code test {return redis.call('get', 'x')}]
         r set x 1
         r fcall_ro test 0
     } {1}
 
     test {FUNCTION - test keys and argv} {
-        r function load lua test REPLACE [get_write_function_code test {return redis.call('set', KEYS[1], ARGV[1])}]
+        r function load lua test REPLACE [get_function_code test {return redis.call('set', KEYS[1], ARGV[1])}]
         r fcall test 1 x foo
         r get x
     } {foo}
@@ -235,7 +235,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function kill} {
         set rd [redis_deferring_client]
         r config set script-time-limit 10
-        r function load lua test REPLACE [get_write_function_code test {local a = 1 while true do a = a + 1 end}]
+        r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         $rd fcall test 0
         after 200
         catch {r ping} e
@@ -249,7 +249,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test script kill not working on function} {
         set rd [redis_deferring_client]
         r config set script-time-limit 10
-        r function load lua test REPLACE [get_write_function_code test {local a = 1 while true do a = a + 1 end}]
+        r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         $rd fcall test 0
         after 200
         catch {r ping} e
@@ -276,17 +276,17 @@ start_server {tags {"scripting"}} {
     }
 
     test {FUNCTION - test function flush} {
-        r function load lua test REPLACE [get_write_function_code test {local a = 1 while true do a = a + 1 end}]
+        r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
         r function flush
         assert_match {} [r function list]
 
-        r function load lua test REPLACE [get_write_function_code test {local a = 1 while true do a = a + 1 end}]
+        r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
         r function flush async
         assert_match {} [r function list]
 
-        r function load lua test REPLACE [get_write_function_code test {local a = 1 while true do a = a + 1 end}]
+        r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
         r function flush sync
         assert_match {} [r function list]
@@ -314,7 +314,7 @@ start_server {tags {"scripting repl external:skip"}} {
         }
 
         test {FUNCTION - creation is replicated to replica} {
-            r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
+            r function load LUA test DESCRIPTION {some description} [get_no_writes_function_code test {return 'hello'}]
             wait_for_condition 50 100 {
                 [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
             } else {
@@ -355,7 +355,7 @@ start_server {tags {"scripting repl external:skip"}} {
         }
 
         test {FUNCTION - flush is replicated to replica} {
-            r function load LUA test DESCRIPTION {some description} [get_write_function_code test {return 'hello'}]
+            r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
             wait_for_condition 50 100 {
                 [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
             } else {
@@ -373,7 +373,7 @@ start_server {tags {"scripting repl external:skip"}} {
             r -1 slaveof no one
             # creating a function after disconnect to make sure function
             # is replicated on rdb phase
-            r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
+            r function load LUA test DESCRIPTION {some description} [get_no_writes_function_code test {return 'hello'}]
 
             # reconnect the replica
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -395,7 +395,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test "FUNCTION - create on read only replica" {
             catch {
-                r -1 function load LUA test DESCRIPTION {some description} [get_write_function_code test {return 'hello'}]
+                r -1 function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
             } e
             set _ $e
         } {*can't write against a read only replica*}
@@ -408,7 +408,7 @@ start_server {tags {"scripting repl external:skip"}} {
         } {*can't write against a read only replica*}
 
         test "FUNCTION - function effect is replicated to replica" {
-            r function load LUA test REPLACE [get_write_function_code test {return redis.call('set', 'x', '1')}]
+            r function load LUA test REPLACE [get_function_code test {return redis.call('set', 'x', '1')}]
             r fcall test 0
             assert {[r get x] eq {1}}
             wait_for_condition 50 100 {
@@ -480,17 +480,13 @@ start_server {tags {"scripting"}} {
                 'f1',
                 function(keys, args)
                     return add1(1)
-                end,
-                {},
-                'f1 description'
+                end
             )
             redis.register_function(
                 'f2',
                 function(keys, args)
                     return add1(2)
-                end,
-                {},
-                'f2 description'
+                end
             )
         }
         assert_equal [r fcall f1 0] {2}
@@ -973,11 +969,6 @@ start_server {tags {"scripting"}} {
 }
 
 start_server {tags {"scripting"}} {
-    test {FUNCTION - wrong flags type} {
-        catch {r function load lua test replace {redis.register_function('f1', function() return 1 end, 'bad flags type')}} e
-        set _ $e
-    } {*third argument to redis.register_function must be a table representing function flags*}
-
     test {FUNCTION - wrong flags type named arguments} {
         catch {r function load lua test replace {redis.register_function{
             function_name = 'f1',
@@ -1008,25 +999,24 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - write script on fcall_ro} {
         r function load lua test replace {redis.register_function{
             function_name = 'f1',
-            callback = function() return redis.call('set', 'x', 1) end,
-            flags = {'write'}
+            callback = function() return redis.call('set', 'x', 1) end
         }}
         catch {r fcall_ro f1 0} e
         set _ $e
     } {*Can not execute a function with write flag using fcall_ro*}
 
-    test {FUNCTION - write script without write flag} {
+    test {FUNCTION - write script with no-writes flag} {
         r function load lua test replace {redis.register_function{
             function_name = 'f1',
             callback = function() return redis.call('set', 'x', 1) end,
-            flags = {}
+            flags = {'no-writes'}
         }}
         catch {r fcall f1 0} e
         set _ $e
     } {*Write commands are not allowed from read-only scripts*}
 
     test {FUNCTION - deny oom} {
-        r FUNCTION load lua test replace { redis.register_function('f1', function() return redis.call('set', 'x', '1') end, {'deny-oom'}) }
+        r FUNCTION load lua test replace { redis.register_function('f1', function() return redis.call('set', 'x', '1') end) }
 
         r config set maxmemory 1
 
@@ -1038,10 +1028,10 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - allow stale} {
         r FUNCTION load lua test replace { 
-            redis.register_function('f1', function() return 'hello' end, {})
-            redis.register_function('f2', function() return 'hello' end, {'allow-stale'})
-            redis.register_function('f3', function() return redis.call('get', 'x') end, {'allow-stale'})
-            redis.register_function('f4', function() return redis.call('info', 'server') end, {'allow-stale'})
+            redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-writes'}}
+            redis.register_function{function_name='f2', callback=function() return 'hello' end, flags={'allow-stale', 'no-writes'}}
+            redis.register_function{function_name='f3', callback=function() return redis.call('get', 'x') end, flags={'allow-stale', 'no-writes'}}
+            redis.register_function{function_name='f4', callback=function() return redis.call('info', 'server') end, flags={'allow-stale', 'no-writes'}}
         }
         
         r config set replica-serve-stale-data no

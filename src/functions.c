@@ -555,8 +555,8 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if ((fi->f_flags & FUNCTION_FLAG_DENY_OOM) && server.script_oom) {
-        addReplyError(c, "-OOM deny-oom flag is set on the function, "
+    if (!(fi->f_flags & FUNCTION_FLAG_ALLOW_OOM) && server.script_oom) {
+        addReplyError(c, "-OOM allow-oom flag is not set on the function, "
                          "can not run it when used memory > 'maxmemory'");
         return;
     }
@@ -570,8 +570,8 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if (fi->f_flags & FUNCTION_FLAG_WRITE) {
-        /* Function has the 'write' flag, make sure:
+    if (!(fi->f_flags & FUNCTION_FLAG_NO_WRITES)) {
+        /* Function may perform writes we need to verify:
          * 1. we are not a readonly replica
          * 2. no disc error detected
          * 3. command is not 'fcall_ro' */
@@ -605,7 +605,7 @@ static void fcallCommandGeneric(client *c, int ro) {
     scriptRunCtx run_ctx;
 
     scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro || !(fi->f_flags & FUNCTION_FLAG_WRITE)) {
+    if (ro || (fi->f_flags & FUNCTION_FLAG_NO_WRITES)) {
         /* On fcall_ro or on functions that do not have the 'write'
          * flag, we will not allow write commands. */
         run_ctx.flags |= SCRIPT_READ_ONLY;

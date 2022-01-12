@@ -273,10 +273,10 @@ static int luaRegisterFunctionReadFlags(lua_State *lua, uint64_t *flags) {
         }
 
         const char *flag = lua_tostring(lua, -1);
-        if (!strcasecmp("write", flag)) {
-            f_flags |= FUNCTION_FLAG_WRITE;
-        } else if (!strcasecmp("deny-oom", flag)) {
-            f_flags |= FUNCTION_FLAG_DENY_OOM;
+        if (!strcasecmp("no-writes", flag)) {
+            f_flags |= FUNCTION_FLAG_NO_WRITES;
+        } else if (!strcasecmp("allow-oom", flag)) {
+            f_flags |= FUNCTION_FLAG_ALLOW_OOM;
         } else if (!strcasecmp("allow-stale", flag)) {
             f_flags |= FUNCTION_FLAG_ALLOW_STALE;
         } else if (!strcasecmp("no-cluster", flag)) {
@@ -380,12 +380,10 @@ error:
 }
 
 static int luaRegisterFunctionReadPositionalArgs(lua_State *lua, registerFunctionArgs *register_f_args) {
-    int argc = lua_gettop(lua);
     char *err = NULL;
     sds name = NULL;
     sds desc = NULL;
     luaFunctionCtx *lua_f_ctx = NULL;
-    uint64_t flags = 0;
     if (!(name = luaGetStringSds(lua, 1))) {
         err = "first argument to redis.register_function must be a string";
         goto error;
@@ -396,32 +394,12 @@ static int luaRegisterFunctionReadPositionalArgs(lua_State *lua, registerFunctio
         goto error;
     }
 
-    if (argc >= 4) {
-        if (!(desc = luaGetStringSds(lua, 4))) {
-            err = "fourth argument to redis.register_function must be a string";
-            goto error;
-        }
-        lua_pop(lua, 1); /* pop out the description */
-    }
-
-    if (argc >= 3) {
-        if (!lua_istable(lua, 3)) {
-            err = "third argument to redis.register_function must be a table representing function flags";
-            goto error;
-        }
-        if (luaRegisterFunctionReadFlags(lua, &flags) != C_OK) {
-            err = "unknown flag given";
-            goto error;
-        }
-        lua_pop(lua, 1); /* pop out the flags argument */
-    }
-
     int lua_function_ref = luaL_ref(lua, LUA_REGISTRYINDEX);
 
     lua_f_ctx = zmalloc(sizeof(*lua_f_ctx));
     lua_f_ctx->lua_function_ref = lua_function_ref;
 
-    luaRegisterFunctionArgsInitialize(register_f_args, name, desc, lua_f_ctx, flags);
+    luaRegisterFunctionArgsInitialize(register_f_args, name, NULL, lua_f_ctx, 0);
 
     return C_OK;
 
@@ -434,7 +412,7 @@ error:
 
 static int luaRegisterFunctionReadArgs(lua_State *lua, registerFunctionArgs *register_f_args) {
     int argc = lua_gettop(lua);
-    if (argc < 1 || argc > 4) {
+    if (argc < 1 || argc > 2) {
         luaPushError(lua, "wrong number of arguments to redis.register_function");
         return C_ERR;
     }

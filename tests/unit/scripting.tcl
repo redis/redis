@@ -15,16 +15,16 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend, {'write'})" [lindex $args 0]]
+        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        r function load LUA test replace [format "redis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend, {'write'})" [lindex $args 1]]
+        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
         # read the ok reply of function create
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
@@ -37,7 +37,11 @@ if {$is_eval == 1} {
 start_server {tags {"scripting"}} {
 
     test {Script - disallow write on OOM} {
-        r FUNCTION load lua f1 replace { redis.register_function('f1', function() return redis.call('set', 'x', '1') end, {'write'}) }
+        r FUNCTION load lua f1 replace { redis.register_function{
+            function_name='f1',
+            callback=function() return redis.call('set', 'x', '1') end,
+            flags={'allow-oom'}
+        }}
 
         r config set maxmemory 1
 
