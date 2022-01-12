@@ -489,12 +489,7 @@ tags {"aof external:skip"} {
             set start [clock clicks -milliseconds]
             $rd debug loadaof
             $rd flush
-            wait_for_condition 50 100 {
-                [s loading] eq 1
-            } else {
-                fail "Redis didn't enter LOADING"
-            }
-            wait_for_condition 50 100 {
+            wait_for_condition 1000 100 {
                 [count_log_message 0 "Slow script detected"] eq 1
             } else {
                 fail "Redis didn't detect slow script"
