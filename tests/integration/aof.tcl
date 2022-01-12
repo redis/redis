@@ -494,12 +494,16 @@ tags {"aof external:skip"} {
             } else {
                 fail "Redis didn't enter LOADING"
             }
+            wait_for_condition 50 100 {
+                [count_log_message 0 "Slow script detected"] eq 1
+            } else {
+                fail "Redis didn't detect slow script"
+            }
             $rd read
             set elapsed [expr [clock clicks -milliseconds]-$start]
             if {$::verbose} { puts "loading took $elapsed milliseconds" }
             $rd close
             assert_equal [r get x] y
-            assert_equal [count_log_message 0 "Slow script detected"] 1
         }
     }
 
