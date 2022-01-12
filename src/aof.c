@@ -687,6 +687,20 @@ void aofOpenIfNeededOnServerStart(void) {
         exit(1);
     }
 
+    /* If we start with an empty dataset and ‘aof_use_rdb_preamble’ is set to yes, we 
+     * will force create a BASE (rdb format) file. */
+    if (server.aof_use_rdb_preamble == 1 &&
+        !server.aof_manifest->base_aof_info &&
+        !listLength(server.aof_manifest->incr_aof_list))
+    {
+        sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
+        sds base_filepath = makePath(server.aof_dirname, base_name);
+        if (rdbSave(SLAVE_REQ_NONE, base_filepath, NULL) != C_OK) {
+            exit(1);
+        }
+        sdsfree(base_filepath);
+    }
+
     /* Because we will 'exit(1)' if open AOF or persistent manifest fails, so
      * we don't need atomic modification here. */
     sds aof_name = getLastIncrAofName(server.aof_manifest);
@@ -701,6 +715,7 @@ void aofOpenIfNeededOnServerStart(void) {
         exit(1);
     }
 
+    /* Persist our changes. */
     int ret = persistAofManifest(server.aof_manifest);
     if (ret != C_OK) {
         exit(1);
@@ -1551,9 +1566,6 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     if (am->base_aof_info == NULL && listLength(am->incr_aof_list) == 0) {
-        /* If we start with an empty dataset and ‘aof_use_rdb_preamble’ is set to yes, we 
-         * will force create a BASE (rdb format) file. */
-        if (server.aof_use_rdb_preamble) server.aof_rewrite_scheduled = 1;
         return AOF_NOT_EXIST;
     }
 
@@ -2325,7 +2337,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
 void bgrewriteaofCommand(client *c) {
     if (server.aof_state == AOF_OFF) {
-        addReplyError(c, "Can't execute an AOF background rewriting when AOF is disable.");
+        addReplyError(c, "Can't execute an AOF rewrite when appendonly is disabled.");
         return;
     }
     if (server.child_type == CHILD_TYPE_AOF) {
