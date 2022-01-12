@@ -13,6 +13,9 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "RANDOM_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [

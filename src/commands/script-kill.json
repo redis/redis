@@ -12,6 +12,10 @@
         ],
         "acl_categories": [
             "SCRIPTING"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "REPLY_POLICY:ONE_SUCCEEDED"
         ]
     }
 }

@@ -20,6 +20,9 @@
             "LIST",
             "BLOCKING"
         ],
+        "command_tips": [
+            "BLOCKING"
+        ],
         "key_specs": [
             {
                 "flags": [

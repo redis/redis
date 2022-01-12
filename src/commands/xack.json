@@ -8,7 +8,6 @@
         "function": "xackCommand",
         "command_flags": [
             "WRITE",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [

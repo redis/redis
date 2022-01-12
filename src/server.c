@@ -4081,8 +4081,6 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_ADMIN,             "admin"},
         {CMD_PUBSUB,            "pubsub"},
         {CMD_NOSCRIPT,          "noscript"},
-        {CMD_RANDOM,            "random"},
-        {CMD_SORT_FOR_SCRIPT,   "sort_for_script"},
         {CMD_LOADING,           "loading"},
         {CMD_STALE,             "stale"},
         {CMD_SKIP_MONITOR,      "skip_monitor"},

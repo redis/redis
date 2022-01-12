@@ -8,7 +8,6 @@
         "function": "pexpiretimeCommand",
         "command_flags": [
             "READONLY",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [

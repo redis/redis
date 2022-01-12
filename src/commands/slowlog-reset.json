@@ -11,6 +11,10 @@
             "ADMIN",
             "LOADING",
             "STALE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "REPLY_POLICY:ALL_SUCCEEDED"
         ]
     }
 }

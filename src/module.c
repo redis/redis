@@ -811,7 +811,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"deny-script")) flags |= CMD_NOSCRIPT;
         else if (!strcasecmp(t,"allow-loading")) flags |= CMD_LOADING;
         else if (!strcasecmp(t,"pubsub")) flags |= CMD_PUBSUB;
-        else if (!strcasecmp(t,"random")) flags |= CMD_RANDOM;
+        else if (!strcasecmp(t,"random")) { /* Deprecated. Silently ignore. */ }
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
