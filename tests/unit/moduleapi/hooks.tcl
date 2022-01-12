@@ -2,6 +2,9 @@ set testmodule [file normalize tests/modules/hooks.so]
 
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule" appendonly yes]] {
+        test {Test module aof save on server start from empty} {
+            assert {[r hooks.event_count persistence-syncaof-start] == 1}
+        }
 
         test {Test clients connection / disconnection hooks} {
             for {set j 0} {$j < 2} {incr j} {
@@ -45,7 +48,7 @@ tags "modules" {
             r config set key-load-delay 500
             r config set dynamic-hz no
             r config set hz 500
-            r DEBUG LOADAOF
+            r DEBUG LOADAOF  
             assert_equal [r hooks.event_last loading-aof-start] 0
             assert_equal [r hooks.event_last loading-end] 0
             assert {[r hooks.event_count loading-rdb-start] == 0}
