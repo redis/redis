@@ -688,10 +688,8 @@ void aofOpenIfNeededOnServerStart(void) {
         exit(1);
     }
 
-    /* If we start with an empty dataset and ‘aof_use_rdb_preamble’ is set to yes, we 
-     * will force create a BASE (rdb format) file. */
-    if (server.aof_use_rdb_preamble == 1 &&
-        !server.aof_manifest->base_aof_info &&
+    /* If we start with an empty dataset, we will force create a temp BASE file. */
+    if (!server.aof_manifest->base_aof_info &&
         !listLength(server.aof_manifest->incr_aof_list))
     {
         sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
