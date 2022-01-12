@@ -8983,9 +8983,9 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_ENDED`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_FAILED`
- *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START`
  *
  *     The above events are triggered not just when the user calls the
  *     relevant commands like BGSAVE, but also when a saving operation
