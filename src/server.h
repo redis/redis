@@ -237,9 +237,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
 #define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
 #define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
-#define CMD_KEY_CHANNEL (1ULL<<4)           /* "channel" flag */
-#define CMD_KEY_CHANNEL_PATTERN (1ULL<<5)   /* "channel pattern" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<3)        /* "incomplete" flag (meaning that
+#define CMD_KEY_CHANNEL (1ULL<<3)           /* "channel" flag */
+#define CMD_KEY_CHANNEL_PATTERN (1ULL<<4)   /* "channel pattern" flag */
+#define CMD_KEY_INCOMPLETE (1ULL<<5)        /* "incomplete" flag (meaning that
                                              * the keyspec might not point out
                                              * to all keys it should cover) */
 
@@ -980,41 +980,11 @@ typedef struct readyList {
                                                  * deep sanitization of RESTORE
                                                  * payload. */
 
-#define SELECTOR_FLAG_DEFAULT (1<<0)
+#define SELECTOR_FLAG_ROOT (1<<0)
 #define SELECTOR_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
 #define SELECTOR_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
 #define SELECTOR_FLAG_ALLCHANNELS (1<<3)    /* The user can mention any Pub/Sub
                                            channel. */
-
-typedef struct {
-    uint32_t flags; /* See SELECTOR_FLAG_* */
-    /* The bit in allowed_commands is set if this user has the right to
-     * execute this command.
-     *
-     * If the bit for a given command is NOT set and the command has
-     * allowed first-args, Redis will also check allowed_firstargs in order to
-     * understand if the command can be executed. */
-    uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
-    /* allowed_firstargs is used by ACL rules to block access to a command unless a
-     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * For example, a user can use the rule "-select +select|0" to block all
-     * SELECT commands, except "SELECT 0".
-     * And for a sub-command: "+config -config|set +config|set|loglevel"
-     *
-     * For each command ID (corresponding to the command bit set in allowed_commands),
-     * This array points to an array of SDS strings, terminated by a NULL pointer,
-     * with all the first-args that are allowed for this command. When no first-arg
-     * matching is used, the field is just set to NULL to avoid allocating
-     * USER_COMMAND_BITS_COUNT pointers. */
-    sds **allowed_firstargs;
-    list *patterns;  /* A list of allowed key patterns. If this field is NULL
-                        the user cannot mention any key in a command, unless
-                        the flag ALLKEYS is set in the user. */
-    list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
-                        field is NULL the user cannot mention any channel in a
-                        `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
-                        ALLCHANNELS is set in the user. */
-} aclSelector;
 
 typedef struct {
     sds name;       /* The username as an SDS string. */

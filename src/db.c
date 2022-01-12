@@ -1797,6 +1797,8 @@ int doesCommandHaveKeys(struct redisCommand *cmd) {
     return cmd->getkeys_proc || cmd->key_specs_num;
 }
 
+/* Return all the arguments that are channels in the command passed via argc / argv. For this
+ * context, the unsubscribe commands don't access channels. */
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(argv);
     keyReference *keys;
@@ -1832,6 +1834,8 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
     return count;
 }
 
+/* Returns if a given command may possibly access channels. For this context,
+ * the unsbuscribe commands do not have channels. */
 int doesCommandHaveChannels(struct redisCommand *cmd) {
     return (cmd->proc == publishCommand
         || cmd->proc == subscribeCommand
@@ -1843,7 +1847,10 @@ int doesCommandHaveChannels(struct redisCommand *cmd) {
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,
- * all other commands should be handled by getkeys_proc. */
+ * all other commands should be handled by getkeys_proc. 
+ * 
+ * NOTE: This function does not guarantee populating the flags for 
+ * the keys, in order to get flags you should use getKeysUsingKeySpecs. */
 int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int j, i = 0, last, first, step;
     keyReference *keys;
@@ -1881,7 +1888,8 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
             }
         }
         keys[i].pos = j;
-        keys[i++].flags = CMD_KEY_READ | CMD_KEY_WRITE;
+        /* Flags are omitted from legacy key specs */
+        keys[i++].flags = 0;
     }
     result->numkeys = i;
     return i;
@@ -1925,6 +1933,8 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'keyCountOfs': num-keys index.
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
+ * 
+ * This function does not add flags to the keys. 
  * */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
@@ -1946,13 +1956,12 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     /* Add all key positions for argv[firstKeyOfs...n] to keys[] */
     for (i = 0; i < num; i++) {
         keys[i].pos = firstKeyOfs+(i*keyStep);
-        /* Note to future, do I need to fill any of these out or do keyspecs cover these now? */
-        keys[i].flags = CMD_KEY_READ;
+        keys[i].flags = 0;
     } 
 
     if (storeKeyOfs) {
         keys[num].pos = storeKeyOfs;
-        keys[num].flags = CMD_KEY_WRITE;
+        keys[num].flags = 0;
     } 
     return result->numkeys;
 }
@@ -2008,7 +2017,9 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style. Here we parse just the minimum in order to
- * correctly identify keys in the "STORE" option. */
+ * correctly identify keys in the "STORE" option. 
+ * 
+ *  This function declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, found_store = 0;
     keyReference *keys;
@@ -2053,6 +2064,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return result->numkeys;
 }
 
+/* This function declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, first;
     keyReference *keys;
@@ -2078,7 +2090,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     keys = getKeysPrepareResult(result, num);
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
-        keys[num].flags = CMD_KEY_WRITE;
+        keys[num].flags = CMD_KEY_READ;
     } 
     result->numkeys = num;
     return num;
@@ -2116,10 +2128,10 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 
     /* Add all key positions to keys[] */
     keys[0].pos = 1;
-    keys[0].flags = CMD_KEY_WRITE;
+    keys[0].flags = 0;
     if(num > 1) {
          keys[1].pos = stored_key;
-         keys[1].flags = CMD_KEY_WRITE;
+         keys[1].flags = 0;
     }
     result->numkeys = num;
     return num;
@@ -2167,7 +2179,7 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     keys = getKeysPrepareResult(result, num);
     for (i = streams_pos+1; i < argc-num; i++) {
         keys[i-streams_pos-1].pos = i;
-        keys[i-streams_pos-1].flags = CMD_KEY_READ; 
+        keys[i-streams_pos-1].flags = 0; 
     } 
     result->numkeys = num;
     return num;

@@ -7476,12 +7476,12 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
     int acl_flags = 0;
     if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= CMD_KEY_READ;
     if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= CMD_KEY_WRITE;
-    if (!acl_flags) {
+    if (!acl_flags || ((flags & REDISMODULE_KEY_PERMISSION_ALL) != flags)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
 
-    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), flags) != ACL_OK) {
+    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), acl_flags) != ACL_OK) {
         errno = EACCES;
         return REDISMODULE_ERR;
     }

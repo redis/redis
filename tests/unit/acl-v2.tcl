@@ -1,46 +1,3 @@
-# Returns a parsed GETUSER response using the provided
-# client and username
-proc get_user {client username} {
-    set response [$client ACL GETUSER $username]
-
-    # Verify structure of the GETUSER response
-    assert_equal [llength $response] 12
-    assert_equal [lindex $response 0] "flags"
-    assert_equal [lindex $response 2] "passwords"
-    assert_equal [lindex $response 4] "commands"
-    assert_equal [lindex $response 6] "keys"
-    assert_equal [lindex $response 8] "channels"
-    assert_equal [lindex $response 10] "selectors" 
-
-    set selectors {}
-    foreach sl [lindex $response 11]  {
-        # Verify structure of the single selector response
-        assert_equal [lindex $sl 0] "commands"
-        assert_equal [lindex $sl 2] "keys"
-        assert_equal [lindex $sl 4] "channels"
-
-        # Append the selector
-        set selector [dict create \
-            "commands" [lindex $sl 1] \
-            "keys" [lindex $sl 3] \
-            "channels" [lindex $sl 5] \
-        ]
-        lappend selectors $selector 
-    }
-
-
-    set user [dict create \
-        "flags" [lindex $response 1] \
-        "passwords" [lindex $response 3] \
-        "commands" [lindex $response 5] \
-        "keys" [lindex $response 7] \
-        "channels" [lindex $response 9] \
-        "selectors" $selectors \
-    ]
-    return $user
-}
-
-
 start_server {tags {"acl external:skip"}} {
     set r2 [redis_client]
     test {Test basic multiple selectors} {
@@ -63,22 +20,55 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*keys*" $err
     }
 
+    test {Test ACL selectors by default have no permissions (except channels)} {
+        r ACL SETUSER selector-default reset ()
+        set user [r ACL GETUSER "selector-default"]
+        assert_equal 2 [llength [dict get $user selectors]]
+        assert_equal 0 [llength [dict get [lindex [dict get $user selectors] 0] keys]]
+        assert_equal "*" [lindex [dict get [lindex [dict get $user selectors] 0] channels] 0]
+        assert_equal  1 [llength [dict get [lindex [dict get $user selectors] 0] channels]]
+        assert_equal "-@all" [dict get [lindex [dict get $user selectors] 0] commands]
+    }
+
+    test {Test deleting selectors} {
+        r ACL SETUSER selector-del on ~root-selector "(~added-selector)"
+        set user [r ACL GETUSER "selector-del"]
+        assert_equal "~added-selector" [dict get [lindex [dict get $user selectors] 1] keys]
+        assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]
+        assert_equal [llength [dict get $user selectors]] 2
+
+        r ACL SETUSER selector-del no-secondary-selectors
+        set user [r ACL GETUSER "selector-del"]
+        assert_equal [llength [dict get $user selectors]] 1
+        assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]
+    }
+
+    test {Test selector syntax error reports the error in the selector context} {
+        catch {r ACL SETUSER selector-syntax on (this-is-invalid)} e
+        assert_match "*ERR Error in ACL SETUSER modifier '(*)*Syntax*" $e
+
+        catch {r ACL SETUSER selector-syntax on (&fail)} e
+        assert_match "*ERR Error in ACL SETUSER modifier '(*)*Adding a pattern after the*" $e
+
+        assert_equal "" [r ACL GETUSER selector-syntax]
+    }
+
     test {Test flexible selector definition} {
         # Test valid selectors
         r ACL SETUSER selector-2 "(~key1 +get )" "( ~key2 +get )" "( ~key3 +get)" "(~key4 +get)"
         r ACL SETUSER selector-2 (~key5 +get ) ( ~key6 +get ) ( ~key7 +get) (~key8 +get)
-        set user [get_user r "selector-2"]
+        set user [r ACL GETUSER "selector-2"]
         assert_equal "" [dict get [lindex [dict get $user selectors] 0] keys]
-        assert_equal "key1" [dict get [lindex [dict get $user selectors] 1] keys]
-        assert_equal "key2" [dict get [lindex [dict get $user selectors] 2] keys]
-        assert_equal "key3" [dict get [lindex [dict get $user selectors] 3] keys]
-        assert_equal "key4" [dict get [lindex [dict get $user selectors] 4] keys]
-        assert_equal "key5" [dict get [lindex [dict get $user selectors] 5] keys]
-        assert_equal "key6" [dict get [lindex [dict get $user selectors] 6] keys]
-        assert_equal "key7" [dict get [lindex [dict get $user selectors] 7] keys]
-        assert_equal "key8" [dict get [lindex [dict get $user selectors] 8] keys]
+        assert_equal "~key1" [dict get [lindex [dict get $user selectors] 1] keys]
+        assert_equal "~key2" [dict get [lindex [dict get $user selectors] 2] keys]
+        assert_equal "~key3" [dict get [lindex [dict get $user selectors] 3] keys]
+        assert_equal "~key4" [dict get [lindex [dict get $user selectors] 4] keys]
+        assert_equal "~key5" [dict get [lindex [dict get $user selectors] 5] keys]
+        assert_equal "~key6" [dict get [lindex [dict get $user selectors] 6] keys]
+        assert_equal "~key7" [dict get [lindex [dict get $user selectors] 7] keys]
+        assert_equal "~key8" [dict get [lindex [dict get $user selectors] 8] keys]
 
-        # Test invalid selector
+        # Test invalid selector syntax
         catch {r ACL SETUSER invalid-selector " () "} err
         assert_match "*ERR*Syntax error*" $err
         catch {r ACL SETUSER invalid-selector (} err
@@ -148,7 +138,7 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*keys*" $err   
     }
 
-    test {Test ACL log correctly identifies the failed item when selectors are used} {
+    test {Test ACL log correctly identifies the relevant item when selectors are used} {
         r ACL SETUSER acl-log-test-selector on nopass 
         r ACL SETUSER acl-log-test-selector +mget ~key (+mget ~key ~otherkey)
         $r2 auth acl-log-test-selector password
@@ -184,5 +174,67 @@ start_server {tags {"acl external:skip"}} {
         assert_equal [dict get $entry object] "someotherkey"
     }
 
+    test {Test ACL GETUSER response information} {
+        r ACL setuser selector-info -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1 
+        r ACL setuser selector-info (-@all +set resetchannels &channel2 %R~foo2 %W~bar2 ~baz2)
+        set user [r ACL GETUSER "selector-info"]
+    
+        # Root selector
+        assert_equal "foo1" [lindex [dict get $user keys] 0]
+        assert_equal "bar1" [lindex [dict get $user keys] 1]
+        assert_equal "baz1" [lindex [dict get $user keys] 2]
+        assert_equal "channel1" [lindex [dict get $user channels] 0]
+        assert_equal "-@all +get" [dict get $user commands]
+
+        set root_selector [lindex [dict get $user selectors] 0]
+        assert_equal "%R~foo1" [lindex [dict get $root_selector keys] 0]
+        assert_equal "%W~bar1" [lindex [dict get $root_selector keys] 1]
+        assert_equal "~baz1" [lindex [dict get $root_selector keys] 2]
+        assert_equal "&channel1" [lindex [dict get $root_selector channels] 0]
+        assert_equal "-@all +get" [dict get $root_selector commands]
+
+        # Added selector
+        set secondary_selector [lindex [dict get $user selectors] 1]
+        assert_equal "%R~foo2" [lindex [dict get $secondary_selector keys] 0]
+        assert_equal "%W~bar2" [lindex [dict get $secondary_selector keys] 1]
+        assert_equal "~baz2" [lindex [dict get $secondary_selector keys] 2]
+        assert_equal "&channel2" [lindex [dict get $secondary_selector channels] 0]
+        assert_equal "-@all +set" [dict get $secondary_selector commands] 
+    }
+
+    test {Test ACL list idempotency} {
+        r ACL SETUSER user-idempotency off -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1 (-@all +set resetchannels &channel2 %R~foo2 %W~bar2 ~baz2)
+        set response [lindex [r ACL LIST] [lsearch [r ACL LIST] "user user-idempotency*"]]
+
+        assert_match "*-@all*+get*(*)*" $response
+        assert_match "*resetchannels*&channel1*(*)*" $response
+        assert_match "*%R~foo1*%W~bar1*~baz1*(*)*" $response
+
+        assert_match "*(*-@all*+set*)*" $response
+        assert_match "*(*resetchannels*&channel2*)*" $response
+        assert_match "*(*%R~foo2*%W~bar2*~baz2*)*" $response
+    }
+
+    test {Test R+W is the same as all permissions} {
+        r ACL setuser selector-rw-info %R~foo %W~foo %RW~bar
+        set user [r ACL GETUSER selector-rw-info]
+        assert_equal "~foo" [lindex [dict get [lindex [dict get $user selectors] 0] keys] 0]
+        assert_equal "~bar" [lindex [dict get [lindex [dict get $user selectors] 0] keys] 1]
+    }
+
     $r2 close
+}
+
+set server_path [tmpdir "selectors.acl"]
+exec cp -f tests/assets/userwithselectors.acl $server_path
+exec cp -f tests/assets/default.conf $server_path
+start_server [list overrides [list "dir" $server_path "aclfile" "userwithselectors.acl"] tags [list "external:skip"]] {
+
+    test {Only default user has access to all channels irrespective of flag} {
+        set selectors [dict get [r ACL getuser alice] selectors]
+        assert_equal [llength $selectors] 2
+
+        set selectors [dict get [r ACL getuser bob] selectors]
+        assert_equal [llength $selectors] 3
+    }
 }

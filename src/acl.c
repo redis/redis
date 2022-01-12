@@ -109,6 +109,37 @@ struct ACLSelectorFlags {
     {NULL,0} /* Terminator. */
 };
 
+/* ACL selectors are private and not exposed outside of aclc. */
+typedef struct {
+    uint32_t flags; /* See SELECTOR_FLAG_* */
+    /* The bit in allowed_commands is set if this user has the right to
+     * execute this command.
+     *
+     * If the bit for a given command is NOT set and the command has
+     * allowed first-args, Redis will also check allowed_firstargs in order to
+     * understand if the command can be executed. */
+    uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
+    /* allowed_firstargs is used by ACL rules to block access to a command unless a
+     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
+     * For example, a user can use the rule "-select +select|0" to block all
+     * SELECT commands, except "SELECT 0".
+     * And for a sub-command: "+config -config|set +config|set|loglevel"
+     *
+     * For each command ID (corresponding to the command bit set in allowed_commands),
+     * This array points to an array of SDS strings, terminated by a NULL pointer,
+     * with all the first-args that are allowed for this command. When no first-arg
+     * matching is used, the field is just set to NULL to avoid allocating
+     * USER_COMMAND_BITS_COUNT pointers. */
+    sds **allowed_firstargs;
+    list *patterns;  /* A list of allowed key patterns. If this field is NULL
+                        the user cannot mention any key in a command, unless
+                        the flag ALLKEYS is set in the user. */
+    list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
+                        field is NULL the user cannot mention any channel in a
+                        `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
+                        ALLCHANNELS is set in the user. */
+} aclSelector;
+
 void ACLResetFirstArgsForCommand(aclSelector *selector, unsigned long id);
 void ACLResetFirstArgs(aclSelector *selector);
 void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *sub);
@@ -291,6 +322,21 @@ void *ACLListDupKeyPattern(void *item) {
     return ACLKeyPatternCreate(sdsdup(old->pattern), old->flags);
 }
 
+/* Append the string representation of a key pattern onto the
+ * provided base string. */
+sds sdsCatPatternString(sds base, keyPattern *pat) {
+    if (pat->flags == (CMD_KEY_READ | CMD_KEY_WRITE)) {
+        base = sdscatlen(base,"~",1);
+    } else if (pat->flags == CMD_KEY_READ) {
+        base = sdscatlen(base,"%R~",3);
+    } else if (pat->flags == CMD_KEY_WRITE) {
+        base = sdscatlen(base,"%W~",3);
+    } else {
+        serverPanic("Invalid key pattern flag detected");
+    }
+    return sdscatsds(base, pat->pattern);
+}
+
 /* Create an empty selector with the provided set of initial
  * flags. The selector will be default have no permissions. */
 aclSelector *ACLCreateSelector(int flags) {
@@ -350,13 +396,13 @@ void *ACLListDuplicateSelector(void *src) {
     return ACLCopySelector((aclSelector *)src);
 }
 
-/* All users have an implicit default selector which
+/* All users have an implicit root selector which
  * provides backwards compatibility to the old ACLs-
  * permissions. */
-aclSelector *ACLUserGetDefaultSelector(user *u) {
+aclSelector *ACLUserGetRootSelector(user *u) {
     serverAssert(listLength(u->selectors));
     aclSelector *s = (aclSelector *) listNodeValue(listFirst(u->selectors));
-    serverAssert(s->flags & SELECTOR_FLAG_DEFAULT);
+    serverAssert(s->flags & SELECTOR_FLAG_ROOT);
     return s;
 }
 
@@ -379,10 +425,10 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     listSetFreeMethod(u->selectors,ACLListFreeSelector);
     listSetDupMethod(u->selectors,ACLListDuplicateSelector);
 
-    /* Add the initial default selector */
-    aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_DEFAULT);
+    /* Add the initial root selector */
+    aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_ROOT);
     listAddNodeHead(u->selectors, s);
-    ACLUserGetDefaultSelector(u)->flags |= SELECTOR_FLAG_DEFAULT;
+    ACLUserGetRootSelector(u)->flags |= SELECTOR_FLAG_ROOT;
 
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -761,16 +807,7 @@ sds ACLDescribeSelector(aclSelector *selector) {
         listRewind(selector->patterns,&li);
         while((ln = listNext(&li))) {
             keyPattern *thispat = (keyPattern *)listNodeValue(ln);
-            if (thispat->flags == (CMD_KEY_READ | CMD_KEY_WRITE)) {
-                res = sdscatlen(res,"~",1);
-            } else if (thispat->flags == CMD_KEY_READ) {
-                res = sdscatlen(res,"%R~",3);
-            } else if (thispat->flags == CMD_KEY_WRITE) {
-                res = sdscatlen(res,"%W~",3);
-            } else {
-                serverPanic("Invalid key pattern flag detected");
-            }
-            res = sdscatsds(res,thispat->pattern);
+            res = sdsCatPatternString(res, thispat);
             res = sdscatlen(res," ",1);
         }
     }
@@ -829,10 +866,10 @@ sds ACLDescribeUser(user *u) {
     while((ln = listNext(&li))) {
         aclSelector *select = (aclSelector *) listNodeValue(ln);
         sds default_perm = ACLDescribeSelector((aclSelector *) listNodeValue(ln));
-        if (select->flags & SELECTOR_FLAG_DEFAULT) {
+        if (select->flags & SELECTOR_FLAG_ROOT) {
             res = sdscatfmt(res, "%s", default_perm);
         } else {
-            res = sdscatfmt(res, " (%s) ", default_perm);
+            res = sdscatfmt(res, " (%s)", default_perm);
         }
         sdsfree(default_perm);
     }
@@ -907,18 +944,18 @@ void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *
     selector->allowed_firstargs[id][items-1] = NULL;
 }
 
-/* Create an ACL selector from the given ACL operator, which should be 
- * a list of space separate ACL operators that starts and ends 
- * with a parentheses.
+/* Create an ACL selector from the given ACL operations, which should be 
+ * a list of space separate ACL operations that starts and ends 
+ * with parentheses.
  *
- * If any of the operators are invalid, NULL will be returned instead
- * and errno will be returned corresponding to the interior error. */
-aclSelector *aclCreateSelectorFromOp(const char *op, size_t oplen) {
-    serverAssert(op[0] == '(' && op[oplen - 1] == ')');
+ * If any of the operations are invalid, NULL will be returned instead
+ * and errno will be set corresponding to the interior error. */
+aclSelector *aclCreateSelectorFromOpSet(const char *opset, size_t opsetlen) {
+    serverAssert(opset[0] == '(' && opset[opsetlen - 1] == ')');
     aclSelector *s = ACLCreateSelector(0);
 
     int argc = 0;
-    sds trimmed = sdsnewlen(op +1, oplen - 2);
+    sds trimmed = sdsnewlen(opset + 1, opsetlen - 2);
     sds *argv = sdssplitargs(trimmed, &argc);
     for (int i = 0; i < argc; i++) {
         if (ACLSetSelector(s, argv[i], sdslen(argv[i])) == C_ERR) {
@@ -1170,9 +1207,11 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * (<options>)  Create a new selector with the options specified within the
  *              parentheses. Each option should be space separated. The first
  *              character must be ( and the last character must be ).
+ * no-secondary-selectors  Remove all of the currently attached selectors. Note this does
+ *              not change the "root" user permissions.
  * 
  * Selector options can also be specified by this function, in which case
- * they update the default selector for the user.
+ * they update the root selector for the user.
  *
  * The 'op' string must be null terminated. The 'oplen' argument should
  * specify the length of the 'op' string in case the caller requires to pass
@@ -1257,21 +1296,20 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             return C_ERR;
         }
     } else if (op[0] == '(' && op[oplen - 1] == ')') {
-        aclSelector *select = aclCreateSelectorFromOp(op, oplen);
+        aclSelector *select = aclCreateSelectorFromOpSet(op, oplen);
         if (!select) {
             /* No errorno set, propagate it from interior error. */
             return C_ERR;
         }
         listAddNodeTail(u->selectors, select);
         return C_OK;
-    } else if (!strcasecmp(op,"noselectors")) {
+    } else if (!strcasecmp(op,"no-secondary-selectors")) {
         listIter li;
         listNode *ln;
         listRewind(u->selectors,&li);
-        /* There has to be a default selector */
+        /* There has to be a root selector */
         serverAssert(listNext(&li));
         while((ln = listNext(&li))) {
-            ACLFreeSelector((aclSelector *) listNodeValue(ln));
             listDelNode(u->selectors, ln);
         }
         return C_OK;
@@ -1283,9 +1321,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"no-secondary-selectors",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
-        aclSelector *selector = ACLUserGetDefaultSelector(u);
+        aclSelector *selector = ACLUserGetRootSelector(u);
         if (ACLSetSelector(selector, op, oplen) == C_ERR) {
             return C_ERR;
         }
@@ -1458,7 +1497,7 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  *
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
-int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int flags) {
+static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int flags) {
     /* The user can run any keys */
     if (selector->flags & SELECTOR_FLAG_ALLKEYS) return ACL_OK;
 
@@ -1478,7 +1517,7 @@ int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int 
 }
 
 /* Checks a channel against a provide list of channels. */
-int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
+static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
     listIter li;
     listNode *ln;
 
@@ -1501,13 +1540,15 @@ int ACLCheckChannelAgainstList(list *reference, const char *channel, int channel
  *
  * If the user can execute the command ACL_OK is returned, otherwise 
  * ACL_DENIED_CHANNEL. */
-int ACLSelectorCheckChannel(aclSelector *s, const char *channel, int channellen, int literal) {    
+static int ACLSelectorCheckChannel(aclSelector *s, const char *channel, int channellen, int literal) {    
     /* The user can run any keys */
     if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return ACL_OK;
 
     return ACLCheckChannelAgainstList(s->channels, channel, channellen, literal);
 }
 
+/* To prevent duplicate calls to getKeysResult, a cache is maintained
+ * in between calls to the various selectors. */
 typedef struct {
     int keys_init;
     int channels_init;
@@ -1528,7 +1569,7 @@ void cleanupACLKeyResultCache(aclKeyResultCache *cache) {
  * command cannot be executed because the user is not allowed to run such
  * command, the second if the command is denied because the user is trying
  * to access keys that are not among the specified patterns. */
-int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr, aclKeyResultCache *cache) {
+static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr, aclKeyResultCache *cache) {
     uint64_t id = cmd->id;
     int ret;
     if (!(selector->flags & SELECTOR_FLAG_ALLCOMMANDS) && !(cmd->flags & CMD_NO_AUTH)) {
@@ -1596,7 +1637,6 @@ int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, robj **
             } else {
                 serverPanic("Undefined channel type encountered when parsing command");
             }
-
             if (ret != ACL_OK) {
                 if (resultidx) *keyidxptr = resultidx[j].pos;
                 return ret;
@@ -1791,6 +1831,59 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
  * ACL loading / saving functions
  * ==========================================================================*/
 
+
+/* Selector definitions should be sent as a single argument, however
+ * we will be lenient and try to find selector definitions spread 
+ * across multiple arguments since it makes for a simpler user experience
+ * for ACL SETUSER as well as when loading from conf files. 
+ * 
+ * This function takes in an array of ACL operators, excluding the username,
+ * and merges selector operations that are spread across multiple arguments. The return
+ * value is a new SDS array, with length set to the passed in merged_argc. Arguments 
+ * that are untouched are still duplicated. If there is an unmatched parenthesis, NULL 
+ * is returned and invalid_idx is set to the argument with the start of the opening
+ * parenthesis. */
+sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *invalid_idx) {
+    *merged_argc = 0;
+    int open_bracket_start = -1;
+
+    sds *acl_args = (sds *) zmalloc(sizeof(sds) * argc);
+
+    sds selector = NULL;
+    for (int j = 0; j < argc; j++) {
+        char *op = argv[j];
+
+        if (op[0] == '(' && op[sdslen(op) - 1] != ')') {
+            selector = sdsdup(argv[j]);
+            open_bracket_start = j;
+            continue;
+        }
+
+        if (open_bracket_start != -1) {
+            selector = sdscatfmt(selector, " %s", op);
+            if (op[sdslen(op) - 1] == ')') {
+                open_bracket_start = -1;
+                acl_args[*merged_argc] = selector;                        
+                (*merged_argc)++;
+            }
+            continue;
+        }
+
+        acl_args[*merged_argc] = sdsdup(argv[j]);
+        (*merged_argc)++;
+    }
+
+    if (open_bracket_start != -1) {
+        for (int i = 0; i < *merged_argc; i++) sdsfree(acl_args[i]);
+        zfree(acl_args);
+        sdsfree(selector);
+        if (invalid_idx) *invalid_idx = open_bracket_start;
+        return NULL;
+    }
+
+    return acl_args;
+}
+
 /* Given an argument vector describing a user in the form:
  *
  *      user <username> ... ACL rules and flags ...
@@ -1825,22 +1918,35 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
      * are actually valid. */
     user *fakeuser = ACLCreateUnlinkedUser();
 
-    for (int j = 2; j < argc; j++) {
-        if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_ERR) {
+    /* Merged selectors before trying to process */
+    int merged_argc;
+    sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, argc_err);
+
+    if (!acl_args) {
+        return C_ERR;
+    }
+
+    for (int j = 0; j < merged_argc; j++) {
+        if (ACLSetUser(fakeuser,acl_args[j],sdslen(acl_args[j])) == C_ERR) {
             if (errno != ENOENT) {
                 ACLFreeUser(fakeuser);
                 if (argc_err) *argc_err = j;
+                for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
+                zfree(acl_args);
                 return C_ERR;
             }
         }
     }
 
     /* Rules look valid, let's append the user to the list. */
-    sds *copy = zmalloc(sizeof(sds)*argc);
-    for (int j = 1; j < argc; j++) copy[j-1] = sdsdup(argv[j]);
-    copy[argc-1] = NULL;
+    sds *copy = zmalloc(sizeof(sds)*(merged_argc + 2));
+    copy[0] = sdsdup(argv[1]);
+    for (int j = 0; j < merged_argc; j++) copy[j+1] = sdsdup(acl_args[j]);
+    copy[merged_argc + 1] = NULL;
     listAddNodeTail(UsersToLoad,copy);
     ACLFreeUser(fakeuser);
+    for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
+    zfree(acl_args);
     return C_OK;
 }
 
@@ -2002,17 +2108,32 @@ sds ACLLoadFromFile(const char *filename) {
          * be cleanly applied to the user. If any option fails
          * to apply, the other values won't be applied since
          * all the pending changes will get dropped. */
-        int j;
-        for (j = 2; j < argc; j++) {
-            argv[j] = sdstrim(argv[j],"\t\r\n");
-            if (ACLSetUser(u,argv[j],sdslen(argv[j])) != C_OK) {
+        int merged_argc;
+        sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, NULL);
+        if (!acl_args) {
+            errors = sdscatprintf(errors,
+                    "%s:%d: Unmatched parenthesis in selector definition. ",
+                    server.acl_filename, linenum);
+        }
+
+        int j, error = 0;
+        for (j = 0; j < merged_argc; j++) {
+            acl_args[j] = sdstrim(acl_args[j],"\t\r\n");
+            serverLog(LL_WARNING, "%s", acl_args[j]);
+            if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
                          "%s:%d: %s. ",
                          server.acl_filename, linenum, errmsg);
-                continue;
+                error = 1;
+                break;
             }
         }
+
+        for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
+        zfree(acl_args);
+
+        if (error) continue;
 
         /* Apply the rule to the new users set only if so far there
          * are no errors, otherwise it's useless since we are going
@@ -2278,15 +2399,18 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
  * ==========================================================================*/
 
 /* Add the formatted response from a single selector to the ACL GETUSER
- * response. This function returns the number of fields added. */
-int aclAddReplySelectorDescription(client *c, aclSelector *s) {
+ * response. This function returns the number of fields added. 
+ * 
+ * Setting verbose to 1 means that the full qualifier for key and channel
+ * permissions are shown.
+ */
+int aclAddReplySelectorDescription(client *c, aclSelector *s, int verbose) {
     /* Commands */
     addReplyBulkCString(c,"commands");
     sds cmddescr = ACLDescribeSelectorCommandRules(s);
     addReplyBulkSds(c,cmddescr);
 
     /* Key patterns */
-    /*TODO: This doesn't include key based permissions */
     addReplyBulkCString(c,"keys");
     if (s->flags & SELECTOR_FLAG_ALLKEYS) {
         addReplyArrayLen(c,1);
@@ -2298,7 +2422,11 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
         listRewind(s->patterns,&li);
         while((ln = listNext(&li))) {
             keyPattern *pattern = (keyPattern *) listNodeValue(ln);
-            addReplyBulkCBuffer(c,pattern->pattern,sdslen(pattern->pattern));
+            if (verbose) {
+                addReplyBulkSds(c, sdsCatPatternString(sdsempty(), pattern));
+            } else {
+                addReplyBulkCBuffer(c,pattern->pattern, sdslen(pattern->pattern));
+            }
         }
     }
 
@@ -2314,7 +2442,11 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
         listRewind(s->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
-            addReplyBulkCBuffer(c,thispat,sdslen(thispat));
+            if (verbose) {
+                addReplyBulkSds(c, sdscatfmt(sdsempty(), "&%S", thispat));
+            } else {
+                addReplyBulkCBuffer(c,thispat,sdslen(thispat));
+            }
         }
     }
     return 3;
@@ -2351,6 +2483,19 @@ void aclCommand(client *c) {
             return;
         }
 
+        int merged_argc = 0, invalid_idx = 0;
+        sds *temp_argv = zmalloc(c->argc * sizeof(sds *));
+        for (int i = 3; i < c->argc; i++) temp_argv[i-3] = c->argv[i]->ptr;
+        sds *acl_args = ACLMergeSelectorArguments(temp_argv, c->argc - 3, &merged_argc, &invalid_idx);
+        zfree(temp_argv);
+
+        if (!acl_args) {
+            addReplyErrorFormat(c,
+                "Unmatched parenthesis in acl selector starting "
+                "at '%s'.", (char *) c->argv[invalid_idx]->ptr);
+            return;
+        }
+
         /* Create a temporary user to validate and stage all changes against
          * before applying to an existing user or creating a new user. If all
          * arguments are valid the user parameters will all be applied together.
@@ -2359,64 +2504,13 @@ void aclCommand(client *c) {
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
 
-        /* Initial pass of client args to collect selectors */
-        sds *acl_args = (sds *) zmalloc(sizeof(sds) * c->argc);
-        int new_argc = 0;
-
-        /* Selector definitions should be sent as a single argument, however
-         * we will be lenient and try to find selector definitions spread 
-         * across multiple arguments. */
-        int open_bracket_start = 0;
-        list *merged_args = listCreate();
-        listSetFreeMethod(merged_args, ACLListFreeSds);
-        sds selector = NULL;
-        for (int j = 3; j < c->argc; j++) {
-            char *op = c->argv[j]->ptr;
-    
-            if (op[0] == '(' && op[sdslen(op) - 1] != ')') {
-                selector = sdsdup(c->argv[j]->ptr);
-                open_bracket_start = j;
-                continue;
-            }
-
-            if (open_bracket_start) {
-                selector = sdscatfmt(selector, " %s", op);
-                if (op[sdslen(op) - 1] == ')') {
-                    open_bracket_start = 0;
-                    acl_args[new_argc] = selector;
-                    listAddNodeTail(merged_args, selector);
-                    new_argc++;
-                }
-                continue;
-            }
-
-            acl_args[new_argc] = c->argv[j]->ptr;
-            new_argc++;
-        }
-
-        if (open_bracket_start) {
-            addReplyErrorFormat(c,
-                "Unmatched parenthesis in acl selector starting "
-                "at '%s'.", (char *) c->argv[open_bracket_start]->ptr);
-
-            ACLFreeUser(tempu);
-            zfree(acl_args);
-            sdsfree(selector);
-            listRelease(merged_args);
-            return;
-        }
-
-        for (int j = 0; j < new_argc; j++) {
+        for (int j = 0; j < merged_argc; j++) {
             if (ACLSetUser(tempu,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)acl_args[j], errmsg);
-
-                ACLFreeUser(tempu);
-                zfree(acl_args);
-                listRelease(merged_args);
-                return;
+                goto cleanup;
             }
         }
 
@@ -2428,10 +2522,12 @@ void aclCommand(client *c) {
         if (!u) u = ACLCreateUser(username,sdslen(username));
         serverAssert(u != NULL);
         ACLCopyUser(u, tempu);
-        ACLFreeUser(tempu);
-        listRelease(merged_args);
-        zfree(acl_args);
         addReply(c,shared.ok);
+cleanup:
+        ACLFreeUser(tempu);
+        for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
+        zfree(acl_args);
+        return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
         int deleted = 0;
         for (int j = 2; j < c->argc; j++) {
@@ -2486,16 +2582,16 @@ void aclCommand(client *c) {
             sds thispass = listNodeValue(ln);
             addReplyBulkCBuffer(c,thispass,sdslen(thispass));
         }
-        /* Include the default selector at the top level for backwards compatibility */
-        fields += aclAddReplySelectorDescription(c, ACLUserGetDefaultSelector(u));
+        /* Include the root selector at the top level for backwards compatibility */
+        fields += aclAddReplySelectorDescription(c, ACLUserGetRootSelector(u), 0);
 
-        /* Describe all of the selectors on this user, including duplicating the default selector */
+        /* Describe all of the selectors on this user, including duplicating the root selector */
         addReplyBulkCString(c,"selectors");
         addReplyArrayLen(c, listLength(u->selectors));
         listRewind(u->selectors,&li);
         while((ln = listNext(&li))) {
             void *slen = addReplyDeferredLen(c);
-            int sfields = aclAddReplySelectorDescription(c, (aclSelector *)listNodeValue(ln));
+            int sfields = aclAddReplySelectorDescription(c, (aclSelector *)listNodeValue(ln), 1);
             setDeferredMapLen(c, slen, sfields);
         } 
         setDeferredMapLen(c, ufields, fields);

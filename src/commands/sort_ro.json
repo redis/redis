@@ -32,6 +32,18 @@
                         "limit": 0
                     }
                 }
+            },
+            {
+                "flags": [
+                    "READ",
+                    "INCOMPLETE"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
             }
         ],
         "arguments": [
