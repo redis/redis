@@ -704,16 +704,22 @@ tags {"external:skip"} {
 
     test {Multi Part AOF can create BASE (RDB format) when redis starts from empty} {
         start_server_aof [list dir $server_path] {
-            wait_for_condition 1000 10 {
-                [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"] == 1
-            } else {
-                fail "Failed to create BASE file"
-            }
-        }
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
 
-        assert_aof_manifest_content $aof_manifest_file  {
-            {file appendonly.aof.1.base.rdb seq 1 type b}
-            {file appendonly.aof.1.incr.aof seq 1 type i}
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
+
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.base.rdb seq 1 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            $client set foo behavior
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2} 
         }
 
         clean_aof_persistence $aof_dirpath
@@ -721,16 +727,22 @@ tags {"external:skip"} {
 
     test {Multi Part AOF can create BASE (AOF format) when redis starts from empty} {
         start_server_aof [list dir $server_path aof-use-rdb-preamble no] {
-            wait_for_condition 1000 10 {
-                [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::aof_format_suffix}"] == 1
-            } else {
-                fail "Failed to create BASE file"
-            }
-        }
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+            
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::aof_format_suffix}"]
 
-        assert_aof_manifest_content $aof_manifest_file  {
-            {file appendonly.aof.1.base.aof seq 1 type b}
-            {file appendonly.aof.1.incr.aof seq 1 type i}
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.base.aof seq 1 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            $client set foo behavior
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2} 
         }
 
         clean_aof_persistence $aof_dirpath
