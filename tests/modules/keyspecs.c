@@ -33,14 +33,14 @@ int createKspecLegacy(RedisModuleCtx *ctx) {
     RedisModuleCommandInfo info = {
         .arity = -2,
         .key_specs = (RedisModuleCommandKeySpec[]){
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_READ,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
@@ -65,13 +65,13 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
     RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.complex1");
     RedisModuleCommandInfo info = {
         .key_specs = (RedisModuleCommandKeySpec[]){
-            (RedisModuleCommandKeySpec){
+            {
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "STORE",
@@ -79,7 +79,7 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_READ,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "KEYS",
@@ -107,7 +107,7 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
     RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.complex2");
     RedisModuleCommandInfo info = {
         .key_specs = (RedisModuleCommandKeySpec[]){
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "STORE",
@@ -115,28 +115,28 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_READ,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_READ,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 3,
                 .find_keys_type = REDISMODULE_KSPEC_FK_KEYNUM,
                 .fk.keynum = {0,1,1}
             },
-            (RedisModuleCommandKeySpec){
+            {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "MOREKEYS",
