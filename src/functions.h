@@ -47,11 +47,12 @@
 #include "script.h"
 #include "redismodule.h"
 
-/* Functions flags */
-#define FUNCTION_FLAG_NO_WRITES (1ULL<<0)
-#define FUNCTION_FLAG_ALLOW_OOM (1ULL<<1)
-#define FUNCTION_FLAG_ALLOW_STALE (1ULL<<3)
-#define FUNCTION_FLAG_NO_CLUSTER (1ULL<<4)
+typedef struct functionFlag {
+    uint64_t flag;
+    const char *str;
+} functionFlag;
+
+extern functionFlag function_flags_def[];
 
 typedef struct functionLibInfo functionLibInfo;
 

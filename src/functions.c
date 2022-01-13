@@ -33,6 +33,20 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
+/* Functions flags */
+#define FUNCTION_FLAG_NO_WRITES (1ULL<<0)
+#define FUNCTION_FLAG_ALLOW_OOM (1ULL<<1)
+#define FUNCTION_FLAG_ALLOW_STALE (1ULL<<3)
+#define FUNCTION_FLAG_NO_CLUSTER (1ULL<<4)
+
+functionFlag function_flags_def[] = {
+        {.flag = FUNCTION_FLAG_NO_WRITES, .str = "no-writes"},
+        {.flag = FUNCTION_FLAG_ALLOW_OOM, .str = "allow-oom"},
+        {.flag = FUNCTION_FLAG_ALLOW_STALE, .str = "allow-stale"},
+        {.flag = FUNCTION_FLAG_NO_CLUSTER, .str = "no-cluster"},
+        {.flag = 0, .str = NULL}, /* flags array end */
+};
+
 typedef enum {
     restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
 } restorePolicy;
@@ -411,6 +425,20 @@ void functionStatsCommand(client *c) {
     dictReleaseIterator(iter);
 }
 
+static void functionListReplyFlags(client *c, functionInfo *fi) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+
+    for (functionFlag *flag = function_flags_def; flag->str ; ++flag) {
+        if (fi->f_flags & flag->flag) {
+            addReplyStatus(c, flag->str);
+            ++flagcount;
+        }
+    }
+
+    setDeferredSetLen(c, flaglen, flagcount);
+}
+
 /*
  * FUNCTION LIST [LIBRARYNAME PATTERN] [WITHCODE]
  *
@@ -481,7 +509,7 @@ void functionListCommand(client *c) {
         dictEntry *function_entry = NULL;
         while ((function_entry = dictNext(functions_iter))) {
             functionInfo *fi = dictGetVal(function_entry);
-            addReplyMapLen(c, 2);
+            addReplyMapLen(c, 3);
             addReplyBulkCString(c, "name");
             addReplyBulkCBuffer(c, fi->name, sdslen(fi->name));
             addReplyBulkCString(c, "description");
@@ -490,6 +518,8 @@ void functionListCommand(client *c) {
             } else {
                 addReplyNull(c);
             }
+            addReplyBulkCString(c, "flags");
+            functionListReplyFlags(c, fi);
         }
         dictReleaseIterator(functions_iter);
 

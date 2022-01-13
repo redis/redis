@@ -272,22 +272,21 @@ static int luaRegisterFunctionReadFlags(lua_State *lua, uint64_t *flags) {
             goto done;
         }
 
-        const char *flag = lua_tostring(lua, -1);
-        if (!strcasecmp("no-writes", flag)) {
-            f_flags |= FUNCTION_FLAG_NO_WRITES;
-        } else if (!strcasecmp("allow-oom", flag)) {
-            f_flags |= FUNCTION_FLAG_ALLOW_OOM;
-        } else if (!strcasecmp("allow-stale", flag)) {
-            f_flags |= FUNCTION_FLAG_ALLOW_STALE;
-        } else if (!strcasecmp("no-cluster", flag)) {
-            f_flags |= FUNCTION_FLAG_NO_CLUSTER;
-        } else {
-            lua_pop(lua,1);
-            goto done;
+        const char *flag_str = lua_tostring(lua, -1);
+        int found = 0;
+        for (functionFlag *flag = function_flags_def; flag->str ; ++flag) {
+            if (!strcasecmp(flag->str, flag_str)) {
+                f_flags |= flag->flag;
+                found = 1;
+                break;
+            }
         }
-
         /* pops the value to continue the iteration */
         lua_pop(lua,1);
+        if (!found) {
+            /* flag not found */
+            goto done;
+        }
     }
 
     *flags = f_flags;

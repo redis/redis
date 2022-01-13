@@ -72,7 +72,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test description argument} {
         r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
         r function list
-    } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+    } {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
 
     test {FUNCTION - test fcall bad arguments} {
         catch {
@@ -126,7 +126,7 @@ start_server {tags {"scripting"}} {
         assert_match "*Error trying to load the RDB*" $e
         r debug reload noflush merge
         r function list
-    } {{library_name test engine LUA description {some description} functions {{name test description {}}}}} {needs:debug}
+    } {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}} {needs:debug}
 
     test {FUNCTION - test debug reload with nosave and noflush} {
         r function delete test
@@ -145,7 +145,7 @@ start_server {tags {"scripting"}} {
         r flushall
         r flushdb
         r function list
-    } {{library_name test engine LUA description {} functions {{name test description {}}}}}
+    } {{library_name test engine LUA description {} functions {{name test description {} flags {}}}}}
 
     test {FUNCTION - test function dump and restore} {
         r function flush
@@ -155,7 +155,7 @@ start_server {tags {"scripting"}} {
         assert_match {} [r function list]
         r function restore $e
         r function list
-    } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+    } {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
 
     test {FUNCTION - test function dump and restore with flush argument} {
         set e [r function dump]
@@ -163,7 +163,7 @@ start_server {tags {"scripting"}} {
         assert_match {} [r function list]
         r function restore $e FLUSH
         r function list
-    } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+    } {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
 
     test {FUNCTION - test function dump and restore with append argument} {
         set e [r function dump]
@@ -197,7 +197,7 @@ start_server {tags {"scripting"}} {
         catch {r function restore bad_payload} e
         assert_match {*payload version or checksum are wrong*} $e
         r function list
-    } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+    } {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
 
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
@@ -275,17 +275,17 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function flush} {
         r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
-        assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
+        assert_match {{library_name test engine LUA description {} functions {{name test description {} flags {}}}}} [r function list]
         r function flush
         assert_match {} [r function list]
 
         r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
-        assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
+        assert_match {{library_name test engine LUA description {} functions {{name test description {} flags {}}}}} [r function list]
         r function flush async
         assert_match {} [r function list]
 
         r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
-        assert_match {{library_name test engine LUA description {} functions {{name test description {}}}}} [r function list]
+        assert_match {{library_name test engine LUA description {} functions {{name test description {} flags {}}}}} [r function list]
         r function flush sync
         assert_match {} [r function list]
     }
@@ -313,8 +313,8 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test {FUNCTION - creation is replicated to replica} {
             r function load LUA test DESCRIPTION {some description} [get_no_writes_function_code test {return 'hello'}]
-            wait_for_condition 50 100 {
-                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+            wait_for_condition 50 100 {    
+                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags no-writes}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
             }
@@ -337,7 +337,7 @@ start_server {tags {"scripting repl external:skip"}} {
             assert_equal [r function restore $e] {OK}
 
             wait_for_condition 50 100 {
-                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags no-writes}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
             }
@@ -355,7 +355,7 @@ start_server {tags {"scripting repl external:skip"}} {
         test {FUNCTION - flush is replicated to replica} {
             r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
             wait_for_condition 50 100 {
-                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+                [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
             }
@@ -389,7 +389,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test "FUNCTION - test replication to replica on rdb phase info command" {
             r -1 function list
-        } {{library_name test engine LUA description {some description} functions {{name test description {}}}}}
+        } {{library_name test engine LUA description {some description} functions {{name test description {} flags no-writes}}}}
 
         test "FUNCTION - create on read only replica" {
             catch {
@@ -434,7 +434,7 @@ test {FUNCTION can processes create, delete and flush commands in AOF when doing
         r slaveof 127.0.0.1 0
         r debug loadaof
         r slaveof no one
-        assert_equal [r function list] {{library_name test engine LUA description {} functions {{name test description {}}}}}
+        assert_equal [r function list] {{library_name test engine LUA description {} functions {{name test description {} flags {}}}}}
 
         r FUNCTION DELETE test
 
@@ -754,7 +754,7 @@ start_server {tags {"scripting"}} {
             }
         }
         r function list
-    } {{library_name lib engine LUA description {} functions {{name f1 description {some desc}}}}}
+    } {{library_name lib engine LUA description {} functions {{name f1 description {some desc} flags {}}}}}
 
     test {LIBRARIES - named arguments, bad function name} {
         catch {
@@ -921,12 +921,12 @@ start_server {tags {"scripting"}} {
         r function flush
         r function load lua library1 {redis.register_function('f6', function(keys, args) return 7 end)}
         r function list withcode
-    } {{library_name library1 engine LUA description {} functions {{name f6 description {}}} library_code {redis.register_function('f6', function(keys, args) return 7 end)}}}
+    } {{library_name library1 engine LUA description {} functions {{name f6 description {} flags {}}} library_code {redis.register_function('f6', function(keys, args) return 7 end)}}}
 
     test {FUNCTION - test function list with pattern} {
         r function load lua lib1 {redis.register_function('f7', function(keys, args) return 7 end)}
         r function list libraryname library*
-    } {{library_name library1 engine LUA description {} functions {{name f6 description {}}}}}
+    } {{library_name library1 engine LUA description {} functions {{name f6 description {} flags {}}}}}
 
     test {FUNCTION - test function list wrong argument} {
         catch {r function list bad_argument} e
