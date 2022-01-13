@@ -1343,6 +1343,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
             cmd->history[j].since = zstrdup(info->history[j].since);
             cmd->history[j].changes = zstrdup(info->history[j].changes);
         }
+        cmd->num_history = count;
     }
 
     if (info->hints) {
@@ -1352,6 +1353,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         cmd->hints = zmalloc(sizeof(char *) * (count + 1));
         for (size_t j = 0; j < count; j++) cmd->hints[j] = zstrdup(info->hints[j]);
         cmd->hints[count] = NULL;
+        cmd->num_hints = count;
     }
 
     if (info->arity) cmd->arity = info->arity;
@@ -1416,6 +1418,8 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
 
     if (info->args) {
         cmd->args = moduleCopyCommandArgs(info->args);
+        /* Populate arg.num_args with the number of subargs, recursively */
+        cmd->num_args = populateArgsStructure(cmd->args);
     }
     return REDISMODULE_OK;
 }

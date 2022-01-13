@@ -2624,12 +2624,14 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
-/* Recursively populate the args structure and return the number of args. */
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
 int populateArgsStructure(struct redisCommandArg *args) {
     if (!args)
         return 0;
     int count = 0;
     while (args->name) {
+        serverAssert(count < INT_MAX);
         args->num_args = populateArgsStructure(args->subargs);
         count++;
         args++;

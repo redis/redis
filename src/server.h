@@ -2295,8 +2295,9 @@ extern dict *modules;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
-/* Key arguments specs */
+/* Command metadata */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
+int populateArgsStructure(struct redisCommandArg *args);
 
 /* Modules */
 void moduleInitModulesSystem(void);
