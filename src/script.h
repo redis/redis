@@ -76,6 +76,20 @@ struct scriptRunCtx {
     mstime_t snapshot_time;
 };
 
+/* Scripts flags */
+#define SCRIPT_FLAG_NO_WRITES (1ULL<<0)
+#define SCRIPT_FLAG_ALLOW_OOM (1ULL<<1)
+#define SCRIPT_FLAG_ALLOW_STALE (1ULL<<3)
+#define SCRIPT_FLAG_NO_CLUSTER (1ULL<<4)
+
+/* Defines a script flags */
+typedef struct scriptFlag {
+    uint64_t flag;
+    const char *str;
+} scriptFlag;
+
+extern scriptFlag scripts_flags_def[];
+
 void scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname);
 void scriptResetRun(scriptRunCtx *r_ctx);
 int scriptSetResp(scriptRunCtx *r_ctx, int resp);

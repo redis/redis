@@ -3467,52 +3467,47 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
-    if (!scriptIsTimedout()) {
-        /* Set server.script_oom to 0, if we will find out that we are
-         * over the memory limit, it will be set to 1. */
-        server.script_oom = 0;
-        if (server.maxmemory) {
-            int out_of_memory = (performEvictions() == EVICT_FAIL);
+    if (server.maxmemory && !scriptIsTimedout()) {
+        int out_of_memory = (performEvictions() == EVICT_FAIL);
 
-            /* performEvictions may evict keys, so we need flush pending tracking
-             * invalidation keys. If we don't do this, we may get an invalidation
-             * message after we perform operation on the key, where in fact this
-             * message belongs to the old value of the key before it gets evicted.*/
-            trackingHandlePendingKeyInvalidations();
+        /* performEvictions may evict keys, so we need flush pending tracking
+         * invalidation keys. If we don't do this, we may get an invalidation
+         * message after we perform operation on the key, where in fact this
+         * message belongs to the old value of the key before it gets evicted.*/
+        trackingHandlePendingKeyInvalidations();
 
-            /* performEvictions may flush slave output buffers. This may result
-             * in a slave, that may be the active client, to be freed. */
-            if (server.current_client == NULL) return C_ERR;
+        /* performEvictions may flush slave output buffers. This may result
+         * in a slave, that may be the active client, to be freed. */
+        if (server.current_client == NULL) return C_ERR;
 
-            int reject_cmd_on_oom = is_denyoom_command;
-            /* If client is in MULTI/EXEC context, queuing may consume an unlimited
-             * amount of memory, so we want to stop that.
-             * However, we never want to reject DISCARD, or even EXEC (unless it
-             * contains denied commands, in which case is_denyoom_command is already
-             * set. */
-            if (c->flags & CLIENT_MULTI &&
-                c->cmd->proc != execCommand &&
-                c->cmd->proc != discardCommand &&
-                c->cmd->proc != quitCommand &&
-                c->cmd->proc != resetCommand) {
-                reject_cmd_on_oom = 1;
-            }
+        int reject_cmd_on_oom = is_denyoom_command;
+        /* If client is in MULTI/EXEC context, queuing may consume an unlimited
+         * amount of memory, so we want to stop that.
+         * However, we never want to reject DISCARD, or even EXEC (unless it
+         * contains denied commands, in which case is_denyoom_command is already
+         * set. */
+        if (c->flags & CLIENT_MULTI &&
+            c->cmd->proc != execCommand &&
+            c->cmd->proc != discardCommand &&
+            c->cmd->proc != quitCommand &&
+            c->cmd->proc != resetCommand) {
+            reject_cmd_on_oom = 1;
+        }
 
-            if (out_of_memory && reject_cmd_on_oom) {
-                rejectCommand(c, shared.oomerr);
-                return C_OK;
-            }
+        if (out_of_memory && reject_cmd_on_oom) {
+            rejectCommand(c, shared.oomerr);
+            return C_OK;
+        }
 
-            /* Save out_of_memory result at script start, otherwise if we check OOM
-             * until first write within script, memory used by lua stack and
-             * arguments might interfere. */
-            if (c->cmd->proc == evalCommand ||
-                c->cmd->proc == evalShaCommand ||
-                c->cmd->proc == fcallCommand ||
-                c->cmd->proc == fcallroCommand)
-            {
-                server.script_oom = out_of_memory;
-            }
+        /* Save out_of_memory result at script start, otherwise if we check OOM
+         * until first write within script, memory used by lua stack and
+         * arguments might interfere. */
+        if (c->cmd->proc == evalCommand ||
+            c->cmd->proc == evalShaCommand ||
+            c->cmd->proc == fcallCommand ||
+            c->cmd->proc == fcallroCommand)
+        {
+            server.script_oom = out_of_memory;
         }
     }
 

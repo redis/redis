@@ -47,13 +47,6 @@
 #include "script.h"
 #include "redismodule.h"
 
-typedef struct functionFlag {
-    uint64_t flag;
-    const char *str;
-} functionFlag;
-
-extern functionFlag function_flags_def[];
-
 typedef struct functionLibInfo functionLibInfo;
 
 typedef struct engine {

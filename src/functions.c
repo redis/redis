@@ -33,20 +33,6 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
-/* Functions flags */
-#define FUNCTION_FLAG_NO_WRITES (1ULL<<0)
-#define FUNCTION_FLAG_ALLOW_OOM (1ULL<<1)
-#define FUNCTION_FLAG_ALLOW_STALE (1ULL<<3)
-#define FUNCTION_FLAG_NO_CLUSTER (1ULL<<4)
-
-functionFlag function_flags_def[] = {
-        {.flag = FUNCTION_FLAG_NO_WRITES, .str = "no-writes"},
-        {.flag = FUNCTION_FLAG_ALLOW_OOM, .str = "allow-oom"},
-        {.flag = FUNCTION_FLAG_ALLOW_STALE, .str = "allow-stale"},
-        {.flag = FUNCTION_FLAG_NO_CLUSTER, .str = "no-cluster"},
-        {.flag = 0, .str = NULL}, /* flags array end */
-};
-
 typedef enum {
     restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
 } restorePolicy;
@@ -426,17 +412,21 @@ void functionStatsCommand(client *c) {
 }
 
 static void functionListReplyFlags(client *c, functionInfo *fi) {
+    /* First count the number of flags we have */
     int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-
-    for (functionFlag *flag = function_flags_def; flag->str ; ++flag) {
+    for (scriptFlag *flag = scripts_flags_def; flag->str ; ++flag) {
         if (fi->f_flags & flag->flag) {
-            addReplyStatus(c, flag->str);
             ++flagcount;
         }
     }
 
-    setDeferredSetLen(c, flaglen, flagcount);
+    addReplySetLen(c, flagcount);
+
+    for (scriptFlag *flag = scripts_flags_def; flag->str ; ++flag) {
+        if (fi->f_flags & flag->flag) {
+            addReplyStatus(c, flag->str);
+        }
+    }
 }
 
 /*
@@ -580,19 +570,19 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if ((fi->f_flags & FUNCTION_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+    if ((fi->f_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
         addReplyError(c, "Can not run function on cluster, 'no-cluster' flag is set.");
         return;
     }
 
-    if (!(fi->f_flags & FUNCTION_FLAG_ALLOW_OOM) && server.script_oom) {
+    if (!(fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
         addReplyError(c, "-OOM allow-oom flag is not set on the function, "
                          "can not run it when used memory > 'maxmemory'");
         return;
     }
 
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 && !(fi->f_flags & FUNCTION_FLAG_ALLOW_STALE))
+        server.repl_serve_stale_data == 0 && !(fi->f_flags & SCRIPT_FLAG_ALLOW_STALE))
     {
         addReplyError(c, "-MASTERDOWN Link with MASTER is down, "
                          "replica-serve-stale-data is set to 'no' "
@@ -600,7 +590,7 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if (!(fi->f_flags & FUNCTION_FLAG_NO_WRITES)) {
+    if (!(fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
         /* Function may perform writes we need to verify:
          * 1. we are not a readonly replica
          * 2. no disk error detected
@@ -635,12 +625,12 @@ static void fcallCommandGeneric(client *c, int ro) {
     scriptRunCtx run_ctx;
 
     scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro || (fi->f_flags & FUNCTION_FLAG_NO_WRITES)) {
+    if (ro || (fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
         /* On fcall_ro or on functions that do not have the 'write'
          * flag, we will not allow write commands. */
         run_ctx.flags |= SCRIPT_READ_ONLY;
     }
-    if (fi->f_flags & FUNCTION_FLAG_ALLOW_OOM) {
+    if (fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) {
         run_ctx.flags |= SCRIPT_ALLOW_OOM;
     }
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,

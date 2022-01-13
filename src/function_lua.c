@@ -274,7 +274,7 @@ static int luaRegisterFunctionReadFlags(lua_State *lua, uint64_t *flags) {
 
         const char *flag_str = lua_tostring(lua, -1);
         int found = 0;
-        for (functionFlag *flag = function_flags_def; flag->str ; ++flag) {
+        for (scriptFlag *flag = scripts_flags_def; flag->str ; ++flag) {
             if (!strcasecmp(flag->str, flag_str)) {
                 f_flags |= flag->flag;
                 found = 1;

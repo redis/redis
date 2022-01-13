@@ -31,6 +31,14 @@
 #include "script.h"
 #include "cluster.h"
 
+scriptFlag scripts_flags_def[] = {
+    {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
+    {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
+    {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
+    {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = 0, .str = NULL}, /* flags array end */
+};
+
 /* On script invocation, holding the current run context */
 static scriptRunCtx *curr_run_ctx = NULL;
 
