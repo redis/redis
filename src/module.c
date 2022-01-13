@@ -1073,7 +1073,7 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
 }
 
 /* Helpers for RM_SetCommandInfo. */
-static int moduleValidateCommandInfo(RedisModuleCommandInfo *info);
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
 static int64_t moduleConvertKeySpecsFlags(int64_t flags);
 static int moduleValidateCommandArgs(RedisModuleCommandArg *args);
 static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args);
@@ -1309,7 +1309,7 @@ static int moduleConvertArgFlags(int flags);
  * On success REDISMODULE_OK is returned. On error REDISMODULE_ERR is returned
  * and `errno` is set to EINVAL if invalid info was provided or EEXIST if info
  * has already been set. */
-int RM_SetCommandInfo(RedisModuleCommand *command, RedisModuleCommandInfo *info) {
+int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
     if (!moduleValidateCommandInfo(info)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -1421,7 +1421,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, RedisModuleCommandInfo *info)
 }
 
 /* Returns 1 if the command info is valid and 0 otherwise. */
-static int moduleValidateCommandInfo(RedisModuleCommandInfo *info) {
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
 
     /* No validation for the fields summary, complexity and since (strings or
      * NULL), hints (NULL-terminated array of strings), arity (any integer). */
@@ -9941,17 +9941,17 @@ void moduleUnregisterCommands(struct RedisModule *module) {
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
                 for (int j = 0; cmd->hints && cmd->hints[j]; j++)
-                    sdsfree((sds)cmd->hints[j]);
+                    zfree((char*)cmd->hints[j]);
                 for (int j = 0; cmd->history && cmd->history[j].since; j++) {
-                    sdsfree((sds)cmd->history[j].since);
-                    sdsfree((sds)cmd->history[j].changes);
+                    zfree((char*)cmd->history[j].since);
+                    zfree((char*)cmd->history[j].changes);
                 }
                 dictDelete(server.commands,cmdname);
                 dictDelete(server.orig_commands,cmdname);
                 sdsfree(cmdname);
-                sdsfree((sds)cmd->summary);
-                sdsfree((sds)cmd->since);
-                sdsfree((sds)cmd->complexity);
+                zfree((char*)cmd->summary);
+                zfree((char*)cmd->since);
+                zfree((char*)cmd->complexity);
                 if (cmd->latency_histogram) {
                     hdr_close(cmd->latency_histogram);
                     cmd->latency_histogram = NULL;
