@@ -1023,6 +1023,10 @@ sds sdscatrepr(sds s, const char *p, size_t len) {
 
 /* Returns one if the string contains characters to be escaped
  * by sdscatrepr(), zero otherwise.
+ *
+ * Typically, this should be used to help protect aggregated strings in a way
+ * that is compatible with sdssplitargs(). For this reason, also spaces will be
+ * treated as needing an escape.
  */
 int sdsneedsrepr(const sds s) {
     size_t len = sdslen(s);
@@ -1030,7 +1034,7 @@ int sdsneedsrepr(const sds s) {
 
     while (len--) {
         if (*p == '\\' || *p == '"' || *p == '\n' || *p == '\r' ||
-            *p == '\t' || *p == '\a' || *p == '\b' || !isprint(*p)) return 1;
+            *p == '\t' || *p == '\a' || *p == '\b' || !isprint(*p) || isspace(*p)) return 1;
         p++;
     }
 
