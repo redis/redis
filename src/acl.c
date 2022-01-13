@@ -284,7 +284,7 @@ void *ACLListDupSds(void *item) {
     return sdsdup(item);
 }
 
-/* Structure used for handling key pattern with different key
+/* Structure used for handling key patterns with different key
  * based permissions. */
 typedef struct {
     int flags; /* The CMD_KEYS_* flags for this key pattern */
@@ -1747,7 +1747,10 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     }
 
     /* Second optimization is to check if the new list of channels
-     * is a strict superset of the original. */
+     * is a strict superset of the original. This is done by
+     * created an "upcoming" list of all channels that are in
+     * the new user and checking each of the existing channels
+     * against it.  */
     list *upcoming = listCreate();
     listRewind(new->selectors,&li);
     while((ln = listNext(&li))) {

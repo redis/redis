@@ -980,11 +980,12 @@ typedef struct readyList {
                                                  * deep sanitization of RESTORE
                                                  * payload. */
 
-#define SELECTOR_FLAG_ROOT (1<<0)
+#define SELECTOR_FLAG_ROOT (1<<0)           /* This is the root user permission
+                                             * selector. */
 #define SELECTOR_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
 #define SELECTOR_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
 #define SELECTOR_FLAG_ALLCHANNELS (1<<3)    /* The user can mention any Pub/Sub
-                                           channel. */
+                                               channel. */
 
 typedef struct {
     sds name;       /* The username as an SDS string. */
@@ -1862,8 +1863,9 @@ struct redisServer {
 #define MAX_KEYS_BUFFER 256
 
 typedef struct {
-    int pos;
-    int flags;
+    int pos; /* The position of the key within the client array */
+    int flags; /* The flags associted with the key access, see
+                  CMD_KEY_* for more information */
 } keyReference;
 
 /* A result structure for the various getkeys function calls. It lists the
@@ -3315,7 +3317,6 @@ void xdelCommand(client *c);
 void xtrimCommand(client *c);
 void lolwutCommand(client *c);
 void aclCommand(client *c);
-void aclGetUserCommand(client *c);
 void lcsCommand(client *c);
 void quitCommand(client *c);
 void resetCommand(client *c);

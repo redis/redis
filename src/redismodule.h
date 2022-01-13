@@ -257,7 +257,8 @@ typedef enum {
 #define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
 #define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
 
-/* Redis ACL key permission flags, which specify how modules intend to modify the key */
+/* Redis ACL key permission flags, which specify which permissions a module
+ * needs on a key. */
 #define REDISMODULE_KEY_PERMISSION_READ (1<<0) 
 #define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
 #define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)

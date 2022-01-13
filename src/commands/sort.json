@@ -38,6 +38,7 @@
             {
                 "flags": [
                     "WRITE",
+                    "READ",
                     "INCOMPLETE"
                 ],
                 "begin_search": {
