@@ -6,8 +6,6 @@ proc get_no_writes_function_code {args} {
     return [format "redis.register_function{function_name='%s', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0] [lindex $args 1]]
 }
 
-
-
 start_server {tags {"scripting"}} {
     test {FUNCTION - Basic usage} {
         r function load LUA test [get_function_code test {return 'hello'}]

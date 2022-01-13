@@ -573,7 +573,7 @@ static void fcallCommandGeneric(client *c, int ro) {
     if (!(fi->f_flags & FUNCTION_FLAG_NO_WRITES)) {
         /* Function may perform writes we need to verify:
          * 1. we are not a readonly replica
-         * 2. no disc error detected
+         * 2. no disk error detected
          * 3. command is not 'fcall_ro' */
         if (server.masterhost && server.repl_slave_ro && c->id != CLIENT_ID_AOF
             && !(c->flags & CLIENT_MASTER))
