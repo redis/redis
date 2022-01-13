@@ -505,6 +505,7 @@ proc start_server {options {code undefined}} {
         close $fd
     }
 
+    set before_start_ready_count [count_message_lines $stdout "Ready to accept"]
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -585,7 +586,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > 0} {
+            if {[count_message_lines $stdout "Ready to accept"] == [expr $before_start_ready_count + 1]} {
                 break
             }
             after 10

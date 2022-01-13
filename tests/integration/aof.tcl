@@ -478,22 +478,14 @@ tags {"aof external:skip"} {
     }
 
     test {EVAL timeout with slow verbatim Lua script from AOF} {
-        start_server [list overrides [list dir $server_path appendonly yes lua-time-limit 1 aof-use-rdb-preamble no]] {
-            # generate a long running script that is propagated to the AOF as script
-            # make sure that the script times out during loading
-            create_aof $aof_dirpath $aof_file {
-                append_to_aof [formatCommand select 9]
-                append_to_aof [formatCommand eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x]
-            }
-            set rd [redis_deferring_client]
-            set start [clock clicks -milliseconds]
-            $rd debug loadaof
-            $rd flush
+        # generate a long running script that is propagated to the AOF as script
+        # make sure that the script times out during loading
+        create_aof $aof_dirpath $aof_file {
+            append_to_aof [formatCommand select 9]
+            append_to_aof [formatCommand eval {redis.call('set',KEYS[1],'y'); for i=1,1500000 do redis.call('ping') end return 'ok'} 1 x]
+        }
+        start_server [list overrides [list dir $server_path appendonly yes lua-time-limit 1 aof-use-rdb-preamble no]] {  
             wait_for_log_messages 0 {"*Slow script detected*"} 0 100 100
-            $rd read
-            set elapsed [expr [clock clicks -milliseconds]-$start]
-            if {$::verbose} { puts "loading took $elapsed milliseconds" }
-            $rd close
             assert_equal [r get x] y
         }
     }
