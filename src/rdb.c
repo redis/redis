@@ -2702,7 +2702,8 @@ void stopLoading(int success) {
                           success?
                             REDISMODULE_SUBEVENT_LOADING_ENDED:
                             REDISMODULE_SUBEVENT_LOADING_FAILED,
- 
+                           NULL);
+}
 
 void startSaving(int rdbflags) {
     /* Fire the persistence modules end event. */
