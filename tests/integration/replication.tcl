@@ -73,7 +73,7 @@ start_server {tags {"repl external:skip"}} {
         test {INCRBYFLOAT replication, should not remove expire} {
             r set test 1 EX 100
             r incrbyfloat test 0.1
-            after 1000
+            wait_for_ofs_sync $A $B
             assert_equal [$A debug digest] [$B debug digest]
         }
 
