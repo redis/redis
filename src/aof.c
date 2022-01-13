@@ -57,7 +57,7 @@ int rewriteAppendOnlyFile(char *filename);
  * Append-only files consist of three types:
  *
  * BASE: Represents a Redis snapshot from the time of last AOF rewrite. The manifest
- * file contains at most a single BASE file, which will always be the first file in the
+ * file contains at most a single BASE file, which will be always the first file in the
  * list.
  *
  * INCR: Represents all write commands executed by Redis following the last successful
@@ -370,6 +370,7 @@ loaderr:
         serverLog(LL_WARNING, ">>> '%s'\n", line);
     }
     serverLog(LL_WARNING, "%s\n", err);
+    fclose(fp);
     exit(1);
 }
 
@@ -626,7 +627,6 @@ void aofUpgradePrepare(aofManifest *am) {
             server.aof_filename,
             server.aof_dirname,
             strerror(errno));
-        sdsfree(aof_filepath);
         exit(1);;
     }
     sdsfree(aof_filepath);
@@ -758,7 +758,7 @@ int openNewIncrAofForAppend(void) {
     if (newfd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
             new_aof_name, strerror(errno));
-
+        sdsfree(new_aof_name);
         aofManifestFree(temp_am);
         return C_ERR;
     }
@@ -768,6 +768,7 @@ int openNewIncrAofForAppend(void) {
     if (ret == C_ERR) {
         close(newfd);
         aofManifestFree(temp_am);
+        sdsfree(new_aof_name);
         return C_ERR;
     }
 
