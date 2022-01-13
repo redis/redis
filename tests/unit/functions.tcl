@@ -1039,6 +1039,20 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 0
     }
 
+    test {FUNCTION - deny oom on no-writes function} {
+        r FUNCTION load lua test replace {redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-writes'}}}
+
+        r config set maxmemory 1
+
+        catch {r fcall f1 1 k} e
+        assert_match {*can not run it when used memory > 'maxmemory'*} $e
+
+        catch {r fcall_ro f1 1 k} e
+        assert_match {*can not run it when used memory > 'maxmemory'*} $e
+
+        r config set maxmemory 0
+    }
+
     test {FUNCTION - allow stale} {
         r FUNCTION load lua test replace { 
             redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-writes'}}
