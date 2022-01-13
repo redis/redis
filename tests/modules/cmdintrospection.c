@@ -54,7 +54,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             {
                 .name = "nomkstream",
                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                .key_spec_index = -1,
                 .token = "NOMKSTREAM",
                 .since = "6.2.0",
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL
@@ -62,24 +61,20 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             {
                 .name = "trim",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
-                .key_spec_index = -1,
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                 .subargs = (RedisModuleCommandArg[]){
                     {
                         .name = "strategy",
                         .type = REDISMODULE_ARG_TYPE_ONEOF,
-                        .key_spec_index = -1,
                         .subargs = (RedisModuleCommandArg[]){
                             {
                                 .name = "maxlen",
                                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .key_spec_index = -1,
                                 .token = "MAXLEN",
                             },
                             {
                                 .name = "minid",
                                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .key_spec_index = -1,
                                 .token = "MINID",
                                 .since = "6.2.0",
                             },
@@ -89,19 +84,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     {
                         .name = "operator",
                         .type = REDISMODULE_ARG_TYPE_ONEOF,
-                        .key_spec_index = -1,
                         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                         .subargs = (RedisModuleCommandArg[]){
                             {
                                 .name = "equal",
                                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .key_spec_index = -1,
                                 .token = "="
                             },
                             {
                                 .name = "approximately",
                                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                                .key_spec_index = -1,
                                 .token = "~"
                             },
                             {0}
@@ -110,12 +102,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                     {
                         .name = "threshold",
                         .type = REDISMODULE_ARG_TYPE_STRING,
-                        .key_spec_index = -1
                     },
                     {
                         .name = "count",
                         .type = REDISMODULE_ARG_TYPE_INTEGER,
-                        .key_spec_index = -1,
                         .token = "LIMIT",
                         .since = "6.2.0",
                         .flags = REDISMODULE_CMD_ARG_OPTIONAL
@@ -126,18 +116,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             {
                 .name = "id_or_auto",
                 .type = REDISMODULE_ARG_TYPE_ONEOF,
-                .key_spec_index = -1,
                 .subargs = (RedisModuleCommandArg[]){
                     {
                         .name = "auto_id",
                         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                        .key_spec_index = -1,
                         .token = "*"
                     },
                     {
                         .name = "id",
                         .type = REDISMODULE_ARG_TYPE_STRING,
-                        .key_spec_index = -1
                     },
                     {0}
                 }
@@ -145,18 +132,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             {
                 .name = "field_value",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
-                .key_spec_index = -1,
                 .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                 .subargs = (RedisModuleCommandArg[]){
                     {
                         .name = "field",
                         .type = REDISMODULE_ARG_TYPE_STRING,
-                        .key_spec_index = -1,
                     },
                     {
                         .name = "value",
                         .type = REDISMODULE_ARG_TYPE_STRING,
-                        .key_spec_index = -1,
                     },
                     {0}
                 }

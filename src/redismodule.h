@@ -283,7 +283,7 @@ typedef struct RedisModuleCommandArg {
     RedisModuleCommandArgType type;
     int key_spec_index;       /* If type is KEY, this is a zero-based index of
                                * the key_spec in the command. For other types,
-                               * key_spec_index must be -1. */
+                               * you may specify -1. */
     const char *token;        /* If type is PURE_TOKEN, this is the token. */
     const char *summary;
     const char *since;

@@ -1258,7 +1258,7 @@ static int moduleConvertArgFlags(int flags);
  *
  *     * `key_spec_index`: If the `type` is `REDISMODULE_ARG_TYPE_KEY` you must
  *       provide the index of the key-spec associated with this argument. See
- *       `key_specs` above. If the argument is not a key, you must specify -1.
+ *       `key_specs` above. If the argument is not a key, you may specify -1.
  *
  *     * `token`: The token preceding the argument (optional). Example: the
  *       argument `seconds` in `SET` has a token `EX`. If the argument consists
@@ -1488,7 +1488,9 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
 
         if (args[j].type == REDISMODULE_ARG_TYPE_KEY) {
             if (args[j].key_spec_index < 0) return 0;
-        } else if (args[j].key_spec_index != -1) {
+        } else if (args[j].key_spec_index != -1 && args[j].key_spec_index != 0) {
+            /* 0 is allowed for convenience, to allow it to be omitted in
+             * compound struct literals on the form `.field = value`. */
             return 0;
         }
 
@@ -1520,7 +1522,10 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
     for (size_t j = 0; j < count; j++) {
         realargs[j].name = zstrdup(args[j].name);
         realargs[j].type = moduleConvertArgType(args[j].type, NULL);
-        realargs[j].key_spec_index = args[j].key_spec_index;
+        if (args[j].type == REDISMODULE_ARG_TYPE_KEY)
+            realargs[j].key_spec_index = args[j].key_spec_index;
+        else
+            realargs[j].key_spec_index = -1;
         if (args[j].token) realargs[j].token = zstrdup(args[j].token);
         if (args[j].summary) realargs[j].summary = zstrdup(args[j].summary);
         if (args[j].since) realargs[j].since = zstrdup(args[j].since);
