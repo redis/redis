@@ -3461,19 +3461,17 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
+    /* Set server.script_oom to 0, if we will find out that we are
+     * over the memory limit, it will be set to 1. */
+    server.script_oom = 0;
+
     /* Handle the maxmemory directive.
      *
      * Note that we do not want to reclaim memory if we are here re-entering
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
-     * propagation of DELs due to eviction.
-     *
-     * Also notice that if maxmemory is not configured, if server.script_oom is
-     * true we still need to verify that we are still out of memory, otherwise
-     * it could be that were out of memory and then maxmemory was set to unlimited.
-     * In such case we still want to enter this section to turn server.script_oom off
-     * as well. */
-    if ((server.maxmemory || server.script_oom) && !scriptIsTimedout()) {
+     * propagation of DELs due to eviction. */
+    if (server.maxmemory && !scriptIsTimedout()) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
