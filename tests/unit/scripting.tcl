@@ -36,23 +36,16 @@ if {$is_eval == 1} {
 
 start_server {tags {"scripting"}} {
 
+    if {$is_eval eq 1} {
     test {Script - disallow write on OOM} {
-        r FUNCTION load lua f1 replace { redis.register_function{
-            function_name='f1',
-            callback=function() return redis.call('set', 'x', '1') end,
-            flags={'allow-oom'}
-        }}
-
         r config set maxmemory 1
-
-        catch {[r fcall f1 1 k]} e
-        assert_match {*command not allowed when used memory*} $e
 
         catch {[r eval "redis.call('set', 'x', 1)" 0]} e
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
     }
+    } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0

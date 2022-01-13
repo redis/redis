@@ -62,6 +62,7 @@
 #define SCRIPT_TIMEDOUT               (1ULL<<3) /* indicate that the current script timedout */
 #define SCRIPT_KILLED                 (1ULL<<4) /* indicate that the current script was marked to be killed */
 #define SCRIPT_READ_ONLY              (1ULL<<5) /* indicate that the current script should only perform read commands */
+#define SCRIPT_ALLOW_OOM              (1ULL<<6) /* indicate to allow any command even if OOM reached */
 #define SCRIPT_EVAL_MODE              (1ULL<<7) /* Indicate that the current script called from legacy Lua */
 typedef struct scriptRunCtx scriptRunCtx;
 

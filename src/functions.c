@@ -610,6 +610,9 @@ static void fcallCommandGeneric(client *c, int ro) {
          * flag, we will not allow write commands. */
         run_ctx.flags |= SCRIPT_READ_ONLY;
     }
+    if (fi->f_flags & FUNCTION_FLAG_ALLOW_OOM) {
+        run_ctx.flags |= SCRIPT_ALLOW_OOM;
+    }
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,
                  c->argv + 3 + numkeys, c->argc - 3 - numkeys);
     scriptResetRun(&run_ctx);

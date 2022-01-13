@@ -964,6 +964,20 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 0
     }
+
+    test {FUNCTION - verify allow-omm allows running any command} {
+        r FUNCTION load lua f1 replace { redis.register_function{
+            function_name='f1',
+            callback=function() return redis.call('set', 'x', '1') end,
+            flags={'allow-oom'}
+        }}
+
+        r config set maxmemory 1
+
+        assert_match {OK} [r fcall f1 1 k]
+
+        r config set maxmemory 0
+    }
 }
 
 start_server {tags {"scripting"}} {

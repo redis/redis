@@ -281,6 +281,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
+        /* Allow running any command even if OOM reached */
+        return C_OK;
+    }
+
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
