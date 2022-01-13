@@ -64,6 +64,7 @@ void luaEnableGlobalsProtection(lua_State *lua, int is_eval);
 void luaRegisterGlobalProtectionFunction(lua_State *lua);
 void luaSetGlobalProtection(lua_State *lua);
 void luaRegisterLogFunction(lua_State* lua);
+void luaRegisterVersion(lua_State* lua);
 void luaPushError(lua_State *lua, char *error);
 int luaRaiseError(lua_State *lua);
 void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr);

@@ -1078,4 +1078,21 @@ start_server {tags {"scripting"}} {
         r config set replica-serve-stale-data yes
         set _ {}
     } {} {external:skip}
+
+    test {FUNCTION - redis version api} {
+        r FUNCTION load lua test replace { 
+            local version = redis.REDIS_VERSION_NUM
+
+            redis.register_function{function_name='get_version_v1', callback=function()
+              return string.format('%s.%s.%s',
+                                    bit.band(bit.rshift(version, 4), 0x000000ff),
+                                    bit.band(bit.rshift(version, 2), 0x000000ff),
+                                    bit.band(version, 0x000000ff))
+            end}
+            redis.register_function{function_name='get_version_v2', callback=function() return redis.REDIS_VERSION end}
+        }
+
+        catch {[r fcall f1 0]} e
+        assert_equal  [r fcall get_version_v1 0] [r fcall get_version_v2 0]
+    }
 }

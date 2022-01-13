@@ -463,6 +463,7 @@ int luaEngineInitEngine() {
     lua_settable(lua_engine_ctx->lua, -3);
 
     luaRegisterLogFunction(lua_engine_ctx->lua);
+    luaRegisterVersion(lua_engine_ctx->lua);
 
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 

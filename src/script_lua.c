@@ -35,6 +35,7 @@
 #include "cluster.h"
 #include "monotonic.h"
 #include "resp_parser.h"
+#include "version.h"
 #include <lauxlib.h>
 #include <lualib.h>
 #include <ctype.h>
@@ -1155,6 +1156,16 @@ void luaSetGlobalProtection(lua_State *lua) {
     serverAssert(res == 0);
 }
 
+void luaRegisterVersion(lua_State* lua) {
+    lua_pushstring(lua,"REDIS_VERSION_NUM");
+    lua_pushnumber(lua,REDIS_VERSION_NUM);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"REDIS_VERSION");
+    lua_pushstring(lua,REDIS_VERSION);
+    lua_settable(lua,-3);
+}
+
 void luaRegisterLogFunction(lua_State* lua) {
     /* redis.log and log levels. */
     lua_pushstring(lua,"log");
@@ -1196,6 +1207,8 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_settable(lua,-3);
 
     luaRegisterLogFunction(lua);
+
+    luaRegisterVersion(lua);
 
     /* redis.setresp */
     lua_pushstring(lua,"setresp");
