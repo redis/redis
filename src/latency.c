@@ -562,13 +562,23 @@ void latencySpecificCommandsFillCDF(client *c) {
         if (cmd == NULL) {
             continue;
         }
-        /* If no latency info we reply with the same format as non empty histograms */
-        if (!cmd->latency_histogram) {
-            continue;
+
+        if (cmd->latency_histogram) {
+            addReplyBulkSds(c,getFullCommandName(cmd));
+            fillCommandCDF(c, cmd->latency_histogram);
+            command_with_data++;
         }
-        addReplyBulkSds(c,getFullCommandName(cmd));
-        fillCommandCDF(c, cmd->latency_histogram);
-        command_with_data++;
+
+        if (cmd->subcommands) {
+            for (int j = 0; cmd->subcommands[j].name; j++) {
+                struct redisCommand *sub = cmd->subcommands+j;
+                if (sub->latency_histogram) {
+                    addReplyBulkSds(c,getFullCommandName(sub));
+                    fillCommandCDF(c, sub->latency_histogram);
+                    command_with_data++;
+                }
+            }
+        }
     }
     setDeferredMapLen(c,replylen,command_with_data);
 }

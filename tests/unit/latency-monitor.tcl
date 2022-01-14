@@ -12,8 +12,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert_match {} [latency_histogram set]
         # Config resetstat and last latency_histogram recorded
         assert {[llength [r latency histogram]] == 4}
-        assert_match {} [latency_histogram config\\|resetstat]
-        assert_match {} [latency_histogram history\\|histogram]
     }
 
     test {LATENCY HISTOGRAM all commands} {
@@ -21,6 +19,17 @@ start_server {tags {"latency-monitor needs:latency"}} {
         r set a b
         r set c d
         assert_match {calls 2 histogram_usec *} [latency_histogram set]
+    }
+
+    test {LATENCY HISTOGRAM sub commands} {
+        r config resetstat
+        r client id
+        r client list
+        # parent command reply with its sub commands
+        assert {[llength [r latency histogram client]] == 4}
+        assert_match {*client|*client|*} [r latency histogram client]
+        assert_match {calls 1 histogram_usec *} [latency_histogram client|id]
+        assert_match {calls 1 histogram_usec *} [latency_histogram client|list]
     }
 
     test {LATENCY HISTOGRAM with a subset of commands} {
@@ -34,7 +43,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
         assert_match {calls 1 histogram_usec *} [latency_histogram hset]
         assert_match {calls 1 histogram_usec *} [latency_histogram hgetall]
         assert_match {calls 1 histogram_usec *} [latency_histogram get]
-        assert {[llength [r latency histogram]] == 12}
         assert {[llength [r latency histogram set get]] == 4}
     }
 
@@ -42,7 +50,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
         r config resetstat
         r set a b
         r get a
-        assert {[llength [r latency histogram]] == 6}
         assert {[llength [r latency histogram set get]] == 4}
     }
 
