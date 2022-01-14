@@ -1437,6 +1437,8 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
+    int in_busy_module;         /* Are we inside a busy module? (triggered by RM_Yield). */
+    const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
     int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     int module_ctx_nesting;     /* moduleCreateContext() nesting level */
@@ -1844,7 +1846,6 @@ struct redisServer {
     int lazyfree_lazy_server_del;
     int lazyfree_lazy_user_del;
     int lazyfree_lazy_user_flush;
-    int busy_module;
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;

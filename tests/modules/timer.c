@@ -97,7 +97,7 @@ int test_busy_module(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argc);
 
     while (!abort_flag) {
-        RedisModule_SlowContextHeartbeat(ctx);
+        RedisModule_Yield(ctx, "Slow module operation");
         usleep(1000);
     }
 

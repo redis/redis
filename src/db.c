@@ -1075,12 +1075,14 @@ void shutdownCommand(client *c) {
     if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
         /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
          * also processCommand where these errors are returned. */
-        if (server.busy_module)
-            addReplyErrorObject(c, shared.slowmoduleerr);
-        else if (scriptIsEval())
+        if (server.in_busy_module) {
+            serverAssert(server.busy_module_yield_reply);
+            addReplyErrorFormat(c, "-BUSY %s", server.busy_module_yield_reply);
+        } else if (scriptIsEval()) {
             addReplyErrorObject(c, shared.slowevalerr);
-        else
+        } else {
             addReplyErrorObject(c, shared.slowscripterr);
+        }
         return;
     }
 

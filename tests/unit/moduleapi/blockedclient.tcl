@@ -112,7 +112,7 @@ start_server {tags {"modules"}} {
         }
 
         # make sure we get BUSY error, and that we didn't get here too early
-        assert_error {*BUSY*} {r ping}
+        assert_error {*BUSY Slow module operation*} {r ping}
         assert_morethan [expr [clock clicks -milliseconds]-$start] $script_time_limit
         # abort the blocking operation
         r set_slow_operation 0

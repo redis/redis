@@ -2317,7 +2317,6 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
-    server.busy_module = 0;
     server.cluster_drop_packet_filter = -1;
     resetReplicationBuffer();
 
@@ -2399,6 +2398,8 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
+    server.in_busy_module = 0;
+    server.busy_module_yield_reply = NULL;
     server.core_propagates = 0;
     server.propagate_no_multi = 0;
     server.module_ctx_nesting = 0;
@@ -3614,9 +3615,10 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if ((scriptIsTimedout() || server.busy_module) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if (server.busy_module) {
-            rejectCommand(c, shared.slowmoduleerr);
+    if ((scriptIsTimedout() || server.in_busy_module) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+        if (server.in_busy_module) {
+            serverAssert(server.busy_module_yield_reply);
+            rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
         } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {

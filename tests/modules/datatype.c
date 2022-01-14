@@ -39,7 +39,7 @@ static void *datatype_load(RedisModuleIO *io, int encver) {
         RedisModuleCtx *ctx = RedisModule_GetContextFromIO(io);
         is_in_slow_loading = 1;
         while (slow_loading) {
-            RedisModule_SlowContextHeartbeat(ctx);
+            RedisModule_Yield(ctx, "Slow module operation");
             usleep(1000);
         }
         is_in_slow_loading = 0;

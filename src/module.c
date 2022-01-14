@@ -158,7 +158,7 @@ struct RedisModuleCtx {
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
-    long long next_heartbeat_event;
+    long long next_yield_time;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -614,11 +614,11 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
         if (--server.module_ctx_nesting == 0) {
-            if(!server.core_propagates)
+            if (!server.core_propagates)
                 propagatePendingCommands();
-            if (server.busy_module) {
+            if (server.in_busy_module) {
                 blockingOperationEnds();
-                server.busy_module = 0;
+                server.in_busy_module = 0;
             }
         }
     }
@@ -649,13 +649,13 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
 
-    /* Calculate the initial heartbeat trigger for long blocked contexes.
+    /* Calculate the initial yield time for long blocked contexes.
      * in loading we depend on the server hz, but in other cases we also wait
      * for script_time_limit. */
     if (server.loading)
-        out_ctx->next_heartbeat_event = getMonotonicUs() + 1000000 / server.hz;
+        out_ctx->next_yield_time = getMonotonicUs() + 1000000 / server.hz;
     else
-        out_ctx->next_heartbeat_event = getMonotonicUs() + server.script_time_limit * 1000;
+        out_ctx->next_yield_time = getMonotonicUs() + server.script_time_limit * 1000;
 
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
@@ -880,7 +880,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"no-mandatory-keys"**: All the keys this command may take are optional
  * * **"allow-busy"**: Permit the command while the server is blocked either by
  *                     a script or by a slow module command, see
- *                     RM_SlowContextHeartbeat.
+ *                     RM_Yield.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1327,16 +1327,19 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
  * ones marked with the `allow-busy` flag to be executed. This API can also be
  * used in thread safe context (while locked), and during loading (in the
  * rdb_load, in which case it'll reject commands with -LOADING error) */
-void RM_SlowContextHeartbeat(RedisModuleCtx *ctx) {
+void RM_Yield(RedisModuleCtx *ctx, const char *busy_reply) {
     long long now = getMonotonicUs();
-    if (now >= ctx->next_heartbeat_event) {
-        if (!server.busy_module && !server.loading) {
-            server.busy_module = 1;
+    if (now >= ctx->next_yield_time) {
+        const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
+        server.busy_module_yield_reply = busy_reply;
+        if (!server.in_busy_module && !server.loading) {
+            server.in_busy_module = 1;
             blockingOperationStarts();
         }
         processEventsWhileBlocked();
         /* decide when the next event should fire. */
-        ctx->next_heartbeat_event = now + 1000000 / server.hz;
+        ctx->next_yield_time = now + 1000000 / server.hz;
+        server.busy_module_yield_reply = prev_busy_module_yield_reply;
     }
 }
 
@@ -6746,9 +6749,9 @@ void moduleGILBeforeUnlock() {
     server.module_ctx_nesting--;
     propagatePendingCommands();
 
-    if (server.busy_module) {
+    if (server.in_busy_module) {
         blockingOperationEnds();
-        server.busy_module = 0;
+        server.in_busy_module = 0;
     }
 }
 
@@ -10694,5 +10697,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
     REGISTER_API(SetCommandKeySpecFindKeysRange);
     REGISTER_API(SetCommandKeySpecFindKeysKeynum);
-    REGISTER_API(SlowContextHeartbeat);
+    REGISTER_API(Yield);
 }
