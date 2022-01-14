@@ -1269,9 +1269,10 @@ void replicaPutOnline(client *slave) {
  * It does a few things:
  * 1) Close the replica's connection async if it doesn't need replication
  *    commands buffer stream, since it actually isn't a valid replica.
- * 2) Make sure the writable event is re-installed, since calling the SYNC
- *    command disables it, so that we can accumulate output buffer without
- *    sending it to the replica. */
+ * 2) Make sure the writable event is re-installed, since when calling the SYNC
+ *    command we had no replies and it was disabled, and then we could
+ *    accumulate output buffer data without sending it to the replica so it
+ *    won't get mixed with the RDB stream. */
 void replicaStartCommandStream(client *slave) {
     slave->repl_start_cmd_stream_on_ack = 0;
     if (slave->flags & CLIENT_REPL_RDBONLY) {
@@ -1281,11 +1282,8 @@ void replicaStartCommandStream(client *slave) {
         freeClientAsync(slave);
         return;
     }
-    if (connSetWriteHandler(slave->conn, sendReplyToClient) == C_ERR) {
-        serverLog(LL_WARNING,"Unable to register writable event for replica bulk transfer: %s", strerror(errno));
-        freeClient(slave);
-        return;
-    }
+
+    clientInstallWriteHandler(slave);
 }
 
 /* We call this function periodically to remove an RDB file that was
