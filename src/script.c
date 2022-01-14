@@ -31,6 +31,14 @@
 #include "script.h"
 #include "cluster.h"
 
+scriptFlag scripts_flags_def[] = {
+    {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
+    {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
+    {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
+    {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = 0, .str = NULL}, /* flags array end */
+};
+
 /* On script invocation, holding the current run context */
 static scriptRunCtx *curr_run_ctx = NULL;
 
@@ -281,6 +289,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
+        /* Allow running any command even if OOM reached */
+        return C_OK;
+    }
+
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
@@ -348,6 +361,32 @@ int scriptSetRepl(scriptRunCtx *run_ctx, int repl) {
     return C_OK;
 }
 
+static int scriptVerifyAllowStale(client *c, sds *err) {
+    if (!server.masterhost) {
+        /* Not a replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_state == REPL_STATE_CONNECTED) {
+        /* Connected to replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_serve_stale_data == 1) {
+        /* Disconnected from replica but allow to serve data */
+        return C_OK;
+    }
+
+    if (c->cmd->flags & CMD_STALE) {
+        /* Command is allow while stale */
+        return C_OK;
+    }
+
+    /* On stale replica, can not run the command */
+    *err = sdsnew("Can not execute the command on a stale replica");
+    return C_ERR;
+}
+
 /* Call a Redis command.
  * The reply is written to the run_ctx client and it is
  * up to the engine to take and parse.
@@ -376,6 +415,10 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         *err = sdsnew("This Redis command is not allowed from script");
+        return;
+    }
+
+    if (scriptVerifyAllowStale(c, err) != C_OK) {
         return;
     }
 

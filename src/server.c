@@ -3543,7 +3543,8 @@ int processCommand(client *c) {
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand ||
             c->cmd->proc == evalShaCommand ||
-            c->cmd->proc == fcallCommand)
+            c->cmd->proc == fcallCommand ||
+            c->cmd->proc == fcallroCommand)
         {
             server.script_oom = out_of_memory;
         }
