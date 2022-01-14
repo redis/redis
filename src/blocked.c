@@ -111,7 +111,8 @@ void blockClient(client *c, int btype) {
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
-
+    if (server.latency_tracking_enabled)
+        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
     /* Log the command into the Slow log if needed. */
     slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
     /* Log the reply duration event. */
@@ -191,6 +192,8 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_PAUSE) {
         listDelNode(server.paused_clients,c->paused_list_node);
         c->paused_list_node = NULL;
+    } else if (c->btype == BLOCKED_SHUTDOWN) {
+        /* No special cleanup. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
@@ -228,6 +231,22 @@ void replyToBlockedClientTimedOut(client *c) {
         moduleBlockedClientTimedOut(c);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
+    }
+}
+
+/* If one or more clients are blocked on the SHUTDOWN command, this function
+ * sends them an error reply and unblocks them. */
+void replyToClientsBlockedOnShutdown(void) {
+    if (server.blocked_clients_by_type[BLOCKED_SHUTDOWN] == 0) return;
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients, &li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        if (c->flags & CLIENT_BLOCKED && c->btype == BLOCKED_SHUTDOWN) {
+            addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
+            unblockClient(c);
+        }
     }
 }
 

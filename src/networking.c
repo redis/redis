@@ -171,6 +171,7 @@ client *createClient(connection *conn) {
     c->slave_listening_port = 0;
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
+    c->slave_req = SLAVE_REQ_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
@@ -189,6 +190,7 @@ client *createClient(connection *conn) {
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
     c->pubsub_patterns = listCreate();
+    c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
@@ -354,6 +356,18 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
+    /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
+     * replication link that caused a reply to be generated we'll simply disconnect it.
+     * Note this is the simplest way to check a command added a response. Replication links are used to write data but
+     * not for responses, so we should normally never get here on a replica client. */
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
+        sdsfree(cmdname);
+        return;
+    }
 
     size_t reply_len = _addReplyToBuffer(c,s,len);
     if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
@@ -590,6 +604,19 @@ void *addReplyDeferredLen(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
+
+    /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
+     * replication link that caused a reply to be generated we'll simply disconnect it.
+     * Note this is the simplest way to check a command added a response. Replication links are used to write data but
+     * not for responses, so we should normally never get here on a replica client. */
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        sds cmdname = c->lastcmd ? getFullCommandName(c->lastcmd) : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
+        sdsfree(cmdname);
+        return NULL;
+    }
+
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
@@ -949,7 +976,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     sdstoupper(cmd);
     addReplyErrorFormat(c,
-        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
+        "Unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP.",
         (char*)c->argv[1]->ptr,cmd);
     sdsfree(cmd);
 }
@@ -1347,6 +1374,45 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
+/* Clear the client state to resemble a newly connected client. */
+void clearClientConnectionState(client *c) {
+    listNode *ln;
+
+    /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
+     * distinguish between the two.
+     */
+    if (c->flags & CLIENT_MONITOR) {
+        ln = listSearchKey(server.monitors,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.monitors,ln);
+
+        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
+    }
+
+    serverAssert(!(c->flags &(CLIENT_SLAVE|CLIENT_MASTER)));
+
+    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    selectDb(c,0);
+    c->resp = 2;
+
+    clientSetDefaultAuth(c);
+    moduleNotifyUserChanged(c);
+    discardTransaction(c);
+
+    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c,0);
+
+    if (c->name) {
+        decrRefCount(c->name);
+        c->name = NULL;
+    }
+
+    /* Selectively clear state flags not covered above */
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
+                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
+}
+
 void freeClient(client *c) {
     listNode *ln;
 
@@ -1412,9 +1478,11 @@ void freeClient(client *c) {
 
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
+    dictRelease(c->pubsubshard_channels);
 
     /* Free data structures. */
     listRelease(c->reply);
@@ -1511,6 +1579,22 @@ void freeClientAsync(client *c) {
     pthread_mutex_lock(&async_free_queue_mutex);
     listAddNodeTail(server.clients_to_close,c);
     pthread_mutex_unlock(&async_free_queue_mutex);
+}
+
+/* Log errors for invalid use and free the client in async way.
+ * We will add additional information about the client to the message. */
+void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    sds info = sdscatvprintf(sdsempty(), fmt, ap);
+    va_end(ap);
+
+    sds client = catClientInfoString(sdsempty(), c);
+    serverLog(LL_WARNING, "%s, disconnecting it: %s", info, client);
+
+    sdsfree(info);
+    sdsfree(client);
+    freeClientAsync(c);
 }
 
 /* Perform processing of the client before moving on to processing the next client
@@ -2553,44 +2637,18 @@ int clientSetNameOrReply(client *c, robj *name) {
 /* Reset the client state to resemble a newly connected client.
  */
 void resetCommand(client *c) {
-    listNode *ln;
-
     /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
      * distinguish between the two.
      */
-    if (c->flags & CLIENT_MONITOR) {
-        ln = listSearchKey(server.monitors,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.monitors,ln);
+    uint64_t flags = c->flags;
+    if (flags & CLIENT_MONITOR) flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
 
-        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
-    }
-
-    if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
+    if (flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
         addReplyError(c,"can only reset normal client connections");
         return;
     }
 
-    if (c->flags & CLIENT_TRACKING) disableTracking(c);
-    selectDb(c,0);
-    c->resp = 2;
-
-    clientSetDefaultAuth(c);
-    moduleNotifyUserChanged(c);
-    discardTransaction(c);
-
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeAllPatterns(c,0);
-
-    if (c->name) {
-        decrRefCount(c->name);
-        c->name = NULL;
-    }
-
-    /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
-            CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
-
+    clearClientConnectionState(c);
     addReplyStatus(c,"RESET");
 }
 
@@ -2872,7 +2930,7 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
-        unpauseClients();
+        unpauseClients(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
@@ -2894,7 +2952,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(end, type);
+        pauseClients(PAUSE_BY_CLIENT_COMMAND, end, type);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3538,6 +3596,48 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
+/* Compute current most restictive pause type and its end time, aggregated for
+ * all pause purposes. */
+static void updateClientPauseTypeAndEndTime(void) {
+    pause_type old_type = server.client_pause_type;
+    pause_type type = CLIENT_PAUSE_OFF;
+    mstime_t end = 0;
+    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
+        pause_event *p = server.client_pause_per_purpose[i];
+        if (p == NULL) {
+            /* Nothing to do. */
+        } else if (p->end < server.mstime) {
+            /* This one expired. */
+            zfree(p);
+            server.client_pause_per_purpose[i] = NULL;
+        } else if (p->type > type) {
+            /* This type is the most restrictive so far. */
+            type = p->type;
+        }
+    }
+
+    /* Find the furthest end time among the pause purposes of the most
+     * restrictive type */
+    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
+        pause_event *p = server.client_pause_per_purpose[i];
+        if (p != NULL && p->type == type && p->end > end) end = p->end;
+    }
+    server.client_pause_type = type;
+    server.client_pause_end_time = end;
+
+    /* If the pause type is less restrictive than before, we unblock all clients
+     * so they are reprocessed (may get re-paused). */
+    if (type < old_type) {
+        listNode *ln;
+        listIter li;
+        listRewind(server.paused_clients, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            unblockClient(c);
+        }
+    }
+}
+
 /* Pause clients up to the specified unixtime (in ms) for a given type of
  * commands.
  *
@@ -3551,14 +3651,18 @@ void flushSlavesOutputBuffers(void) {
  * The function always succeed, even if there is already a pause in progress.
  * In such a case, the duration is set to the maximum and new end time and the
  * type is set to the more restrictive type of pause. */
-void pauseClients(mstime_t end, pause_type type) {
-    if (type > server.client_pause_type) {
-        server.client_pause_type = type;
+void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
+    /* Manage pause type and end time per pause purpose. */
+    if (server.client_pause_per_purpose[purpose] == NULL) {
+        server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));
+        server.client_pause_per_purpose[purpose]->type = type;
+        server.client_pause_per_purpose[purpose]->end = end;
+    } else {
+        pause_event *p = server.client_pause_per_purpose[purpose];
+        p->type = max(p->type, type);
+        p->end = max(p->end, end);
     }
-
-    if (end > server.client_pause_end_time) {
-        server.client_pause_end_time = end;
-    }
+    updateClientPauseTypeAndEndTime();
 
     /* We allow write commands that were queued
      * up before and after to execute. We need
@@ -3570,20 +3674,11 @@ void pauseClients(mstime_t end, pause_type type) {
 }
 
 /* Unpause clients and queue them for reprocessing. */
-void unpauseClients(void) {
-    listNode *ln;
-    listIter li;
-    client *c;
-    
-    server.client_pause_type = CLIENT_PAUSE_OFF;
-    server.client_pause_end_time = 0;
-
-    /* Unblock all of the clients so they are reprocessed. */
-    listRewind(server.paused_clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-        unblockClient(c);
-    }
+void unpauseClients(pause_purpose purpose) {
+    if (server.client_pause_per_purpose[purpose] == NULL) return;
+    zfree(server.client_pause_per_purpose[purpose]);
+    server.client_pause_per_purpose[purpose] = NULL;
+    updateClientPauseTypeAndEndTime();
 }
 
 /* Returns true if clients are paused and false otherwise. */ 
@@ -3598,7 +3693,7 @@ int checkClientPauseTimeoutAndReturnIfPaused(void) {
     if (!areClientsPaused())
         return 0;
     if (server.client_pause_end_time < server.mstime) {
-        unpauseClients();
+        updateClientPauseTypeAndEndTime();
     }
     return areClientsPaused();
 }

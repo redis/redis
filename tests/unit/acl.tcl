@@ -64,7 +64,7 @@ start_server {tags {"acl external:skip"}} {
     test {By default users are not able to access any command} {
         catch {r SET foo bar} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*set*}
 
     test {By default users are not able to access any key} {
         r ACL setuser newuser +set
@@ -87,12 +87,25 @@ start_server {tags {"acl external:skip"}} {
         r PUBLISH foo bar
     } {0}
 
+    test {By default users are able to publish to any shard channel} {
+        r SPUBLISH foo bar
+    } {0}
+
     test {By default users are able to subscribe to any channel} {
         set rd [redis_deferring_client]
         $rd AUTH psuser pspass
         $rd read
         $rd SUBSCRIBE foo
         assert_match {subscribe foo 1} [$rd read]
+        $rd close
+    } {0}
+
+    test {By default users are able to subscribe to any shard channel} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SSUBSCRIBE foo
+        assert_match {ssubscribe foo 1} [$rd read]
         $rd close
     } {0}
 
@@ -110,6 +123,14 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {0} [r PUBLISH foo:1 somemessage]
         assert_equal {0} [r PUBLISH bar:2 anothermessage]
         catch {r PUBLISH zap:3 nosuchmessage} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow publishing to a subset of shard channels} {
+        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        assert_equal {0} [r SPUBLISH foo:1 somemessage]
+        assert_equal {0} [r SPUBLISH bar:2 anothermessage]
+        catch {r SPUBLISH zap:3 nosuchmessage} e
         set e
     } {*NOPERM*channel*}
 
@@ -140,17 +161,14 @@ start_server {tags {"acl external:skip"}} {
     test {In transaction queue publish/subscribe/psubscribe to unauthorized channel will fail} {
         r ACL setuser psuser +multi +discard
         r MULTI
-        catch {r PUBLISH notexits helloworld} e
+        assert_error {*NOPERM*channel*} {r PUBLISH notexits helloworld}
         r DISCARD
-        assert_match {*NOPERM*} $e
         r MULTI
-        catch {r SUBSCRIBE notexits foo:1} e
+        assert_error {*NOPERM*channel*} {r SUBSCRIBE notexits foo:1}
         r DISCARD
-        assert_match {*NOPERM*} $e
         r MULTI
-        catch {r PSUBSCRIBE notexits:* bar:*} e
+        assert_error {*NOPERM*channel*} {r PSUBSCRIBE notexits:* bar:*}
         r DISCARD
-        assert_match {*NOPERM*} $e
     }
 
     test {It's possible to allow subscribing to a subset of channels} {
@@ -162,6 +180,19 @@ start_server {tags {"acl external:skip"}} {
         $rd SUBSCRIBE bar:2
         assert_match {subscribe bar:2 2} [$rd read]
         $rd SUBSCRIBE zap:3
+        catch {$rd read} e
+        set e
+    } {*NOPERM*channel*}
+
+    test {It's possible to allow subscribing to a subset of shard channels} {
+        set rd [redis_deferring_client]
+        $rd AUTH psuser pspass
+        $rd read
+        $rd SSUBSCRIBE foo:1
+        assert_match {ssubscribe foo:1 1} [$rd read]
+        $rd SSUBSCRIBE bar:2
+        assert_match {ssubscribe bar:2 2} [$rd read]
+        $rd SSUBSCRIBE zap:3
         catch {$rd read} e
         set e
     } {*NOPERM*channel*}
@@ -193,6 +224,20 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    test {Subscribers are killed when revoked of channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd SSUBSCRIBE foo:1
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
     test {Subscribers are killed when revoked of pattern permission} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &bar:*
@@ -209,16 +254,18 @@ start_server {tags {"acl external:skip"}} {
 
     test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
         set rd [redis_deferring_client]
-        r ACL setuser psuser resetchannels &foo:1 &bar:*
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &orders
         $rd AUTH psuser pspass
         $rd read
         $rd CLIENT SETNAME pardoned
         $rd read
         $rd SUBSCRIBE foo:1
         $rd read
+        $rd SSUBSCRIBE orders
+        $rd read
         $rd PSUBSCRIBE bar:*
         $rd read
-        r ACL setuser psuser resetchannels &foo:1 &bar:* &baz:qaz &zoo:*
+        r ACL setuser psuser resetchannels &foo:1 &bar:* &orders &baz:qaz &zoo:*
         assert_match {*pardoned*} [r CLIENT LIST]
         r ACL setuser psuser allchannels
         assert_match {*pardoned*} [r CLIENT LIST]
@@ -235,7 +282,7 @@ start_server {tags {"acl external:skip"}} {
         r INCR mycounter ; # Should not raise an error
         catch {r PING} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*ping*}
 
     test {ACLs can include or exclude whole classes of commands} {
         r ACL setuser newuser -@all +@set +acl
@@ -246,7 +293,7 @@ start_server {tags {"acl external:skip"}} {
         catch {r SET foo bar} e
         r ACL setuser newuser allcommands; # Undo commands ACL
         set e
-    } {*NOPERM*}
+    } {*NOPERM*set*}
 
     test {ACLs can include single subcommands} {
         r ACL setuser newuser +@all -client
@@ -258,7 +305,7 @@ start_server {tags {"acl external:skip"}} {
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*client|kill*}
 
     test {ACLs can exclude single subcommands, case 1} {
         r ACL setuser newuser +@all -client|kill
@@ -268,7 +315,7 @@ start_server {tags {"acl external:skip"}} {
         r CLIENT SETNAME foo ; # Should not fail
         catch {r CLIENT KILL type master} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*client|kill*}
 
     test {ACLs can exclude single subcommands, case 2} {
         r ACL setuser newuser -@all +acl +config -config|set
@@ -278,7 +325,7 @@ start_server {tags {"acl external:skip"}} {
         r CONFIG GET loglevel; # Should not fail
         catch {r CONFIG SET loglevel debug} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*config|set*}
 
     test {ACLs can include a subcommand with a specific arg} {
         r ACL setuser newuser +@all -config|get
@@ -289,7 +336,7 @@ start_server {tags {"acl external:skip"}} {
         r CONFIG GET appendonly; # Should not fail
         catch {r CONFIG GET loglevel} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*config|get*}
 
     test {ACLs including of a type includes also subcommands} {
         r ACL setuser newuser -@all +acl +@stream
@@ -304,7 +351,7 @@ start_server {tags {"acl external:skip"}} {
         r SELECT 0
         catch {r SELECT 1} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*select*}
 
     test {ACLs can block all DEBUG subcommands except one} {
         r ACL setuser newuser -@all +acl +incr +debug|object
@@ -314,7 +361,7 @@ start_server {tags {"acl external:skip"}} {
         r DEBUG OBJECT key
         catch {r DEBUG SEGFAULT} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*debug*}
 
     test {ACLs set can include subcommands, if already full command exists} {
         r ACL setuser bob +memory|doctor
@@ -346,8 +393,7 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser alice >passwd1 on
         r AUTH alice passwd1
 
-        catch {r MEMORY DOCTOR} e
-        assert_match {*NOPERM*} $e
+        assert_error {*NOPERM*memory|doctor*} {r MEMORY DOCTOR}
         r MEMORY STATS ;# should work
 
         # Validate the commands have got engulfed to -memory.
@@ -355,10 +401,8 @@ start_server {tags {"acl external:skip"}} {
         set cmdstr [dict get [r ACL getuser alice] commands]
         assert_equal {+@all -memory} $cmdstr
 
-        catch {r MEMORY DOCTOR} e
-        assert_match {*NOPERM*} $e
-        catch {r MEMORY STATS} e
-        assert_match {*NOPERM*} $e
+        assert_error {*NOPERM*memory|doctor*} {r MEMORY DOCTOR}
+        assert_error {*NOPERM*memory|stats*} {r MEMORY STATS}
 
         # Appending to the existing access string of alice.
         r ACL setuser alice -@all
@@ -372,10 +416,8 @@ start_server {tags {"acl external:skip"}} {
 
         r AUTH alice passwd1
 
-        catch {r GET key} e
-        assert_match {*NOPERM*} $e
-        catch {r MEMORY STATS} e
-        assert_match {*NOPERM*} $e
+        assert_error {*NOPERM*get*} {r GET key}
+        assert_error {*NOPERM*memory|stats*} {r MEMORY STATS}
 
         # Auth newuser before the next test
         r AUTH newuser passwd1
@@ -436,7 +478,7 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser antirez +eval +multi +exec
         r ACL setuser antirez resetchannels +publish
         r AUTH antirez foo
-        catch {r GET foo}
+        assert_error "*NOPERM*get*" {r GET foo}
         r AUTH default ""
         set entry [lindex [r ACL LOG] 0]
         assert {[dict get $entry username] eq {antirez}}
@@ -445,14 +487,29 @@ start_server {tags {"acl external:skip"}} {
         assert {[dict get $entry object] eq {get}}
     }
 
+    test "ACL LOG shows failed subcommand executions at toplevel" {
+        r ACL LOG RESET
+        r ACL DELUSER demo
+        r ACL SETUSER demo on nopass
+        r AUTH demo ""
+        assert_error "*NOPERM*script|help*" {r SCRIPT HELP}
+        r AUTH default ""
+        set entry [lindex [r ACL LOG] 0]
+        assert_equal [dict get $entry username] {demo}
+        assert_equal [dict get $entry context] {toplevel}
+        assert_equal [dict get $entry reason] {command}
+        assert_equal [dict get $entry object] {script|help}
+    }
+
     test {ACL LOG is able to test similar events} {
+        r ACL LOG RESET
         r AUTH antirez foo
         catch {r GET foo}
         catch {r GET foo}
         catch {r GET foo}
         r AUTH default ""
         set entry [lindex [r ACL LOG] 0]
-        assert {[dict get $entry count] == 4}
+        assert {[dict get $entry count] == 3}
     }
 
     test {ACL LOG is able to log keys access violations and key name} {
@@ -612,12 +669,9 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
     test {default: with config acl-pubsub-default resetchannels after reset, can not access any channels} {
         r CONFIG SET acl-pubsub-default resetchannels
         r ACL setuser default reset on nopass ~* +@all
-        catch {r SUBSCRIBE foo} e
-        assert_match {*NOPERM*} $e
-        catch {r PSUBSCRIBE bar*} e
-        assert_match {*NOPERM*} $e
-        catch {r PUBLISH hello world} e
-        assert_match {*NOPERM*} $e
+        assert_error {*NOPERM*channel*} {r SUBSCRIBE foo}
+        assert_error {*NOPERM*channel*} {r PSUBSCRIBE bar*}
+        assert_error {*NOPERM*channel*} {r PUBLISH hello world}
         r CONFIG SET acl-pubsub-default resetchannels
     }
 
@@ -633,7 +687,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_equal "3" [r sadd set 1 2 3]
         catch {r SET key value} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*set*}
 
     test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
@@ -651,7 +705,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         r GET key
         catch {r SET key value} e
         set e
-    } {*NOPERM*}
+    } {*NOPERM*set*}
 
     test {ACL load and save with restricted channels} {
         r AUTH alice alice
@@ -669,7 +723,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         catch {r publish test1 bar} e
         r ACL deluser harry
         set e
-    } {*NOPERM*}
+    } {*NOPERM*channel*}
 }
 
 set server_path [tmpdir "resetchannels.acl"]

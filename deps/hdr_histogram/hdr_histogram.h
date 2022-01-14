@@ -13,7 +13,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-
 struct hdr_histogram
 {
     int64_t lowest_trackable_value;

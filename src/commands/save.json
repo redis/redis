@@ -9,7 +9,8 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "NO_MULTI"
         ]
     }
 }

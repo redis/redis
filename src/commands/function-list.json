@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of functions",
         "group": "scripting",
         "since": "7.0.0",
-        "arity": 2,
+        "arity": -2,
         "container": "FUNCTION",
         "function": "functionListCommand",
         "command_flags": [
@@ -12,6 +12,20 @@
         ],
         "acl_categories": [
             "SCRIPTING"
+        ],
+        "arguments": [
+            {
+                "name": "library-name-pattern",
+                "type": "string",
+                "token": "LIBRARYNAME",
+                "optional": true
+            },
+            {
+                "name": "withcode",
+                "type": "pure-token",
+                "token": "WITHCODE",
+                "optional": true
+            }
         ]
     }
 }
