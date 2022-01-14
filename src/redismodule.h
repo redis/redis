@@ -259,7 +259,8 @@ typedef enum {
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
- * the module should use RedisModuleEvent_* variables */
+ * the module should use RedisModuleEvent_* variables.
+ * Note: This must be synced with moduleEventVersions */
 #define REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED 0
 #define REDISMODULE_EVENT_PERSISTENCE 1
 #define REDISMODULE_EVENT_FLUSHDB 2
@@ -286,6 +287,32 @@ struct RedisModuleCtx;
 struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
 
+/* IMPORTANT: When adding a new version of one of below structures that contain
+ * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
+ * old RedisModuleEvent structure.
+ * For example, if we want to add RedisModuleFlushInfoV2, the RedisModuleEvent
+ * structures should be:
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDBV2 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * and NOT:
+ *      RedisModuleEvent_FlushDBV1 = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          1
+ *      },
+ *      RedisModuleEvent_FlushDB = {
+ *          REDISMODULE_EVENT_FLUSHDB,
+ *          2
+ *      }
+ * The reason for that is forward-compatibility: We want that module that
+ * compiled with a new redismodule.h to be able to work with a old server,
+ * unless the author explicitly decided to use the newer event type.
+ */
 static const RedisModuleEvent
     RedisModuleEvent_ReplicationRoleChanged = {
         REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
@@ -356,7 +383,8 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
 #define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
 #define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
-#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 5
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START 5
+#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 6
 
 #define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
 #define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
@@ -809,6 +837,7 @@ REDISMODULE_API int (*RedisModule_GetToDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetToKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API uint64_t (*RedisModule_MonotonicMicroseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestEndSequence)(RedisModuleDigest *md) REDISMODULE_ATTR;
@@ -1126,6 +1155,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetDbIdFromOptCtx);
     REDISMODULE_GET_API(GetToDbIdFromOptCtx);
     REDISMODULE_GET_API(Milliseconds);
+    REDISMODULE_GET_API(MonotonicMicroseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);

@@ -4,53 +4,38 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test "Module key specs: Legacy" {
-        set reply [r command info kspec.legacy]
+        set reply [lindex [r command info kspec.legacy] 0]
         # Verify (first, last, step)
-        assert_equal [lindex [lindex $reply 0] 3] 1
-        assert_equal [lindex [lindex $reply 0] 4] 2
-        assert_equal [lindex [lindex $reply 0] 5] 1
-        # create a dict for easy lookup
-        unset -nocomplain mydict
-        foreach {k v} [lindex [lindex $reply 0] 7] {
-            dict append mydict $k $v
-        }
+        assert_equal [lindex $reply 3] 1
+        assert_equal [lindex $reply 4] 2
+        assert_equal [lindex $reply 5] 1
         # Verify key-specs
-        set keyspecs [dict get $mydict key_specs]
+        set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags write begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
     }
 
     test "Module key specs: Complex specs, case 1" {
-        set reply [r command info kspec.complex1]
+        set reply [lindex [r command info kspec.complex1] 0]
         # Verify (first, last, step)
-        assert_equal [lindex [lindex $reply 0] 3] 1
-        assert_equal [lindex [lindex $reply 0] 4] 1
-        assert_equal [lindex [lindex $reply 0] 5] 1
-        # create a dict for easy lookup
-        unset -nocomplain mydict
-        foreach {k v} [lindex [lindex $reply 0] 7] {
-            dict append mydict $k $v
-        }
+        assert_equal [lindex $reply 3] 1
+        assert_equal [lindex $reply 4] 1
+        assert_equal [lindex $reply 5] 1
         # Verify key-specs
-        set keyspecs [dict get $mydict key_specs]
+        set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags {} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags write begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 2] {flags read begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
     }
 
     test "Module key specs: Complex specs, case 2" {
-        set reply [r command info kspec.complex2]
+        set reply [lindex [r command info kspec.complex2] 0]
         # Verify (first, last, step)
-        assert_equal [lindex [lindex $reply 0] 3] 1
-        assert_equal [lindex [lindex $reply 0] 4] 2
-        assert_equal [lindex [lindex $reply 0] 5] 1
-        # create a dict for easy lookup
-        unset -nocomplain mydict
-        foreach {k v} [lindex [lindex $reply 0] 7] {
-            dict append mydict $k $v
-        }
+        assert_equal [lindex $reply 3] 1
+        assert_equal [lindex $reply 4] 2
+        assert_equal [lindex $reply 5] 1
         # Verify key-specs
-        set keyspecs [dict get $mydict key_specs]
+        set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags write begin_search {type keyword spec {keyword STORE startfrom 5}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 2] {flags read begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}

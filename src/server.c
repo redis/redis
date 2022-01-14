@@ -1320,6 +1320,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.rdb_bgsave_scheduled = 0;
     }
 
+    run_with_period(100) {
+        if (moduleCount()) modulesCron();
+    }
+
     /* Fire the cron loop modules event. */
     RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
     moduleFireServerEvent(REDISMODULE_EVENT_CRON_LOOP,
@@ -2624,6 +2628,20 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
+/* Recursively populate the args structure and return the number of args. */
+int populateArgsStructure(struct redisCommandArg *args) {
+    if (!args)
+        return 0;
+    int count = 0;
+    while (args->name) {
+        args->num_args = populateArgsStructure(args->subargs);
+        count++;
+        args++;
+    }
+    return count;
+}
+
+/* Recursively populate the command stracture. */
 void populateCommandStructure(struct redisCommand *c) {
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -2639,6 +2657,13 @@ void populateCommandStructure(struct redisCommand *c) {
             break;
         c->key_specs_num++;
     }
+
+    /* Count things so we don't have to use deferred reply in COMMAND reply. */
+    while (c->history && c->history[c->num_history].since)
+        c->num_history++;
+    while (c->hints && c->hints[c->num_hints])
+        c->num_hints++;
+    c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
 
@@ -3306,7 +3331,8 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
         }
     }
 
-    cmd->movablekeys = movablekeys;
+    if (movablekeys)
+        cmd->flags |= CMD_MOVABLE_KEYS;
 }
 
 /* If this function gets called we already read a whole
@@ -3417,10 +3443,14 @@ int processCommand(client *c) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         switch (acl_retval) {
         case ACL_DENIED_CMD:
+        {
+            sds cmdname = getFullCommandName(c->cmd);
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to run "
-                "the '%s' command or its subcommand", c->cmd->name);
+                "the '%s' command", cmdname);
+            sdsfree(cmdname);
             break;
+        }
         case ACL_DENIED_KEY:
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to access "
@@ -3446,7 +3476,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_SCRIPT &&
           server.script_caller->flags & CLIENT_MASTER) &&
-        !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
+        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
         int hashslot;
@@ -3517,7 +3547,8 @@ int processCommand(client *c) {
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand ||
             c->cmd->proc == evalShaCommand ||
-            c->cmd->proc == fcallCommand)
+            c->cmd->proc == fcallCommand ||
+            c->cmd->proc == fcallroCommand)
         {
             server.script_oom = out_of_memory;
         }
@@ -4014,65 +4045,79 @@ void timeCommand(client *c) {
     addReplyBulkLongLong(c,tv.tv_usec);
 }
 
-/* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, uint64_t flags, uint64_t f, char *reply) {
-    if (flags & f) {
-        addReplyStatus(c, reply);
-        return 1;
+typedef struct replyFlagNames {
+    uint64_t flag;
+    const char *name;
+} replyFlagNames;
+
+/* Helper function to output flags. */
+void addReplyCommandFlags(client *c, uint64_t flags, replyFlagNames *replyFlags) {
+    int count = 0, j=0;
+    /* Count them so we don't have to use deferred reply. */
+    while (replyFlags[j].name) {
+        if (flags & replyFlags[j].flag)
+            count++;
+        j++;
     }
-    return 0;
+
+    addReplySetLen(c, count);
+    j = 0;
+    while (replyFlags[j].name) {
+        if (flags & replyFlags[j].flag)
+            addReplyStatus(c, replyFlags[j].name);
+        j++;
+    }
 }
 
 void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_WRITE, "write");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_READONLY, "readonly");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_DENYOOM, "denyoom");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MODULE, "module");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ADMIN, "admin");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PUBSUB, "pubsub");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NOSCRIPT, "noscript");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_RANDOM, "random");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SORT_FOR_SCRIPT,"sort_for_script");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_LOADING, "loading");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_STALE, "stale");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SKIP_MONITOR, "skip_monitor");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SKIP_SLOWLOG, "skip_slowlog");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ASKING, "asking");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ALLOW_BUSY, "allow_busy");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");
-
+    replyFlagNames flagNames[] = {
+        {CMD_WRITE,             "write"},
+        {CMD_READONLY,          "readonly"},
+        {CMD_DENYOOM,           "denyoom"},
+        {CMD_MODULE,            "module"},
+        {CMD_ADMIN,             "admin"},
+        {CMD_PUBSUB,            "pubsub"},
+        {CMD_NOSCRIPT,          "noscript"},
+        {CMD_RANDOM,            "random"},
+        {CMD_SORT_FOR_SCRIPT,   "sort_for_script"},
+        {CMD_LOADING,           "loading"},
+        {CMD_STALE,             "stale"},
+        {CMD_SKIP_MONITOR,      "skip_monitor"},
+        {CMD_SKIP_SLOWLOG,      "skip_slowlog"},
+        {CMD_ASKING,            "asking"},
+        {CMD_FAST,              "fast"},
+        {CMD_NO_AUTH,           "no_auth"},
+        {CMD_MAY_REPLICATE,     "may_replicate"},
+        {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
+        {CMD_PROTECTED,         "protected"},
+        {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
+        {CMD_NO_MULTI,          "no_multi"},
+        {CMD_MOVABLE_KEYS,      "movablekeys"},
+        {CMD_ALLOW_BUSY,        "allow_busy"},
+        {0,NULL}
+    };
     /* "sentinel" and "only-sentinel" are hidden on purpose. */
-    if (cmd->movablekeys) {
-        addReplyStatus(c, "movablekeys");
-        flagcount += 1;
-    }
-    setDeferredSetLen(c, flaglen, flagcount);
+    addReplyCommandFlags(c, cmd->flags, flagNames);
 }
 
 void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_DEPRECATED, "deprecated");
-    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_SYSCMD, "syscmd");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames docFlagNames[] = {
+        {CMD_DOC_DEPRECATED,         "deprecated"},
+        {CMD_DOC_SYSCMD,             "syscmd"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, cmd->doc_flags, docFlagNames);
 }
 
 void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_WRITE, "write");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_READ, "read");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_SHARD_CHANNEL, "shard_channel");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_INCOMPLETE, "incomplete");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames docFlagNames[] = {
+        {CMD_KEY_WRITE,              "write"},
+        {CMD_KEY_READ,               "read"},
+        {CMD_KEY_SHARD_CHANNEL,      "shard_channel"},
+        {CMD_KEY_INCOMPLETE,         "incomplete"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, flags, docFlagNames);
 }
 
 /* Must match redisCommandArgType */
@@ -4089,60 +4134,60 @@ const char *ARG_TYPE_STR[] = {
 };
 
 void addReplyFlagsForArg(client *c, uint64_t flags) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames argFlagNames[] = {
+        {CMD_ARG_OPTIONAL,          "optional"},
+        {CMD_ARG_MULTIPLE,          "multiple"},
+        {CMD_ARG_MULTIPLE_TOKEN,    "multiple_token"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, flags, argFlagNames);
 }
 
-void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
-    int j;
+void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_args) {
+    addReplySetLen(c, num_args);
+    for (int j = 0; j<num_args; j++) {
+        /* Count our reply len so we don't have to use deferred reply. */
+        long maplen = 2;
+        if (args[j].type == ARG_TYPE_KEY) maplen++;
+        if (args[j].token) maplen++;
+        if (args[j].summary) maplen++;
+        if (args[j].since) maplen++;
+        if (args[j].flags) maplen++;
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK)
+            maplen++;
+        addReplyMapLen(c, maplen);
 
-    void *setreply = addReplyDeferredLen(c);
-    for (j = 0; args && args[j].name != NULL; j++) {
-        long maplen = 0;
-        void *mapreply = addReplyDeferredLen(c);
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, args[j].name);
-        maplen++;
+
         addReplyBulkCString(c, "type");
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
-        maplen++;
+
         if (args[j].type == ARG_TYPE_KEY) {
             addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
-            maplen++;
         }
         if (args[j].token) {
             addReplyBulkCString(c, "token");
             addReplyBulkCString(c, args[j].token);
-            maplen++;
         }
         if (args[j].summary) {
             addReplyBulkCString(c, "summary");
             addReplyBulkCString(c, args[j].summary);
-            maplen++;
         }
         if (args[j].since) {
             addReplyBulkCString(c, "since");
             addReplyBulkCString(c, args[j].since);
-            maplen++;
         }
         if (args[j].flags) {
             addReplyBulkCString(c, "flags");
             addReplyFlagsForArg(c, args[j].flags);
-            maplen++;
         }
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
             addReplyBulkCString(c, "arguments");
-            addReplyCommandArgList(c, args[j].subargs);
-            maplen++;
+            addReplyCommandArgList(c, args[j].subargs, args[j].num_args);
         }
-        setDeferredMapLen(c, mapreply, maplen);
     }
-    setDeferredSetLen(c, setreply, j);
 }
 
 /* Must match redisCommandRESP2Type */
@@ -4171,25 +4216,19 @@ const char *RESP3_TYPE_STR[] = {
 };
 
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->history && cmd->history[j].since != NULL; j++) {
+    addReplySetLen(c, cmd->num_history);
+    for (int j = 0; j<cmd->num_history; j++) {
         addReplyArrayLen(c, 2);
         addReplyBulkCString(c, cmd->history[j].since);
         addReplyBulkCString(c, cmd->history[j].changes);
     }
-    setDeferredSetLen(c, array, j);
 }
 
 void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->hints && cmd->hints[j] != NULL; j++) {
+    addReplySetLen(c, cmd->num_hints);
+    for (int j = 0; j<cmd->num_hints; j++) {
         addReplyBulkCString(c, cmd->hints[j]);
     }
-    setDeferredSetLen(c, array, j);
 }
 
 void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
@@ -4280,20 +4319,24 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommand(client *c, struct redisCommand *cmd);
-
-void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
+/* Reply with an array of sub-command using the provided reply callback. */
+void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*reply_function)(client*, struct redisCommand*), int use_map) {
     if (!cmd->subcommands_dict) {
         addReplySetLen(c, 0);
         return;
     }
 
-    addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
+    if (use_map)
+        addReplyMapLen(c, dictSize(cmd->subcommands_dict));
+    else
+        addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
-        addReplyCommand(c,sub);
+        if (use_map)
+            addReplyBulkSds(c, getFullCommandName(sub));
+        reply_function(c, sub);
     }
     dictReleaseIterator(di);
 }
@@ -4320,8 +4363,8 @@ const char *COMMAND_GROUP_STR[] = {
     "module"
 };
 
-/* Output the representation of a Redis command. Used by the COMMAND command. */
-void addReplyCommand(client *c, struct redisCommand *cmd) {
+/* Output the representation of a Redis command. Used by the COMMAND command and COMMAND INFO. */
+void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
@@ -4334,72 +4377,72 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
 
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information (map) */
-        addReplyArrayLen(c, 8);
-        addReplyBulkCString(c, cmd->name);
+        addReplyArrayLen(c, 10);
+        if (cmd->parent)
+            addReplyBulkSds(c, getFullCommandName(cmd));
+        else
+            addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        long maplen = 0;
-        void *mapreply = addReplyDeferredLen(c);
-        addReplyBulkCString(c, "summary");
-        addReplyBulkCString(c, cmd->summary);
-        maplen++;
-        addReplyBulkCString(c, "since");
-        addReplyBulkCString(c, cmd->since);
-        maplen++;
-        addReplyBulkCString(c, "group");
-        addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
-        maplen++;
-        if (cmd->complexity) {
-            addReplyBulkCString(c, "complexity");
-            addReplyBulkCString(c, cmd->complexity);
-            maplen++;
-        }
-        if (cmd->doc_flags) {
-            addReplyBulkCString(c, "doc_flags");
-            addReplyDocFlagsForCommand(c, cmd);
-            maplen++;
-        }
-        if (cmd->deprecated_since) {
-            addReplyBulkCString(c, "deprecated_since");
-            addReplyBulkCString(c, cmd->deprecated_since);
-            maplen++;
-        }
-        if (cmd->replaced_by) {
-            addReplyBulkCString(c, "replaced_by");
-            addReplyBulkCString(c, cmd->replaced_by);
-            maplen++;
-        }
-        if (cmd->history) {
-            addReplyBulkCString(c, "history");
-            addReplyCommandHistory(c, cmd);
-            maplen++;
-        }
-        if (cmd->hints) {
-            addReplyBulkCString(c, "hints");
-            addReplyCommandHints(c, cmd);
-            maplen++;
-        }
-        if (cmd->args) {
-            addReplyBulkCString(c, "arguments");
-            addReplyCommandArgList(c, cmd->args);
-            maplen++;
-        }
-        if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key_specs");
-            addReplyCommandKeySpecs(c, cmd);
-            maplen++;
-        }
-        if (cmd->subcommands_dict) {
-            addReplyBulkCString(c, "subcommands");
-            addReplyCommandSubCommands(c, cmd);
-            maplen++;
-        }
-        setDeferredMapLen(c, mapreply, maplen);
+        addReplyCommandHints(c, cmd);
+        addReplyCommandKeySpecs(c, cmd);
+        addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
+    }
+}
+
+/* Output the representation of a Redis command. Used by the COMMAND DOCS. */
+void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
+    /* Count our reply len so we don't have to use deferred reply. */
+    long maplen = 3;
+    if (cmd->complexity) maplen++;
+    if (cmd->doc_flags) maplen++;
+    if (cmd->deprecated_since) maplen++;
+    if (cmd->replaced_by) maplen++;
+    if (cmd->history) maplen++;
+    if (cmd->args) maplen++;
+    if (cmd->subcommands_dict) maplen++;
+    addReplyMapLen(c, maplen);
+
+    addReplyBulkCString(c, "summary");
+    addReplyBulkCString(c, cmd->summary);
+
+    addReplyBulkCString(c, "since");
+    addReplyBulkCString(c, cmd->since);
+
+    addReplyBulkCString(c, "group");
+    addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
+
+    if (cmd->complexity) {
+        addReplyBulkCString(c, "complexity");
+        addReplyBulkCString(c, cmd->complexity);
+    }
+    if (cmd->doc_flags) {
+        addReplyBulkCString(c, "doc_flags");
+        addReplyDocFlagsForCommand(c, cmd);
+    }
+    if (cmd->deprecated_since) {
+        addReplyBulkCString(c, "deprecated_since");
+        addReplyBulkCString(c, cmd->deprecated_since);
+    }
+    if (cmd->replaced_by) {
+        addReplyBulkCString(c, "replaced_by");
+        addReplyBulkCString(c, cmd->replaced_by);
+    }
+    if (cmd->history) {
+        addReplyBulkCString(c, "history");
+        addReplyCommandHistory(c, cmd);
+    }
+    if (cmd->args) {
+        addReplyBulkCString(c, "arguments");
+        addReplyCommandArgList(c, cmd->args, cmd->num_args);
+    }
+    if (cmd->subcommands_dict) {
+        addReplyBulkCString(c, "subcommands");
+        addReplyCommandSubCommands(c, cmd, addReplyCommandDocs, 1);
     }
 }
 
@@ -4445,7 +4488,7 @@ void commandCommand(client *c) {
     addReplyArrayLen(c, dictSize(server.commands));
     di = dictGetIterator(server.commands);
     while ((de = dictNext(di)) != NULL) {
-        addReplyCommand(c, dictGetVal(de));
+        addReplyCommandInfo(c, dictGetVal(de));
     }
     dictReleaseIterator(di);
 }
@@ -4554,12 +4597,58 @@ void commandListCommand(client *c) {
     dictReleaseIterator(di);
 }
 
-/* COMMAND INFO <command-name> [<command-name> ...] */
+/* COMMAND INFO [<command-name> ...] */
 void commandInfoCommand(client *c) {
     int i;
-    addReplyArrayLen(c, c->argc-2);
-    for (i = 2; i < c->argc; i++) {
-        addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
+
+    if (c->argc == 2) {
+        dictIterator *di;
+        dictEntry *de;
+        addReplyArrayLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommandInfo(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    } else {
+        addReplyArrayLen(c, c->argc-2);
+        for (i = 2; i < c->argc; i++) {
+            addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr));
+        }
+    }
+}
+
+/* COMMAND DOCS [<command-name> ...] */
+void commandDocsCommand(client *c) {
+    int i;
+    if (c->argc == 2) {
+        /* Reply with an array of all commands */
+        dictIterator *di;
+        dictEntry *de;
+        addReplyMapLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            addReplyBulkCString(c, cmd->name);
+            addReplyCommandDocs(c, cmd);
+        }
+        dictReleaseIterator(di);
+    } else {
+        /* Reply with an array of the requested commands (if we find them) */
+        int numcmds = 0;
+        void *replylen = addReplyDeferredLen(c);
+        for (i = 2; i < c->argc; i++) {
+            struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
+            if (!cmd)
+                continue;
+            if (cmd->parent)
+                addReplyBulkSds(c, getFullCommandName(cmd));
+            else
+                addReplyBulkCString(c, cmd->name);
+            addReplyCommandDocs(c, cmd);
+            numcmds++;
+        }
+        setDeferredMapLen(c,replylen,numcmds);
     }
 }
 
@@ -4577,8 +4666,14 @@ void commandHelpCommand(client *c) {
 "    Return the total number of commands in this Redis server.",
 "LIST",
 "    Return a list of all commands in this Redis server.",
-"INFO <command-name> [<command-name> ...]",
+"INFO [<command-name> ...]",
 "    Return details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
+"DOCS [<command-name> ...]",
+"    Return documentation details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL

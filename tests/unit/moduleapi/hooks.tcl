@@ -2,6 +2,9 @@ set testmodule [file normalize tests/modules/hooks.so]
 
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule" appendonly yes]] {
+        test {Test module aof save on server start from empty} {
+            assert {[r hooks.event_count persistence-syncaof-start] == 1}
+        }
 
         test {Test clients connection / disconnection hooks} {
             for {set j 0} {$j < 2} {incr j} {

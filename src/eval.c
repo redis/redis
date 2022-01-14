@@ -567,12 +567,6 @@ unsigned long evalScriptsMemory() {
             dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
 }
 
-/* Returns the time when the script invocation started */
-mstime_t evalTimeSnapshot() {
-    return scriptTimeSnapshot();
-}
-
-
 /* ---------------------------------------------------------------------------
  * LDB: Redis Lua debugging facilities
  * ------------------------------------------------------------------------- */

@@ -1,18 +1,12 @@
 {
-    "INFO": {
-        "summary": "Get array of specific Redis command details, or all when no argument is given.",
+    "DOCS": {
+        "summary": "Get array of specific Redis command documentation",
         "complexity": "O(N) where N is the number of commands to look up",
         "group": "server",
-        "since": "2.8.13",
+        "since": "7.0.0",
         "arity": -2,
         "container": "COMMAND",
-        "function": "commandInfoCommand",
-        "history": [
-            [
-                "7.0.0",
-                "Allowed to be called with no argument to get info on all commands."
-            ]
-        ],
+        "function": "commandDocsCommand",
         "command_flags": [
             "LOADING",
             "STALE"
