@@ -9,7 +9,8 @@
         "function": "functionRestoreCommand",
         "command_flags": [
             "NOSCRIPT",
-            "WRITE"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
             "SCRIPTING"

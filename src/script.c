@@ -413,7 +413,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
 
 /* Returns the time when the script invocation started */
 mstime_t scriptTimeSnapshot() {
-    serverAssert(!curr_run_ctx);
+    serverAssert(curr_run_ctx);
     return curr_run_ctx->snapshot_time;
 }
 
@@ -421,5 +421,3 @@ long long scriptRunDuration() {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }
-
-

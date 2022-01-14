@@ -1,8 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import json
+import subprocess
 from collections import OrderedDict
 from sys import argv, stdin
+import os
+
 
 def convert_flags_to_boolean_dict(flags):
     """Return a dict with a key set to `True` per element in the flags list."""
@@ -18,8 +21,8 @@ def set_if_not_none_or_empty(dst, key, value):
 def convert_argument(arg):
     """Transform an argument."""
     arg.update(convert_flags_to_boolean_dict(arg.pop('flags', [])))
-    set_if_not_none_or_empty(arg, 'arguments', 
-                            [convert_argument(x) for x in arg.pop('arguments',[])])
+    set_if_not_none_or_empty(arg, 'arguments',
+                             [convert_argument(x) for x in arg.pop('arguments', [])])
     return arg
 
 
@@ -29,85 +32,103 @@ def convert_keyspec(spec):
     return spec
 
 
-def convert_entry_to_objects_array(container, cmd):
+def convert_entry_to_objects_array(cmd, docs):
     """Transform the JSON output of `COMMAND` to a friendlier format.
 
-    `COMMAND`'s output per command is a fixed-size (8) list as follows:
+    cmd is the output of `COMMAND` as follows:
     1. Name (lower case, e.g. "lolwut")
     2. Arity
     3. Flags
     4-6. First/last/step key specification (deprecated as of Redis v7.0)
     7. ACL categories
-    8. A dict of meta information (as of Redis 7.0)
+    8. hints (as of Redis 7.0)
+    9. key-specs (as of Redis 7.0)
+    10. subcommands (as of Redis 7.0)
+
+    docs is the output of `COMMAND DOCS`, which holds a map of additional metadata
 
     This returns a list with a dict for the command and per each of its
     subcommands. Each dict contains one key, the command's full name, with a
     value of a dict that's set with the command's properties and meta
     information."""
-    assert len(cmd) >= 8
+    assert len(cmd) >= 9
     obj = {}
     rep = [obj]
     name = cmd[0].upper()
     arity = cmd[1]
     command_flags = cmd[2]
-    acl_categories   = cmd[6]
-    meta = cmd[7]
-    key = f'{container} {name}' if container else name
+    acl_categories = cmd[6]
+    hints = cmd[7]
+    keyspecs = cmd[8]
+    subcommands = cmd[9] if len(cmd) > 9 else []
+    key = name.replace('|', ' ')
 
-    rep.extend([convert_entry_to_objects_array(name, x)[0] for x in meta.pop('subcommands', [])])
+    subcommand_docs = docs.pop('subcommands', [])
+    rep.extend([convert_entry_to_objects_array(x, subcommand_docs[x[0]])[0] for x in subcommands])
 
     # The command's value is ordered so the interesting stuff that we care about
     # is at the start. Optional `None` and empty list values are filtered out.
     value = OrderedDict()
-    value['summary'] = meta.pop('summary')
-    value['since'] = meta.pop('since')
-    value['group'] = meta.pop('group')
-    set_if_not_none_or_empty(value, 'complexity', meta.pop('complexity', None))
-    set_if_not_none_or_empty(value, 'deprecated_since', meta.pop('deprecated_since', None))
-    set_if_not_none_or_empty(value, 'replaced_by', meta.pop('replaced_by', None))
-    set_if_not_none_or_empty(value, 'history', meta.pop('history', []))
+    value['summary'] = docs.pop('summary')
+    value['since'] = docs.pop('since')
+    value['group'] = docs.pop('group')
+    set_if_not_none_or_empty(value, 'complexity', docs.pop('complexity', None))
+    set_if_not_none_or_empty(value, 'deprecated_since', docs.pop('deprecated_since', None))
+    set_if_not_none_or_empty(value, 'replaced_by', docs.pop('replaced_by', None))
+    set_if_not_none_or_empty(value, 'history', docs.pop('history', []))
     set_if_not_none_or_empty(value, 'acl_categories', acl_categories)
     value['arity'] = arity
-    set_if_not_none_or_empty(value, 'key_specs', 
-                            [convert_keyspec(x) for x in meta.pop('key_specs',[])])
+    set_if_not_none_or_empty(value, 'key_specs',
+                             [convert_keyspec(x) for x in keyspecs])
     set_if_not_none_or_empty(value, 'arguments',
-                            [convert_argument(x) for x in meta.pop('arguments', [])])
+                             [convert_argument(x) for x in docs.pop('arguments', [])])
     set_if_not_none_or_empty(value, 'command_flags', command_flags)
-    set_if_not_none_or_empty(value, 'doc_flags', meta.pop('doc_flags', []))
-    set_if_not_none_or_empty(value, 'hints', meta.pop('hints', []))
+    set_if_not_none_or_empty(value, 'doc_flags', docs.pop('doc_flags', []))
+    set_if_not_none_or_empty(value, 'hints', hints)
 
-    # All remaining meta key-value tuples, if any, are appended to the command
+    # All remaining docs key-value tuples, if any, are appended to the command
     # to be future-proof.
-    while len(meta) > 0:
-        (k, v) = meta.popitem()
+    while len(docs) > 0:
+        (k, v) = docs.popitem()
         value[k] = v
 
     obj[key] = value
     return rep
 
 
+# Figure out where the sources are
+srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
+
 # MAIN
 if __name__ == '__main__':
     opts = {
-        'description': 'Transform the output from `redis-cli --json COMMAND` to commands.json format.',
-        'epilog': f'Usage example: src/redis-cli --json COMMAND | {argv[0]}'
+        'description': 'Transform the output from `redis-cli --json` using COMMAND and COMMAND DOCS to a single commands.json format.',
+        'epilog': f'Usage example: {argv[0]} --cli src/redis-cli --port 6379 > commands.json'
     }
     parser = argparse.ArgumentParser(**opts)
-    parser.add_argument('input', help='JSON-formatted input file (default: stdin)',
-                        nargs='?', type=argparse.FileType(), default=stdin)
+    parser.add_argument('--host', type=str, default='localhost')
+    parser.add_argument('--port', type=int, default=6379)
+    parser.add_argument('--cli', type=str, default='%s/redis-cli' % srcdir)
     args = parser.parse_args()
 
     payload = OrderedDict()
-    commands = []
-    data = json.load(args.input)
+    cmds = []
 
-    for entry in data:
-        cmds = convert_entry_to_objects_array(None, entry)
-        commands.extend(cmds)
+    p = subprocess.Popen([args.cli, '-h', args.host, '-p', str(args.port), '--json', 'command'], stdout=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    commands = json.loads(stdout)
+
+    p = subprocess.Popen([args.cli, '-h', args.host, '-p', str(args.port), '--json', 'command', 'docs'], stdout=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    docs = json.loads(stdout)
+
+    for entry in commands:
+        cmd = convert_entry_to_objects_array(entry, docs[entry[0]])
+        cmds.extend(cmd)
 
     # The final output is a dict of all commands, ordered by name.
-    commands.sort(key=lambda x: list(x.keys())[0])
-    for cmd in commands:
+    cmds.sort(key=lambda x: list(x.keys())[0])
+    for cmd in cmds:
         name = list(cmd.keys())[0]
         payload[name] = cmd[name]
 

@@ -20,7 +20,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {} [latency_percentiles_usec set]
             r CONFIG SET latency-tracking yes
             r set a b
-            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec set]
             r config resetstat
             assert_match {} [latency_percentiles_usec set]
         }
@@ -31,12 +31,12 @@ start_server {tags {"info" "external:skip"}} {
             r CONFIG SET latency-tracking yes
             r SET a b
             r GET a
-            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec set]
-            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec get]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec set]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec get]
             r CONFIG SET latency-tracking-info-percentiles "0.0 50.0 100.0"
-            assert_match [r config get latency-tracking-info-percentiles] {latency-tracking-info-percentiles {0.000000 50.000000 100.000000}}
-            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec set]
-            assert_match {*p0.000000=*,p50.000000=*,p100.000000=*} [latency_percentiles_usec get]
+            assert_match [r config get latency-tracking-info-percentiles] {latency-tracking-info-percentiles {0 50 100}}
+            assert_match {*p0=*,p50=*,p100=*} [latency_percentiles_usec set]
+            assert_match {*p0=*,p50=*,p100=*} [latency_percentiles_usec get]
             r config resetstat
             assert_match {} [latency_percentiles_usec set]
         }
@@ -71,7 +71,7 @@ start_server {tags {"info" "external:skip"}} {
             wait_for_blocked_client
             r lpush list1{t} b
             assert_equal [$rd read] {list1{t} b}
-            assert_match {*p50.000000=*,p99.000000=*,p99.900000=*} [latency_percentiles_usec blpop]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec blpop]
             $rd close
         }
 
@@ -83,8 +83,8 @@ start_server {tags {"info" "external:skip"}} {
             r SET k v
             set latencystatline_debug [latency_percentiles_usec debug]
             set latencystatline_set [latency_percentiles_usec set]
-            regexp "p50.000000=(.+\..+)" $latencystatline_debug -> p50_debug
-            regexp "p50.000000=(.+\..+)" $latencystatline_set -> p50_set
+            regexp "p50=(.+\..+)" $latencystatline_debug -> p50_debug
+            regexp "p50=(.+\..+)" $latencystatline_set -> p50_set
             assert {$p50_debug >= 50000}
             assert {$p50_set >= 0}
             assert {$p50_debug >= $p50_set}

@@ -594,6 +594,20 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/* Trims off trailing zeros from a string representing a double. */
+int trimDoubleString(char *buf, size_t len) {
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    buf[len] = '\0';
+    return len;
+}
+
 /* Create a string object from a long double.
  * If mode is humanfriendly it does not use exponential format and trims trailing
  * zeroes at the end (may result in loss of precision).
@@ -888,6 +902,16 @@ int dirRemove(char *dname) {
 
 sds makePath(char *path, char *filename) {
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
+int includeSpace(char *s) {
+    if (s == NULL) return 0;
+    for (size_t i = 0; i < strlen(s); i++) {
+        if (isspace(s[i])) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 #ifdef REDIS_TEST

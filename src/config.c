@@ -2166,6 +2166,10 @@ static int isValidAOFdirname(char *val, const char **err) {
         *err = "appenddirname can't be empty";
         return 0;
     }
+    if (includeSpace(val)) {
+        *err = "appenddirname can't contain whitespace characters";
+        return 0;
+    }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
         return 0;
@@ -2698,8 +2702,10 @@ static sds getConfigLatencyTrackingInfoPercentilesOutputOption(typeData data) {
     UNUSED(data);
     sds buf = sdsempty();
     for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-        buf = sdscatprintf(buf,"%f",
-                        server.latency_tracking_info_percentiles[j]);
+        char fbuf[128];
+        size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+        len = trimDoubleString(fbuf, len);
+        buf = sdscatlen(buf, fbuf, len);
         if (j != server.latency_tracking_info_percentiles_len-1)
             buf = sdscatlen(buf," ",1);
     }
@@ -2718,8 +2724,10 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, cons
         line = sdscat(line," \"\"");
     } else {
         for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-            line = sdscatprintf(line," %f",
-                server.latency_tracking_info_percentiles[j]);
+            char fbuf[128];
+            size_t len = sprintf(fbuf, " %f", server.latency_tracking_info_percentiles[j]);
+            len = trimDoubleString(fbuf, len);
+            line = sdscatlen(line, fbuf, len);
         }
     }
     rewriteConfigRewriteLine(state,name,line,1);

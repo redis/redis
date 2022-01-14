@@ -1792,7 +1792,7 @@ void readSyncBulkPayload(connection *conn) {
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
     redisDb *diskless_load_tempDb = NULL;
-    functionsCtx* temp_functions_ctx = NULL;
+    functionsLibCtx* temp_functions_lib_ctx = NULL;
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
     off_t left;
@@ -1968,7 +1968,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
         /* Initialize empty tempDb dictionaries. */
         diskless_load_tempDb = disklessLoadInitTempDb();
-        temp_functions_ctx = functionsCtxCreate();
+        temp_functions_lib_ctx = functionsLibCtxCreate();
 
         moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                               REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
@@ -1991,7 +1991,7 @@ void readSyncBulkPayload(connection *conn) {
     if (use_diskless_load) {
         rio rdb;
         redisDb *dbarray;
-        functionsCtx* functions_ctx;
+        functionsLibCtx* functions_lib_ctx;
         int asyncLoading = 0;
 
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -2004,11 +2004,11 @@ void readSyncBulkPayload(connection *conn) {
                 asyncLoading = 1;
             }
             dbarray = diskless_load_tempDb;
-            functions_ctx = temp_functions_ctx;
+            functions_lib_ctx = temp_functions_lib_ctx;
         } else {
             dbarray = server.db;
-            functions_ctx = functionsCtxGetCurrent();
-            functionsCtxClear(functions_ctx);
+            functions_lib_ctx = functionsLibCtxGetCurrent();
+            functionsLibCtxClear(functions_lib_ctx);
         }
 
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
@@ -2020,7 +2020,7 @@ void readSyncBulkPayload(connection *conn) {
         startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
         int loadingFailed = 0;
-        rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_ctx = functions_ctx };
+        rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_lib_ctx = functions_lib_ctx };
         if (rdbLoadRioWithLoadingCtx(&rdb,RDBFLAGS_REPLICATION,&rsi,&loadingCtx) != C_OK) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
@@ -2049,7 +2049,7 @@ void readSyncBulkPayload(connection *conn) {
                                       NULL);
 
                 disklessLoadDiscardTempDb(diskless_load_tempDb);
-                functionsCtxFree(temp_functions_ctx);
+                functionsLibCtxFree(temp_functions_lib_ctx);
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
@@ -2073,7 +2073,7 @@ void readSyncBulkPayload(connection *conn) {
             swapMainDbWithTempDb(diskless_load_tempDb);
 
             /* swap existing functions ctx with the temporary one */
-            functionsCtxSwapWithCurrent(temp_functions_ctx);
+            functionsLibCtxSwapWithCurrent(temp_functions_lib_ctx);
 
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
