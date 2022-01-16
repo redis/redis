@@ -4122,10 +4122,16 @@ void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
 
 void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     replyFlagNames docFlagNames[] = {
-        {CMD_KEY_WRITE,              "write"},
-        {CMD_KEY_READ,               "read"},
-        {CMD_KEY_SHARD_CHANNEL,      "shard_channel"},
-        {CMD_KEY_INCOMPLETE,         "incomplete"},
+        {CMD_KEY_RO,              "RO"},
+        {CMD_KEY_RW,              "RW"},
+        {CMD_KEY_OW,              "OW"},
+        {CMD_KEY_RM,              "RM"},
+        {CMD_KEY_ACCESS,          "access"},
+        {CMD_KEY_UPDATE,          "update"},
+        {CMD_KEY_INSERT,          "insert"},
+        {CMD_KEY_DELETE,          "delete"},
+        {CMD_KEY_CHANNEL,         "channel"},
+        {CMD_KEY_INCOMPLETE,      "incomplete"},
         {0,NULL}
     };
     addReplyCommandFlags(c, flags, docFlagNames);

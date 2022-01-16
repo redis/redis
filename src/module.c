@@ -838,9 +838,15 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
-        if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
-        else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
-        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_SHARD_CHANNEL;
+        if (!strcasecmp(t,"RO")) flags |= CMD_KEY_RO;
+        else if (!strcasecmp(t,"RW")) flags |= CMD_KEY_RW;
+        else if (!strcasecmp(t,"OW")) flags |= CMD_KEY_OW;
+        else if (!strcasecmp(t,"RM")) flags |= CMD_KEY_RM;
+        else if (!strcasecmp(t,"ACCESS")) flags |= CMD_KEY_ACCESS;
+        else if (!strcasecmp(t,"INSERT")) flags |= CMD_KEY_INSERT;
+        else if (!strcasecmp(t,"UPDATE")) flags |= CMD_KEY_UPDATE;
+        else if (!strcasecmp(t,"DELETE")) flags |= CMD_KEY_DELETE;
+        else if (!strcasecmp(t,"channel")) flags |= CMD_KEY_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
     }
