@@ -109,7 +109,7 @@ struct ACLSelectorFlags {
     {NULL,0} /* Terminator. */
 };
 
-/* ACL selectors are private and not exposed outside of aclc. */
+/* ACL selectors are private and not exposed outside of acl.c. */
 typedef struct {
     uint32_t flags; /* See SELECTOR_FLAG_* */
     /* The bit in allowed_commands is set if this user has the right to
@@ -1205,10 +1205,12 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              -@all. The user returns to the same state it has immediately
  *              after its creation.
  * (<options>)  Create a new selector with the options specified within the
- *              parentheses. Each option should be space separated. The first
- *              character must be ( and the last character must be ).
- * no-secondary-selectors  Remove all of the currently attached selectors. Note this does
- *              not change the "root" user permissions.
+ *              parentheses and attach it to the user. Each option should be
+ *              space separated. The first character must be ( and the last
+ *              character must be ).
+ * clearselectors          Remove all of the currently attached selectors. 
+ *                         Note this does not change the "root" user permissions,
+ *                         which are the permissions directly applied onto the user.
  * 
  * Selector options can also be specified by this function, in which case
  * they update the root selector for the user.
@@ -1303,7 +1305,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         }
         listAddNodeTail(u->selectors, select);
         return C_OK;
-    } else if (!strcasecmp(op,"no-secondary-selectors")) {
+    } else if (!strcasecmp(op,"clearselectors")) {
         listIter li;
         listNode *ln;
         listRewind(u->selectors,&li);
@@ -1321,7 +1323,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             serverAssert(ACLSetUser(u,"allchannels",-1) == C_OK);
         serverAssert(ACLSetUser(u,"off",-1) == C_OK);
         serverAssert(ACLSetUser(u,"sanitize-payload",-1) == C_OK);
-        serverAssert(ACLSetUser(u,"no-secondary-selectors",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"clearselectors",-1) == C_OK);
         serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
         aclSelector *selector = ACLUserGetRootSelector(u);
@@ -2115,28 +2117,24 @@ sds ACLLoadFromFile(const char *filename) {
         sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, NULL);
         if (!acl_args) {
             errors = sdscatprintf(errors,
-                    "%s:%d: Unmatched parenthesis in selector definition. ",
+                    "%s:%d: Unmatched parenthesis in selector definition.",
                     server.acl_filename, linenum);
         }
 
-        int j, error = 0;
+        int j;
         for (j = 0; j < merged_argc; j++) {
             acl_args[j] = sdstrim(acl_args[j],"\t\r\n");
-            serverLog(LL_WARNING, "%s", acl_args[j]);
             if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
                          "%s:%d: %s. ",
                          server.acl_filename, linenum, errmsg);
-                error = 1;
-                break;
+                continue;
             }
         }
 
         for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
         zfree(acl_args);
-
-        if (error) continue;
 
         /* Apply the rule to the new users set only if so far there
          * are no errors, otherwise it's useless since we are going

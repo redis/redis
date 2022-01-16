@@ -37,7 +37,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]
         assert_equal [llength [dict get $user selectors]] 2
 
-        r ACL SETUSER selector-del no-secondary-selectors
+        r ACL SETUSER selector-del clearselectors
         set user [r ACL GETUSER "selector-del"]
         assert_equal [llength [dict get $user selectors]] 1
         assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]

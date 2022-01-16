@@ -1708,6 +1708,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
             }
         }
 
+        /* No first key was found, assume we haven't found any keys */
         if (!first) {
             continue;
         }
@@ -1739,8 +1740,20 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
         int count = ((last - first)+1);
         keys = getKeysPrepareResult(result, count);
 
+        /* Not enough keys were provided to meet the spec, which is probably
+         * a user error, so we will try to provide the keys by clamping the last
+         * value. Note it's possible for an overflow to have occurred, in which
+         * case last will be less than first. */
+        if (last > argc || last < first) last = argc;
+
+        /* Based on the keyspec, we don't even have the first argument,
+         * so we have to assume there are no keys. */
+        if (first > argc) {
+            continue;
+        }
+
         for (i = first; i <= last; i += step) {
-            if (i >= argc) {
+            if (i >= argc || i < first) {
                 /* Modules commands, and standard commands with a not fixed number
                  * of arguments (negative arity parameter) do not have dispatch
                  * time arity checks, so we need to handle the case where the user
@@ -1849,6 +1862,9 @@ int doesCommandHaveChannels(struct redisCommand *cmd) {
  * This function works only on command with the legacy_range_key_spec,
  * all other commands should be handled by getkeys_proc. 
  * 
+ * If the commands keyspec is incomplete, no keys will be returned, and the provided
+ * keys function should be called instead.
+ * 
  * NOTE: This function does not guarantee populating the flags for 
  * the keys, in order to get flags you should use getKeysUsingKeySpecs. */
 int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
@@ -1873,7 +1889,7 @@ int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc,
     keys = getKeysPrepareResult(result, count);
 
     for (j = first; j <= last; j += step) {
-        if (j >= argc) {
+        if (j >= argc || j < first) {
             /* Modules commands, and standard commands with a not fixed number
              * of arguments (negative arity parameter) do not have dispatch
              * time arity checks, so we need to handle the case where the user
@@ -1934,8 +1950,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * This function does not add flags to the keys. 
- * */
+ * This function has a fully defined keyspec, so flags are not set. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2019,7 +2034,7 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. 
  * 
- *  This function declares incomplete keys, so the flags are correctly set for this function */
+ * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, found_store = 0;
     keyReference *keys;
@@ -2064,7 +2079,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return result->numkeys;
 }
 
-/* This function declares incomplete keys, so the flags are correctly set for this function */
+/* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, first;
     keyReference *keys;
@@ -2099,7 +2114,9 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
 /* Helper function to extract keys from following commands:
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                             [COUNT count] [STORE key] [STOREDIST key]
- * GEORADIUSBYMEMBER key member radius unit ... options ... */
+ * GEORADIUSBYMEMBER key member radius unit ... options ...
+ * 
+ * This function has a fully defined keyspec, so flags are not set. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
     keyReference *keys;
@@ -2138,7 +2155,9 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
- *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
+ *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N
+ *
+ * This function has a fully defined keyspec, so flags are not set. */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num = 0;
     keyReference *keys;
