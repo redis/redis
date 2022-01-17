@@ -886,6 +886,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"pubsub"**:    The command publishes things on Pub/Sub channels.
  * * **"random"**:    The command may have different outputs even starting
  *                    from the same input arguments and key values.
+ *                    Starting from Redis 7.0 this flag has been deprecated.
+ *                    Declaring a command as "random" can be done using
+ *                    command tips, see https://redis.io/topics/command-tips.
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
@@ -9656,8 +9659,8 @@ void moduleUnregisterCommands(struct RedisModule *module) {
             if (cp->module == module) {
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
-                for (int j = 0; cmd->hints && cmd->hints[j]; j++)
-                    sdsfree((sds)cmd->hints[j]);
+                for (int j = 0; cmd->tips && cmd->tips[j]; j++)
+                    sdsfree((sds)cmd->tips[j]);
                 for (int j = 0; cmd->history && cmd->history[j].since; j++) {
                     sdsfree((sds)cmd->history[j].since);
                     sdsfree((sds)cmd->history[j].changes);

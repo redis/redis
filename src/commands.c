@@ -1617,6 +1617,7 @@ commandHistory SCAN_History[] = {
 /* SCAN tips */
 const char *SCAN_tips[] = {
 "random_output",
+"request_policy:non_trivial",
 NULL
 };
 
@@ -4273,7 +4274,7 @@ struct redisCommandArg FLUSHDB_Args[] = {
 const char *INFO_tips[] = {
 "random_output",
 "request_policy:all_shards",
-"reply_policy:agg_non_trivial",
+"reply_policy:non_trivial",
 NULL
 };
 
@@ -4707,6 +4708,7 @@ struct redisCommandArg SLOWLOG_GET_Args[] = {
 /* SLOWLOG LEN tips */
 const char *SLOWLOG_LEN_tips[] = {
 "request_policy:all_shards",
+"reply_policy:agg_sum",
 "random_output",
 NULL
 };

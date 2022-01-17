@@ -2657,7 +2657,7 @@ void populateCommandStructure(struct redisCommand *c) {
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
         c->num_history++;
-    while (c->hints && c->hints[c->num_hints])
+    while (c->tips && c->tips[c->num_hints])
         c->num_hints++;
     c->num_args = populateArgsStructure(c->args);
 
@@ -4227,7 +4227,7 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
 void addReplyCommandHints(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->num_hints);
     for (int j = 0; j<cmd->num_hints; j++) {
-        addReplyBulkCString(c, cmd->hints[j]);
+        addReplyBulkCString(c, cmd->tips[j]);
     }
 }
 

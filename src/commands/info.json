@@ -17,7 +17,7 @@
         "command_tips": [
             "RANDOM_OUTPUT",
             "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:AGG_NON_TRIVIAL"
+            "REPLY_POLICY:NON_TRIVIAL"
         ],
         "arguments": [
             {

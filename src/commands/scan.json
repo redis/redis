@@ -19,7 +19,8 @@
             "KEYSPACE"
         ],
         "command_tips": [
-            "RANDOM_OUTPUT"
+            "RANDOM_OUTPUT",
+            "REQUEST_POLICY:NON_TRIVIAL"
         ],
         "arguments": [
             {

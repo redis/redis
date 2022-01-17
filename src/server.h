@@ -2155,7 +2155,7 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
-    const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
