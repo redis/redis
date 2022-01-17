@@ -33,7 +33,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
 
-    if (RedisModule_AddCommandKeySpec(subcmd,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(subcmd,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -44,7 +44,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
 
-    if (RedisModule_AddCommandKeySpec(subcmd,"read",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(subcmd,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

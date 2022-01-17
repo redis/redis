@@ -16,8 +16,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "RW",
-                    "ACCESS"
+                    "RW"
                 ],
                 "begin_search": {
                     "index": {

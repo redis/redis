@@ -256,7 +256,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                   * the value of the key. */
 #define CMD_KEY_UPDATE (1ULL<<5) /* Updates data to the value, new value may
                                   * depend on the old value. */
-#define CMD_KEY_INSERT (1ULL<<6) /* Adds data to the value with no chance of,
+#define CMD_KEY_INSERT (1ULL<<6) /* Adds data to the value with no chance of
                                   * modification or deletion of existing data. */
 #define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
                                   * from the value of the key. */
