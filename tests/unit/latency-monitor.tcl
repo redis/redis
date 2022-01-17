@@ -5,18 +5,18 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HISTOGRAM with empty histogram} {
         r config resetstat
-        set hist [dict create {*}[r latency histogram]]
+        set histo [dict create {*}[r latency histogram]]
         # Config resetstat is recorded
-        assert_equal [dict size $hist] 1
+        assert_equal [dict size $histo] 1
     }
 
     test {LATENCY HISTOGRAM all commands} {
         r config resetstat
         r set a b
         r set c d
-        set hist [dict create {*}[r latency histogram]]
-        assert_match {calls 2 histogram_usec *} [dict get $hist set]
-        assert_match {calls 1 histogram_usec *} [dict get $hist "config|resetstat"]
+        set histo [dict create {*}[r latency histogram]]
+        assert_match {calls 2 histogram_usec *} [dict get $histo set]
+        assert_match {calls 1 histogram_usec *} [dict get $histo "config|resetstat"]
     }
 
     test {LATENCY HISTOGRAM sub commands} {
@@ -24,15 +24,15 @@ start_server {tags {"latency-monitor needs:latency"}} {
         r client id
         r client list
         # parent command reply with its sub commands
-        set hist [dict create {*}[r latency histogram client]]
-        assert {[dict size $hist] == 2}
-        assert_match {calls 1 histogram_usec *} [dict get $hist "client|id"]
-        assert_match {calls 1 histogram_usec *} [dict get $hist "client|list"]
+        set histo [dict create {*}[r latency histogram client]]
+        assert {[dict size $histo] == 2}
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|id"]
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|list"]
 
         # explicitly ask for one sub-command
-        set hist [dict create {*}[r latency histogram "client|id"]]
-        assert {[dict size $hist] == 1}
-        assert_match {calls 1 histogram_usec *} [dict get $hist "client|id"]
+        set histo [dict create {*}[r latency histogram "client|id"]]
+        assert {[dict size $histo] == 1}
+        assert_match {calls 1 histogram_usec *} [dict get $histo "client|id"]
     }
 
     test {LATENCY HISTOGRAM with a subset of commands} {
@@ -42,14 +42,14 @@ start_server {tags {"latency-monitor needs:latency"}} {
         r get a
         r hset f k v
         r hgetall f
-        set hist [dict create {*}[r latency histogram set hset]]
-        assert_match {calls 2 histogram_usec *} [dict get $hist set]
-        assert_match {calls 1 histogram_usec *} [dict get $hist hset]
-        assert_equal [dict size $hist] 2
-        set hist [dict create {*}[r latency histogram hgetall get zadd]]
-        assert_match {calls 1 histogram_usec *} [dict get $hist hgetall]
-        assert_match {calls 1 histogram_usec *} [dict get $hist get]
-        assert_equal [dict size $hist] 2
+        set histo [dict create {*}[r latency histogram set hset]]
+        assert_match {calls 2 histogram_usec *} [dict get $histo set]
+        assert_match {calls 1 histogram_usec *} [dict get $histo hset]
+        assert_equal [dict size $histo] 2
+        set histo [dict create {*}[r latency histogram hgetall get zadd]]
+        assert_match {calls 1 histogram_usec *} [dict get $histo hgetall]
+        assert_match {calls 1 histogram_usec *} [dict get $histo get]
+        assert_equal [dict size $histo] 2
     }
 
     test {LATENCY HISTOGRAM command} {
