@@ -4808,6 +4808,32 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
+    di = dictGetSafeIterator(commands);
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        c = (struct redisCommand *) dictGetVal(de);
+        if (c->latency_histogram) {
+            sds cmdnamesds = getFullCommandName(c);
+
+            info = fillPercentileDistributionLatencies(info,
+                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe),
+                c->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+            sdsfree(cmdnamesds);
+        }
+        if (c->subcommands_dict) {
+            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
+        }
+    }
+    dictReleaseIterator(di);
+
+    return info;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5518,19 +5544,7 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
-            struct redisCommand *c;
-            dictEntry *de;
-            dictIterator *di;
-            di = dictGetSafeIterator(server.commands);
-            while((de = dictNext(di)) != NULL) {
-                char *tmpsafe;
-                c = (struct redisCommand *) dictGetVal(de);
-                if (!c->latency_histogram)
-                    continue;
-                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
-                if (tmpsafe != NULL) zfree(tmpsafe);
-            }
-            dictReleaseIterator(di);
+            info = genRedisInfoStringLatencyStats(info, server.commands);
         }
     }
 
