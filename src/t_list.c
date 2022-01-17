@@ -493,7 +493,7 @@ void popGenericCommand(client *c, int where) {
 
     if (c->argc > 3) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+                            c->cmd->fullname);
         return;
     } else if (hascount) {
         /* Parse the optional count argument. */

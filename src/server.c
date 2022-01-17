@@ -2602,11 +2602,9 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
         parent->subcommands_dict = dictCreate(&commandTableDictType);
 
     subcommand->parent = parent; /* Assign the parent command */
-    sds fullname = getFullCommandName(subcommand);
-    subcommand->id = ACLGetCommandID(fullname); /* Assign the ID used for ACL. */
-    sdsfree(fullname);
+    subcommand->id = ACLGetCommandID(subcommand->fullname); /* Assign the ID used for ACL. */
 
-    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
+    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->fullname), subcommand) == DICT_OK);
 }
 
 /* Set implicit ACl categories (see comment above the definition of
@@ -2671,17 +2669,18 @@ void populateCommandStructure(struct redisCommand *c) {
     populateCommandMovableKeys(c);
 
     /* Assign the ID used for ACL. */
-    c->id = ACLGetCommandID(c->name);
+    c->id = ACLGetCommandID(c->fullname);
 
     /* Handle subcommands */
     if (c->subcommands) {
-        for (int j = 0; c->subcommands[j].name; j++) {
+        for (int j = 0; c->subcommands[j].fullname; j++) {
             struct redisCommand *sub = c->subcommands+j;
 
             /* Translate the command string flags description into an actual
              * set of flags. */
             setImplictACLCategories(sub);
             populateCommandStructure(sub);
+            sub->fullname = sdscatfmt(sdsempty(), "%s|%s", c->fullname, sub->fullname);
             commandAddSubcommand(c,sub);
         }
     }
@@ -2697,7 +2696,7 @@ void populateCommandTable(void) {
 
     for (j = 0;; j++) {
         c = redisCommandTable + j;
-        if (c->name == NULL)
+        if (c->fullname == NULL)
             break;
 
         int retval1, retval2;
@@ -2712,10 +2711,10 @@ void populateCommandTable(void) {
 
         populateCommandStructure(c);
 
-        retval1 = dictAdd(server.commands, sdsnew(c->name), c);
+        retval1 = dictAdd(server.commands, sdsnew(c->fullname), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
-        retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
+        retval2 = dictAdd(server.orig_commands, sdsnew(c->fullname), c);
         serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
     }
 }
@@ -2800,6 +2799,13 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
+struct redisCommand *lookupSubCommandByCStringLogic(dict *commands, const char *parent, const char *sub) {
+    sds fullname = sdscatfmt(sdsempty(), "%s|%s", parent, sub);
+    struct redisCommand *sub_cmd = dictFetchValue(commands, fullname);
+    sdsfree(fullname);
+    return sub_cmd;
+}
+
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
@@ -2808,7 +2814,7 @@ struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
         return base_cmd;
     } else {
         /* Note: Currently we support just one level of subcommands */
-        return dictFetchValue(base_cmd->subcommands_dict, argv[1]->ptr);
+        return lookupSubCommandByCStringLogic(base_cmd->subcommands_dict, argv[0]->ptr, argv[1]->ptr);
     }
 }
 
@@ -3386,8 +3392,7 @@ int processCommand(client *c) {
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity))
     {
-        rejectCommandFormat(c,"wrong number of arguments for '%s' command or subcommand",
-            c->cmd->name);
+        rejectCommandFormat(c,"wrong number of arguments for '%s' command", c->cmd->fullname);
         return C_OK;
     }
 
@@ -3444,11 +3449,9 @@ int processCommand(client *c) {
         switch (acl_retval) {
         case ACL_DENIED_CMD:
         {
-            sds cmdname = getFullCommandName(c->cmd);
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to run "
-                "the '%s' command", cmdname);
-            sdsfree(cmdname);
+                "the '%s' command", c->cmd->fullname);
             break;
         }
         case ACL_DENIED_KEY:
@@ -3611,7 +3614,7 @@ int processCommand(client *c) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P|S)SUBSCRIBE / "
             "(P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-            c->cmd->name);
+            c->cmd->fullname);
         return C_OK;
     }
 
@@ -4023,7 +4026,7 @@ void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
     if (c->argc > 2) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-            c->cmd->name);
+            c->cmd->fullname);
         return;
     }
 
@@ -4346,7 +4349,7 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         if (use_map)
-            addReplyBulkSds(c, getFullCommandName(sub));
+            addReplyBulkCString(c, sub->fullname);
         reply_function(c, sub);
     }
     dictReleaseIterator(di);
@@ -4389,10 +4392,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         }
 
         addReplyArrayLen(c, 10);
-        if (cmd->parent)
-            addReplyBulkSds(c, getFullCommandName(cmd));
-        else
-            addReplyBulkCString(c, cmd->name);
+        addReplyBulkCString(c, cmd->fullname);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
@@ -4547,7 +4547,7 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             break;
         }
         case (COMMAND_LIST_FILTER_PATTERN):
-            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->name, strlen(cmd->name), 1);
+            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->fullname, strlen(cmd->fullname), 1);
         default:
             serverPanic("Invalid filter type %d", filter->type);
     }
@@ -4591,7 +4591,7 @@ void commandListCommand(client *c) {
         addReplySetLen(c, dictSize(server.commands));
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c,cmd->name);
+            addReplyBulkCString(c,cmd->fullname);
         }
     } else {
         int numcmds = 0;
@@ -4599,7 +4599,7 @@ void commandListCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (!shouldFilterFromCommandList(cmd,&filter)) {
-                addReplyBulkCString(c,cmd->name);
+                addReplyBulkCString(c,cmd->fullname);
                 numcmds++;
             }
         }
@@ -4640,7 +4640,7 @@ void commandDocsCommand(client *c) {
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c, cmd->name);
+            addReplyBulkCString(c, cmd->fullname);
             addReplyCommandDocs(c, cmd);
         }
         dictReleaseIterator(di);
@@ -4652,10 +4652,7 @@ void commandDocsCommand(client *c) {
             struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
             if (!cmd)
                 continue;
-            if (cmd->parent)
-                addReplyBulkSds(c, getFullCommandName(cmd));
-            else
-                addReplyBulkCString(c, cmd->name);
+            addReplyBulkCString(c, cmd->fullname);
             addReplyCommandDocs(c, cmd);
             numcmds++;
         }
@@ -4740,9 +4737,9 @@ sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, st
 
 sds getFullCommandName(struct redisCommand *cmd) {
     if (!cmd->parent) {
-        return sdsnew(cmd->name);
+        return sdsnew(cmd->fullname);
     } else {
-        return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->name,cmd->name);
+        return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->fullname,cmd->fullname);
     }
 }
 
@@ -4788,16 +4785,13 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->calls || c->failed_calls || c->rejected_calls) {
-            sds cmdnamesds = getFullCommandName(c);
-
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
                 ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe), c->calls, c->microseconds,
+                getSafeInfoString(c->fullname, strlen(c->fullname), &tmpsafe), c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
                 c->rejected_calls, c->failed_calls);
             if (tmpsafe != NULL) zfree(tmpsafe);
-            sdsfree(cmdnamesds);
         }
         if (c->subcommands_dict) {
             info = genRedisInfoStringCommandStats(info, c->subcommands_dict);
@@ -4817,13 +4811,10 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->latency_histogram) {
-            sds cmdnamesds = getFullCommandName(c);
-
             info = fillPercentileDistributionLatencies(info,
-                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe),
+                getSafeInfoString(c->fullname, strlen(c->fullname), &tmpsafe),
                 c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
-            sdsfree(cmdnamesds);
         }
         if (c->subcommands_dict) {
             info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);

@@ -2159,7 +2159,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  */
 struct redisCommand {
     /* Declarative data */
-    const char *name; /* A string representing the command name. */
+    const char *fullname; /* A string representing the command fullname. */
     const char *summary; /* Summary of the command (optional). */
     const char *complexity; /* Complexity description (optional). */
     const char *since; /* Debut version of the command (optional). */
@@ -2201,7 +2201,8 @@ struct redisCommand {
     int num_hints;
     int key_specs_num;
     int key_specs_max;
-    dict *subcommands_dict;
+    dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand
+                             * fullname, and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
 };
 
@@ -2788,7 +2789,8 @@ void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
 int changeBindAddr(void);
-struct redisCommand *lookupCommand(robj **argv ,int argc);
+struct redisCommand *lookupSubCommandByCStringLogic(dict *commands, const char *parent, const char *sub);
+struct redisCommand *lookupCommand(robj **argv, int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);

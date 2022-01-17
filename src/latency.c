@@ -531,16 +531,16 @@ void latencyAllCommandsFillCDF(client *c) {
     while((de = dictNext(di)) != NULL) {
         cmd = (struct redisCommand *) dictGetVal(de);
         if (cmd->latency_histogram) {
-            addReplyBulkCString(c,cmd->name);
+            addReplyBulkCString(c, cmd->fullname);
             fillCommandCDF(c, cmd->latency_histogram);
             command_with_data++;
         }
 
         if (cmd->subcommands) {
-            for (int j = 0; cmd->subcommands[j].name; j++) {
+            for (int j = 0; cmd->subcommands[j].fullname; j++) {
                 struct redisCommand *sub = cmd->subcommands+j;
                 if (sub->latency_histogram) {
-                    addReplyBulkSds(c,getFullCommandName(sub));
+                    addReplyBulkCString(c, sub->fullname);
                     fillCommandCDF(c, sub->latency_histogram);
                     command_with_data++;
                 }
@@ -564,16 +564,16 @@ void latencySpecificCommandsFillCDF(client *c) {
         }
 
         if (cmd->latency_histogram) {
-            addReplyBulkSds(c,getFullCommandName(cmd));
+            addReplyBulkCString(c, cmd->fullname);
             fillCommandCDF(c, cmd->latency_histogram);
             command_with_data++;
         }
 
         if (cmd->subcommands) {
-            for (int j = 0; cmd->subcommands[j].name; j++) {
+            for (int j = 0; cmd->subcommands[j].fullname; j++) {
                 struct redisCommand *sub = cmd->subcommands+j;
                 if (sub->latency_histogram) {
-                    addReplyBulkSds(c,getFullCommandName(sub));
+                    addReplyBulkCString(c, sub->fullname);
                     fillCommandCDF(c, sub->latency_histogram);
                     command_with_data++;
                 }

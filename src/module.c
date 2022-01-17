@@ -955,7 +955,6 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
 RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const char *name, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
     struct redisCommand *rediscmd;
     RedisModuleCommand *cp;
-    sds cmdname = sdsnew(name);
 
     /* Create a command "proxy", which is a structure that is referenced
      * in the command table, so that the generic command that works as
@@ -968,7 +967,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
     cp->module = module;
     cp->func = cmdfunc;
     cp->rediscmd = zcalloc(sizeof(*rediscmd));
-    cp->rediscmd->name = cmdname;
+    cp->rediscmd->fullname = sdsnew(name);
     cp->rediscmd->group = COMMAND_GROUP_MODULE;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->flags = flags | CMD_MODULE;
@@ -1064,11 +1063,15 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
 
     /* Check if the command name is busy within the parent command. */
-    if (parent_cmd->subcommands_dict && lookupCommandByCStringLogic(parent_cmd->subcommands_dict, name) != NULL)
+    if (parent_cmd->subcommands_dict && lookupSubCommandByCStringLogic(parent_cmd->subcommands_dict, parent_cmd->fullname, name) != NULL)
         return REDISMODULE_ERR;
 
     RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, name, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = -2;
+
+    sds fullname = sdscatfmt(sdsempty(), "%s|%s", parent_cmd->fullname, cp->rediscmd->fullname);
+    sdsfree((sds)cp->rediscmd->fullname);
+    cp->rediscmd->fullname = fullname;
 
     commandAddSubcommand(parent_cmd, cp->rediscmd);
     return REDISMODULE_OK;
@@ -4966,7 +4969,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            sds object = (acl_retval == ACL_DENIED_CMD) ? sdsnew(c->cmd->name) : sdsdup(c->argv[acl_errpos]->ptr);
+            sds object = (acl_retval == ACL_DENIED_CMD) ? sdsnew(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
             errno = EACCES;
             goto cleanup;
@@ -9658,7 +9661,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         if (cmd->proc == RedisModuleCommandDispatcher) {
             RedisModuleCommand *cp =
                 (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = (sds)cmd->name;
+            sds cmdname = (sds)cmd->fullname;
             if (cp->module == module) {
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
@@ -10200,7 +10203,7 @@ const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
     if (!ctx || !ctx->client || !ctx->client->cmd)
         return NULL;
 
-    return (const char*)ctx->client->cmd->name;
+    return (const char*)ctx->client->cmd->fullname;
 }
 
 /* --------------------------------------------------------------------------
