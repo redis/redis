@@ -1,4 +1,4 @@
-/* This module contains three tests :
+/* This module contains four tests :
  * 1- test.sanity    : Basic tests for argument validation mostly.
  * 2- test.sendbytes : Creates a pipe and registers its fds to the event loop,
  *                     one end of the pipe for read events and the other end for
@@ -8,6 +8,7 @@
  * 3- test.iteration : A test for BEFORE_SLEEP and AFTER_SLEEP callbacks.
  *                     Counters are incremented each time these events are
  *                     fired. They should be equal and increment monotonically.
+ * 4- test.oneshot   : Test for oneshot API
  */
 
 #define REDISMODULE_EXPERIMENTAL_API
@@ -72,7 +73,6 @@ void onWritable(int fd, void *user_data, int mask) {
             return;
         int written = write(fd, src + src_offset, buf_size - src_offset);
         if (written <= 0) {
-            RedisModule_EventLoopWakeup();
             return;
         }
 
@@ -124,11 +124,9 @@ int sanity(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (pipe(fds) < 0) return REDISMODULE_ERR;
 
-    RedisModule_EventLoopWakeup();
-
     if (RedisModule_EventLoopAdd(fds[0], 9999999, onReadable, NULL)
         == REDISMODULE_OK || errno != EINVAL) {
-        RedisModule_ReplyWithError(ctx, "ERR non-existing event type should fail ");
+        RedisModule_ReplyWithError(ctx, "ERR non-existing event type should fail");
         goto out;
     }
     if (RedisModule_EventLoopAdd(-1, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL)
@@ -186,6 +184,10 @@ int sanity(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplyWithError(ctx, "ERR Del failed");
         goto out;
     }
+    if (RedisModule_EventLoopAddOneShot(NULL, NULL) == REDISMODULE_OK || errno != EINVAL) {
+        RedisModule_ReplyWithError(ctx, "ERR null callback should fail");
+        goto out;
+    }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 out:
@@ -206,6 +208,29 @@ int iteration(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
      * increments monotonically */
     RedisModule_Assert(beforeSleepCount == afterSleepCount);
     RedisModule_ReplyWithLongLong(ctx, beforeSleepCount);
+    return REDISMODULE_OK;
+}
+
+void oneshotCallback(void* arg)
+{
+    RedisModule_Assert(strcmp(arg, "userdata") == 0);
+    RedisModule_ReplyWithSimpleString(reply_ctx, "OK");
+    RedisModule_FreeThreadSafeContext(reply_ctx);
+    RedisModule_UnblockClient(bc, NULL);
+}
+
+int oneshot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    reply_ctx = RedisModule_GetThreadSafeContext(bc);
+
+    if (RedisModule_EventLoopAddOneShot(oneshotCallback, "userdata") != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR oneshot failed");
+        RedisModule_FreeThreadSafeContext(reply_ctx);
+        RedisModule_UnblockClient(bc, NULL);
+    }
     return REDISMODULE_OK;
 }
 
@@ -240,6 +265,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     /* Register a command to return event loop iteration count. */
     if (RedisModule_CreateCommand(ctx, "test.iteration", iteration, "", 0, 0, 0)
+        == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "test.oneshot", oneshot, "", 0, 0, 0)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_EventLoop,

@@ -2393,7 +2393,7 @@ void initServer(void) {
     /* Register a readable event for the pipe used to awake the event loop
      * from module threads. */
     if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE,
-        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+        modulePipeReadable,NULL) == AE_ERR) {
             serverPanic(
                 "Error registering the readable event for the module pipe.");
     }

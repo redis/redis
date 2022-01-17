@@ -260,7 +260,8 @@ typedef enum {
 /* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
 #define REDISMODULE_EVENTLOOP_WRITABLE 2
-typedef void (*RedisModuleEventLoopCallback)(int fd, void *user_data, int mask);
+typedef void (*RedisModuleEventLoopFunc)(int fd, void *user_data, int mask);
+typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead
@@ -964,9 +965,9 @@ REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, un
 REDISMODULE_API int (*RedisModule_DefragCursorGet)(RedisModuleDefragCtx *ctx, unsigned long *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetDbIdFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromDefragCtx)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEventLoopCallback proc, void *user_data) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEventLoopFunc func, void *user_data) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_EventLoopWakeup)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
 #endif
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
@@ -1290,7 +1291,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetDbIdFromDefragCtx);
     REDISMODULE_GET_API(EventLoopAdd);
     REDISMODULE_GET_API(EventLoopDel);
-    REDISMODULE_GET_API(EventLoopWakeup);
+    REDISMODULE_GET_API(EventLoopAddOneShot);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

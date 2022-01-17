@@ -18,4 +18,8 @@ start_server {tags {"modules"}} {
     test "Module eventloop sanity" {
         r test.sanity
     }
+
+    test "Module eventloop oneshot" {
+        r test.oneshot
+    }
 }
