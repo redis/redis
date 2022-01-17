@@ -2185,7 +2185,7 @@ struct redisCommand {
                                      * COMMAND INFO and COMMAND GETKEYS */
     int num_args;
     int num_history;
-    int num_hints;
+    int num_tips;
     int key_specs_num;
     int key_specs_max;
     dict *subcommands_dict;

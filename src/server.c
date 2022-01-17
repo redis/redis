@@ -2661,8 +2661,8 @@ void populateCommandStructure(struct redisCommand *c) {
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
         c->num_history++;
-    while (c->tips && c->tips[c->num_hints])
-        c->num_hints++;
+    while (c->tips && c->tips[c->num_tips])
+        c->num_tips++;
     c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
@@ -4233,9 +4233,9 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    addReplySetLen(c, cmd->num_hints);
-    for (int j = 0; j<cmd->num_hints; j++) {
+void addReplyCommandTips(client *c, struct redisCommand *cmd) {
+    addReplySetLen(c, cmd->num_tips);
+    for (int j = 0; j<cmd->num_tips; j++) {
         addReplyBulkCString(c, cmd->tips[j]);
     }
 }
@@ -4397,7 +4397,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        addReplyCommandHints(c, cmd);
+        addReplyCommandTips(c, cmd);
         addReplyCommandKeySpecs(c, cmd);
         addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }
