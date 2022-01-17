@@ -62,3 +62,11 @@ test "Sanity for CLUSTER COUNTKEYSINSLOT" {
 test "It is possible to write and read from the cluster" {
     cluster_write_test 0
 }
+
+test "Function no-cluster flag" {
+    R 1 function load lua test {
+        redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
+    }
+    catch {R 1 fcall f1 0} e
+    assert_match {*Can not run function on cluster, 'no-cluster' flag is set*} $e
+}

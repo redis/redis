@@ -2121,6 +2121,10 @@ void checkTcpBacklogSettings(void) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
+#elif defined(SOMAXCONN)
+    if (SOMAXCONN < server.tcp_backlog) {
+        serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because SOMAXCONN is set to the lower value of %d.", server.tcp_backlog, SOMAXCONN);
+    }
 #endif
 }
 
@@ -3439,10 +3443,14 @@ int processCommand(client *c) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         switch (acl_retval) {
         case ACL_DENIED_CMD:
+        {
+            sds cmdname = getFullCommandName(c->cmd);
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to run "
-                "the '%s' command or its subcommand", c->cmd->name);
+                "the '%s' command", cmdname);
+            sdsfree(cmdname);
             break;
+        }
         case ACL_DENIED_KEY:
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to access "
@@ -3539,7 +3547,8 @@ int processCommand(client *c) {
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand ||
             c->cmd->proc == evalShaCommand ||
-            c->cmd->proc == fcallCommand)
+            c->cmd->proc == fcallCommand ||
+            c->cmd->proc == fcallroCommand)
         {
             server.script_oom = out_of_memory;
         }

@@ -383,7 +383,8 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START 2
 #define REDISMODULE_SUBEVENT_PERSISTENCE_ENDED 3
 #define REDISMODULE_SUBEVENT_PERSISTENCE_FAILED 4
-#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 5
+#define REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START 5
+#define _REDISMODULE_SUBEVENT_PERSISTENCE_NEXT 6
 
 #define REDISMODULE_SUBEVENT_LOADING_RDB_START 0
 #define REDISMODULE_SUBEVENT_LOADING_AOF_START 1
@@ -836,6 +837,7 @@ REDISMODULE_API int (*RedisModule_GetToDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetToKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API uint64_t (*RedisModule_MonotonicMicroseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestEndSequence)(RedisModuleDigest *md) REDISMODULE_ATTR;
@@ -1153,6 +1155,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetDbIdFromOptCtx);
     REDISMODULE_GET_API(GetToDbIdFromOptCtx);
     REDISMODULE_GET_API(Milliseconds);
+    REDISMODULE_GET_API(MonotonicMicroseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);
