@@ -6357,7 +6357,7 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
     if (!bc->blocked_on_keys) bc->privdata = privdata;
     bc->unblocked = 1;
     if (listLength(moduleUnblockedClients) == 0) {
-        if (write(server.module_pipe[1], "A", 1) != 1) {
+        if (write(server.module_pipe[1],"A",1) != 1) {
             /* Ignore the error, this is best-effort. */
         }
     }
@@ -7491,7 +7491,7 @@ int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data
     listAddNodeTail(moduleEventLoopOneShots, oneshot);
     pthread_mutex_unlock(&moduleEventLoopMutex);
 
-    if (write(server.module_pipe[1], "A", 1) != 1) {
+    if (write(server.module_pipe[1],"A",1) != 1) {
         /* Pipe is non-blocking, write() may fail if it's full. */
     }
 
@@ -7499,6 +7499,8 @@ int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data
     return REDISMODULE_OK;
 }
 
+/* This function will check the moduleEventLoopOneShots queue in order to
+ * call the callback for the registered oneshot events. */
 static void eventLoopHandleOneShotEvents() {
     pthread_mutex_lock(&moduleEventLoopMutex);
     if (moduleEventLoopOneShots) {
@@ -9174,6 +9176,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_REPL_BACKUP */
     -1, /* REDISMODULE_EVENT_FORK_CHILD */
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
+    -1, /* REDISMODULE_EVENT_EVENTLOOP */
 };
 
 /* Register to be notified, via a callback, when the specified server event
