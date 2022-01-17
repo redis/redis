@@ -110,8 +110,6 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t function_flags, int ro) {
     serverAssert(!curr_run_ctx);
-    /* set the curr_run_ctx so we can use it to kill the script if needed */
-    curr_run_ctx = run_ctx;
 
     if ((function_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
         addReplyError(caller, "Can not run function on cluster, 'no-cluster' flag is set.");
@@ -198,6 +196,9 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     if (function_flags & SCRIPT_FLAG_ALLOW_OOM) {
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
+
+    /* set the curr_run_ctx so we can use it to kill the script if needed */
+    curr_run_ctx = run_ctx;
 
     return C_OK;
 }
