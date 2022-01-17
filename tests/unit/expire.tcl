@@ -97,9 +97,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r del x
             r psetex x 100 somevalue
-            after 80
             set a [r get x]
-            after 120
+            after 101
             set b [r get x]
 
             if {$a eq {somevalue} && $b eq {}} break
@@ -114,9 +113,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             r pexpire x 100
-            after 80
             set c [r get x]
-            after 120
+            after 101
             set d [r get x]
 
             if {$c eq {somevalue} && $d eq {}} break
@@ -132,9 +130,8 @@ start_server {tags {"expire"}} {
             r set x somevalue
             set now [r time]
             r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
-            after 20
             set e [r get x]
-            after 220
+            after 201
             set f [r get x]
 
             if {$e eq {somevalue} && $f eq {}} break
