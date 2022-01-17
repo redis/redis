@@ -1210,7 +1210,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              character must be ).
  * clearselectors          Remove all of the currently attached selectors. 
  *                         Note this does not change the "root" user permissions,
- *                         which are the permissions directly applied onto the user.
+ *                         which are the permissions directly applied onto the
+ *                         user (outside the parentheses).
  * 
  * Selector options can also be specified by this function, in which case
  * they update the root selector for the user.

@@ -1699,7 +1699,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
             int start_index = spec->bs.keyword.startfrom > 0 ? spec->bs.keyword.startfrom : argc+spec->bs.keyword.startfrom;
             int end_index = spec->bs.keyword.startfrom > 0 ? argc-1: 1;
             for (i = start_index; i != end_index; i = start_index <= end_index ? i + 1 : i - 1) {
-                if (i >= argc)
+                if (i >= argc || i < 0)
                     break;
                 if (!strcasecmp((char*)argv[i]->ptr,spec->bs.keyword.keyword)) {
                     first = i+1;
@@ -1744,7 +1744,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
          * a user error, so we will try to provide the keys by clamping the last
          * value. Note it's possible for an overflow to have occurred, in which
          * case last will be less than first. */
-        if (last > argc || last < first) last = argc;
+        if (last >= argc || last < first) last = argc-1;
 
         /* Based on the keyspec, we don't even have the first argument,
          * so we have to assume there are no keys. */
@@ -1950,7 +1950,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * This function has a fully defined keyspec, so flags are not set. */
+ * This function has a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2116,7 +2116,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  *                             [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * 
- * This function has a fully defined keyspec, so flags are not set. */
+ * This function has a fully defined keyspec, so returning flags isn't needed. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
     keyReference *keys;
@@ -2157,7 +2157,7 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N
  *
- * This function has a fully defined keyspec, so flags are not set. */
+ * This function has a fully defined keyspec, so returning flags isn't needed. */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num = 0;
     keyReference *keys;
