@@ -44,7 +44,8 @@
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
-void putSlaveOnline(client *slave);
+void replicaPutOnline(client *slave);
+void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 
 /* We take a global flag to remember if this instance generated an RDB
@@ -768,7 +769,7 @@ int masterTryPartialResynchronization(client *c) {
     c->flags |= CLIENT_SLAVE;
     c->replstate = SLAVE_STATE_ONLINE;
     c->repl_ack_time = server.unixtime;
-    c->repl_put_online_on_ack = 0;
+    c->repl_start_cmd_stream_on_ack = 0;
     listAddNodeTail(server.slaves,c);
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
@@ -1183,8 +1184,8 @@ void replconfCommand(client *c) {
              * quick check first (instead of waiting for the next ACK. */
             if (server.child_type == CHILD_TYPE_RDB && c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
                 checkChildrenDone();
-            if (c->repl_put_online_on_ack && c->replstate == SLAVE_STATE_ONLINE)
-                putSlaveOnline(c);
+            if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
+                replicaStartCommandStream(c);
             /* Note: this command does not reply anything! */
             return;
         } else if (!strcasecmp(c->argv[j]->ptr,"getack")) {
@@ -1238,37 +1239,20 @@ void replconfCommand(client *c) {
 }
 
 /* This function puts a replica in the online state, and should be called just
- * after a replica received the RDB file for the initial synchronization, and
- * we are finally ready to send the incremental stream of commands.
+ * after a replica received the RDB file for the initial synchronization.
  *
  * It does a few things:
- * 1) Close the replica's connection async if it doesn't need replication
- *    commands buffer stream, since it actually isn't a valid replica.
- * 2) Put the slave in ONLINE state. Note that the function may also be called
- *    for a replicas that are already in ONLINE state, but having the flag
- *    repl_put_online_on_ack set to true: we still have to install the write
- *    handler in that case. This function will take care of that.
- * 3) Make sure the writable event is re-installed, since calling the SYNC
- *    command disables it, so that we can accumulate output buffer without
- *    sending it to the replica.
- * 4) Update the count of "good replicas". */
-void putSlaveOnline(client *slave) {
+ * 1) Put the slave in ONLINE state.
+ * 2) Update the count of "good replicas".
+ * 3) Trigger the module event. */
+void replicaPutOnline(client *slave) {
+    if (slave->flags & CLIENT_REPL_RDBONLY) {
+        return;
+    }
+
     slave->replstate = SLAVE_STATE_ONLINE;
-    slave->repl_put_online_on_ack = 0;
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 
-    if (slave->flags & CLIENT_REPL_RDBONLY) {
-        serverLog(LL_NOTICE,
-            "Close the connection with replica %s as RDB transfer is complete",
-            replicationGetSlaveName(slave));
-        freeClientAsync(slave);
-        return;
-    }
-    if (connSetWriteHandler(slave->conn, sendReplyToClient) == C_ERR) {
-        serverLog(LL_WARNING,"Unable to register writable event for replica bulk transfer: %s", strerror(errno));
-        freeClient(slave);
-        return;
-    }
     refreshGoodSlavesCount();
     /* Fire the replica change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
@@ -1276,6 +1260,30 @@ void putSlaveOnline(client *slave) {
                           NULL);
     serverLog(LL_NOTICE,"Synchronization with replica %s succeeded",
         replicationGetSlaveName(slave));
+}
+
+/* This function should be called just after a replica received the RDB file
+ * for the initial synchronization, and we are finally ready to send the
+ * incremental stream of commands.
+ *
+ * It does a few things:
+ * 1) Close the replica's connection async if it doesn't need replication
+ *    commands buffer stream, since it actually isn't a valid replica.
+ * 2) Make sure the writable event is re-installed, since when calling the SYNC
+ *    command we had no replies and it was disabled, and then we could
+ *    accumulate output buffer data without sending it to the replica so it
+ *    won't get mixed with the RDB stream. */
+void replicaStartCommandStream(client *slave) {
+    slave->repl_start_cmd_stream_on_ack = 0;
+    if (slave->flags & CLIENT_REPL_RDBONLY) {
+        serverLog(LL_NOTICE,
+            "Close the connection with replica %s as RDB transfer is complete",
+            replicationGetSlaveName(slave));
+        freeClientAsync(slave);
+        return;
+    }
+
+    clientInstallWriteHandler(slave);
 }
 
 /* We call this function periodically to remove an RDB file that was
@@ -1376,7 +1384,8 @@ void sendBulkToSlave(connection *conn) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
         connSetWriteHandler(slave->conn,NULL);
-        putSlaveOnline(slave);
+        replicaPutOnline(slave);
+        replicaStartCommandStream(slave);
     }
 }
 
@@ -1583,9 +1592,8 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * after such final EOF. So we don't want to glue the end of
                  * the RDB transfer with the start of the other replication
                  * data. */
-                slave->replstate = SLAVE_STATE_ONLINE;
-                slave->repl_put_online_on_ack = 1;
-                slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
+                replicaPutOnline(slave);
+                slave->repl_start_cmd_stream_on_ack = 1;
             } else {
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
@@ -3721,6 +3729,8 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
 
         if (slaves_waiting &&
             (!server.repl_diskless_sync ||
+             (server.repl_diskless_sync_max_replicas > 0 &&
+              slaves_waiting >= server.repl_diskless_sync_max_replicas) ||
              max_idle >= server.repl_diskless_sync_delay))
         {
             if (mincapa_out)

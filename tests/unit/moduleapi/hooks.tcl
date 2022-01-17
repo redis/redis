@@ -92,11 +92,7 @@ tags "modules" {
             set replica_port [srv 0 port]
             $replica replicaof $master_host $master_port
 
-            wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [r info replication]]
-            } else {
-                fail "Can't turn the instance into a replica"
-            }
+            wait_replica_online $master
 
             test {Test master link up hook} {
                 assert_equal [r hooks.event_count masterlink-up] 1
