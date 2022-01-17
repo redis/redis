@@ -544,8 +544,8 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
 
 /* Initialize a command help entry for the command/subcommand described in specs.
  * Returns the index of the next available position in the help entries table. */
-static int cliInitCommandHelpEntry(char *cmdname, char *subcommandname, int helpIndex, redisReply *specs) {
-    helpEntry *help = &(helpEntries[helpIndex++]);
+static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, helpEntry *next, redisReply *specs) {
+    helpEntry *help = next++;
     help->argc = subcommandname ? 2 : 1;
     help->argv = zmalloc(sizeof(sds) * help->argc);
     help->argv[0] = sdsnew(cmdname);
@@ -600,11 +600,11 @@ static int cliInitCommandHelpEntry(char *cmdname, char *subcommandname, int help
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
                 assert(subcommand->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
-                helpIndex = cliInitCommandHelpEntry(cmdname, subcommandname, helpIndex, subcommand);
+                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand);
             }
         }
     }
-    return helpIndex;
+    return next;
 }
 
 /* Returns the total number of commands and subcommands in the command docs table. */
@@ -639,7 +639,7 @@ int helpEntryCompare(const void *entry1, const void *entry2) {
 /* cliInitHelp() sets up the helpEntries array with the command and group
  * names and command descriptions obtained using the COMMAND command. */
 static void cliInitHelp(void) {
-    int nextIndex = 0;
+    helpEntry *next;
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *commandTable = redisCommand(context, "COMMAND DOCS");
@@ -649,6 +649,7 @@ static void cliInitHelp(void) {
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
+    next = helpEntries;
 
     for (size_t i = 0; i < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
@@ -656,7 +657,7 @@ static void cliInitHelp(void) {
 
         assert(commandTable->element[i + 1]->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
         redisReply *cmdspecs = commandTable->element[i + 1];
-        nextIndex = cliInitCommandHelpEntry(cmdname, NULL, nextIndex, cmdspecs);
+        next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs);
     }
     qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
     freeReplyObject(commandTable);
