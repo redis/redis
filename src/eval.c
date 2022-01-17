@@ -47,6 +47,34 @@ void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
+typedef struct luaScript {
+    uint64_t flags;
+    robj *body;
+} luaScript;
+
+static void dictLuaScriptDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
+    decrRefCount(((luaScript*)val)->body);
+    zfree(val);
+}
+
+static uint64_t dictStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
+dictType shaScriptObjectDictType = {
+        dictStrCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictLuaScriptDestructor,    /* val destructor */
+        NULL                        /* allow to expand */
+};
+
 /* Lua context */
 struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
@@ -291,6 +319,7 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
+    uint64_t function_flags = 0;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -302,11 +331,61 @@ sds luaCreateFunction(client *c, robj *body) {
         return dictGetKey(de);
     }
 
+    /* Handle shebang header in script code */
+    ssize_t shebang_len = 0;
+    if (!strncmp(body->ptr, "#!", 2)) {
+        int numparts,j;
+        shebang_len = strchr(body->ptr, '\n') - (char*)body->ptr;
+        sds *parts = sdssplitlen(body->ptr, shebang_len, " ", 1, &numparts);
+        if (!parts || numparts == 0) {
+            addReplyError(c,"Invalid engine in script shebang");
+            sdsfreesplitres(parts, numparts);
+            sdsfree(sha);
+            return NULL;
+        }
+        /* Verify lua interpreter was specified */
+        if (strcmp(parts[0], "#!lua")) {
+            addReplyErrorFormat(c,"Unexpected engine in script shebang: %s", parts[0]);
+            sdsfreesplitres(parts, numparts);
+            sdsfree(sha);
+            return NULL;
+        }
+        for (j = 1; j < numparts; j++) {
+            if (!strncmp(parts[j], "flags=", 6)) {
+                sdsrange(parts[j], 6, -1);
+                int numflags, jj;
+                sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
+                for (jj = 0; jj < numflags; jj++) {
+                    scriptFlag *sf;
+                    for (sf = scripts_flags_def; sf->flag; sf++) {
+                        if (!strcmp(flags[jj], sf->str)) break;
+                    }
+                    if (!sf->flag) {
+                        addReplyErrorFormat(c,"Unexpected flag in script shebang: %s", flags[jj]);
+                        sdsfreesplitres(flags, numflags);
+                        sdsfreesplitres(parts, numparts);
+                        sdsfree(sha);
+                        return NULL;
+                    }
+                    function_flags |= sf->flag;
+                }
+                sdsfreesplitres(flags, numflags);
+            } else {
+                /* We only support function flags options for lua scripts */
+                addReplyErrorFormat(c,"Unknown lua shebang option: %s", parts[j]);
+                sdsfreesplitres(parts, numparts);
+                sdsfree(sha);
+                return NULL;
+            }
+        }
+        sdsfreesplitres(parts, numparts);
+    }
+
     sds funcdef = sdsempty();
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
     funcdef = sdscatlen(funcdef,"() ",3);
-    funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
+    funcdef = sdscatlen(funcdef,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len);
     funcdef = sdscatlen(funcdef,"\nend",4);
 
     if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
@@ -335,7 +414,10 @@ sds luaCreateFunction(client *c, robj *body) {
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
-    int retval = dictAdd(lctx.lua_scripts,sha,body);
+    luaScript *l = zcalloc(sizeof(luaScript));
+    l->body = body;
+    l->flags = function_flags;
+    int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
@@ -422,16 +504,15 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 
     lctx.lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lctx.lua_cur_script);
+    luaScript *l = dictGetVal(de);
+    int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
-    scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
-    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as legacy so we
-                                    will get legacy error messages and logs */
-
-    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
-    if ((server.script_caller->cmd->proc == evalRoCommand ||
-         server.script_caller->cmd->proc == evalShaRoCommand)) {
-        rctx.flags |= SCRIPT_READ_ONLY;
+    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
+                                      get appropriate error messages and logs */
+    if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script, l->flags, ro) != C_OK) {
+        return;
     }
 
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
@@ -563,7 +644,7 @@ dict* evalScriptsDict() {
 
 unsigned long evalScriptsMemory() {
     return lctx.lua_scripts_mem +
-            dictSize(lctx.lua_scripts) * sizeof(dictEntry) +
+            dictSize(lctx.lua_scripts) * (sizeof(dictEntry) + sizeof(luaScript)) +
             dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
 }
 

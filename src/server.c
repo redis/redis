@@ -407,17 +407,6 @@ dictType dbDictType = {
     dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
-/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
-dictType shaScriptObjectDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
 /* Db->expires */
 dictType dbExpiresDictType = {
     dictSdsHash,                /* hash function */
