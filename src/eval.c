@@ -509,11 +509,11 @@ void evalGenericCommand(client *c, int evalsha) {
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
-    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
-                                      get appropriate error messages and logs */
     if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script, l->flags, ro) != C_OK) {
         return;
     }
+    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
+                                      get appropriate error messages and logs */
 
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
