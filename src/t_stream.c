@@ -793,13 +793,13 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
              * update it after (and if) we actually remove the entry */
             unsigned char *pcopy = p;
 
-            int flags = lpGetInteger(p);
+            int64_t flags = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip flags. */
-            int to_skip;
+            int64_t to_skip;
 
-            int ms_delta = lpGetInteger(p);
+            int64_t ms_delta = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip ID ms delta */
-            int seq_delta = lpGetInteger(p);
+            int64_t seq_delta = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip ID seq delta */
 
             streamID currid = {0}; /* For MINID */
@@ -1135,7 +1135,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * the first entry emitted for this listpack, then we already
              * emitted the current entry, and have to go back to the previous
              * one. */
-            int lp_count = lpGetInteger(si->lp_ele);
+            int64_t lp_count = lpGetInteger(si->lp_ele);
             while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
@@ -1165,7 +1165,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
 
             /* Get the flags entry. */
             si->lp_flags = si->lp_ele;
-            int flags = lpGetInteger(si->lp_ele);
+            int64_t flags = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek ID. */
 
             /* Get the ID: it is encoded as difference between the master
@@ -1274,7 +1274,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
      * deleted entries in the listpack header.
      *
      * We start flagging: */
-    int flags = lpGetInteger(si->lp_flags);
+    int64_t flags = lpGetInteger(si->lp_flags);
     flags |= STREAM_ITEM_FLAG_DELETED;
     lp = lpReplaceInteger(lp,&si->lp_flags,flags);
 
@@ -1399,11 +1399,8 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[3]);
     decrRefCount(argv[7]);
     decrRefCount(argv[9]);
@@ -1424,11 +1421,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 
@@ -1446,11 +1440,8 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 

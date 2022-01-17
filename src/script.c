@@ -31,6 +31,14 @@
 #include "script.h"
 #include "cluster.h"
 
+scriptFlag scripts_flags_def[] = {
+    {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
+    {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
+    {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
+    {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = 0, .str = NULL}, /* flags array end */
+};
+
 /* On script invocation, holding the current run context */
 static scriptRunCtx *curr_run_ctx = NULL;
 
@@ -148,11 +156,7 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
         unprotectClient(run_ctx->original_client);
     }
 
-    /* emit EXEC if MULTI has been propagated. */
     preventCommandPropagation(run_ctx->original_client);
-    if (run_ctx->flags & SCRIPT_MULTI_EMMITED) {
-        execCommandPropagateExec(run_ctx->original_client->db->id);
-    }
 
     /*  unset curr_run_ctx so we will know there is no running script */
     curr_run_ctx = NULL;
@@ -285,6 +289,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
+        /* Allow running any command even if OOM reached */
+        return C_OK;
+    }
+
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
@@ -332,25 +341,6 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
     return C_OK;
 }
 
-static void scriptEmitMultiIfNeeded(scriptRunCtx *run_ctx) {
-    /* If we are using single commands replication, we need to wrap what
-     * we propagate into a MULTI/EXEC block, so that it will be atomic like
-     * a Lua script in the context of AOF and slaves. */
-    client *c = run_ctx->c;
-    if (!(run_ctx->flags & SCRIPT_MULTI_EMMITED)
-         && !(run_ctx->original_client->flags & CLIENT_MULTI)
-         && (run_ctx->flags & SCRIPT_WRITE_DIRTY)
-         && ((run_ctx->repl_flags & PROPAGATE_AOF)
-             || (run_ctx->repl_flags & PROPAGATE_REPL)))
-    {
-        execCommandPropagateMulti(run_ctx->original_client->db->id);
-        run_ctx->flags |= SCRIPT_MULTI_EMMITED;
-        /* Now we are in the MULTI context, the lua_client should be
-         * flag as CLIENT_MULTI. */
-        c->flags |= CLIENT_MULTI;
-    }
-}
-
 /* set RESP for a given run_ctx */
 int scriptSetResp(scriptRunCtx *run_ctx, int resp) {
     if (resp != 2 && resp != 3) {
@@ -369,6 +359,32 @@ int scriptSetRepl(scriptRunCtx *run_ctx, int repl) {
     }
     run_ctx->repl_flags = repl;
     return C_OK;
+}
+
+static int scriptVerifyAllowStale(client *c, sds *err) {
+    if (!server.masterhost) {
+        /* Not a replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_state == REPL_STATE_CONNECTED) {
+        /* Connected to replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_serve_stale_data == 1) {
+        /* Disconnected from replica but allow to serve data */
+        return C_OK;
+    }
+
+    if (c->cmd->flags & CMD_STALE) {
+        /* Command is allow while stale */
+        return C_OK;
+    }
+
+    /* On stale replica, can not run the command */
+    *err = sdsnew("Can not execute the command on a stale replica");
+    return C_ERR;
 }
 
 /* Call a Redis command.
@@ -402,6 +418,10 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         return;
     }
 
+    if (scriptVerifyAllowStale(c, err) != C_OK) {
+        return;
+    }
+
     if (scriptVerifyACL(c, err) != C_OK) {
         return;
     }
@@ -423,8 +443,6 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         return;
     }
 
-    scriptEmitMultiIfNeeded(run_ctx);
-
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {
         call_flags |= CMD_CALL_PROPAGATE_AOF;
@@ -438,7 +456,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
 
 /* Returns the time when the script invocation started */
 mstime_t scriptTimeSnapshot() {
-    serverAssert(!curr_run_ctx);
+    serverAssert(curr_run_ctx);
     return curr_run_ctx->snapshot_time;
 }
 
@@ -446,5 +464,3 @@ long long scriptRunDuration() {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }
-
-

@@ -66,7 +66,7 @@ proc s {n field} {
     get_info_field [R $n info] $field
 }
 
-# Assuming nodes are reest, this function performs slots allocation.
+# Assuming nodes are reset, this function performs slots allocation.
 # Only the first 'n' nodes are used.
 proc cluster_allocate_slots {n} {
     set slot 16383
@@ -128,6 +128,33 @@ proc create_cluster {masters slaves} {
     set ::cluster_master_nodes $masters
     set ::cluster_replica_nodes $slaves
 }
+
+proc cluster_allocate_with_continuous_slots {n} {
+    set slot 16383
+    set avg [expr ($slot+1) / $n]
+    while {$slot >= 0} {
+        set node [expr $slot/$avg >= $n ? $n-1 : $slot/$avg]
+        lappend slots_$node $slot
+        incr slot -1
+    }
+    for {set j 0} {$j < $n} {incr j} {
+        R $j cluster addslots {*}[set slots_${j}]
+    }
+}
+
+# Create a cluster composed of the specified number of masters and slaves,
+# but with a continuous slot range. 
+proc cluster_create_with_continuous_slots {masters slaves} {
+    cluster_allocate_with_continuous_slots $masters
+    if {$slaves} {
+        cluster_allocate_slaves $masters $slaves
+    }
+    assert_cluster_state ok
+
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $slaves
+}
+
 
 # Set the cluster node-timeout to all the reachalbe nodes.
 proc set_cluster_node_timeout {to} {

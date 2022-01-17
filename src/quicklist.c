@@ -1018,6 +1018,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
         quicklistRecompressOnly(new_node);
+        quicklistRecompressOnly(node);
     } else if (full && at_head && avail_prev && !after) {
         /* If we are: at head, previous has free space, and inserting before:
          *   - insert entry at tail of previous node. */
@@ -1028,6 +1029,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
         quicklistRecompressOnly(new_node);
+        quicklistRecompressOnly(node);
     } else if (full && ((at_tail && !avail_next && after) ||
                         (at_head && !avail_prev && !after))) {
         /* If we are: full, and our prev/next has no available space, then:
@@ -3166,6 +3168,11 @@ int quicklistTest(int argc, char *argv[], int flags) {
         TEST("compress and decompress quicklist listpack node") {
             quicklistNode *node = quicklistCreateNode();
             node->entry = lpNew(0);
+
+            /* Just to avoid triggering the assertion in __quicklistCompressNode(),
+             * it disables the passing of quicklist head or tail node. */
+            node->prev = quicklistCreateNode();
+            node->next = quicklistCreateNode();
             
             /* Create a rand string */
             size_t sz = (1 << 25); /* 32MB per one entry */
@@ -3185,6 +3192,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
             }
 
             zfree(s);
+            zfree(node->prev);
+            zfree(node->next);
             zfree(node->entry);
             zfree(node);
         }
@@ -3199,6 +3208,11 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
             quicklistNode *node = __quicklistCreatePlainNode(s, sz);
 
+            /* Just to avoid triggering the assertion in __quicklistCompressNode(),
+             * it disables the passing of quicklist head or tail node. */
+            node->prev = quicklistCreateNode();
+            node->next = quicklistCreateNode();
+
             long long start = mstime();
             assert(__quicklistCompressNode(node));
             assert(__quicklistDecompressNode(node));
@@ -3207,6 +3221,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
             assert(memcmp(node->entry, "helloworld", 10) == 0);
             assert(memcmp(node->entry + sz - 10, "1234567890", 10) == 0);
+            zfree(node->prev);
+            zfree(node->next);
             zfree(node->entry);
             zfree(node);
         }

@@ -12,6 +12,7 @@ package require Tcl 8.5
 set tcl_precision 17
 source ../support/redis.tcl
 source ../support/util.tcl
+source ../support/aofmanifest.tcl
 source ../support/server.tcl
 source ../support/test.tcl
 
@@ -98,6 +99,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         } else {
             puts $cfg "port $port"
         }
+        puts $cfg "repl-diskless-sync-delay 0"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
         # Add additional config files
@@ -677,9 +679,19 @@ proc redis_deferring_client {type id} {
     return $client
 }
 
+proc redis_deferring_client_by_addr {host port} {
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
 proc redis_client {type id} {
     set port [get_instance_attrib $type $id port]
     set host [get_instance_attrib $type $id host]
+    set client [redis $host $port 0 $::tls]
+    return $client
+}
+
+proc redis_client_by_addr {host port} {
     set client [redis $host $port 0 $::tls]
     return $client
 }

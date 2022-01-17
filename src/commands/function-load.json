@@ -1,15 +1,16 @@
 {
-    "CREATE": {
+    "LOAD": {
         "summary": "Create a function with the given arguments (name, code, description)",
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -5,
         "container": "FUNCTION",
-        "function": "functionCreateCommand",
+        "function": "functionLoadCommand",
         "command_flags": [
             "NOSCRIPT",
-            "WRITE"
+            "WRITE",
+            "DENYOOM"
         ],
         "acl_categories": [
             "SCRIPTING"
@@ -20,7 +21,7 @@
                 "type": "string"
             },
             {
-                "name": "function-name",
+                "name": "library-name",
                 "type": "string"
             },
             {
@@ -30,7 +31,7 @@
                 "optional": true
             },
             {
-                "name": "function-description",
+                "name": "library-description",
                 "type": "string",
                 "token": "DESC",
                 "optional": true

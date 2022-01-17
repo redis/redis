@@ -3,7 +3,7 @@
         "summary": "A read-only variant for GEORADIUSBYMEMBER",
         "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
         "group": "geo",
-        "since": "5.0.0",
+        "since": "3.2.10",
         "arity": -5,
         "function": "georadiusbymemberroCommand",
         "deprecated_since": "6.2.0",

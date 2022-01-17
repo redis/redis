@@ -496,15 +496,45 @@ start_server {
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
 
-    # Make sure we can distinguish between an empty array and a null response
-    r readraw 1
+    proc verify_resp_response {resp response resp2_response resp3_response} {
+        if {$resp == 2} {
+            assert_equal $response $resp2_response
+        } elseif {$resp == 3} {
+            assert_equal $response $resp3_response
+        }
+    }
 
-    test {RPOP/LPOP with the count 0 returns an empty array} {
-        r lpush listcount zero
-        r lpop listcount 0
-    } {*0}
+    foreach resp {3 2} {
+        r hello $resp
 
-    r readraw 0
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        test "LPOP/RPOP with the count 0 returns an empty array in RESP$resp" {
+            r lpush listcount zero
+            assert_equal {*0} [r lpop listcount 0]
+            assert_equal {*0} [r rpop listcount 0]
+        }
+
+        test "LPOP/RPOP against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
+        }
+
+        test "LPOP/RPOP with <count> against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r lpop non_existing_key 1] {*-1} {_}
+
+            verify_resp_response $resp [r rpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key 1] {*-1} {_}
+        }
+
+        r readraw 0
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
@@ -1015,7 +1045,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd read
     } {k hello} {singledb:skip}
 
-    test {SWAPDB awakes blocked client, but the key already expired} {
+    test {SWAPDB wants to wake blocked client, but the key already expired} {
+        set repl [attach_to_replication_stream]
         r flushall
         r debug set-active-expire 0
         r select 1
@@ -1036,6 +1067,55 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {select 1}
+            {rpush k hello}
+            {pexpireat k *}
+            {swapdb 1 9}
+            {select 9}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip needs:debug}
+
+    test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 0
+        wait_for_blocked_clients_count 1
+
+        r multi
+        r rpush k hello
+        r pexpire k 100
+        r debug sleep 0.2
+        r exec
+
+        # The EXEC command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {multi}
+            {rpush k hello}
+            {pexpireat k *}
+            {exec}
+            {del k}
+        }
+        close_replication_stream $repl
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
