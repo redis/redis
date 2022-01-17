@@ -55,9 +55,9 @@ start_server {tags {"modules"}} {
     }
 
     test {Busy module} {
-        set script_time_limit 50
-        set old_time_limit [lindex [r config get script-time-limit] 1]
-        r config set script-time-limit $script_time_limit
+        set busy_time_limit 50
+        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
+        r config set busy-reply-threshold $busy_time_limit
 
         # run blocking command
         set rd [redis_deferring_client]
@@ -67,7 +67,7 @@ start_server {tags {"modules"}} {
 
         # make sure we get BUSY error, and that we didn't get it too early
         assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $script_time_limit
+        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
 
         # abort the blocking operation
         r test.stop_busy_module
@@ -78,7 +78,7 @@ start_server {tags {"modules"}} {
         }
         $rd read
         $rd close
-        r config set script-time-limit $old_time_limit
+        r config set busy-reply-threshold $old_time_limit
     }
 }
 

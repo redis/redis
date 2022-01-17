@@ -3647,9 +3647,10 @@ int processCommand(client *c) {
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
     if ((scriptIsTimedout() || server.in_busy_module) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if (server.in_busy_module) {
-            serverAssert(server.busy_module_yield_reply);
+        if (server.in_busy_module && server.busy_module_yield_reply) {
             rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
+        } else if (server.in_busy_module) {
+            rejectCommand(c, shared.slowmoduleerr);
         } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {

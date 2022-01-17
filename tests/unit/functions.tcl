@@ -232,7 +232,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function kill} {
         set rd [redis_deferring_client]
-        r config set script-time-limit 10
+        r config set busy-reply-threshold 10
         r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         $rd fcall test 0
         after 200
@@ -246,7 +246,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test script kill not working on function} {
         set rd [redis_deferring_client]
-        r config set script-time-limit 10
+        r config set busy-reply-threshold 10
         r function load lua test REPLACE [get_function_code test {local a = 1 while true do a = a + 1 end}]
         $rd fcall test 0
         after 200
@@ -261,7 +261,7 @@ start_server {tags {"scripting"}} {
 
     test {FUNCTION - test function kill not working on eval} {
         set rd [redis_deferring_client]
-        r config set script-time-limit 10
+        r config set busy-reply-threshold 10
         $rd eval {local a = 1 while true do a = a + 1 end} 0
         after 200
         catch {r ping} e

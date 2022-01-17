@@ -93,9 +93,9 @@ start_server {tags {"modules"}} {
     }
 
     test {RM_Call from blocked client} {
-        set script_time_limit 50
-        set old_time_limit [lindex [r config get script-time-limit] 1]
-        r config set script-time-limit $script_time_limit
+        set busy_time_limit 50
+        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
+        r config set busy-reply-threshold $busy_time_limit
 
         # trigger slow operation
         r set_slow_operation 1
@@ -113,7 +113,7 @@ start_server {tags {"modules"}} {
 
         # make sure we get BUSY error, and that we didn't get here too early
         assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $script_time_limit
+        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
         # abort the blocking operation
         r set_slow_operation 0
         wait_for_condition 50 100 {
@@ -123,7 +123,7 @@ start_server {tags {"modules"}} {
         }
         assert_equal [r ping] {PONG}
 
-        r config set script-time-limit $old_time_limit
+        r config set busy-reply-threshold $old_time_limit
         set res [$rd read]
         $rd close
         set _ $res

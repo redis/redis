@@ -1837,7 +1837,7 @@ struct redisServer {
                                    * dropping packets of a specific type */
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
-    mstime_t script_time_limit;  /* Script timeout in milliseconds */
+    mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int script_oom;                    /* OOM detected when script start */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */

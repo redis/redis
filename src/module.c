@@ -700,11 +700,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 
     /* Calculate the initial yield time for long blocked contexes.
      * in loading we depend on the server hz, but in other cases we also wait
-     * for script_time_limit. */
+     * for busy_reply_threshold. */
     if (server.loading)
         out_ctx->next_yield_time = getMonotonicUs() + 1000000 / server.hz;
     else
-        out_ctx->next_yield_time = getMonotonicUs() + server.script_time_limit * 1000;
+        out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
 
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
@@ -1377,7 +1377,7 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
 
 /* This API allows modules to let Redis process some commands during long
  * blocking execution of a module command. The module can call this API
- * periodically, and after the time defined by the `script-time-limit` config,
+ * periodically, and after the time defined by the `busy-reply-threshold` config,
  * Redis will start rejecting most commands with `-BUSY` error, but allow the
  * ones marked with the `allow-busy` flag to be executed. This API can also be
  * used in thread safe context (while locked), and during loading (in the

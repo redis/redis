@@ -57,7 +57,7 @@ start_server {tags {"modules"}} {
     } {1234 AAA/sourcekey/targetkey}
 
     test {DataType: Slow Loading} {
-        r config set script-time-limit 5000 ;# make sure we're using a high default
+        r config set busy-reply-threshold 5000 ;# make sure we're using a high default
         # trigger slow loading
         r datatype.slow_loading 1
         set rd [redis_deferring_client]
@@ -71,7 +71,7 @@ start_server {tags {"modules"}} {
             fail "Failed waiting for slow loading to start"
         }
 
-        # make sure we get LOADING error, and that we didn't get here late (not waiting for script-time-limit)
+        # make sure we get LOADING error, and that we didn't get here late (not waiting for busy-reply-threshold)
         assert_error {*LOADING*} {r ping}
         assert_lessthan [expr [clock clicks -milliseconds]-$start] 2000
 
