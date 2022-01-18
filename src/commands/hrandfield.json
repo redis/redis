@@ -7,13 +7,11 @@
         "arity": -2,
         "function": "hrandfieldCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "RANDOM"
         ],
         "acl_categories": [
             "HASH"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

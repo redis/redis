@@ -26,14 +26,12 @@
             ]
         ],
         "command_flags": [
-            "WRITE"
+            "WRITE",
+            "RANDOM"
         ],
         "acl_categories": [
             "KEYSPACE",
             "DANGEROUS"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

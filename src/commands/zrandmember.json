@@ -7,13 +7,11 @@
         "arity": -2,
         "function": "zrandmemberCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "RANDOM"
         ],
         "acl_categories": [
             "SORTEDSET"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

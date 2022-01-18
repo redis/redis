@@ -14,10 +14,8 @@
             ]
         ],
         "command_flags": [
+            "RANDOM",
             "STALE"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ]
     }
 }

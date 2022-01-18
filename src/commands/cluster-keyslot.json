@@ -8,10 +8,8 @@
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
+            "RANDOM",
             "STALE"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "arguments": [
             {

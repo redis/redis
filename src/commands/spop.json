@@ -14,13 +14,11 @@
         ],
         "command_flags": [
             "WRITE",
+            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "SET"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

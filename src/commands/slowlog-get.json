@@ -15,12 +15,12 @@
         ],
         "command_flags": [
             "ADMIN",
+            "RANDOM",
             "LOADING",
             "STALE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "RANDOM_OUTPUT"
+            "REQUEST_POLICY:ALL_SHARDS"
         ],
         "arguments": [
             {

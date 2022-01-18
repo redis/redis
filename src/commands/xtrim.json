@@ -13,13 +13,11 @@
             ]
         ],
         "command_flags": [
-            "WRITE"
+            "WRITE",
+            "RANDOM"
         ],
         "acl_categories": [
             "STREAM"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

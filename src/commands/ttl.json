@@ -14,13 +14,11 @@
         ],
         "command_flags": [
             "READONLY",
+            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "KEYSPACE"
-        ],
-        "command_tips": [
-            "RANDOM_OUTPUT"
         ],
         "key_specs": [
             {

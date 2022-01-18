@@ -7,14 +7,14 @@
         "arity": 1,
         "function": "randomkeyCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "RANDOM"
         ],
         "acl_categories": [
             "KEYSPACE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "RANDOM_OUTPUT"
+            "REQUEST_POLICY:ALL_SHARDS"
         ]
     }
 }

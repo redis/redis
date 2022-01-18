@@ -13,13 +13,13 @@
             ]
         ],
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "RANDOM"
         ],
         "acl_categories": [
             "KEYSPACE"
         ],
         "command_tips": [
-            "RANDOM_OUTPUT",
             "REQUEST_POLICY:NON_TRIVIAL"
         ],
         "arguments": [

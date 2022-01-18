@@ -190,6 +190,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ADMIN (1ULL<<4)
 #define CMD_PUBSUB (1ULL<<5)
 #define CMD_NOSCRIPT (1ULL<<6)
+#define CMD_RANDOM (1ULL<<7)
+#define CMD_BLOCKING (1ULL<<8)       /* Has potential to block. */
 #define CMD_LOADING (1ULL<<9)
 #define CMD_STALE (1ULL<<10)
 #define CMD_SKIP_MONITOR (1ULL<<11)
@@ -2083,6 +2085,13 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  * CMD_PUBSUB:      Pub/Sub related command.
  *
  * CMD_NOSCRIPT:    Command not allowed in scripts.
+ *
+ * CMD_RANDOM:      Random command. Command is not deterministic, that is, the same
+ *                  command with the same arguments, with the same key space, may
+ *                  have different results. For instance SPOP and RANDOMKEY are
+ *                  two random commands.
+ *
+ * CMD_BLOCKING:    The command has the potential to block the client.
  *
  * CMD_LOADING:     Allow the command while loading the database.
  *

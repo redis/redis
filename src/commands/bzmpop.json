@@ -8,13 +8,11 @@
         "function": "bzmpopCommand",
         "get_keys_function": "blmpopGetKeys",
         "command_flags": [
-            "WRITE"
+            "WRITE",
+            "BLOCKING"
         ],
         "acl_categories": [
             "SORTEDSET",
-            "BLOCKING"
-        ],
-        "command_tips": [
             "BLOCKING"
         ],
         "key_specs": [
