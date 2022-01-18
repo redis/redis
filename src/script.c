@@ -111,55 +111,57 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t function_flags, int ro) {
     serverAssert(!curr_run_ctx);
 
-    if ((function_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
-        addReplyError(caller, "Can not run function on cluster, 'no-cluster' flag is set.");
-        return C_ERR;
-    }
+    if (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
+        if ((function_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+            addReplyError(caller, "Can not run function on cluster, 'no-cluster' flag is set.");
+            return C_ERR;
+        }
 
-    if (!(function_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
-        addReplyError(caller, "-OOM allow-oom flag is not set on the function, "
-                         "can not run it when used memory > 'maxmemory'");
-        return C_ERR;
-    }
+        if (!(function_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
+            addReplyError(caller, "-OOM allow-oom flag is not set on the function, "
+                                  "can not run it when used memory > 'maxmemory'");
+            return C_ERR;
+        }
 
-    if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 && !(function_flags & SCRIPT_FLAG_ALLOW_STALE))
-    {
-        addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
-                         "replica-serve-stale-data is set to 'no' "
-                         "and 'allow-stale' flag is not set on the function.");
-        return C_ERR;
-    }
-
-    if (!(function_flags & SCRIPT_FLAG_NO_WRITES)) {
-        /* Function may perform writes we need to verify:
-         * 1. we are not a readonly replica
-         * 2. no disk error detected
-         * 3. command is not 'fcall_ro' */
-        if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
-            && !(caller->flags & CLIENT_MASTER))
+        if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
+            server.repl_serve_stale_data == 0 && !(function_flags & SCRIPT_FLAG_ALLOW_STALE))
         {
-            addReplyError(caller, "Can not run a function with write flag on readonly replica");
+            addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
+                             "replica-serve-stale-data is set to 'no' "
+                             "and 'allow-stale' flag is not set on the function.");
             return C_ERR;
         }
 
-        int deny_write_type = writeCommandsDeniedByDiskError();
-        if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
-            if (deny_write_type == DISK_ERROR_TYPE_RDB)
-                addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
-                                 "but it is currently not able to persist on disk. "
-                                 "So its impossible to run functions that has 'write' flag on.");
-            else
-                addReplyErrorFormat(caller, "-MISCONF Redis is configured to persist data to AOF, "
-                                       "but it is currently not able to persist on disk. "
-                                       "So its impossible to run functions that has 'write' flag on. "
-                                       "AOF error: %s", strerror(server.aof_last_write_errno));
-            return C_ERR;
-        }
+        if (!(function_flags & SCRIPT_FLAG_NO_WRITES)) {
+            /* Function may perform writes we need to verify:
+             * 1. we are not a readonly replica
+             * 2. no disk error detected
+             * 3. command is not 'fcall_ro' */
+            if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
+                && !(caller->flags & CLIENT_MASTER))
+            {
+                addReplyError(caller, "Can not run a function with write flag on readonly replica");
+                return C_ERR;
+            }
 
-        if (ro) {
-            addReplyError(caller, "Can not execute a function with write flag using fcall_ro.");
-            return C_ERR;
+            int deny_write_type = writeCommandsDeniedByDiskError();
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
+                if (deny_write_type == DISK_ERROR_TYPE_RDB)
+                    addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
+                                     "but it is currently not able to persist on disk. "
+                                     "So its impossible to run functions that has 'write' flag on.");
+                else
+                    addReplyErrorFormat(caller, "-MISCONF Redis is configured to persist data to AOF, "
+                                           "but it is currently not able to persist on disk. "
+                                           "So its impossible to run functions that has 'write' flag on. "
+                                           "AOF error: %s", strerror(server.aof_last_write_errno));
+                return C_ERR;
+            }
+
+            if (ro) {
+                addReplyError(caller, "Can not execute a function with write flag using fcall_ro.");
+                return C_ERR;
+            }
         }
     }
 
@@ -188,12 +190,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
 
-    if (ro || (function_flags & SCRIPT_FLAG_NO_WRITES)) {
+    if (ro || (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (function_flags & SCRIPT_FLAG_NO_WRITES))) {
         /* On fcall_ro or on functions that do not have the 'write'
          * flag, we will not allow write commands. */
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
-    if (function_flags & SCRIPT_FLAG_ALLOW_OOM) {
+    if (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (function_flags & SCRIPT_FLAG_ALLOW_OOM)) {
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 

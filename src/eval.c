@@ -319,7 +319,7 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
-    uint64_t function_flags = 0;
+    uint64_t function_flags = SCRIPT_FLAG_IGNORE_FLAGS;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -352,6 +352,7 @@ sds luaCreateFunction(client *c, robj *body) {
         }
         for (j = 1; j < numparts; j++) {
             if (!strncmp(parts[j], "flags=", 6)) {
+                function_flags &= ~SCRIPT_FLAG_IGNORE_FLAGS;
                 sdsrange(parts[j], 6, -1);
                 int numflags, jj;
                 sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
