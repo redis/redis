@@ -2,13 +2,11 @@
 source "../tests/includes/init-tests.tcl"
 set num_sentinels [llength $::sentinel_instances]
 
-
-
 test "Set parameters in normal case" {
 
     set info [S 0 SENTINEL master mymaster]
-    set origin_quorum [lindex $info 35]
-    set origin_down_after_milliseconds [lindex $info 21]
+    set origin_quorum [dict get $info quorum]
+    set origin_down_after_milliseconds [dict get $info down-after-milliseconds]
     set update_quorum [expr $origin_quorum+1]
     set update_down_after_milliseconds [expr $origin_down_after_milliseconds+1000]
     
@@ -16,28 +14,25 @@ test "Set parameters in normal case" {
     assert_equal [S 0 SENTINEL SET mymaster down-after-milliseconds $update_down_after_milliseconds] "OK"
 
     set update_info [S 0 SENTINEL master mymaster]
-    assert {[lindex $update_info 35] != $origin_quorum}
-    assert {[lindex $update_info 21] != $origin_down_after_milliseconds}
+    assert {[dict get $update_info quorum] != $origin_quorum}
+    assert {[dict get $update_info down-after-milliseconds] != $origin_down_after_milliseconds}
     
     #restore to origin config parameters
     assert_equal [S 0 SENTINEL SET mymaster quorum $origin_quorum] "OK"
     assert_equal [S 0 SENTINEL SET mymaster down-after-milliseconds $origin_down_after_milliseconds] "OK"
-    
 }
-
 
 test "Set parameters in normal case with bad format" {
 
     set info [S 0 SENTINEL master mymaster]
-    set origin_down_after_milliseconds [lindex $info 21]
+    set origin_down_after_milliseconds [dict get $info down-after-milliseconds]
 
     assert_error "ERR Invalid argument '-20' for SENTINEL SET 'down-after-milliseconds'*" {S 0 SENTINEL SET mymaster down-after-milliseconds -20}
     assert_error "ERR Invalid argument 'abc' for SENTINEL SET 'down-after-milliseconds'*" {S 0 SENTINEL SET mymaster down-after-milliseconds "abc"}
 
     set current_info [S 0 SENTINEL master mymaster]
-    assert {[lindex $current_info 21] == $origin_down_after_milliseconds}
+    assert {[dict get $current_info down-after-milliseconds] == $origin_down_after_milliseconds}
 }
-
 
 test "Sentinel Set with other error situations" {
 

@@ -2256,7 +2256,7 @@ int sentinelFlushConfig(void) {
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
     if (fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
-    serverLog(LL_WARNING,"Save new sentinel configuration successfully on disk!");
+    serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
     return C_OK;
 
 werr:
@@ -4320,8 +4320,8 @@ void sentinelSetCommand(client *c) {
     }
 
     if (changes) {
-        if (sentinelFlushConfig() == C_ERR){
-            addReplyErrorFormat(c,"WARNING: new configurations save on disk failed due to some reconfiguration file reasons.!!!");
+        if (sentinelFlushConfig() == C_ERR) {
+            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
             return;
         }
     }
@@ -4333,8 +4333,8 @@ badfmt: /* Bad format errors */
         (char*)c->argv[badarg]->ptr,option);
 seterr:
     if (changes) {
-        if (sentinelFlushConfig() == C_ERR){
-            addReplyErrorFormat(c,"WARNING: new configurations save on disk failed due to some reconfiguration file reasons.!!!");
+        if (sentinelFlushConfig() == C_ERR) {
+            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
             return;
         }
     }
