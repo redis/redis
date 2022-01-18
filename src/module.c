@@ -1208,6 +1208,9 @@ static int moduleConvertArgFlags(int flags);
  *         * `REDISMODULE_KSPEC_FK_KEYNUM`: There's an argument that contains
  *           the number of key args somewhere before the keys themselves.
  *
+ *       `find_keys_type` and `fk` can be omitted if this keyspec describes
+ *       exactly one key.
+ *
  *     * `fk`: This is a union in which the `range` or `keynum` branch is used
  *       depending on the value of the `find_keys_type` field.
  *
@@ -1399,6 +1402,13 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
             }
 
             switch (info->key_specs[j].find_keys_type) {
+            case 0:
+                /* Omitted. This is shorthand to say that it's a single key. */
+                cmd->key_specs[j].find_keys_type = KSPEC_FK_RANGE;
+                cmd->key_specs[j].fk.range.lastkey = 0;
+                cmd->key_specs[j].fk.range.keystep = 1;
+                cmd->key_specs[j].fk.range.limit = 0;
+                break;
             case REDISMODULE_KSPEC_FK_UNKNOWN:
                 cmd->key_specs[j].find_keys_type = KSPEC_FK_UNKNOWN;
                 break;
@@ -1472,7 +1482,14 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             default: return 0; /* Invalid value. */
             }
 
-            /* TODO: Validate find_keys_type */
+            /* Validate find_keys_type. */
+            switch (info->key_specs[j].find_keys_type) {
+            case 0: break; /* Omitted field is shorthand for RANGE {0,1,0} */
+            case KSPEC_FK_UNKNOWN: break;
+            case KSPEC_FK_RANGE: break;
+            case KSPEC_FK_KEYNUM: break;
+            default: return 0; /* Invalid value. */
+            }
         }
     }
 

@@ -45,8 +45,7 @@ int createKspecLegacy(RedisModuleCtx *ctx) {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
-                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
-                .fk.range = {0,1,0}
+                /* Omitted find_keys_type is shorthand for RANGE {0,1,0} */
             },
             {0}
         },
@@ -70,16 +69,12 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
             {
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
-                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
-                .fk.range = {0,1,0}
             },
             {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "STORE",
                 .bs.keyword.startfrom = 2,
-                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
-                .fk.range = {0,1,0}
             },
             {
                 .flags = REDISMODULE_CMD_KEY_READ,
