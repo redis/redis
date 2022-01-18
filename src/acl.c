@@ -1604,7 +1604,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
     if (!(selector->flags & SELECTOR_FLAG_ALLKEYS) && doesCommandHaveKeys(cmd)) {
         if (!(cache->keys_init)) {
             cache->keys = (getKeysResult) GETKEYS_RESULT_INIT;
-            getKeysFromCommandWithSpecs(cmd,argv,argc,&(cache->keys));
+            getKeysFromCommandWithSpecs(cmd,argv,argc,GET_KEYSPEC_DEFAULT,&(cache->keys));
             cache->keys_init = 1;
         }
         getKeysResult *result = &(cache->keys);

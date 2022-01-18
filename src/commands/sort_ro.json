@@ -6,6 +6,7 @@
         "since": "7.0.0",
         "arity": -2,
         "function": "sortroCommand",
+        "get_keys_function": "sortROGetKeys",
         "command_flags": [
             "READONLY"
         ],
