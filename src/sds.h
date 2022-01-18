@@ -253,6 +253,7 @@ sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);
 sds sdsjoin(char **argv, int argc, char *sep);
 sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen);
+int sdsneedsrepr(const sds s);
 
 /* Callback for sdstemplate. The function gets called by sdstemplate
  * every time a variable needs to be expanded. The variable name is

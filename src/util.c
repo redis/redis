@@ -904,16 +904,6 @@ sds makePath(char *path, char *filename) {
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
 }
 
-int includeSpace(char *s) {
-    if (s == NULL) return 0;
-    for (size_t i = 0; i < strlen(s); i++) {
-        if (isspace(s[i])) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 #ifdef REDIS_TEST
 #include <assert.h>
 
