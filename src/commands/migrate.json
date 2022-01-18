@@ -36,7 +36,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "WRITE",
+                    "READ"
                 ],
                 "begin_search": {
                     "index": {
@@ -54,6 +55,7 @@
             {
                 "flags": [
                     "WRITE",
+                    "READ",
                     "INCOMPLETE"
                 ],
                 "begin_search": {

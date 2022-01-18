@@ -222,6 +222,60 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "~bar" [lindex [dict get [lindex [dict get $user selectors] 0] keys] 1]
     }
 
+    test {Test basic dry run functionality} {
+        r ACL setuser command-test +@all %R~read* %W~write* %RW~rw*
+        assert_equal "OK" [r ACL DRYRUN command-test GET read]
+
+        catch {r ACL DRYRUN not-a-user GET read} e
+        assert_equal "ERR User 'not-a-user' not found" $e
+
+        catch {r ACL DRYRUN command-test not-a-command read} e
+        assert_equal "ERR Command 'not-a-command' not found" $e
+    }
+
+    test {Test various odd commands for key permissions} {
+        r ACL setuser command-test +@all %R~read* %W~write* %RW~rw*
+
+        # Test migrate, which is marked with incomplete keys
+        assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever rw]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever write]
+        assert_equal "OK" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS rw]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test MIGRATE whatever whatever "" 0 5000 KEYS write]
+
+        # Test SORT, which is marked with incomplete keys
+        assert_equal "OK" [r ACL DRYRUN command-test SORT read STORE write]
+        assert_equal "This user has no permissions to access the 'read' key"  [r ACL DRYRUN command-test SORT read STORE read]
+        assert_equal "This user has no permissions to access the 'write' key"  [r ACL DRYRUN command-test SORT write STORE write]
+
+        # Test EVAL, which uses the numkey keyspec (Also test EVAL_RO)
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 1 rw1]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 1 read]
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL_RO "" 1 rw1]
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL_RO "" 1 read]
+
+        # Read is an optional argument and not a key here, make sure we don't treat it as a key
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 0 read]
+
+        # These are syntax errors, but it's 'OK' from an ACL perspective
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" -1 read]
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 2147483647 rw rw]
+
+        # Also a syntax error, but we do try to find keys so this will fail
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 2147483647 rw read]
+
+        # Test GEORADIUS which uses the last type of keyspec, keyword
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STOREDIST write]
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M]
+        assert_equal "This user has no permissions to access the 'read2' key" [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STOREDIST read2]
+        assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STOREDIST write2]
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STORE write]
+        assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M]
+        assert_equal "This user has no permissions to access the 'read2' key" [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STORE read2]
+        assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
+    }
+
     $r2 close
 }
 

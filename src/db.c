@@ -1699,7 +1699,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
             int start_index = spec->bs.keyword.startfrom > 0 ? spec->bs.keyword.startfrom : argc+spec->bs.keyword.startfrom;
             int end_index = spec->bs.keyword.startfrom > 0 ? argc-1: 1;
             for (i = start_index; i != end_index; i = start_index <= end_index ? i + 1 : i - 1) {
-                if (i >= argc || i < 0)
+                if (i >= argc || i < 1)
                     break;
                 if (!strcasecmp((char*)argv[i]->ptr,spec->bs.keyword.keyword)) {
                     first = i+1;
@@ -1730,6 +1730,11 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, getKey
             long long numkeys;
 
             if (!string2ll(argv[first+spec->fk.keynum.keynumidx]->ptr,sdslen(argv[first+spec->fk.keynum.keynumidx]->ptr),&numkeys)) {
+                continue;
+            }
+
+            if (numkeys < 1) {
+                /* This is a syntax error or there are no keys provided, so we can skip them. */
                 continue;
             }
 
@@ -2105,7 +2110,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     keys = getKeysPrepareResult(result, num);
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
-        keys[num].flags = CMD_KEY_READ;
+        keys[num].flags = CMD_KEY_READ | CMD_KEY_WRITE;
     } 
     result->numkeys = num;
     return num;

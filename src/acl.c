@@ -2761,6 +2761,40 @@ cleanup:
             addReplyBulkCString(c,"client-info");
             addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
         }
+    } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
+        struct redisCommand *cmd;
+        user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+        if (u == NULL) {
+            addReplyErrorFormat(c, "User '%s' not found", c->argv[2]->ptr);
+            return;
+        }
+
+        if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL) {
+            addReplyErrorFormat(c, "Command '%s' not found", c->argv[3]->ptr);
+            return;
+        }
+
+        int idx;
+        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        if (result != ACL_OK) {
+            sds err = sdsempty();
+            if (result == ACL_DENIED_CMD) {
+                err = sdscatfmt(err, "This user has no permissions to run "
+                    "the '%s' command or its subcommand", c->cmd->name);
+            } else if (result == ACL_DENIED_KEY) {
+                err = sdscatfmt(err, "This user has no permissions to access "
+                    "the '%s' key", c->argv[idx + 3]->ptr);
+            } else if (result == ACL_DENIED_CHANNEL) {
+                err = sdscatfmt(err, "This user has no permissions to access "
+                    "the '%s' channel", c->argv[idx + 3]->ptr);
+            } else {
+                serverPanic("Unkown permission result encountered");
+            }
+            addReplyBulkSds(c, err);
+            return;
+        }
+
+        addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
         const char *help[] = {
 "CAT [<category>]",
@@ -2768,6 +2802,8 @@ cleanup:
 "    when no category is specified.",
 "DELUSER <username> [<username> ...]",
 "    Delete a list of users.",
+"DRYRUN <username> <command> [<arg> ...]",
+"    Returns whether the user can execute the given command without executing the command.",
 "GETUSER <username>",
 "    Get the user's details.",
 "GENPASS [<bits>]",
