@@ -1382,7 +1382,7 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
  *
  * - `REDISMODULE_YIELD_FLAG_NONE`: No special flags, can perform some background
  *                                  operations, but not process client commands.
- * - `REDISMODULE_YIELD_FLAG_CLIENTS`: Redis can also proces client commands.
+ * - `REDISMODULE_YIELD_FLAG_CLIENTS`: Redis can also process client commands.
  *
  * The `busy_reply` argument is optional, and can be used to control the verbose
  * error string after the `-BUSY` error code.
@@ -1418,7 +1418,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             processEventsWhileBlocked();
 
             server.busy_module_yield_reply = prev_busy_module_yield_reply;
-            /* Possibly restore the prevoius flags in case of two nested contexts
+            /* Possibly restore the previous flags in case of two nested contexts
              * that use this API with different flags, but keep the first bit
              * (PROCESS_EVENTS) set, so we know to call blockingOperationEnds on time. */
             server.busy_module_yield_flags &= ~BUSY_MODULE_YIELD_CLIENTS;
