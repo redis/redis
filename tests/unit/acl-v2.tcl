@@ -260,7 +260,7 @@ start_server {tags {"acl external:skip"}} {
 
         # These are syntax errors, but it's 'OK' from an ACL perspective
         assert_equal "OK" [r ACL DRYRUN command-test EVAL "" -1 read]
-        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 2147483647 rw rw]
+        assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 3 rw rw]
 
         # Also a syntax error, but we do try to find keys so this will fail
         assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 2147483647 rw read]
