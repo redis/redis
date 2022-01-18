@@ -96,11 +96,11 @@ start_server {tags {"modules"}} {
         set busy_time_limit 50
         set old_time_limit [lindex [r config get busy-reply-threshold] 1]
         r config set busy-reply-threshold $busy_time_limit
-
-        # run blocking command
         set rd [redis_deferring_client]
+
+        # run command that blocks until released
         set start [clock clicks -milliseconds]
-        $rd slow_fg_command
+        $rd slow_fg_command 0
         $rd flush
 
         # make sure we get BUSY error, and that we didn't get it too early
@@ -115,6 +115,18 @@ start_server {tags {"modules"}} {
             fail "Failed waiting for busy command to end"
         }
         $rd read
+
+        #run command that blocks for 200ms
+        set start [clock clicks -milliseconds]
+        $rd slow_fg_command 200000
+        $rd flush
+        after 10 ;# try to make sure redis started running the command before we proceed
+
+        # make sure we didn't get BUSY error, it simply blocked till the command was done
+        r ping
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 200
+        $rd read
+
         $rd close
         r config set busy-reply-threshold $old_time_limit
     }

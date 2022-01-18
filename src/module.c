@@ -657,6 +657,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+                unblockPausedClients();
             }
         }
     }
@@ -6820,6 +6821,7 @@ void moduleGILBeforeUnlock() {
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
         server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        unblockPausedClients();
     }
 }
 

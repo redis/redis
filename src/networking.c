@@ -3628,13 +3628,19 @@ static void updateClientPauseTypeAndEndTime(void) {
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
     if (type < old_type) {
-        listNode *ln;
-        listIter li;
-        listRewind(server.paused_clients, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            client *c = listNodeValue(ln);
-            unblockClient(c);
-        }
+        unblockPausedClients();
+    }
+}
+
+/* Unblock all paused clents (ones that where blocked by BLOCKED_PAUSE (possibly in processCommand).
+ * This means they'll get re-processed in beforeSleep, and may get paused again if needed. */
+void unblockPausedClients() {
+    listNode *ln;
+    listIter li;
+    listRewind(server.paused_clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        unblockClient(c);
     }
 }
 

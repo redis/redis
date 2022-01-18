@@ -228,12 +228,24 @@ int do_fake_bg_true(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 static volatile int abort_flag = 0;
 
 int slow_fg_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
+    if (argc != 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+    long long block_time = 0;
+    if (RedisModule_StringToLongLong(argv[1], &block_time) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid integer value");
+        return REDISMODULE_OK;
+    }
 
+    uint64_t start_time = RedisModule_MonotonicMicroseconds();
+    /* when not blocking indefinitely, we don't process client commands in this test. */
+    int yield_flags = block_time? REDISMODULE_YIELD_FLAG_NONE: REDISMODULE_YIELD_FLAG_CLIENTS;
     while (!abort_flag) {
-        RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, "Slow module operation");
+        RedisModule_Yield(ctx, yield_flags, "Slow module operation");
         usleep(1000);
+        if (block_time && RedisModule_MonotonicMicroseconds() - start_time > (uint64_t)block_time)
+            break;
     }
 
     abort_flag = 0;
