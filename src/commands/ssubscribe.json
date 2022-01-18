@@ -22,7 +22,7 @@
     "key_specs": [
       {
         "flags": [
-          "SHARD_CHANNEL"
+          "CHANNEL"
         ],
         "begin_search": {
           "index": {

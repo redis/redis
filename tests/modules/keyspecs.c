@@ -37,14 +37,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *legacy = RedisModule_GetCommand(ctx,"kspec.legacy");
 
-    if (RedisModule_AddCommandKeySpec(legacy,"read",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(legacy,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(legacy,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(legacy,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(legacy,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(legacy,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(legacy,spec_id,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -56,14 +56,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *complex1 = RedisModule_GetCommand(ctx,"kspec.complex1");
 
-    if (RedisModule_AddCommandKeySpec(complex1,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex1,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchKeyword(complex1,spec_id,"STORE",2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(complex1,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(complex1,"read",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex1,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchKeyword(complex1,spec_id,"KEYS",2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -75,35 +75,35 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *complex2 = RedisModule_GetCommand(ctx,"kspec.complex2");
 
-    if (RedisModule_AddCommandKeySpec(complex2,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex2,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchKeyword(complex2,spec_id,"STORE",5) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(complex2,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(complex2,"read",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex2,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(complex2,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(complex2,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(complex2,"read",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex2,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(complex2,spec_id,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(complex2,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(complex2,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex2,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(complex2,spec_id,3) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysKeynum(complex2,spec_id,0,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_AddCommandKeySpec(complex2,"write",&spec_id) == REDISMODULE_ERR)
+    if (RedisModule_AddCommandKeySpec(complex2,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchKeyword(complex2,spec_id,"MOREKEYS",5) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

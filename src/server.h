@@ -233,14 +233,37 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
 
-/* Key argument flags. Please check the command table defined in the server.c file
- * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
-#define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
-#define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<3)        /* "incomplete" flag (meaning that
-                                             * the keyspec might not point out
-                                             * to all keys it should cover) */
+/* Key-spec flags *
+ * -------------- */
+/* The following refer what the command actually does with the value or metadata
+ * of the key, and not necessarily the user data or how it affects it.
+ * Each key-spec may must have exactly one of these. Any operation that's not
+ * distinctly deletion, overwrite or read-only would be marked as RW. */
+#define CMD_KEY_RO (1ULL<<0)     /* Read-Only - Reads the value of the key, but
+                                  * doesn't necessarily returns it. */
+#define CMD_KEY_RW (1ULL<<1)     /* Read-Write - Modifies the data stored in the
+                                  * value of the key or its metadata. */
+#define CMD_KEY_OW (1ULL<<2)     /* Overwrite - Overwrites the data stored in
+                                  * the value of the key. */
+#define CMD_KEY_RM (1ULL<<3)     /* Deletes the key. */
+/* The following refer to user data inside the value of the key, not the metadata
+ * like LRU, type, cardinality. It refers to the logical operation on the user's
+ * data (actual input strings / TTL), being used / returned / copied / changed,
+ * It doesn't refer to modification or returning of metadata (like type, count,
+ * presence of data). Any write that's not INSERT or DELETE, would be an UPDATE.
+ * Each key-spec may have one of the writes with or without access, or none: */
+#define CMD_KEY_ACCESS (1ULL<<4) /* Returns, copies or uses the user data from
+                                  * the value of the key. */
+#define CMD_KEY_UPDATE (1ULL<<5) /* Updates data to the value, new value may
+                                  * depend on the old value. */
+#define CMD_KEY_INSERT (1ULL<<6) /* Adds data to the value with no chance of
+                                  * modification or deletion of existing data. */
+#define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
+                                  * from the value of the key. */
+/* Other flags: */
+#define CMD_KEY_CHANNEL (1ULL<<8)     /* PUBSUB shard channel */
+#define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
+                                       * out to all keys it should cover */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1448,9 +1471,7 @@ struct redisServer {
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
-    int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
-                                   client blocked on a module command needs
-                                   to be processed. */
+    int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
     /* Networking */
@@ -2315,7 +2336,7 @@ void moduleFreeContext(struct RedisModuleCtx *ctx);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
-void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
+void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
@@ -3372,8 +3393,8 @@ void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);
 void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
-void mixDigest(unsigned char *digest, void *ptr, size_t len);
-void xorDigest(unsigned char *digest, void *ptr, size_t len);
+void mixDigest(unsigned char *digest, const void *ptr, size_t len);
+void xorDigest(unsigned char *digest, const void *ptr, size_t len);
 sds catSubCommandFullname(const char *parent_name, const char *sub_name);
 void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand);
 void populateCommandMovableKeys(struct redisCommand *cmd);
