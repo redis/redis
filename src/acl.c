@@ -2765,12 +2765,12 @@ cleanup:
         struct redisCommand *cmd;
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
-            addReplyErrorFormat(c, "User '%s' not found", c->argv[2]->ptr);
+            addReplyErrorFormat(c, "User '%s' not found", (char *)c->argv[2]->ptr);
             return;
         }
 
         if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL) {
-            addReplyErrorFormat(c, "Command '%s' not found", c->argv[3]->ptr);
+            addReplyErrorFormat(c, "Command '%s' not found", (char *)c->argv[3]->ptr);
             return;
         }
 
