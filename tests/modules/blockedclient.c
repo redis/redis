@@ -11,8 +11,8 @@
 #define UNUSED(V) ((void) V)
 
 /* used to test processing events during slow bg operation */
-static volatile int g_slow_operation = 0;
-static volatile int g_is_in_slow_operation = 0;
+static volatile int g_slow_bg_operation = 0;
+static volatile int g_is_in_slow_bg_operation = 0;
 
 void *sub_worker(void *arg) {
     // Get Redis module context
@@ -109,13 +109,13 @@ void *bg_call_worker(void *arg) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     // Test slow operation yielding
-    if (g_slow_operation) {
-        g_is_in_slow_operation = 1;
-        while (g_slow_operation) {
+    if (g_slow_bg_operation) {
+        g_is_in_slow_bg_operation = 1;
+        while (g_slow_bg_operation) {
             RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, "Slow module operation");
             usleep(1000);
         }
-        g_is_in_slow_operation = 0;
+        g_is_in_slow_bg_operation = 0;
     }
 
     // Call the command
@@ -222,8 +222,35 @@ int do_fake_bg_true(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+
+/* this flag is used to work with busy commands, that might take a while
+ * and ability to stop the busy work with a different command*/
+static volatile int abort_flag = 0;
+
+int slow_fg_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    while (!abort_flag) {
+        RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, "Slow module operation");
+        usleep(1000);
+    }
+
+    abort_flag = 0;
+    RedisModule_ReplyWithLongLong(ctx, 1);
+    return REDISMODULE_OK;
+}
+
+int stop_slow_fg_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    abort_flag = 1;
+    RedisModule_ReplyWithLongLong(ctx, 1);
+    return REDISMODULE_OK;
+}
+
 /* used to enable or disable slow operation in do_bg_rm_call */
-static int set_slow_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int set_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
@@ -233,20 +260,20 @@ static int set_slow_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int
         RedisModule_ReplyWithError(ctx, "Invalid integer value");
         return REDISMODULE_OK;
     }
-    g_slow_operation = ll;
+    g_slow_bg_operation = ll;
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
 /* used to test if we reached the slow operation in do_bg_rm_call */
-static int is_in_slow_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int is_in_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     if (argc != 1) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RedisModule_ReplyWithLongLong(ctx, g_is_in_slow_operation);
+    RedisModule_ReplyWithLongLong(ctx, g_is_in_slow_bg_operation);
     return REDISMODULE_OK;
 }
 
@@ -270,10 +297,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "do_fake_bg_true", do_fake_bg_true, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "set_slow_operation", set_slow_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "slow_fg_command", slow_fg_command,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "is_in_slow_operation", is_in_slow_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "stop_slow_fg_command", stop_slow_fg_command,"allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "set_slow_bg_operation", set_slow_bg_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "is_in_slow_bg_operation", is_in_slow_bg_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

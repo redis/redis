@@ -53,32 +53,5 @@ start_server {tags {"modules"}} {
         # verify id does not exist
         assert_equal {} [r test.gettimer $id]
     }
-
-    test {Busy module} {
-        set busy_time_limit 50
-        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
-        r config set busy-reply-threshold $busy_time_limit
-
-        # run blocking command
-        set rd [redis_deferring_client]
-        set start [clock clicks -milliseconds]
-        $rd test.busy_module
-        $rd flush
-
-        # make sure we get BUSY error, and that we didn't get it too early
-        assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
-
-        # abort the blocking operation
-        r test.stop_busy_module
-        wait_for_condition 50 100 {
-            [r ping] eq {PONG}
-        } else {
-            fail "Failed waiting for busy command to end"
-        }
-        $rd read
-        $rd close
-        r config set busy-reply-threshold $old_time_limit
-    }
 }
 

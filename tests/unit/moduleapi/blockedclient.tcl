@@ -92,13 +92,40 @@ start_server {tags {"modules"}} {
         }
     }
 
+    test {Busy module command} {
+        set busy_time_limit 50
+        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
+        r config set busy-reply-threshold $busy_time_limit
+
+        # run blocking command
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd slow_fg_command
+        $rd flush
+
+        # make sure we get BUSY error, and that we didn't get it too early
+        assert_error {*BUSY Slow module operation*} {r ping}
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+
+        # abort the blocking operation
+        r stop_slow_fg_command
+        wait_for_condition 50 100 {
+            [r ping] eq {PONG}
+        } else {
+            fail "Failed waiting for busy command to end"
+        }
+        $rd read
+        $rd close
+        r config set busy-reply-threshold $old_time_limit
+    }
+
     test {RM_Call from blocked client} {
         set busy_time_limit 50
         set old_time_limit [lindex [r config get busy-reply-threshold] 1]
         r config set busy-reply-threshold $busy_time_limit
 
         # trigger slow operation
-        r set_slow_operation 1
+        r set_slow_bg_operation 1
         r hset hash foo bar
         set rd [redis_deferring_client]
         set start [clock clicks -milliseconds]
@@ -106,7 +133,7 @@ start_server {tags {"modules"}} {
 
         # wait till we know we're blocked inside the module
         wait_for_condition 50 100 {
-            [r is_in_slow_operation] eq 1
+            [r is_in_slow_bg_operation] eq 1
         } else {
             fail "Failed waiting for slow operation to start"
         }
@@ -115,9 +142,10 @@ start_server {tags {"modules"}} {
         assert_error {*BUSY Slow module operation*} {r ping}
         assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
         # abort the blocking operation
-        r set_slow_operation 0
+        r set_slow_bg_operation 0
+
         wait_for_condition 50 100 {
-            [r is_in_slow_operation] eq 0
+            [r is_in_slow_bg_operation] eq 0
         } else {
             fail "Failed waiting for slow operation to stop"
         }

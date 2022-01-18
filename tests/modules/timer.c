@@ -1,7 +1,3 @@
-/* define macros for having usleep */
-#define _BSD_SOURCE
-#define _DEFAULT_SOURCE
-#include <unistd.h>
 
 #include "redismodule.h"
 
@@ -88,32 +84,6 @@ int test_stoptimer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
-/* this flag is used to work with busy commands, that might take a while
- * and ability to stop the busy work with a different command*/
-static volatile int abort_flag = 0;
-
-int test_busy_module(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
-    while (!abort_flag) {
-        RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, "Slow module operation");
-        usleep(1000);
-    }
-
-    abort_flag = 0;
-    RedisModule_ReplyWithLongLong(ctx, 1);
-    return REDISMODULE_OK;
-}
-
-int test_stop_busy_module(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    abort_flag = 1;
-    RedisModule_ReplyWithLongLong(ctx, 1);
-    return REDISMODULE_OK;
-}
-
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
@@ -126,10 +96,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.gettimer", test_gettimer,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.stoptimer", test_stoptimer,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.busy_module", test_busy_module,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "test.stop_busy_module", test_stop_busy_module,"allow-busy",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
