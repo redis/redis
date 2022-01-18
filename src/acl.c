@@ -2788,7 +2788,7 @@ cleanup:
                 err = sdscatfmt(err, "This user has no permissions to access "
                     "the '%s' channel", c->argv[idx + 3]->ptr);
             } else {
-                serverPanic("Unkown permission result encountered");
+                serverPanic("Invalid permission result");
             }
             addReplyBulkSds(c, err);
             return;
