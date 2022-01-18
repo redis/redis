@@ -2608,7 +2608,7 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     subcommand->parent = parent; /* Assign the parent command */
     subcommand->id = ACLGetCommandID(subcommand->fullname); /* Assign the ID used for ACL. */
 
-    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->fullname), subcommand) == DICT_OK);
+    serverAssert(dictAdd(parent->subcommands_dict, sdsdup(subcommand->fullname), subcommand) == DICT_OK);
 }
 
 /* Set implicit ACl categories (see comment above the definition of
@@ -2645,6 +2645,8 @@ int populateArgsStructure(struct redisCommandArg *args) {
 
 /* Recursively populate the command structure. */
 void populateCommandStructure(struct redisCommand *c) {
+    c->fullname = sdsnew(c->fullname);
+
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
     c->key_specs = c->key_specs_static;
@@ -2684,7 +2686,9 @@ void populateCommandStructure(struct redisCommand *c) {
              * set of flags. */
             setImplicitACLCategories(sub);
             populateCommandStructure(sub);
+            sds old_name = sub->fullname;
             sub->fullname = catSubCommandFullname(c->fullname, sub->fullname);
+            sdsfree(old_name);
             commandAddSubcommand(c,sub);
         }
     }
@@ -2715,10 +2719,10 @@ void populateCommandTable(void) {
 
         populateCommandStructure(c);
 
-        retval1 = dictAdd(server.commands, sdsnew(c->fullname), c);
+        retval1 = dictAdd(server.commands, sdsdup(c->fullname), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
-        retval2 = dictAdd(server.orig_commands, sdsnew(c->fullname), c);
+        retval2 = dictAdd(server.orig_commands, sdsdup(c->fullname), c);
         serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
     }
 }
@@ -4358,7 +4362,7 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         if (use_map)
-            addReplyBulkCString(c, sub->fullname);
+            addReplyBulkSdsNoFree(c, sub->fullname);
         reply_function(c, sub);
     }
     dictReleaseIterator(di);
@@ -4401,7 +4405,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         }
 
         addReplyArrayLen(c, 10);
-        addReplyBulkCString(c, cmd->fullname);
+        addReplyBulkSdsNoFree(c, cmd->fullname);
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
@@ -4556,7 +4560,7 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             break;
         }
         case (COMMAND_LIST_FILTER_PATTERN):
-            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->fullname, strlen(cmd->fullname), 1);
+            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->fullname, sdslen(cmd->fullname), 1);
         default:
             serverPanic("Invalid filter type %d", filter->type);
     }
@@ -4600,7 +4604,7 @@ void commandListCommand(client *c) {
         addReplySetLen(c, dictSize(server.commands));
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c,cmd->fullname);
+            addReplyBulkSdsNoFree(c,cmd->fullname);
         }
     } else {
         int numcmds = 0;
@@ -4608,7 +4612,7 @@ void commandListCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (!shouldFilterFromCommandList(cmd,&filter)) {
-                addReplyBulkCString(c,cmd->fullname);
+                addReplyBulkSdsNoFree(c,cmd->fullname);
                 numcmds++;
             }
         }
@@ -4649,7 +4653,7 @@ void commandDocsCommand(client *c) {
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c, cmd->fullname);
+            addReplyBulkSdsNoFree(c, cmd->fullname);
             addReplyCommandDocs(c, cmd);
         }
         dictReleaseIterator(di);
@@ -4661,7 +4665,7 @@ void commandDocsCommand(client *c) {
             struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
             if (!cmd)
                 continue;
-            addReplyBulkCString(c, cmd->fullname);
+            addReplyBulkSdsNoFree(c, cmd->fullname);
             addReplyCommandDocs(c, cmd);
             numcmds++;
         }
@@ -4789,7 +4793,7 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
                 ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                getSafeInfoString(c->fullname, strlen(c->fullname), &tmpsafe), c->calls, c->microseconds,
+                getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe), c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
                 c->rejected_calls, c->failed_calls);
             if (tmpsafe != NULL) zfree(tmpsafe);
@@ -4813,7 +4817,7 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         c = (struct redisCommand *) dictGetVal(de);
         if (c->latency_histogram) {
             info = fillPercentileDistributionLatencies(info,
-                getSafeInfoString(c->fullname, strlen(c->fullname), &tmpsafe),
+                getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
                 c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }

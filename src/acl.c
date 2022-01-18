@@ -501,7 +501,7 @@ sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules
         int fakebit = ACLGetUserCommandBit(fakeuser,cmd->id);
         if (userbit != fakebit) {
             rules = sdscatlen(rules, userbit ? "+" : "-", 1);
-            rules = sdscat(rules,cmd->fullname);
+            rules = sdscatsds(rules,cmd->fullname);
             rules = sdscatlen(rules," ",1);
             ACLChangeCommandPerm(fakeuser,cmd,userbit);
         }
@@ -515,7 +515,7 @@ sds ACLDescribeUserCommandRulesSingleCommands(user *u, user *fakeuser, sds rules
         {
             for (int j = 0; u->allowed_firstargs[cmd->id][j]; j++) {
                 rules = sdscatlen(rules,"+",1);
-                rules = sdscat(rules,cmd->fullname);
+                rules = sdscatsds(rules,cmd->fullname);
                 rules = sdscatlen(rules,"|",1);
                 rules = sdscatsds(rules,u->allowed_firstargs[cmd->id][j]);
                 rules = sdscatlen(rules," ",1);
@@ -1192,9 +1192,12 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
  * should have an assigned ID (that is used to index the bitmap). This function
  * creates such an ID: it uses sequential IDs, reusing the same ID for the same
  * command name, so that a command retains the same ID in case of modules that
- * are unloaded and later reloaded. */
-unsigned long ACLGetCommandID(const char *cmdname) {
-    sds lowername = sdsnew(cmdname);
+ * are unloaded and later reloaded.
+ *
+ * The function does not take ownership of the 'cmdname' SDS string.
+ * */
+unsigned long ACLGetCommandID(sds cmdname) {
+    sds lowername = sdsdup(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
     void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
@@ -1900,7 +1903,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         le->object = object;
     } else {
         switch(reason) {
-            case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->fullname); break;
+            case ACL_DENIED_CMD: le->object = sdsdup(c->cmd->fullname); break;
             case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
@@ -2184,7 +2187,7 @@ void aclCommand(client *c) {
             struct redisCommand *cmd = dictGetVal(de);
             if (cmd->flags & CMD_MODULE) continue;
             if (cmd->acl_categories & cflag) {
-                addReplyBulkCString(c,cmd->fullname);
+                addReplyBulkSdsNoFree(c,cmd->fullname);
                 arraylen++;
             }
         }

@@ -943,15 +943,17 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if (lookupCommandByCString(name) != NULL)
         return REDISMODULE_ERR;
 
-    RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, sdsnew(name), cmdfunc, flags, firstkey, lastkey, keystep);
+    sds fullname = sdsnew(name);
+    RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = cmdfunc ? -1 : -2; /* Default value, can be changed later via dedicated API */
 
-    dictAdd(server.commands,sdsnew(name),cp->rediscmd);
-    dictAdd(server.orig_commands,sdsnew(name),cp->rediscmd);
-    cp->rediscmd->id = ACLGetCommandID(name); /* ID used for ACL. */
+    dictAdd(server.commands,sdsdup(fullname),cp->rediscmd);
+    dictAdd(server.orig_commands,sdsdup(fullname),cp->rediscmd);
+    cp->rediscmd->id = ACLGetCommandID(fullname); /* ID used for ACL. */
     return REDISMODULE_OK;
 }
 
+/* The function will take the ownership of the 'fullname' SDS string. */
 RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds fullname, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
     struct redisCommand *rediscmd;
     RedisModuleCommand *cp;
@@ -4968,7 +4970,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
-            sds object = (acl_retval == ACL_DENIED_CMD) ? sdsnew(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
+            sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
             errno = EACCES;
             goto cleanup;
@@ -9660,7 +9662,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         if (cmd->proc == RedisModuleCommandDispatcher) {
             RedisModuleCommand *cp =
                 (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = (sds)cmd->fullname;
+            sds cmdname = cmd->fullname;
             if (cp->module == module) {
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);

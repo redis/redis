@@ -362,8 +362,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        const char *cmdname = c->lastcmd ? c->lastcmd->fullname : "<unknown>";
-        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s", cmdname);
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
         return;
     }
 
@@ -404,6 +405,14 @@ void addReplySds(client *c, sds s) {
     }
     _addReplyToBufferOrList(c,s,sdslen(s));
     sdsfree(s);
+}
+
+/* Similar with addReplySds but doesn't free the SDS string. */
+void addReplySdsNoFree(client *c, sds s) {
+    if (prepareClientToWrite(c) != C_OK) {
+        return;
+    }
+    _addReplyToBufferOrList(c,s,sdslen(s));
 }
 
 /* This low level function just adds whatever protocol you send it to the
@@ -482,10 +491,10 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         }
 
         if (len > 4096) len = 4096;
-        const char *cmdname = c->lastcmd ? c->lastcmd->fullname : "<unknown>";
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%.*s' after processing the command "
-                             "'%s'", from, to, (int)len, s, cmdname);
+                             "'%s'", from, to, (int)len, s, cmdname ? cmdname : "<unknown>");
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
             server.repl_backlog->histlen > 0)
         {
@@ -608,8 +617,9 @@ void *addReplyDeferredLen(client *c) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        const char *cmdname = c->lastcmd ? c->lastcmd->fullname : "<unknown>";
-        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s", cmdname);
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+                                        cmdname ? cmdname : "<unknown>");
         return NULL;
     }
 
@@ -883,6 +893,13 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
 void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
+    addReply(c,shared.crlf);
+}
+
+/* Similar with addReplyBulkSds but doesn't free the SDS string. */
+void addReplyBulkSdsNoFree(client *c, sds s)  {
+    addReplyLongLongWithPrefix(c,sdslen(s),'$');
+    addReplySdsNoFree(c,s);
     addReply(c,shared.crlf);
 }
 
