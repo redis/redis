@@ -182,4 +182,4 @@ target_link_libraries(redis-cli
         PRIVATE hiredis
         )
 
-link_directories(deps/hiredis/ deps/linenoise/ diredeps/lua/src)
+link_directories(deps/hiredis/ deps/linenoise/ deps/lua/src deps/hdr_histogram)
