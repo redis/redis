@@ -110,7 +110,7 @@ start_server {tags {"modules"}} {
         # abort the blocking operation
         r stop_slow_fg_command
         wait_for_condition 50 100 {
-            [r ping] eq {PONG}
+            [catch {r ping} e] == 0
         } else {
             fail "Failed waiting for busy command to end"
         }
