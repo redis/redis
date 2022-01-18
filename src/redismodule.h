@@ -242,6 +242,9 @@ typedef uint64_t RedisModuleTimerID;
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
+/* Version of the RedisModuleCommandInfo structure, the version field. */
+#define REDISMODULE_COMMAND_INFO_VERSION 1
+
 typedef enum {
     REDISMODULE_ARG_TYPE_STRING,
     REDISMODULE_ARG_TYPE_INTEGER,
@@ -289,16 +292,12 @@ typedef struct RedisModuleCommandArg {
     const char *since;
     int flags;                /* The REDISMODULE_CMD_ARG_* macros. */
     struct RedisModuleCommandArg *subargs;
-} RedisModuleCommandArgV1;
-
-#define RedisModuleCommandArg RedisModuleCommandArgV1
+} RedisModuleCommandArg;
 
 typedef struct RedisModuleCommandHistoryEntry {
     const char *since;
     const char *changes;
-} RedisModuleCommandHistoryEntryV1;
-
-#define RedisModuleCommandHistoryEntry RedisModuleCommandHistoryEntryV1
+} RedisModuleCommandHistoryEntry;
 
 typedef struct RedisModuleCommandKeySpec {
     uint64_t flags; /* REDISMODULE_CMD_KEY_* macros. */
@@ -346,11 +345,12 @@ typedef struct RedisModuleCommandKeySpec {
             int keystep;
         } keynum;
     } fk;
-} RedisModuleCommandKeySpecV1;
-
-#define RedisModuleCommandKeySpec RedisModuleCommandKeySpecV1
+} RedisModuleCommandKeySpec;
 
 typedef struct RedisModuleCommandInfo {
+    int version;                  /* REDISMODULE_COMMAND_INFO_VERSION */
+
+    /* Version 1 fields (added in Redis 7.0.0) */
     const char *summary;          /* Summary of the command */
     const char *complexity;       /* Complexity description */
     const char *since;            /* Debut module version of the command */
@@ -362,9 +362,7 @@ typedef struct RedisModuleCommandInfo {
     int arity;
     RedisModuleCommandKeySpec *key_specs;
     RedisModuleCommandArg *args;
-} RedisModuleCommandInfoV1;
-
-#define RedisModuleCommandInfo RedisModuleCommandInfoV1
+} RedisModuleCommandInfo;
 
 /* Server events definitions.
  * Those flags should not be used directly by the module, instead

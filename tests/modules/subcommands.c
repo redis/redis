@@ -31,6 +31,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
     RedisModuleCommandInfo cmd_set_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
                 .flags = REDISMODULE_CMD_KEY_WRITE,
@@ -50,6 +51,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
     RedisModuleCommandInfo cmd_get_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
                 .flags = REDISMODULE_CMD_KEY_READ,

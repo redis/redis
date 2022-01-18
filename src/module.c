@@ -1091,6 +1091,7 @@ static int moduleConvertArgFlags(int flags);
  * only be set once for each command and has the following structure:
  *
  *     typedef struct RedisModuleCommandInfo {
+ *         int version;
  *         const char *summary;
  *         const char *complexity;
  *         const char *since;
@@ -1101,7 +1102,12 @@ static int moduleConvertArgFlags(int flags);
  *         RedisModuleCommandArg *args;
  *     } RedisModuleCommandInfo;
  *
- * All fields are optional. Explanation of the fields:
+ * All fields are optional except `version`. Explanation of the fields:
+ *
+ * - `version`: Set this to REDISMODULE_COMMAND_INFO_VERSION. It makes the
+ *   module backward and forward compatible with older and newer Redis versions
+ *   and allows Redis to figure out which fields are defined, even if the module
+ *   is compiled with a `redismodule.h` copied from another Redis version.
  *
  * - `summary`: A short description of the command (optional).
  *
@@ -1421,11 +1427,20 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         /* Populate arg.num_args with the number of subargs, recursively */
         cmd->num_args = populateArgsStructure(cmd->args);
     }
+
+    /* Fields added in future versions to be added here, under conditions like
+     * `if (info->version >= 2) { access version 2 fields here }` */
+
     return REDISMODULE_OK;
 }
 
 /* Returns 1 if the command info is valid and 0 otherwise. */
 static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
+
+    /* We allow versions higher than REDISMODULE_COMMAND_INFO_VERSION. This is
+     * to be forward compatible with modules compiled with future redismodule.h
+     * versions. Fields added in future versions are simply ignored. */
+    if (info->version < 1) return 0;
 
     /* No validation for the fields summary, complexity and since (strings or
      * NULL), hints (NULL-terminated array of strings), arity (any integer). */
