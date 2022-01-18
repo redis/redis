@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import glob
@@ -373,9 +373,13 @@ srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
 print("Processing json files...")
 for filename in glob.glob('%s/commands/*.json' % srcdir):
     with open(filename,"r") as f:
-        d = json.load(f)
-        for name, desc in d.items():
-            create_command(name, desc)
+        try:
+            d = json.load(f)
+            for name, desc in d.items():
+                create_command(name, desc)
+        except json.decoder.JSONDecodeError as err:
+            print("Error processing %s: %s" % (filename, err))
+            exit(1)
 
 # Link subcommands to containers
 print("Linking container command to subcommands...")

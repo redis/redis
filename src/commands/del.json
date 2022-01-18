@@ -15,7 +15,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RM",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
