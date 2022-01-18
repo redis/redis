@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/keyspecs.so]
+if 0 { ; # Test suite disabled due to planned API changes
 
 start_server {tags {"modules"}} {
     r module load $testmodule
@@ -49,3 +50,5 @@ start_server {tags {"modules"}} {
         assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.legacy}
     }
 }
+
+} ; # Test suite disabled
