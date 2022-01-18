@@ -7364,17 +7364,19 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
     data->wFunc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
 }
 
-/* Add a pipe / socket event to the event loop
+/* Add a pipe / socket event to the event loop.
+ *
+ * * `mask` must be one of the following values:
+ *
+ *     * `REDISMODULE_EVENTLOOP_READABLE`
+ *     * `REDISMODULE_EVENTLOOP_WRITABLE`
+ *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
  *
  * On success REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
  * * EINVAL: `callback` is NULL or `mask` value is invalid.
- *
- *     * `REDISMODULE_EVENTLOOP_READABLE`
- *     * `REDISMODULE_EVENTLOOP_WRITABLE`
- *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
  *
  * `errno` might take other values in case of an internal error.
  *
@@ -7439,15 +7441,17 @@ int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopFunc func, void *user_
 
 /* Delete a pipe / socket event from the event loop.
  *
- * On success REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned and errno is set to the following values:
- *
- * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
- * * EINVAL: `mask` value is invalid. Valid values for `mask`:
+ * * `mask` must be one of the following values:
  *
  *     * `REDISMODULE_EVENTLOOP_READABLE`
  *     * `REDISMODULE_EVENTLOOP_WRITABLE`
  *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
+ * * EINVAL: `mask` value is invalid.
  */
 int RM_EventLoopDel(int fd, int mask) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
