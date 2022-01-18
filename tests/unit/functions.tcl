@@ -17,7 +17,7 @@ start_server {tags {"scripting"}} {
             r function load LUA test foo bar [get_function_code test {return 'hello'}]
         } e
         set _ $e
-    } {*Unkowns option given*}
+    } {*Unknown option given*}
 
     test {FUNCTION - Create an already exiting library raise error} {
         catch {
