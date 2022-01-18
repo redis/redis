@@ -581,6 +581,11 @@ typedef enum {
                                         * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
                                         * The total size per histogram should sit around 40 KiB Bytes. */
 
+/* Busy module flags, see busy_module_yield_flags */
+#define BUSY_MODULE_YIELD_NONE (0)
+#define BUSY_MODULE_YIELD_EVENTS (1<<0)
+#define BUSY_MODULE_YIELD_CLIENTS (1<<1)
+
 /*-----------------------------------------------------------------------------
  * Data types
  *----------------------------------------------------------------------------*/
@@ -1438,7 +1443,7 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
-    int in_busy_module;         /* Are we inside a busy module? (triggered by RM_Yield). */
+    int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
     int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */

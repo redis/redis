@@ -2402,7 +2402,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
-    server.in_busy_module = 0;
+    server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
     server.core_propagates = 0;
     server.propagate_no_multi = 0;
@@ -3646,10 +3646,10 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if ((scriptIsTimedout() || server.in_busy_module) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
-        if (server.in_busy_module && server.busy_module_yield_reply) {
+    if ((scriptIsTimedout() || server.busy_module_yield_flags) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+        if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
             rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
-        } else if (server.in_busy_module) {
+        } else if (server.busy_module_yield_flags) {
             rejectCommand(c, shared.slowmoduleerr);
         } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);

@@ -112,7 +112,7 @@ void *bg_call_worker(void *arg) {
     if (g_slow_operation) {
         g_is_in_slow_operation = 1;
         while (g_slow_operation) {
-            RedisModule_Yield(ctx, "Slow module operation");
+            RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, "Slow module operation");
             usleep(1000);
         }
         g_is_in_slow_operation = 0;

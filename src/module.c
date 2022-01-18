@@ -654,9 +654,9 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         if (--server.module_ctx_nesting == 0) {
             if (!server.core_propagates)
                 propagatePendingCommands();
-            if (server.in_busy_module) {
+            if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
-                server.in_busy_module = 0;
+                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
             }
         }
     }
@@ -1375,26 +1375,57 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     return REDISMODULE_OK;
 }
 
-/* This API allows modules to let Redis process some commands during long
- * blocking execution of a module command. The module can call this API
- * periodically, and after the time defined by the `busy-reply-threshold` config,
- * Redis will start rejecting most commands with `-BUSY` error, but allow the
- * ones marked with the `allow-busy` flag to be executed. This API can also be
- * used in thread safe context (while locked), and during loading (in the
- * rdb_load, in which case it'll reject commands with -LOADING error) */
-void RM_Yield(RedisModuleCtx *ctx, const char *busy_reply) {
+/* This API allows modules to let Redis process background tasks, and some
+ * commands during long blocking execution of a module command.
+ * The module can call this API periodically.
+ * The flags is a bit mask of these:
+ *
+ * - `REDISMODULE_YIELD_FLAG_NONE`: No special flags, can perform some background
+ *                                  operations, but not process client commands.
+ * - `REDISMODULE_YIELD_FLAG_CLIENTS`: Redis can also proces client commands.
+ *
+ * The `busy_reply` argument is optional, and can be used to control the verbose
+ * error string after the `-BUSY` error code.
+ *
+ * When the `REDISMODULE_YIELD_FLAG_CLIENTS` is used, Redis will only start
+ * processing client commands after the time defined by the
+ * `busy-reply-threshold` config, in which case Redis will start rejecting most
+ * commands with `-BUSY` error, but allow the ones marked with the `allow-busy`
+ * flag to be executed.
+ * This API can also be used in thread safe context (while locked), and during
+ * loading (in the `rdb_load` callback, in which case it'll reject commands with
+ * the -LOADING error)
+ */
+void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
     long long now = getMonotonicUs();
     if (now >= ctx->next_yield_time) {
-        const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
-        server.busy_module_yield_reply = busy_reply;
-        if (!server.in_busy_module && !server.loading) {
-            server.in_busy_module = 1;
-            blockingOperationStarts();
+        /* In loading mode, there's no need to handle busy_module_yield_reply,
+         * etc, since redis is anyway rejecting all commands with -LOADING. */
+        if (server.loading) {
+            /* Let redis process events */
+            processEventsWhileBlocked();
+        } else {
+            const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
+            server.busy_module_yield_reply = busy_reply;
+            /* start the blocking operatoin if not already started. */
+            if (!server.busy_module_yield_flags) {
+                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS?
+                    BUSY_MODULE_YIELD_CLIENTS: BUSY_MODULE_YIELD_EVENTS;
+                blockingOperationStarts();
+            }
+
+            /* Let redis process events */
+            processEventsWhileBlocked();
+
+            server.busy_module_yield_reply = prev_busy_module_yield_reply;
+            /* Possibly restore the prevoius flags in case of two nested contexts
+             * that use this API with different flags, but keep the first bit
+             * (PROCESS_EVENTS) set, so we know to call blockingOperationEnds on time. */
+            server.busy_module_yield_flags &= ~BUSY_MODULE_YIELD_CLIENTS;
         }
-        processEventsWhileBlocked();
+
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
-        server.busy_module_yield_reply = prev_busy_module_yield_reply;
     }
 }
 
@@ -6798,9 +6829,9 @@ void moduleGILBeforeUnlock() {
     server.module_ctx_nesting--;
     propagatePendingCommands();
 
-    if (server.in_busy_module) {
+    if (server.busy_module_yield_flags) {
         blockingOperationEnds();
-        server.in_busy_module = 0;
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     }
 }
 
