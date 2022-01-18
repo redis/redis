@@ -23,7 +23,7 @@ start_server {tags {"acl external:skip"}} {
     test {Test ACL selectors by default have no permissions (except channels)} {
         r ACL SETUSER selector-default reset ()
         set user [r ACL GETUSER "selector-default"]
-        assert_equal 2 [llength [dict get $user selectors]]
+        assert_equal 1 [llength [dict get $user selectors]]
         assert_equal 0 [llength [dict get [lindex [dict get $user selectors] 0] keys]]
         assert_equal "*" [lindex [dict get [lindex [dict get $user selectors] 0] channels] 0]
         assert_equal  1 [llength [dict get [lindex [dict get $user selectors] 0] channels]]
@@ -31,16 +31,14 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test {Test deleting selectors} {
-        r ACL SETUSER selector-del on ~root-selector "(~added-selector)"
+        r ACL SETUSER selector-del on "(~added-selector)"
         set user [r ACL GETUSER "selector-del"]
-        assert_equal "~added-selector" [dict get [lindex [dict get $user selectors] 1] keys]
-        assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]
-        assert_equal [llength [dict get $user selectors]] 2
+        assert_equal "added-selector" [dict get [lindex [dict get $user selectors] 0] keys]
+        assert_equal [llength [dict get $user selectors]] 1
 
         r ACL SETUSER selector-del clearselectors
         set user [r ACL GETUSER "selector-del"]
-        assert_equal [llength [dict get $user selectors]] 1
-        assert_equal "~root-selector" [dict get [lindex [dict get $user selectors] 0] keys]
+        assert_equal [llength [dict get $user selectors]] 0
     }
 
     test {Test selector syntax error reports the error in the selector context} {
@@ -58,15 +56,14 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER selector-2 "(~key1 +get )" "( ~key2 +get )" "( ~key3 +get)" "(~key4 +get)"
         r ACL SETUSER selector-2 (~key5 +get ) ( ~key6 +get ) ( ~key7 +get) (~key8 +get)
         set user [r ACL GETUSER "selector-2"]
-        assert_equal "" [dict get [lindex [dict get $user selectors] 0] keys]
-        assert_equal "~key1" [dict get [lindex [dict get $user selectors] 1] keys]
-        assert_equal "~key2" [dict get [lindex [dict get $user selectors] 2] keys]
-        assert_equal "~key3" [dict get [lindex [dict get $user selectors] 3] keys]
-        assert_equal "~key4" [dict get [lindex [dict get $user selectors] 4] keys]
-        assert_equal "~key5" [dict get [lindex [dict get $user selectors] 5] keys]
-        assert_equal "~key6" [dict get [lindex [dict get $user selectors] 6] keys]
-        assert_equal "~key7" [dict get [lindex [dict get $user selectors] 7] keys]
-        assert_equal "~key8" [dict get [lindex [dict get $user selectors] 8] keys]
+        assert_equal "key1" [dict get [lindex [dict get $user selectors] 0] keys]
+        assert_equal "key2" [dict get [lindex [dict get $user selectors] 1] keys]
+        assert_equal "key3" [dict get [lindex [dict get $user selectors] 2] keys]
+        assert_equal "key4" [dict get [lindex [dict get $user selectors] 3] keys]
+        assert_equal "key5" [dict get [lindex [dict get $user selectors] 4] keys]
+        assert_equal "key6" [dict get [lindex [dict get $user selectors] 5] keys]
+        assert_equal "key7" [dict get [lindex [dict get $user selectors] 6] keys]
+        assert_equal "key8" [dict get [lindex [dict get $user selectors] 7] keys]
 
         # Test invalid selector syntax
         catch {r ACL SETUSER invalid-selector " () "} err
@@ -185,20 +182,17 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "baz1" [lindex [dict get $user keys] 2]
         assert_equal "channel1" [lindex [dict get $user channels] 0]
         assert_equal "-@all +get" [dict get $user commands]
-
-        set root_selector [lindex [dict get $user selectors] 0]
-        assert_equal "%R~foo1" [lindex [dict get $root_selector keys] 0]
-        assert_equal "%W~bar1" [lindex [dict get $root_selector keys] 1]
-        assert_equal "~baz1" [lindex [dict get $root_selector keys] 2]
-        assert_equal "&channel1" [lindex [dict get $root_selector channels] 0]
-        assert_equal "-@all +get" [dict get $root_selector commands]
+        assert_equal "foo1" [lindex [dict get [dict get $user key-permissions] "read"] 0]
+        assert_equal "bar1" [lindex [dict get [dict get $user key-permissions] "write"] 0]
+        assert_equal "baz1" [lindex [dict get [dict get $user key-permissions] "all"] 0]
+        assert_equal "-@all +get" [dict get $user commands]
 
         # Added selector
-        set secondary_selector [lindex [dict get $user selectors] 1]
-        assert_equal "%R~foo2" [lindex [dict get $secondary_selector keys] 0]
-        assert_equal "%W~bar2" [lindex [dict get $secondary_selector keys] 1]
-        assert_equal "~baz2" [lindex [dict get $secondary_selector keys] 2]
-        assert_equal "&channel2" [lindex [dict get $secondary_selector channels] 0]
+        set secondary_selector [lindex [dict get $user selectors] 0]
+        assert_equal "foo2" [lindex [dict get [dict get $secondary_selector key-permissions] "read"] 0]
+        assert_equal "bar2" [lindex [dict get [dict get $secondary_selector key-permissions] "write"] 0]
+        assert_equal "baz2" [lindex [dict get [dict get $secondary_selector key-permissions] "all"] 0]
+        assert_equal "channel2" [lindex [dict get $secondary_selector channels] 0]
         assert_equal "-@all +set" [dict get $secondary_selector commands] 
     }
 
@@ -218,8 +212,8 @@ start_server {tags {"acl external:skip"}} {
     test {Test R+W is the same as all permissions} {
         r ACL setuser selector-rw-info %R~foo %W~foo %RW~bar
         set user [r ACL GETUSER selector-rw-info]
-        assert_equal "~foo" [lindex [dict get [lindex [dict get $user selectors] 0] keys] 0]
-        assert_equal "~bar" [lindex [dict get [lindex [dict get $user selectors] 0] keys] 1]
+        assert_equal "bar" [lindex [dict get [dict get $user key-permissions] "all"] 0]
+        assert_equal "foo" [lindex [dict get [dict get $user key-permissions] "all"] 1]
     }
 
     test {Test basic dry run functionality} {
@@ -282,11 +276,11 @@ exec cp -f tests/assets/userwithselectors.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
 start_server [list overrides [list "dir" $server_path "aclfile" "userwithselectors.acl"] tags [list "external:skip"]] {
 
-    test {Only default user has access to all channels irrespective of flag} {
+    test {Test behavior of loading ACLs} {
         set selectors [dict get [r ACL getuser alice] selectors]
-        assert_equal [llength $selectors] 2
+        assert_equal [llength $selectors] 1
 
         set selectors [dict get [r ACL getuser bob] selectors]
-        assert_equal [llength $selectors] 3
+        assert_equal [llength $selectors] 2
     }
 }

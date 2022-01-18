@@ -2406,17 +2406,20 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
  * Setting verbose to 1 means that the full qualifier for key and channel
  * permissions are shown.
  */
-int aclAddReplySelectorDescription(client *c, aclSelector *s, int verbose) {
+int aclAddReplySelectorDescription(client *c, aclSelector *s) {
     /* Commands */
     addReplyBulkCString(c,"commands");
     sds cmddescr = ACLDescribeSelectorCommandRules(s);
     addReplyBulkSds(c,cmddescr);
 
+    rax *keyperms = raxNew();
+    
     /* Key patterns */
     addReplyBulkCString(c,"keys");
     if (s->flags & SELECTOR_FLAG_ALLKEYS) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,"*",1);
+        raxInsert(keyperms, (unsigned char*) "~*", 2, NULL, NULL);
     } else {
         addReplyArrayLen(c,listLength(s->patterns));
         listIter li;
@@ -2424,13 +2427,74 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s, int verbose) {
         listRewind(s->patterns,&li);
         while((ln = listNext(&li))) {
             keyPattern *pattern = (keyPattern *) listNodeValue(ln);
-            if (verbose) {
-                addReplyBulkSds(c, sdsCatPatternString(sdsempty(), pattern));
-            } else {
-                addReplyBulkCBuffer(c,pattern->pattern, sdslen(pattern->pattern));
-            }
+            addReplyBulkCBuffer(c,pattern->pattern, sdslen(pattern->pattern));
+            /* Add the key pattern here sorted by the permissions */
+            sds pstr = sdsCatPatternString(sdsempty(), pattern);
+            raxInsert(keyperms, (unsigned char*) pstr, sdslen(pstr), NULL, NULL);
+            sdsfree(pstr);
         }
     }
+
+    /* Key patterns */
+    addReplyBulkCString(c,"key-permissions");
+    void *maplen = addReplyDeferredLen(c);
+    void *deferred_len = NULL;
+    int length = 0, permission_len = 0;
+    sds prototype_pattern = NULL;
+
+    /* Search through the radix tree which is sorted by permission types. Each
+     * time a new permission is found, a new entry in the map is added along
+     * with starting a new deferred array. */
+    raxIterator ri;
+    raxStart(&ri,keyperms);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        unsigned char* pattern = ri.key;
+        while(*pattern != '~') {
+            pattern++;
+            serverAssert(pattern < (ri.key + ri.key_len));
+        } 
+        pattern++;
+
+        size_t permission_size = (unsigned char *)pattern - ri.key;
+        size_t pattern_size = ri.key_len - permission_size;
+        if (!prototype_pattern || (permission_size != sdslen(prototype_pattern))
+            || memcmp(prototype_pattern, ri.key, permission_size))
+        {
+            /* We found a new type of pattern */
+            sdsfree(prototype_pattern);
+            prototype_pattern = sdsnewlen(ri.key, permission_size);
+            if (prototype_pattern[0] == '%') {
+                sds permissions = sdsempty();
+                for (size_t i = 1; i < permission_size - 1; i++) {
+                    if (i != 1) permissions = sdscat(permissions, " + ");
+                    if (prototype_pattern[i] == 'R') {
+                        permissions = sdscat(permissions, "read");
+                    } else if (prototype_pattern[i] == 'W') {
+                        permissions = sdscat(permissions, "write");
+                    } else {
+                        serverPanic("Unknown permission %s %zu %zu '%c' detected", prototype_pattern, i, permission_size - 1, prototype_pattern[i]);
+                    }
+                }
+                addReplyBulkSds(c, permissions);
+            } else {
+                addReplyBulkCString(c, "all");
+            }
+            
+            if (deferred_len) setDeferredArrayLen(c, deferred_len, length);
+            deferred_len = addReplyDeferredLen(c);
+            length = 0;
+            permission_len++;
+        }
+
+        addReplyBulkCBuffer(c, pattern, pattern_size);
+        length++;
+    }
+    setDeferredArrayLen(c, deferred_len, length);
+    setDeferredMapLen(c, maplen, permission_len);
+    raxStop(&ri);
+    raxFree(keyperms);
+    sdsfree(prototype_pattern);
 
     /* Pub/sub patterns */
     addReplyBulkCString(c,"channels");
@@ -2444,14 +2508,10 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s, int verbose) {
         listRewind(s->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
-            if (verbose) {
-                addReplyBulkSds(c, sdscatfmt(sdsempty(), "&%S", thispat));
-            } else {
-                addReplyBulkCBuffer(c,thispat,sdslen(thispat));
-            }
+            addReplyBulkCBuffer(c,thispat,sdslen(thispat));
         }
     }
-    return 3;
+    return 4;
 }
 
 /* ACL -- show and modify the configuration of ACL users.
@@ -2585,15 +2645,16 @@ cleanup:
             addReplyBulkCBuffer(c,thispass,sdslen(thispass));
         }
         /* Include the root selector at the top level for backwards compatibility */
-        fields += aclAddReplySelectorDescription(c, ACLUserGetRootSelector(u), 0);
+        fields += aclAddReplySelectorDescription(c, ACLUserGetRootSelector(u));
 
         /* Describe all of the selectors on this user, including duplicating the root selector */
         addReplyBulkCString(c,"selectors");
-        addReplyArrayLen(c, listLength(u->selectors));
+        addReplyArrayLen(c, listLength(u->selectors) - 1);
         listRewind(u->selectors,&li);
+        serverAssert(listNext(&li));
         while((ln = listNext(&li))) {
             void *slen = addReplyDeferredLen(c);
-            int sfields = aclAddReplySelectorDescription(c, (aclSelector *)listNodeValue(ln), 1);
+            int sfields = aclAddReplySelectorDescription(c, (aclSelector *)listNodeValue(ln));
             setDeferredMapLen(c, slen, sfields);
         } 
         setDeferredMapLen(c, ufields, fields);
