@@ -1467,10 +1467,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
         for (size_t j = 0; info->key_specs[j].begin_search_type; j++) {
             if (j >= INT_MAX) return 0; /* redisCommand.key_specs_num is an int. */
 
-            if (info->key_specs[j].flags & ~(REDISMODULE_CMD_KEY_WRITE |
-                                             REDISMODULE_CMD_KEY_READ |
-                                             REDISMODULE_CMD_KEY_SHARD_CHANNEL |
-                                             REDISMODULE_CMD_KEY_INCOMPLETE))
+            if (info->key_specs[j].flags & ~(_REDISMODULE_CMD_KEY_NEXT - 1))
                 return 0; /* Some undefined flag is set. */
 
             switch (info->key_specs[j].begin_search_type) {
@@ -1526,9 +1523,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
             return 0;
         }
 
-        if (args[j].flags & ~(REDISMODULE_CMD_ARG_OPTIONAL |
-                              REDISMODULE_CMD_ARG_MULTIPLE |
-                              REDISMODULE_CMD_ARG_MULTIPLE_TOKEN))
+        if (args[j].flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1))
             return 0; /* Invalid flags */
 
         if (args[j].type == REDISMODULE_ARG_TYPE_ONEOF ||

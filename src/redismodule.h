@@ -261,6 +261,7 @@ typedef enum {
 #define REDISMODULE_CMD_ARG_OPTIONAL        (1<<0) /* The argument is optional (like GET in SET command) */
 #define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
 #define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
+#define _REDISMODULE_CMD_ARG_NEXT           (1<<3)
 
 typedef enum {
     REDISMODULE_KSPEC_BS_INVALID = 0,
@@ -280,6 +281,7 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_READ (1ULL<<1)
 #define REDISMODULE_CMD_KEY_SHARD_CHANNEL (1ULL<<2)
 #define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<3)
+#define _REDISMODULE_CMD_KEY_NEXT (1ULL<<4)
 
 typedef struct RedisModuleCommandArg {
     const char *name;
