@@ -4318,12 +4318,9 @@ void sentinelSetCommand(client *c) {
             break;
         }
     }
-
-    if (changes) {
-        if (sentinelFlushConfig() == C_ERR) {
-            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-            return;
-        }
+    if (changes && sentinelFlushConfig() == C_ERR) {
+        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        return;
     }
     addReply(c,shared.ok);
     return;
@@ -4332,11 +4329,9 @@ badfmt: /* Bad format errors */
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
         (char*)c->argv[badarg]->ptr,option);
 seterr:
-    if (changes) {
-        if (sentinelFlushConfig() == C_ERR) {
-            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-            return;
-        }
+    if (changes && sentinelFlushConfig() == C_ERR) {
+        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        return;
     }
     return;
 }
