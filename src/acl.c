@@ -819,7 +819,7 @@ void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub) {
  *              pattern is a glob-style pattern like the one of PSUBSCRIBE.
  *              It is possible to specify multiple patterns.
  * allchannels              Alias for &*
- * resetchannels            Flush the list of allowed keys patterns.
+ * resetchannels            Flush the list of allowed channel patterns.
  * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
@@ -2176,7 +2176,7 @@ void aclCommand(client *c) {
     } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
         uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
         if (cflag == 0) {
-            addReplyErrorFormat(c, "Unknown category '%s'", (char*)c->argv[2]->ptr);
+            addReplyErrorFormat(c, "Unknown category '%.128s'", (char*)c->argv[2]->ptr);
             return;
         }
         int arraylen = 0;

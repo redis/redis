@@ -21,9 +21,17 @@ start_server {tags {"modules"}} {
 
     test "Module pure-container command fails on arity error" {
         catch {r subcommands.bitarray} e
-        assert_match {*wrong number of arguments*} $e
+        assert_match {*wrong number of arguments* *subcommands.bitarray*} $e
 
         # Subcommands can be called
         assert_equal [r subcommands.bitarray get k1] {OK}
+    }
+
+    test "Module get current command fullname" {
+        assert_equal [r subcommands.parent_get_fullname] {subcommands.parent_get_fullname}
+    }
+
+    test "Module get current subcommand fullname" {
+        assert_equal [r subcommands.sub get_fullname] {subcommands.sub|get_fullname}
     }
 }

@@ -364,12 +364,12 @@ start_server {tags {"acl external:skip"}} {
     } {*NOPERM*debug*}
 
     test {ACLs set can include subcommands, if already full command exists} {
-        r ACL setuser bob +memory|doctor
+        r ACL setuser bob -@all +memory|doctor
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {-@all +memory|doctor} $cmdstr
 
         # Validate the commands have got engulfed to +memory.
-        r ACL setuser bob +memory
+        r ACL setuser bob -@all +memory
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {-@all +memory} $cmdstr
 
@@ -463,6 +463,17 @@ start_server {tags {"acl external:skip"}} {
             set cmdstr [dict get [r ACL getuser restrictive] commands]
             assert_equal "-@all +@$category" $cmdstr
         }
+    }
+
+    test "ACL CAT category - list all commands that belong to category" {
+        assert_error {*Unknown*NON_EXISTS*} {r ACL CAT NON_EXISTS}
+        assert_error {*Unknown subcommand or wrong number*CAT*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+
+        # We simply just check a few categories.
+        assert_match "*llen*" [r ACL CAT list]
+        assert_match "*zcard*" [r ACL CAT sortedset]
+        assert_match "*exists*" [r ACL CAT keyspace]
+        assert_match "*flushall*" [r ACL CAT dangerous]
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
@@ -621,7 +632,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments* *acl|help*" $e
     }
 
     test {Delete a user that the client doesn't use} {
