@@ -116,18 +116,18 @@ aofInfo *aofInfoDup(aofInfo *orig) {
 
 /* Format aofInfo as a string and it will be a line in the manifest. */
 sds aofInfoFormat(sds buf, aofInfo *ai) {
-    if (includeSpace(ai->file_name)) {
-        /* If file_name contains spaces we wrap it in quotes. */
-        return sdscatprintf(buf, "%s \"%s\" %s %lld %s %c\n", 
-            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
-            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
-            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
-    } else {
-        return sdscatprintf(buf, "%s %s %s %lld %s %c\n", 
-            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
-            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
-            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
-    }
+    sds filename_repr = NULL;
+
+    if (sdsneedsrepr(ai->file_name))
+        filename_repr = sdscatrepr(sdsempty(), ai->file_name, sdslen(ai->file_name));
+
+    sds ret = sdscatprintf(buf, "%s %s %s %lld %s %c\n",
+        AOF_MANIFEST_KEY_FILE_NAME, filename_repr ? filename_repr : ai->file_name,
+        AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq,
+        AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
+    sdsfree(filename_repr);
+
+    return ret;
 }
 
 /* Method to free AOF list elements. */
@@ -1574,7 +1574,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
     /* Here we calculate the total size of all BASE and INCR files in
      * advance, it will be set to `server.loading_total_bytes`. */
-    total_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest);
+    total_size = getBaseAndIncrAppendOnlyFilesSize(am);
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
 
     /* Load BASE AOF if needed. */

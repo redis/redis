@@ -18,7 +18,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "index": {

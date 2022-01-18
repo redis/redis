@@ -2,6 +2,7 @@ start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
+            wait_replica_online r
             wait_for_condition 50 100 {
                 [s -1 master_link_status] eq {up}
             } else {

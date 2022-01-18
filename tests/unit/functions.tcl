@@ -12,6 +12,13 @@ start_server {tags {"scripting"}} {
         r fcall test 0
     } {hello}
 
+    test {FUNCTION - Load with unknown argument} {
+        catch {
+            r function load LUA test foo bar [get_function_code test {return 'hello'}]
+        } e
+        set _ $e
+    } {*Unknown option given*}
+
     test {FUNCTION - Create an already exiting library raise error} {
         catch {
             r function load LUA test [get_function_code test {return 'hello1'}]

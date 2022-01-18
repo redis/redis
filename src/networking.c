@@ -162,7 +162,7 @@ client *createClient(connection *conn) {
     c->ctime = c->lastinteraction = server.unixtime;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
-    c->repl_put_online_on_ack = 0;
+    c->repl_start_cmd_stream_on_ack = 0;
     c->reploff = 0;
     c->read_reploff = 0;
     c->repl_ack_off = 0;
@@ -225,7 +225,7 @@ void clientInstallWriteHandler(client *c) {
      * writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
-         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
+         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_start_cmd_stream_on_ack)))
     {
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
@@ -3588,7 +3588,7 @@ void flushSlavesOutputBuffers(void) {
          */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
             can_receive_writes &&
-            !slave->repl_put_online_on_ack &&
+            !slave->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))
         {
             writeToClient(slave,0);

@@ -1481,7 +1481,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
-    if (moduleCount()) moduleHandleBlockedClients();
+    if (moduleCount()) {
+        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                              REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
+                              NULL);
+        moduleHandleBlockedClients();
+    }
 
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
@@ -1561,7 +1566,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyStartMonitor(latency);
 
             moduleAcquireGIL();
-
+            moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                                  REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
+                                  NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
@@ -2123,6 +2130,10 @@ void checkTcpBacklogSettings(void) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
+#elif defined(SOMAXCONN)
+    if (SOMAXCONN < server.tcp_backlog) {
+        serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because SOMAXCONN is set to the lower value of %d.", server.tcp_backlog, SOMAXCONN);
+    }
 #endif
 }
 
@@ -2475,12 +2486,11 @@ void initServer(void) {
 
 
     /* Register a readable event for the pipe used to awake the event loop
-     * when a blocked client in a module needs attention. */
-    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
-        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+     * from module threads. */
+    if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE,
+        modulePipeReadable,NULL) == AE_ERR) {
             serverPanic(
-                "Error registering the readable event for the module "
-                "blocked clients subsystem.");
+                "Error registering the readable event for the module pipe.");
     }
 
     /* Register before and after sleep handlers (note this needs to be done
@@ -4112,10 +4122,16 @@ void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
 
 void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
     replyFlagNames docFlagNames[] = {
-        {CMD_KEY_WRITE,              "write"},
-        {CMD_KEY_READ,               "read"},
-        {CMD_KEY_SHARD_CHANNEL,      "shard_channel"},
-        {CMD_KEY_INCOMPLETE,         "incomplete"},
+        {CMD_KEY_RO,              "RO"},
+        {CMD_KEY_RW,              "RW"},
+        {CMD_KEY_OW,              "OW"},
+        {CMD_KEY_RM,              "RM"},
+        {CMD_KEY_ACCESS,          "access"},
+        {CMD_KEY_UPDATE,          "update"},
+        {CMD_KEY_INSERT,          "insert"},
+        {CMD_KEY_DELETE,          "delete"},
+        {CMD_KEY_CHANNEL,         "channel"},
+        {CMD_KEY_INCOMPLETE,      "incomplete"},
         {0,NULL}
     };
     addReplyCommandFlags(c, flags, docFlagNames);
@@ -4791,6 +4807,32 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
         }
         if (c->subcommands_dict) {
             info = genRedisInfoStringCommandStats(info, c->subcommands_dict);
+        }
+    }
+    dictReleaseIterator(di);
+
+    return info;
+}
+
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
+    di = dictGetSafeIterator(commands);
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        c = (struct redisCommand *) dictGetVal(de);
+        if (c->latency_histogram) {
+            sds cmdnamesds = getFullCommandName(c);
+
+            info = fillPercentileDistributionLatencies(info,
+                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe),
+                c->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+            sdsfree(cmdnamesds);
+        }
+        if (c->subcommands_dict) {
+            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
         }
     }
     dictReleaseIterator(di);
@@ -5508,19 +5550,7 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
-            struct redisCommand *c;
-            dictEntry *de;
-            dictIterator *di;
-            di = dictGetSafeIterator(server.commands);
-            while((de = dictNext(di)) != NULL) {
-                char *tmpsafe;
-                c = (struct redisCommand *) dictGetVal(de);
-                if (!c->latency_histogram)
-                    continue;
-                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
-                if (tmpsafe != NULL) zfree(tmpsafe);
-            }
-            dictReleaseIterator(di);
+            info = genRedisInfoStringLatencyStats(info, server.commands);
         }
     }
 
