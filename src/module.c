@@ -846,7 +846,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
         else if (!strcasecmp(t,"INSERT")) flags |= CMD_KEY_INSERT;
         else if (!strcasecmp(t,"UPDATE")) flags |= CMD_KEY_UPDATE;
         else if (!strcasecmp(t,"DELETE")) flags |= CMD_KEY_DELETE;
-        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_CHANNEL;
+        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_SHARD_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
     }
