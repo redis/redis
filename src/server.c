@@ -2546,7 +2546,7 @@ void InitServerLast() {
  *
  * If this functions fails it means that the legacy (first,last,step)
  * spec used by COMMAND will show 0,0,0. This is not a dire situation
- * because anyway the legacy (first,last,step) spec is to be dperecated
+ * because anyway the legacy (first,last,step) spec is to be deprecated
  * and one should use the new key specs scheme.
  */
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
@@ -2597,6 +2597,10 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     c->legacy_range_key_spec.fk.range.limit = 0;
 }
 
+sds catSubCommandFullname(const char *parent_name, const char *sub_name) {
+    return sdscatfmt(sdsempty(), "%s|%s", parent_name, sub_name);
+}
+
 void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand) {
     if (!parent->subcommands_dict)
         parent->subcommands_dict = dictCreate(&commandTableDictType);
@@ -2609,7 +2613,7 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 
 /* Set implicit ACl categories (see comment above the definition of
  * struct redisCommand). */
-void setImplictACLCategories(struct redisCommand *c) {
+void setImplicitACLCategories(struct redisCommand *c) {
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
     if (c->flags & CMD_READONLY)
@@ -2639,7 +2643,7 @@ int populateArgsStructure(struct redisCommandArg *args) {
     return count;
 }
 
-/* Recursively populate the command stracture. */
+/* Recursively populate the command structure. */
 void populateCommandStructure(struct redisCommand *c) {
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -2678,9 +2682,9 @@ void populateCommandStructure(struct redisCommand *c) {
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            setImplictACLCategories(sub);
+            setImplicitACLCategories(sub);
             populateCommandStructure(sub);
-            sub->fullname = sdscatfmt(sdsempty(), "%s|%s", c->fullname, sub->fullname);
+            sub->fullname = catSubCommandFullname(c->fullname, sub->fullname);
             commandAddSubcommand(c,sub);
         }
     }
@@ -2701,7 +2705,7 @@ void populateCommandTable(void) {
 
         int retval1, retval2;
 
-        setImplictACLCategories(c);
+        setImplicitACLCategories(c);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
@@ -2799,11 +2803,16 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
-struct redisCommand *lookupSubCommandByCStringLogic(dict *commands, const char *parent, const char *sub) {
-    sds fullname = sdscatfmt(sdsempty(), "%s|%s", parent, sub);
-    struct redisCommand *sub_cmd = dictFetchValue(commands, fullname);
+struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, const char *fullname) {
+    struct redisCommand *sub_command = dictFetchValue(container->subcommands_dict, fullname);
+    return sub_command;
+}
+
+struct redisCommand *lookupSubcommand(struct redisCommand *container, const char *sub_name) {
+    sds fullname = catSubCommandFullname(container->fullname, sub_name);
+    struct redisCommand *sub_command = lookupSubcommandByFullname(container, fullname);
     sdsfree(fullname);
-    return sub_cmd;
+    return sub_command;
 }
 
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
@@ -2814,7 +2823,7 @@ struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
         return base_cmd;
     } else {
         /* Note: Currently we support just one level of subcommands */
-        return lookupSubCommandByCStringLogic(base_cmd->subcommands_dict, argv[0]->ptr, argv[1]->ptr);
+        return lookupSubcommand(base_cmd, argv[1]->ptr);
     }
 }
 
@@ -4733,14 +4742,6 @@ sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, st
         }
     info = sdscatprintf(info,"\r\n");
     return info;
-}
-
-sds getFullCommandName(struct redisCommand *cmd) {
-    if (!cmd->parent) {
-        return sdsnew(cmd->fullname);
-    } else {
-        return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->fullname,cmd->fullname);
-    }
 }
 
 const char *replstateToString(int replstate) {
