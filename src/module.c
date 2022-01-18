@@ -5816,7 +5816,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
  *     EndSequence();
  *
  */
-void RM_DigestAddStringBuffer(RedisModuleDigest *md, unsigned char *ele, size_t len) {
+void RM_DigestAddStringBuffer(RedisModuleDigest *md, const char *ele, size_t len) {
     mixDigest(md->o,ele,len);
 }
 
@@ -6985,7 +6985,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
  * The function returns REDISMODULE_OK if the message was successfully sent,
  * otherwise if the node is not connected or such node ID does not map to any
  * known cluster node, REDISMODULE_ERR is returned. */
-int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len) {
+int RM_SendClusterMessage(RedisModuleCtx *ctx, const char *target_id, uint8_t type, const char *msg, uint32_t len) {
     if (!server.cluster_enabled) return REDISMODULE_ERR;
     uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
     if (clusterSendModuleMessageToTarget(target_id,module_id,type,msg,len) == C_OK)
@@ -8112,7 +8112,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
  * be prefixed by `<modulename>_` and must only include A-Z,a-z,0-9.
  * NULL or empty string indicates the default section (only `<modulename>`) is used.
  * When return value is REDISMODULE_ERR, the section should and will be skipped. */
-int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
+int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
     sds full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0)
         full_name = sdscatfmt(full_name, "_%s", name);
@@ -8143,7 +8143,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
 /* Starts a dict field, similar to the ones in INFO KEYSPACE. Use normal
  * RedisModule_InfoAddField* functions to add the items to this field, and
  * terminate with RedisModule_InfoEndDictField. */
-int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, char *name) {
+int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, const char *name) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
@@ -8175,7 +8175,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx) {
 /* Used by RedisModuleInfoFunc to add info fields.
  * Each field will be automatically prefixed by `<modulename>_`.
  * Field names or values must not include `\r\n` or `:`. */
-int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleString *value) {
+int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, const char *field, RedisModuleString *value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8194,7 +8194,7 @@ int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleStrin
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
+int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const char *value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8213,7 +8213,7 @@ int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, char *field, double value) {
+int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, const char *field, double value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8232,7 +8232,7 @@ int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, char *field, double value) {
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long value) {
+int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, const char *field, long long value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8251,7 +8251,7 @@ int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long valu
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, char *field, unsigned long long value) {
+int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, const char *field, unsigned long long value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
