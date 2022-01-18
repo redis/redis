@@ -263,7 +263,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN command-test EVAL "" 3 rw rw]
 
         # Also a syntax error, but we do try to find keys so this will fail
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 2147483647 rw read]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN command-test EVAL "" 3 rw read]
 
         # Test GEORADIUS which uses the last type of keyspec, keyword
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M STOREDIST write]
