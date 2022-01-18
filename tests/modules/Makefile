@@ -50,7 +50,8 @@ TEST_MODULES = \
     aclcheck.so \
     list.so \
     subcommands.so \
-    reply.so
+    reply.so \
+    eventloop.so
 
 .PHONY: all
 

@@ -128,4 +128,9 @@ start_server {tags {"modules"}} {
         set info [r info commandstats]
         assert_match {*cmdstat_test.weird_cmd:calls=1*} $info
     }
+
+    test {test monotonic time} {
+        set x [r test.monotonic_time]
+        assert { [r test.monotonic_time] >= $x }
+    }
 }

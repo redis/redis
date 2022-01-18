@@ -1559,7 +1559,7 @@ int keyIsExpired(redisDb *db, robj *key) {
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
     if (server.script_caller) {
-        now = evalTimeSnapshot();
+        now = scriptTimeSnapshot();
     }
     /* If we are in the middle of a command execution, we still want to use
      * a reference time that does not change: in that case we just use the
@@ -2058,7 +2058,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 
     keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
     keys[0].pos = 1; /* <sort-key> is always present. */
-    keys[0].flags = CMD_KEY_READ;
+    keys[0].flags = CMD_KEY_ACCESS;
     return 1;
 }
 
@@ -2079,7 +2079,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     num = 0;
     keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
     keys[num].pos = 1; /* <sort-key> is always present. */
-    keys[num++].flags = CMD_KEY_READ;
+    keys[num++].flags = CMD_KEY_ACCESS;
 
     /* Search for STORE option. By default we consider options to don't
      * have arguments, so if we find an unknown option name we scan the
@@ -2106,7 +2106,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                  * ones are provided. This is same behavior as SORT. */
                 found_store = 1;
                 keys[num].pos = i+1; /* <store-key> */
-                keys[num].flags = CMD_KEY_WRITE;
+                keys[num].flags = CMD_KEY_UPDATE;
                 break;
             }
         }
@@ -2141,7 +2141,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     keys = getKeysPrepareResult(result, num);
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
-        keys[num].flags = CMD_KEY_READ | CMD_KEY_WRITE;
+        keys[num].flags = CMD_KEY_ACCESS | CMD_KEY_DELETE;
     } 
     result->numkeys = num;
     return num;

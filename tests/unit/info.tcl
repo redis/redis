@@ -75,6 +75,16 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
+        test {latencystats: subcommands} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            r CONFIG SET latency-tracking-info-percentiles "50.0 99.0 99.9"
+            r client id
+
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec client\\|id]
+            assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec config\\|set]
+        }
+
         test {latencystats: measure latency} {
             r config resetstat
             r CONFIG SET latency-tracking yes

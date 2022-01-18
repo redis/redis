@@ -168,6 +168,10 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<3)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<4)
 #define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<5)
+#define REDISMODULE_CTX_TEMP_CLIENT (1<<6) /* Return client object to the pool
+                                              when the context is destroyed */
+#define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
+                                              context is destroyed */
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -248,6 +252,8 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
+    client *thread_safe_ctx_client; /* Fake client to be used for thread safe
+                                       context so that no lock is required. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
@@ -260,6 +266,16 @@ typedef struct RedisModuleBlockedClient {
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
+
+/* Pool for temporary client objects. Creating and destroying a client object is
+ * costly. We manage a pool of clients to avoid this cost. Pool expands when
+ * more clients are needed and shrinks when unused. Please see modulesCron()
+ * for more details. */
+static client **moduleTempClients;
+static size_t moduleTempClientCap = 0;
+static size_t moduleTempClientCount = 0;    /* Client count in pool */
+static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
+                                               the last cron. */
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
@@ -285,12 +301,6 @@ typedef struct RedisModuleKeyspaceSubscriber {
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
-
-/* Static client recycled for when we need to provide a context with a client
- * in a situation where there is no client to provide. This avoids allocating
- * a new client per round. For instance this is used in the keyspace
- * notifications, timers and cluster messages callbacks. */
-static client *moduleFreeContextReusedClient;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
@@ -359,8 +369,6 @@ typedef struct RedisModuleEventListener {
 } RedisModuleEventListener;
 
 list *RedisModule_EventListeners; /* Global list of all the active events. */
-unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
-                                          callbacks right now. */
 
 /* Data structures related to the redis module users */
 
@@ -497,6 +505,36 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
+client *moduleAllocTempClient() {
+    client *c = NULL;
+
+    if (moduleTempClientCount > 0) {
+        c = moduleTempClients[--moduleTempClientCount];
+        if (moduleTempClientCount < moduleTempClientMinCount)
+            moduleTempClientMinCount = moduleTempClientCount;
+    } else {
+        c = createClient(NULL);
+        c->flags |= CLIENT_MODULE;
+        c->user = NULL; /* Root user */
+    }
+    return c;
+}
+
+void moduleReleaseTempClient(client *c) {
+    if (moduleTempClientCount == moduleTempClientCap) {
+        moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
+        moduleTempClients = zrealloc(moduleTempClients, sizeof(c)*moduleTempClientCap);
+    }
+    clearClientConnectionState(c);
+    listEmpty(c->reply);
+    c->reply_bytes = 0;
+    resetClient(c);
+    c->bufpos = 0;
+    c->flags = CLIENT_MODULE;
+    c->user = NULL; /* Root user */
+    moduleTempClients[moduleTempClientCount++] = c;
+}
+
 /* Create an empty key of the specified type. `key` must point to a key object
  * opened for writing where the `.value` member is set to NULL because the
  * key was found to be non existing.
@@ -627,7 +665,14 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
-    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
+    /* If this context has a temp client, we return it back to the pool.
+     * If this context created a new client (e.g detached context), we free it.
+     * If the client is assigned manually, e.g ctx->client = someClientInstance,
+     * none of these flags will be set and we do not attempt to free it. */
+    if (ctx->flags & REDISMODULE_CTX_TEMP_CLIENT)
+        moduleReleaseTempClient(ctx->client);
+    else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
+        freeClient(ctx->client);
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -641,6 +686,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
+    if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
+        out_ctx->client = moduleAllocTempClient();
+    else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
+        out_ctx->client = createClient(NULL);
+
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
     }
@@ -788,9 +838,15 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     sds *tokens = sdssplitlen(s,strlen(s)," ",1,&count);
     for (j = 0; j < count; j++) {
         char *t = tokens[j];
-        if (!strcasecmp(t,"write")) flags |= CMD_KEY_WRITE;
-        else if (!strcasecmp(t,"read")) flags |= CMD_KEY_READ;
-        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_SHARD_CHANNEL;
+        if (!strcasecmp(t,"RO")) flags |= CMD_KEY_RO;
+        else if (!strcasecmp(t,"RW")) flags |= CMD_KEY_RW;
+        else if (!strcasecmp(t,"OW")) flags |= CMD_KEY_OW;
+        else if (!strcasecmp(t,"RM")) flags |= CMD_KEY_RM;
+        else if (!strcasecmp(t,"ACCESS")) flags |= CMD_KEY_ACCESS;
+        else if (!strcasecmp(t,"INSERT")) flags |= CMD_KEY_INSERT;
+        else if (!strcasecmp(t,"UPDATE")) flags |= CMD_KEY_UPDATE;
+        else if (!strcasecmp(t,"DELETE")) flags |= CMD_KEY_DELETE;
+        else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
     }
@@ -1274,6 +1330,11 @@ int RM_IsModuleNameBusy(const char *name) {
 /* Return the current UNIX time in milliseconds. */
 long long RM_Milliseconds(void) {
     return mstime();
+}
+
+/* Return counter of micro-seconds relative to an arbitrary point in time. */
+uint64_t RM_MonotonicMicroseconds(void) {
+    return getMonotonicUs();
 }
 
 /* Mark a point in time that will be used as the start time to calculate
@@ -4856,21 +4917,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
 
-    /* Setup our fake client for command execution. */
-    if (server.module_client == NULL) {
-        /* This is the first RM_Call() ever. Create reusable client. */
-        c = server.module_client = createClient(NULL);
-    } else if (server.module_client->argv == NULL) {
-        /* The reusable module client is not busy with a command. Use it. */
-        c = server.module_client;
-    } else {
-        /* The reusable module client is busy. (It is probably used in a
-         * recursive call to this module.) */
-        c = createClient(NULL);
-    }
-
-    c->user = NULL; /* Root user. */
-    c->flags = CLIENT_MODULE;
+    c = moduleAllocTempClient();
 
     /* We do not want to allow block, the module do not expect it */
     c->flags |= CLIENT_DENY_BLOCKING;
@@ -4994,18 +5041,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
 cleanup:
     if (ctx->module) ctx->module->in_call--;
-    if (c == server.module_client) {
-        /* reset shared client so it can be reused */
-        discardTransaction(c);
-        pubsubUnsubscribeAllChannels(c,0);
-        pubsubUnsubscribeAllPatterns(c,0);
-        resetClient(c); /* frees the contents of argv */
-        zfree(c->argv);
-        c->argv = NULL;
-        c->resp = 2;
-    } else {
-        freeClient(c); /* temporary client */
-    }
+    moduleReleaseTempClient(c);
     return reply;
 }
 
@@ -5786,7 +5822,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
  *     EndSequence();
  *
  */
-void RM_DigestAddStringBuffer(RedisModuleDigest *md, unsigned char *ele, size_t len) {
+void RM_DigestAddStringBuffer(RedisModuleDigest *md, const char *ele, size_t len) {
     mixDigest(md->o,ele,len);
 }
 
@@ -6063,17 +6099,6 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * https://redis.io/topics/modules-blocking-ops.
  * -------------------------------------------------------------------------- */
 
-/* Readable handler for the awake pipe. We do nothing here, the awake bytes
- * will be actually read in a more appropriate place in the
- * moduleHandleBlockedClients() function that is where clients are actually
- * served. */
-void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
-    UNUSED(el);
-    UNUSED(fd);
-    UNUSED(mask);
-    UNUSED(privdata);
-}
-
 /* This is called from blocked.c in order to unblock a client: may be called
  * for multiple reasons while the client is in the middle of being blocked
  * because the client is terminated, but is also called for cleanup when a
@@ -6164,10 +6189,10 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
-    bc->reply_client = createClient(NULL);
+    bc->reply_client = moduleAllocTempClient();
+    bc->thread_safe_ctx_client = moduleAllocTempClient();
     if (bc->client)
         bc->reply_client->resp = bc->client->resp;
-    bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
     bc->unblocked = 0;
@@ -6337,10 +6362,12 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     if (!bc->blocked_on_keys) bc->privdata = privdata;
     bc->unblocked = 1;
-    listAddNodeTail(moduleUnblockedClients,bc);
-    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
-        /* Ignore the error, this is best-effort. */
+    if (listLength(moduleUnblockedClients) == 0) {
+        if (write(server.module_pipe[1],"A",1) != 1) {
+            /* Ignore the error, this is best-effort. */
+        }
     }
+    listAddNodeTail(moduleUnblockedClients,bc);
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
@@ -6431,10 +6458,6 @@ void moduleHandleBlockedClients(void) {
     RedisModuleBlockedClient *bc;
 
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    /* Here we unblock all the pending clients blocked in modules operations
-     * so we can read every pending "awake byte" in the pipe. */
-    char buf[1];
-    while (read(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
@@ -6488,7 +6511,8 @@ void moduleHandleBlockedClients(void) {
          * We need to glue such replies to the client output buffer and
          * free the temporary client we just used for the replies. */
         if (c) AddReplyFromClient(c, bc->reply_client);
-        freeClient(bc->reply_client);
+        moduleReleaseTempClient(bc->reply_client);
+        moduleReleaseTempClient(bc->thread_safe_ctx_client);
 
         if (c != NULL) {
             /* Before unblocking the client, set the disconnect callback
@@ -6623,15 +6647,27 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModule *module = bc ? bc->module : NULL;
-    moduleCreateContext(ctx, module, REDISMODULE_CTX_THREAD_SAFE);
+    int flags = REDISMODULE_CTX_THREAD_SAFE;
 
+    /* Creating a new client object is costly. To avoid that, we have an
+     * internal pool of client objects. In blockClient(), a client object is
+     * assigned to bc->thread_safe_ctx_client to be used for the thread safe
+     * context.
+     * For detached thread safe contexts, we create a new client object.
+     * Otherwise, as this function can be called from different threads, we
+     * would need to synchronize access to internal pool of client objects.
+     * Assuming creating detached context is rare and not that performance
+     * critical, we avoid synchronizing access to the client pool by creating
+     * a new client */
+    if (!bc) flags |= REDISMODULE_CTX_NEW_CLIENT;
+    moduleCreateContext(ctx, module, flags);
     /* Even when the context is associated with a blocked client, we can't
-     * access it safely from another thread, so we create a fake client here
+     * access it safely from another thread, so we use a fake client here
      * in order to keep things like the currently selected database and similar
      * things. */
-    ctx->client = createClient(NULL);
     if (bc) {
         ctx->blocked_client = bc;
+        ctx->client = bc->thread_safe_ctx_client;
         selectDb(ctx->client,bc->dbid);
         if (bc->client) {
             ctx->client->id = bc->client->id;
@@ -6648,8 +6684,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
  * a long term, for purposes such as logging. */
 RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     RedisModuleCtx *new_ctx = zmalloc(sizeof(*new_ctx));
-    moduleCreateContext(new_ctx, ctx->module, REDISMODULE_CTX_THREAD_SAFE);
-    new_ctx->client = createClient(NULL);
+    /* We create a new client object for the detached context.
+     * See RM_GetThreadSafeContext() for more information */
+    moduleCreateContext(new_ctx, ctx->module,
+                        REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_NEW_CLIENT);
     return new_ctx;
 }
 
@@ -6828,12 +6866,11 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
 
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
-        /* Only notify subscribers on events matching they registration,
+        /* Only notify subscribers on events matching the registration,
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) && sub->active == 0) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_NONE);
-            ctx.client = moduleFreeContextReusedClient;
+            moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
 
             /* mark the handler as active to avoid reentrant loops.
@@ -6895,8 +6932,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
     while(r) {
         if (r->module_id == module_id) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, r->module, REDISMODULE_CTX_NONE);
-            ctx.client = moduleFreeContextReusedClient;
+            moduleCreateContext(&ctx, r->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, 0);
             r->callback(&ctx,sender_id,type,payload,len);
             moduleFreeContext(&ctx);
@@ -6955,7 +6991,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
  * The function returns REDISMODULE_OK if the message was successfully sent,
  * otherwise if the node is not connected or such node ID does not map to any
  * known cluster node, REDISMODULE_ERR is returned. */
-int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len) {
+int RM_SendClusterMessage(RedisModuleCtx *ctx, const char *target_id, uint8_t type, const char *msg, uint32_t len) {
     if (!server.cluster_enabled) return REDISMODULE_ERR;
     uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
     if (clusterSendModuleMessageToTarget(target_id,module_id,type,msg,len) == C_OK)
@@ -7167,8 +7203,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
         if (now >= expiretime) {
             RedisModuleTimer *timer = ri.data;
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, timer->module, REDISMODULE_CTX_NONE);
-            ctx.client = moduleFreeContextReusedClient;
+            moduleCreateContext(&ctx,timer->module,REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, timer->dbid);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
@@ -7285,6 +7320,214 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * ## Modules EventLoop API
+ * --------------------------------------------------------------------------*/
+
+typedef struct EventLoopData {
+    RedisModuleEventLoopFunc rFunc;
+    RedisModuleEventLoopFunc wFunc;
+    void *user_data;
+} EventLoopData;
+
+typedef struct EventLoopOneShot {
+    RedisModuleEventLoopOneShotFunc func;
+    void *user_data;
+} EventLoopOneShot;
+
+list *moduleEventLoopOneShots;
+static pthread_mutex_t moduleEventLoopMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int eventLoopToAeMask(int mask) {
+    int aeMask = 0;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        aeMask |= AE_READABLE;
+    if (mask & REDISMODULE_EVENTLOOP_WRITABLE)
+        aeMask |= AE_WRITABLE;
+    return aeMask;
+}
+
+static int eventLoopFromAeMask(int ae_mask) {
+    int mask = 0;
+    if (ae_mask & AE_READABLE)
+        mask |= REDISMODULE_EVENTLOOP_READABLE;
+    if (ae_mask & AE_WRITABLE)
+        mask |= REDISMODULE_EVENTLOOP_WRITABLE;
+    return mask;
+}
+
+static void eventLoopCbReadable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
+    UNUSED(ae);
+    EventLoopData *data = user_data;
+    data->rFunc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+}
+
+static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data, int ae_mask) {
+    UNUSED(ae);
+    EventLoopData *data = user_data;
+    data->wFunc(fd, data->user_data, eventLoopFromAeMask(ae_mask));
+}
+
+/* Add a pipe / socket event to the event loop.
+ *
+ * * `mask` must be one of the following values:
+ *
+ *     * `REDISMODULE_EVENTLOOP_READABLE`
+ *     * `REDISMODULE_EVENTLOOP_WRITABLE`
+ *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
+ * * EINVAL: `callback` is NULL or `mask` value is invalid.
+ *
+ * `errno` might take other values in case of an internal error.
+ *
+ * Example:
+ *
+ *     void onReadable(int fd, void *user_data, int mask) {
+ *         char buf[32];
+ *         int bytes = read(fd,buf,sizeof(buf));
+ *         printf("Read %d bytes \n", bytes);
+ *     }
+ *     RM_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
+ */
+int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopFunc func, void *user_data) {
+    if (fd < 0 || fd >= aeGetSetSize(server.el)) {
+        errno = ERANGE;
+        return REDISMODULE_ERR;
+    }
+
+    if (!func || mask & ~(REDISMODULE_EVENTLOOP_READABLE |
+                          REDISMODULE_EVENTLOOP_WRITABLE)) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* We are going to register stub callbacks to 'ae' for two reasons:
+     *
+     * - "ae" callback signature is different from RedisModuleEventLoopCallback,
+     *   that will be handled it in our stub callbacks.
+     * - We need to remap 'mask' value to provide binary compatibility.
+     *
+     * For the stub callbacks, saving user 'callback' and 'user_data' in an
+     * EventLoopData object and passing it to ae, later, we'll extract
+     * 'callback' and 'user_data' from that.
+     */
+    EventLoopData *data = aeGetFileClientData(server.el, fd);
+    if (!data)
+        data = zcalloc(sizeof(*data));
+
+    aeFileProc *aeProc;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        aeProc = eventLoopCbReadable;
+    else
+        aeProc = eventLoopCbWritable;
+
+    int aeMask = eventLoopToAeMask(mask);
+
+    if (aeCreateFileEvent(server.el, fd, aeMask, aeProc, data) != AE_OK) {
+        if (aeGetFileEvents(server.el, fd) == AE_NONE)
+            zfree(data);
+        return REDISMODULE_ERR;
+    }
+
+    data->user_data = user_data;
+    if (mask & REDISMODULE_EVENTLOOP_READABLE)
+        data->rFunc = func;
+    if (mask & REDISMODULE_EVENTLOOP_WRITABLE)
+        data->wFunc = func;
+
+    errno = 0;
+    return REDISMODULE_OK;
+}
+
+/* Delete a pipe / socket event from the event loop.
+ *
+ * * `mask` must be one of the following values:
+ *
+ *     * `REDISMODULE_EVENTLOOP_READABLE`
+ *     * `REDISMODULE_EVENTLOOP_WRITABLE`
+ *     * `REDISMODULE_EVENTLOOP_READABLE | REDISMODULE_EVENTLOOP_WRITABLE`
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * ERANGE: `fd` is negative or higher than `maxclients` Redis config.
+ * * EINVAL: `mask` value is invalid.
+ */
+int RM_EventLoopDel(int fd, int mask) {
+    if (fd < 0 || fd >= aeGetSetSize(server.el)) {
+        errno = ERANGE;
+        return REDISMODULE_ERR;
+    }
+
+    if (mask & ~(REDISMODULE_EVENTLOOP_READABLE |
+                 REDISMODULE_EVENTLOOP_WRITABLE)) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* After deleting the event, if fd does not have any registered event
+     * anymore, we can free the EventLoopData object. */
+    EventLoopData *data = aeGetFileClientData(server.el, fd);
+    aeDeleteFileEvent(server.el, fd, eventLoopToAeMask(mask));
+    if (aeGetFileEvents(server.el, fd) == AE_NONE)
+        zfree(data);
+
+    errno = 0;
+    return REDISMODULE_OK;
+}
+
+/* This function can be called from other threads to trigger callback on Redis
+ * main thread. On success REDISMODULE_OK is returned. If `func` is NULL
+ * REDISMODULE_ERR is returned and errno is set to EINVAL.
+ */
+int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data) {
+    if (!func) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    EventLoopOneShot *oneshot = zmalloc(sizeof(*oneshot));
+    oneshot->func = func;
+    oneshot->user_data = user_data;
+
+    pthread_mutex_lock(&moduleEventLoopMutex);
+    if (!moduleEventLoopOneShots) moduleEventLoopOneShots = listCreate();
+    listAddNodeTail(moduleEventLoopOneShots, oneshot);
+    pthread_mutex_unlock(&moduleEventLoopMutex);
+
+    if (write(server.module_pipe[1],"A",1) != 1) {
+        /* Pipe is non-blocking, write() may fail if it's full. */
+    }
+
+    errno = 0;
+    return REDISMODULE_OK;
+}
+
+/* This function will check the moduleEventLoopOneShots queue in order to
+ * call the callback for the registered oneshot events. */
+static void eventLoopHandleOneShotEvents() {
+    pthread_mutex_lock(&moduleEventLoopMutex);
+    if (moduleEventLoopOneShots) {
+        while (listLength(moduleEventLoopOneShots)) {
+            listNode *ln = listFirst(moduleEventLoopOneShots);
+            EventLoopOneShot *oneshot = ln->value;
+            listDelNode(moduleEventLoopOneShots, ln);
+            /* Unlock mutex before the callback. Another oneshot event can be
+             * added in the callback, it will need to lock the mutex. */
+            pthread_mutex_unlock(&moduleEventLoopMutex);
+            oneshot->func(oneshot->user_data);
+            zfree(oneshot);
+            /* Lock again for the next iteration */
+            pthread_mutex_lock(&moduleEventLoopMutex);
+        }
+    }
+    pthread_mutex_unlock(&moduleEventLoopMutex);
 }
 
 /* --------------------------------------------------------------------------
@@ -7474,8 +7717,8 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
  */
 int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int flags) {
     int acl_flags = 0;
-    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= CMD_KEY_READ;
-    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= CMD_KEY_WRITE;
+    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= ACL_READ_PERMISSION;
+    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= ACL_WRITE_PERMISSION;
     if (!acl_flags || ((flags & REDISMODULE_KEY_PERMISSION_ALL) != flags)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -7893,7 +8136,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
  * be prefixed by `<modulename>_` and must only include A-Z,a-z,0-9.
  * NULL or empty string indicates the default section (only `<modulename>`) is used.
  * When return value is REDISMODULE_ERR, the section should and will be skipped. */
-int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
+int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
     sds full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0)
         full_name = sdscatfmt(full_name, "_%s", name);
@@ -7924,7 +8167,7 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, char *name) {
 /* Starts a dict field, similar to the ones in INFO KEYSPACE. Use normal
  * RedisModule_InfoAddField* functions to add the items to this field, and
  * terminate with RedisModule_InfoEndDictField. */
-int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, char *name) {
+int RM_InfoBeginDictField(RedisModuleInfoCtx *ctx, const char *name) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
@@ -7956,7 +8199,7 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx) {
 /* Used by RedisModuleInfoFunc to add info fields.
  * Each field will be automatically prefixed by `<modulename>_`.
  * Field names or values must not include `\r\n` or `:`. */
-int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleString *value) {
+int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, const char *field, RedisModuleString *value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -7975,7 +8218,7 @@ int RM_InfoAddFieldString(RedisModuleInfoCtx *ctx, char *field, RedisModuleStrin
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
+int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const char *value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -7994,7 +8237,7 @@ int RM_InfoAddFieldCString(RedisModuleInfoCtx *ctx, char *field, char *value) {
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, char *field, double value) {
+int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, const char *field, double value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8013,7 +8256,7 @@ int RM_InfoAddFieldDouble(RedisModuleInfoCtx *ctx, char *field, double value) {
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long value) {
+int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, const char *field, long long value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8032,7 +8275,7 @@ int RM_InfoAddFieldLongLong(RedisModuleInfoCtx *ctx, char *field, long long valu
 }
 
 /* See RedisModule_InfoAddFieldString(). */
-int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, char *field, unsigned long long value) {
+int RM_InfoAddFieldULongLong(RedisModuleInfoCtx *ctx, const char *field, unsigned long long value) {
     if (!ctx->in_section)
         return REDISMODULE_ERR;
     if (ctx->in_dict_field) {
@@ -8941,6 +9184,29 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  * ## Server hooks implementation
  * -------------------------------------------------------------------------- */
 
+/* This must be synced with REDISMODULE_EVENT_*
+ * We use -1 (MAX_UINT64) to denote that this event doesn't have
+ * a data structure associated with it. We use MAX_UINT64 on purpose,
+ * in order to pass the check in RedisModule_SubscribeToServerEvent. */
+static uint64_t moduleEventVersions[] = {
+    REDISMODULE_REPLICATIONINFO_VERSION, /* REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED */
+    -1, /* REDISMODULE_EVENT_PERSISTENCE */
+    REDISMODULE_FLUSHINFO_VERSION, /* REDISMODULE_EVENT_FLUSHDB */
+    -1, /* REDISMODULE_EVENT_LOADING */
+    REDISMODULE_CLIENTINFO_VERSION, /* REDISMODULE_EVENT_CLIENT_CHANGE */
+    -1, /* REDISMODULE_EVENT_SHUTDOWN */
+    -1, /* REDISMODULE_EVENT_REPLICA_CHANGE */
+    -1, /* REDISMODULE_EVENT_MASTER_LINK_CHANGE */
+    REDISMODULE_CRON_LOOP_VERSION, /* REDISMODULE_EVENT_CRON_LOOP */
+    REDISMODULE_MODULE_CHANGE_VERSION, /* REDISMODULE_EVENT_MODULE_CHANGE */
+    REDISMODULE_LOADING_PROGRESS_VERSION, /* REDISMODULE_EVENT_LOADING_PROGRESS */
+    REDISMODULE_SWAPDBINFO_VERSION, /* REDISMODULE_EVENT_SWAPDB */
+    -1, /* REDISMODULE_EVENT_REPL_BACKUP */
+    -1, /* REDISMODULE_EVENT_FORK_CHILD */
+    -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
+    -1, /* REDISMODULE_EVENT_EVENTLOOP */
+};
+
 /* Register to be notified, via a callback, when the specified server event
  * happens. The callback is called with the event as argument, and an additional
  * argument which is a void pointer and should be cased to a specific type
@@ -9001,6 +9267,7 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START`
+ *     * `REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_ENDED`
  *     * `REDISMODULE_SUBEVENT_PERSISTENCE_FAILED`
  *
@@ -9189,6 +9456,15 @@ void ModuleForkDoneHandler(int exitcode, int bysignal) {
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_BORN`
  *     * `REDISMODULE_SUBEVENT_FORK_CHILD_DIED`
  *
+ * * RedisModuleEvent_EventLoop
+ *
+ *     Called on each event loop iteration, once just before the event loop goes
+ *     to sleep or just after it wakes up.
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP`
+ *     * `REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP`
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -9198,6 +9474,7 @@ int RM_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent event, Redis
     /* Protect in case of calls from contexts without a module reference. */
     if (ctx->module == NULL) return REDISMODULE_ERR;
     if (event.id >= _REDISMODULE_EVENT_NEXT) return REDISMODULE_ERR;
+    if (event.dataver > moduleEventVersions[event.id]) return REDISMODULE_ERR; /* Module compiled with a newer redismodule.h than we support */
 
     /* Search an event matching this module and event ID. */
     listIter li;
@@ -9263,6 +9540,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_NEXT;
     case REDISMODULE_EVENT_FORK_CHILD:
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
+    case REDISMODULE_EVENT_EVENTLOOP:
+        return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     default:
         break;
     }
@@ -9282,7 +9561,6 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
      * cheap if there are no registered modules. */
     if (listLength(RedisModule_EventListeners) == 0) return;
 
-    int real_client_used = 0;
     listIter li;
     listNode *ln;
     listRewind(RedisModule_EventListeners,&li);
@@ -9290,22 +9568,16 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
         RedisModuleEventListener *el = ln->value;
         if (el->event.id == eid) {
             RedisModuleCtx ctx;
-            moduleCreateContext(&ctx, el->module, REDISMODULE_CTX_NONE);
-
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
                 /* In the case of client changes, we're pushing the real client
                  * so the event handler can mutate it if needed. For example,
                  * to change its authentication state in a way that does not
                  * depend on specific commands executed later.
                  */
+                moduleCreateContext(&ctx,el->module,REDISMODULE_CTX_NONE);
                 ctx.client = (client *) data;
-                real_client_used = 1;
-            } else if (ModulesInHooks == 0) {
-                ctx.client = moduleFreeContextReusedClient;
             } else {
-                ctx.client = createClient(NULL);
-                ctx.client->flags |= CLIENT_MODULE;
-                ctx.client->user = NULL; /* Root user. */
+                moduleCreateContext(&ctx,el->module,REDISMODULE_CTX_TEMP_CLIENT);
             }
 
             void *moduledata = NULL;
@@ -9320,11 +9592,10 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
 
             /* Event specific context and data pointer setup. */
             if (eid == REDISMODULE_EVENT_CLIENT_CHANGE) {
-                modulePopulateClientInfoStructure(&civ1,data,
-                                                  el->event.dataver);
+                serverAssert(modulePopulateClientInfoStructure(&civ1,data, el->event.dataver) == REDISMODULE_OK);
                 moduledata = &civ1;
             } else if (eid == REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED) {
-                modulePopulateReplicationInfoStructure(&riv1,el->event.dataver);
+                serverAssert(modulePopulateReplicationInfoStructure(&riv1,el->event.dataver) == REDISMODULE_OK);
                 moduledata = &riv1;
             } else if (eid == REDISMODULE_EVENT_FLUSHDB) {
                 moduledata = data;
@@ -9333,8 +9604,10 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                     selectDb(ctx.client, fi->dbnum);
             } else if (eid == REDISMODULE_EVENT_MODULE_CHANGE) {
                 RedisModule *m = data;
-                if (m == el->module)
+                if (m == el->module) {
+                    moduleFreeContext(&ctx);
                     continue;
+                }
                 mcv1.version = REDISMODULE_MODULE_CHANGE_VERSION;
                 mcv1.module_name = m->name;
                 mcv1.module_version = m->ver;
@@ -9347,13 +9620,10 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             }
 
-            ModulesInHooks++;
             el->module->in_hook++;
             el->callback(&ctx,el->event,subid,moduledata);
             el->module->in_hook--;
-            ModulesInHooks--;
 
-            if (ModulesInHooks != 0 && !real_client_used) freeClient(ctx.client);
             moduleFreeContext(&ctx);
         }
     }
@@ -9484,14 +9754,11 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 /* Global initialization at Redis startup. */
 void moduleRegisterCoreAPI(void);
 
-/* Some steps in module initialization need to be done last after server
- * initialization.
- * For example, selectDb() in createClient() requires that server.db has
+/* Currently, this function is just a placeholder for the module system
+ * initialization steps that need to be run after server initialization.
+ * A previous issue, selectDb() in createClient() requires that server.db has
  * been initialized, see #7323. */
 void moduleInitModulesSystemLast(void) {
-    moduleFreeContextReusedClient = createClient(NULL);
-    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
-    moduleFreeContextReusedClient->user = NULL; /* root user. */
 }
 
 void moduleInitModulesSystem(void) {
@@ -9505,9 +9772,6 @@ void moduleInitModulesSystem(void) {
     /* Set up filter list */
     moduleCommandFilters = listCreate();
 
-    /* Reusable client for RM_Call() is created on first use */
-    server.module_client = NULL;
-
     moduleRegisterCoreAPI();
 
     /* Create a pipe for module threads to be able to wake up the redis main thread.
@@ -9515,10 +9779,9 @@ void moduleInitModulesSystem(void) {
      * and we do not want to block not in the read nor in the write half.
      * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
      * sentinels or redis servers. */
-    if (anetPipe(server.module_blocked_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
+    if (anetPipe(server.module_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
         serverLog(LL_WARNING,
-            "Can't create the pipe for module blocking commands: %s",
-            strerror(errno));
+            "Can't create the pipe for module threads: %s", strerror(errno));
         exit(1);
     }
 
@@ -9528,9 +9791,39 @@ void moduleInitModulesSystem(void) {
     /* Setup the event listeners data structures. */
     RedisModule_EventListeners = listCreate();
 
+    /* Making sure moduleEventVersions is synced with the number of events. */
+    serverAssert(sizeof(moduleEventVersions)/sizeof(moduleEventVersions[0]) == _REDISMODULE_EVENT_NEXT);
+
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */
     pthread_mutex_lock(&moduleGIL);
+}
+
+void modulesCron(void) {
+    /* Check number of temporary clients in the pool and free the unused ones
+     * since the last cron. moduleTempClientMinCount tracks minimum count of
+     * clients in the pool since the last cron. This is the number of clients
+     * that we didn't use for the last cron period. */
+
+    /* Limit the max client count to be freed at once to avoid latency spikes.*/
+    int iteration = 50;
+    /* We are freeing clients if we have more than 8 unused clients. Keeping
+     * small amount of clients to avoid client allocation costs if temporary
+     * clients are required after some idle period. */
+    const unsigned int min_client = 8;
+    while (iteration > 0 && moduleTempClientCount > 0 && moduleTempClientMinCount > min_client) {
+        client *c = moduleTempClients[--moduleTempClientCount];
+        freeClient(c);
+        iteration--;
+        moduleTempClientMinCount--;
+    }
+    moduleTempClientMinCount = moduleTempClientCount;
+
+    /* Shrink moduleTempClients array itself if it is wasting some space */
+    if (moduleTempClientCap > 32 && moduleTempClientCap > moduleTempClientCount * 4) {
+        moduleTempClientCap /= 4;
+        moduleTempClients = zrealloc(moduleTempClients,sizeof(client*)*moduleTempClientCap);
+    }
 }
 
 void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {
@@ -9625,10 +9918,6 @@ void moduleUnregisterCommands(struct RedisModule *module) {
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
     int (*onload)(void *, void **, int);
     void *handle;
-    RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_NONE); /* We pass NULL since we don't have a module yet. */
-    ctx.client = moduleFreeContextReusedClient;
-    selectDb(ctx.client, 0);
 
     struct stat st;
     if (stat(path, &st) == 0)
@@ -9652,6 +9941,9 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
             "symbol. Module not loaded.",path);
         return C_ERR;
     }
+    RedisModuleCtx ctx;
+    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
+    selectDb(ctx.client, 0);
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
@@ -9659,6 +9951,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
             moduleUnregisterUsedAPI(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
+        moduleFreeContext(&ctx);
         dlclose(handle);
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
@@ -9719,8 +10012,7 @@ int moduleUnload(sds name) {
     onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
     if (onunload) {
         RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, module, REDISMODULE_CTX_NONE);
-        ctx.client = moduleFreeContextReusedClient;
+        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
         int unload_status = onunload((void*)&ctx);
         moduleFreeContext(&ctx);
 
@@ -9761,6 +10053,19 @@ int moduleUnload(sds name) {
     moduleFreeModuleStructure(module);
 
     return C_OK;
+}
+
+void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    char buf[128];
+    while (read(fd, buf, sizeof(buf)) == sizeof(buf));
+
+    /* Handle event loop events if pipe was written from event loop API */
+    eventLoopHandleOneShotEvents();
 }
 
 /* Helper function for the MODULE and HELLO command: send the list of the
@@ -10532,6 +10837,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientPrivateData);
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
+    REGISTER_API(MonotonicMicroseconds);
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);
@@ -10661,4 +10967,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
     REGISTER_API(SetCommandKeySpecFindKeysRange);
     REGISTER_API(SetCommandKeySpecFindKeysKeynum);
+    REGISTER_API(EventLoopAdd);
+    REGISTER_API(EventLoopDel);
+    REGISTER_API(EventLoopAddOneShot);
 }

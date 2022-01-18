@@ -166,6 +166,16 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     # Have a replica meet the isolated node
     R 3 cluster meet 127.0.0.1 [get_instance_attrib redis 6 port]
 
+    # Wait for the isolated node to learn about the rest of the cluster,
+    # which correspond to a single entry in cluster nodes. Note this
+    # doesn't mean the isolated node has successfully contacted each
+    # node.
+    wait_for_condition 50 100 {
+        [llength [split [R 6 CLUSTER NODES] "\n"]] eq 21 
+    } else {
+        fail "Isolated node didn't learn about the rest of the cluster *"
+    }
+
     # Now, we wait until the two nodes that aren't filtering packets
     # to accept our isolated nodes connections. At this point they will
     # start showing up in cluster slots. 

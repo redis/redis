@@ -36,8 +36,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -54,8 +55,9 @@
             },
             {
                 "flags": [
-                    "WRITE",
-                    "READ",
+                    "RW",
+                    "ACCESS",
+                    "DELETE",
                     "INCOMPLETE"
                 ],
                 "begin_search": {

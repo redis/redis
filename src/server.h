@@ -208,6 +208,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
 #define CMD_NO_ASYNC_LOADING (1ULL<<23)
 #define CMD_NO_MULTI (1ULL<<24)
+#define CMD_MOVABLE_KEYS (1ULL<<25) /* populated by populateCommandMovableKeys */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -232,16 +233,39 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
 
-/* Key argument flags. Please check the command table defined in the server.c file
- * for more information about the meaning of every flag. */
-#define CMD_KEY_WRITE (1ULL<<0)             /* "write" flag */
-#define CMD_KEY_READ (1ULL<<1)              /* "read" flag */
-#define CMD_KEY_SHARD_CHANNEL (1ULL<<2)     /* "shard_channel" flag */
-#define CMD_KEY_CHANNEL (1ULL<<3)           /* "channel" flag */
-#define CMD_KEY_CHANNEL_PATTERN (1ULL<<4)   /* "channel pattern" flag */
-#define CMD_KEY_INCOMPLETE (1ULL<<5)        /* "incomplete" flag (meaning that
-                                             * the keyspec might not point out
-                                             * to all keys it should cover) */
+/* Key-spec flags *
+ * -------------- */
+/* The following refer what the command actually does with the value or metadata
+ * of the key, and not necessarily the user data or how it affects it.
+ * Each key-spec may must have exactly one of these. Any operation that's not
+ * distinctly deletion, overwrite or read-only would be marked as RW. */
+#define CMD_KEY_RO (1ULL<<0)     /* Read-Only - Reads the value of the key, but
+                                  * doesn't necessarily returns it. */
+#define CMD_KEY_RW (1ULL<<1)     /* Read-Write - Modifies the data stored in the
+                                  * value of the key or its metadata. */
+#define CMD_KEY_OW (1ULL<<2)     /* Overwrite - Overwrites the data stored in
+                                  * the value of the key. */
+#define CMD_KEY_RM (1ULL<<3)     /* Deletes the key. */
+/* The following refer to user data inside the value of the key, not the metadata
+ * like LRU, type, cardinality. It refers to the logical operation on the user's
+ * data (actual input strings / TTL), being used / returned / copied / changed,
+ * It doesn't refer to modification or returning of metadata (like type, count,
+ * presence of data). Any write that's not INSERT or DELETE, would be an UPDATE.
+ * Each key-spec may have one of the writes with or without access, or none: */
+#define CMD_KEY_ACCESS (1ULL<<4) /* Returns, copies or uses the user data from
+                                  * the value of the key. */
+#define CMD_KEY_UPDATE (1ULL<<5) /* Updates data to the value, new value may
+                                  * depend on the old value. */
+#define CMD_KEY_INSERT (1ULL<<6) /* Adds data to the value with no chance of
+                                  * modification or deletion of existing data. */
+#define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
+                                  * from the value of the key. */
+/* Other flags: */
+#define CMD_KEY_CHANNEL (1ULL<<8)         /* PUBSUB channel */
+#define CMD_KEY_CHANNEL_PATTERN (1ULL<<9) /* PUBSUB channel pattern */
+#define CMD_KEY_SHARD_CHANNEL (1ULL<<10)  /* PUBSUB shard channel */
+#define CMD_KEY_INCOMPLETE (1ULL<<11)  /* Means that the keyspec might not point
+                                       * out to all keys it should cover */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1063,7 +1087,7 @@ typedef struct client {
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
-    int repl_put_online_on_ack; /* Install slave write handler on first ACK. */
+    int repl_start_cmd_stream_on_ack; /* Install slave write handler on first ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
@@ -1427,12 +1451,9 @@ struct redisServer {
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
-    int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
-                                   client blocked on a module command needs
-                                   to be processed. */
+    int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
-    client *module_client;      /* "Fake" client to call Redis from modules */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -1686,6 +1707,8 @@ struct redisServer {
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
+    int repl_diskless_sync_max_replicas;/* Max replicas for diskless repl BGSAVE
+                                         * delay (start sooner if they all connect). */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
     list *repl_buffer_blocks;       /* Replication buffers blocks list
                                      * (serving replica clients and repl backlog) */
@@ -1989,6 +2012,8 @@ typedef struct redisCommandArg {
     const char *since;
     int flags;
     struct redisCommandArg *subargs;
+    /* runtime populated data */
+    int num_args;
 } redisCommandArg;
 
 /* Must be synced with RESP2_TYPE_STR and generate-command-code.py */
@@ -2164,7 +2189,7 @@ struct redisCommand {
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
 
-    /* Runtime data */
+    /* Runtime populated data */
     /* What keys should be loaded in background when calling this command? */
     long long microseconds, calls, rejected_calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
@@ -2178,9 +2203,11 @@ struct redisCommand {
                                      * still maintained (if applicable) so that
                                      * we can still support the reply format of
                                      * COMMAND INFO and COMMAND GETKEYS */
+    int num_args;
+    int num_history;
+    int num_hints;
     int key_specs_num;
     int key_specs_max;
-    int movablekeys; /* See populateCommandMovableKeys */
     dict *subcommands_dict;
     struct redisCommand *parent;
 };
@@ -2283,6 +2310,7 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 /* Modules */
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
+void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2293,7 +2321,7 @@ void moduleFreeContext(struct RedisModuleCtx *ctx);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
-void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
+void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
@@ -2340,7 +2368,9 @@ void redisSetCpuAffinity(const char *cpulist);
 client *createClient(connection *conn);
 void freeClient(client *c);
 void freeClientAsync(client *c);
+void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...);
 int beforeNextClient(client *c);
+void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
 void sendReplyToClient(connection *conn);
@@ -2437,6 +2467,7 @@ void unprotectClient(client *c);
 void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
+void clientInstallWriteHandler(client *c);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)
@@ -2666,6 +2697,10 @@ void ACLInit(void);
 #define ACL_LOG_CTX_LUA 1
 #define ACL_LOG_CTX_MULTI 2
 #define ACL_LOG_CTX_MODULE 3
+
+/* ACL key permission types */
+#define ACL_READ_PERMISSION (1<<0)
+#define ACL_WRITE_PERMISSION (1<<1)
 
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
@@ -3019,7 +3054,6 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
-mstime_t evalTimeSnapshot();
 
 /* Blocked clients */
 void processUnblockedClients(void);
@@ -3083,6 +3117,7 @@ void commandListCommand(client *c);
 void commandInfoCommand(client *c);
 void commandGetKeysCommand(client *c);
 void commandHelpCommand(client *c);
+void commandDocsCommand(client *c);
 void setCommand(client *c);
 void setnxCommand(client *c);
 void setexCommand(client *c);
@@ -3353,8 +3388,8 @@ void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);
 void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
-void mixDigest(unsigned char *digest, void *ptr, size_t len);
-void xorDigest(unsigned char *digest, void *ptr, size_t len);
+void mixDigest(unsigned char *digest, const void *ptr, size_t len);
+void xorDigest(unsigned char *digest, const void *ptr, size_t len);
 int populateSingleCommand(struct redisCommand *c, char *strflags);
 void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand);
 void populateCommandMovableKeys(struct redisCommand *cmd);

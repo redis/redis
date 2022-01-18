@@ -16,7 +16,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RW"
                 ],
                 "begin_search": {
                     "index": {

@@ -98,10 +98,7 @@ start_server {tags {"hash"}} {
             assert_encoding $type myhash
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r hgetall myhash] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r hgetall myhash]]
 
             # We'll stress different parts of the code, see the implementation
             # of HRANDFIELD for more information, but basically there are

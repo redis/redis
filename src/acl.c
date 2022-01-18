@@ -325,11 +325,11 @@ void *ACLListDupKeyPattern(void *item) {
 /* Append the string representation of a key pattern onto the
  * provided base string. */
 sds sdsCatPatternString(sds base, keyPattern *pat) {
-    if (pat->flags == (CMD_KEY_READ | CMD_KEY_WRITE)) {
+    if (pat->flags == (ACL_READ_PERMISSION | ACL_WRITE_PERMISSION)) {
         base = sdscatlen(base,"~",1);
-    } else if (pat->flags == CMD_KEY_READ) {
+    } else if (pat->flags == ACL_READ_PERMISSION) {
         base = sdscatlen(base,"%R~",3);
-    } else if (pat->flags == CMD_KEY_WRITE) {
+    } else if (pat->flags == ACL_WRITE_PERMISSION) {
         base = sdscatlen(base,"%W~",3);
     } else {
         serverPanic("Invalid key pattern flag detected");
@@ -1046,21 +1046,20 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
         size_t offset = 1;
         if (op[0] == '%') {
             for (; offset < oplen; offset++) {
-                if (toupper(op[offset]) == 'R' && !(flags & CMD_KEY_READ)) {
-                    flags |= CMD_KEY_READ;
-                } else if (toupper(op[offset]) == 'W'&& !(flags & CMD_KEY_WRITE)) {
-                    flags |= CMD_KEY_WRITE;
+                if (toupper(op[offset]) == 'R' && !(flags & ACL_READ_PERMISSION)) {
+                    flags |= ACL_READ_PERMISSION;
+                } else if (toupper(op[offset]) == 'W' && !(flags & ACL_WRITE_PERMISSION)) {
+                    flags |= ACL_WRITE_PERMISSION;
                 } else if (op[offset] == '~') {
                     offset++;
                     break;
                 } else {
-                    /* TODO: Maybe change this */
                     errno = EINVAL;
                     return C_ERR;
                 }
             }
         } else {
-            flags = CMD_KEY_READ | CMD_KEY_WRITE;
+            flags = ACL_READ_PERMISSION | ACL_WRITE_PERMISSION;
         }
 
         if (ACLStringHasSpaces(op+offset,oplen-offset)) {
@@ -1508,10 +1507,16 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     listNode *ln;
     listRewind(selector->patterns,&li);
 
+    int key_flags = 0;
+    if (flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
+    if (flags & CMD_KEY_INSERT) key_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_DELETE) key_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_UPDATE) key_flags |= ACL_WRITE_PERMISSION;
+
     /* Test this key against every pattern. */
     while((ln = listNext(&li))) {
         keyPattern *pattern = listNodeValue(ln);
-        if ((pattern->flags & flags) != flags) continue;
+        if ((pattern->flags & key_flags) != key_flags) continue;
         size_t plen = sdslen(pattern->pattern);
         if (stringmatchlen(pattern->pattern,plen,key,keylen,0))
             return ACL_OK;
@@ -2339,7 +2344,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         le->object = object;
     } else {
         switch(reason) {
-            case ACL_DENIED_CMD: le->object = sdsnew(c->cmd->name); break;
+            case ACL_DENIED_CMD: le->object = getFullCommandName(c->cmd); break;
             case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
