@@ -78,7 +78,6 @@ dictType shaScriptObjectDictType = {
 struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
-    char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
 } lctx;
@@ -192,7 +191,6 @@ void scriptingInit(int setup) {
     if (setup) {
         lctx.lua_client = NULL;
         server.script_caller = NULL;
-        lctx.lua_cur_script = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
@@ -503,13 +501,13 @@ void evalGenericCommand(client *c, int evalsha) {
         serverAssert(!lua_isnil(lua,-1));
     }
 
-    lctx.lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lctx.lua_cur_script);
+    char *lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
-    if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script, l->flags, ro) != C_OK) {
+    if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
         return;
     }
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
@@ -518,8 +516,6 @@ void evalGenericCommand(client *c, int evalsha) {
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
-
-    lctx.lua_cur_script = NULL;
 }
 
 void evalCommand(client *c) {
