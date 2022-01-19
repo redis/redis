@@ -13,7 +13,7 @@
             "HASH"
         ],
         "command_tips": [
-            "NONDETERMINISTIC_ORDER_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "key_specs": [
             {

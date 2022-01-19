@@ -1267,7 +1267,7 @@ struct redisCommandArg EXPIRETIME_Args[] = {
 /* KEYS tips */
 const char *KEYS_tips[] = {
 "request_policy:all_masters",
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -2274,7 +2274,7 @@ struct redisCommandArg HGET_Args[] = {
 
 /* HGETALL tips */
 const char *HGETALL_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -2323,7 +2323,7 @@ struct redisCommandArg HINCRBYFLOAT_Args[] = {
 
 /* HKEYS tips */
 const char *HKEYS_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -2492,7 +2492,7 @@ struct redisCommandArg HSTRLEN_Args[] = {
 
 /* HVALS tips */
 const char *HVALS_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4824,7 +4824,7 @@ struct redisCommandArg SCARD_Args[] = {
 
 /* SDIFF tips */
 const char *SDIFF_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4856,7 +4856,7 @@ struct redisCommandArg SDIFFSTORE_Args[] = {
 
 /* SINTER tips */
 const char *SINTER_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4919,7 +4919,7 @@ struct redisCommandArg SISMEMBER_Args[] = {
 
 /* SMEMBERS tips */
 const char *SMEMBERS_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -5047,7 +5047,7 @@ struct redisCommandArg SSCAN_Args[] = {
 
 /* SUNION tips */
 const char *SUNION_tips[] = {
-"nondeterministic_order_output",
+"nondeterministic_output_order",
 NULL
 };
 

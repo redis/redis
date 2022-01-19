@@ -15,7 +15,7 @@
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_MASTERS",
-            "NONDETERMINISTIC_ORDER_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "arguments": [
             {
