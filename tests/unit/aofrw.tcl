@@ -74,6 +74,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }
+        r config set rdb-key-save-delay 0
     }
 
     foreach d {string int} {
@@ -189,8 +190,10 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         }
         r bgrewriteaof
         waitForBgrewriteaof r
+        r function flush
         r debug loadaof
-        r FUNCTION LIST 
+        assert_equal [r fcall test 0] 1
+        r FUNCTION LIST
     } {{library_name test engine LUA description desc functions {{name test description {} flags {}}}}}
 
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
