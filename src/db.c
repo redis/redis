@@ -2049,7 +2049,7 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * SORT <sort-key>
  *
- * The first argument of SORT is always a key, however an arbitrary
+ * The second argument of SORT is always a key, however an arbitrary
  * number of keys may be accessed while doing the sort, so it declares
  * incomplete keys so we need to provide a concrete implementation to
  * fetch the keys.
@@ -2061,7 +2061,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     UNUSED(argv);
     UNUSED(argc);
 
-    keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
+    keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* <sort-key> is always present. */
     keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
     return 1;

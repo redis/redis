@@ -279,8 +279,21 @@ start_server [list overrides [list "dir" $server_path "aclfile" "userwithselecto
     test {Test behavior of loading ACLs} {
         set selectors [dict get [r ACL getuser alice] selectors]
         assert_equal [llength $selectors] 1
+        set test_selector [lindex $selectors 0]
+        assert_equal "-@all +get" [dict get $test_selector "commands"]
+        assert_equal "rw*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "rw*" [dict get [dict get $test_selector "key-permissions"] "all"] 
 
         set selectors [dict get [r ACL getuser bob] selectors]
         assert_equal [llength $selectors] 2
+        set test_selector [lindex $selectors 0]
+        assert_equal "-@all +set" [dict get $test_selector "commands"]
+        assert_equal "w*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "w*" [dict get [dict get $test_selector "key-permissions"] "write"] 
+
+        set test_selector [lindex $selectors 1]
+        assert_equal "-@all +get" [dict get $test_selector "commands"]
+        assert_equal "r*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "r*" [dict get [dict get $test_selector "key-permissions"] "read"] 
     }
 }
