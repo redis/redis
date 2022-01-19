@@ -327,16 +327,27 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*config|set*}
 
-    test {ACLs can include a subcommand with a specific arg} {
+    test {ACLs cannot include a subcommand with a specific arg} {
         r ACL setuser newuser +@all -config|get
-        r ACL setuser newuser +config|get|appendonly
-        set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_match {*-config|get*} $cmdstr
-        assert_match {*+config|get|appendonly*} $cmdstr
-        r CONFIG GET appendonly; # Should not fail
-        catch {r CONFIG GET loglevel} e
+        catch { r ACL setuser newuser +config|get|appendonly} e
         set e
-    } {*NOPERM*config|get*}
+    } {*Allowing first-arg of a subcommand is not supported*}
+
+    test {ACLs cannot exclude or include a container commands with a specific arg} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
+
+    test {ACLs cannot exclude or include a container command with two args} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
 
     test {ACLs including of a type includes also subcommands} {
         r ACL setuser newuser -@all +acl +@stream

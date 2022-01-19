@@ -2806,20 +2806,24 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
-struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
+struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc, int strict) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     if (argc == 1 || !has_subcommands) {
+        if (strict && argc != 1)
+            return NULL;
         /* Note: It is possible that base_cmd->proc==NULL (e.g. CONFIG) */
         return base_cmd;
-    } else {
+    } else { /* argc > 1 && has_subcommands */
+        if (strict && argc != 2)
+            return NULL;
         /* Note: Currently we support just one level of subcommands */
         return dictFetchValue(base_cmd->subcommands_dict, argv[1]->ptr);
     }
 }
 
 struct redisCommand *lookupCommand(robj **argv, int argc) {
-    return lookupCommandLogic(server.commands,argv,argc);
+    return lookupCommandLogic(server.commands,argv,argc,0);
 }
 
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
@@ -2840,7 +2844,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         argv[j] = &objects[j];
     }
 
-    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc);
+    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc,1);
     sdsfreesplitres(strings,argc);
     return cmd;
 }
@@ -2870,9 +2874,9 @@ struct redisCommand *lookupCommandByCString(const char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
-    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc);
+    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc, 0);
 
-    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc);
+    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc, 0);
     return cmd;
 }
 

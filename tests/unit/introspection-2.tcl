@@ -110,4 +110,9 @@ start_server {tags {"introspection"}} {
         set reply [r command list filterby pattern pf*]
         assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
     }
+
+    test {COMMAND INFO of invalid subcommands} {
+        assert_equal {{}} [r command info get|key]
+        assert_equal {{}} [r command info config|get|key]
+    }
 }

@@ -872,6 +872,7 @@ void ACLAddAllowedFirstArg(user *u, unsigned long id, const char *sub) {
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
  * EBADMSG: The hash you are trying to add is not a valid hash.
+ * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -1012,10 +1013,17 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             struct redisCommand *cmd = ACLLookupCommand(copy);
 
             /* Check if the command exists. We can't check the
-             * subcommand to see if it is valid. */
+             * first-arg to see if it is valid. */
             if (cmd == NULL) {
                 zfree(copy);
                 errno = ENOENT;
+                return C_ERR;
+            }
+
+            /* We do not support allowing first-arg of a subcommand */
+            if (cmd->parent) {
+                zfree(copy);
+                errno = ECHILD;
                 return C_ERR;
             }
 
@@ -1029,7 +1037,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
 
             if (cmd->subcommands_dict) {
                 /* If user is trying to allow a valid subcommand we can just add its unique ID */
-                struct redisCommand *cmd = ACLLookupCommand(op+1);
+                cmd = ACLLookupCommand(op+1);
                 if (cmd == NULL) {
                     zfree(copy);
                     errno = ENOENT;
@@ -1040,13 +1048,11 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 /* If user is trying to use the ACL mech to block SELECT except SELECT 0 or
                  * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considered
                  * subcommands for now) we use the allowed_firstargs mechanism. */
-                struct redisCommand *cmd = ACLLookupCommand(copy);
-                if (cmd == NULL) {
-                    zfree(copy);
-                    errno = ENOENT;
-                    return C_ERR;
-                }
+
                 /* Add the first-arg to the list of valid ones. */
+                serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
+                                      "blocked command is a misuse of ACL and may be deprecated "
+                                      "at any given moment (offender: +%s)", op+1);
                 ACLAddAllowedFirstArg(u,cmd->id,sub);
             }
 
@@ -1108,6 +1114,8 @@ const char *ACLSetUserStringError(void) {
     else if (errno == EALREADY)
         errmsg = "Duplicate user found. A user can only be defined once in "
                  "config files";
+    else if (errno == ECHILD)
+        errmsg = "Allowing first-arg of a subcommand is not supported";
     return errmsg;
 }
 
