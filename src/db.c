@@ -1843,53 +1843,6 @@ int doesCommandHaveKeys(struct redisCommand *cmd) {
     return cmd->getkeys_proc || cmd->key_specs_num;
 }
 
-/* Return all the arguments that are channels in the command passed via argc / argv. For this
- * context, the unsubscribe commands don't access channels. */
-int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    UNUSED(argv);
-    keyReference *keys;
-    int count = 0;
-    if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
-        count = 1;
-        keys = getKeysPrepareResult(result, count);
-        keys[0].pos = 1;
-        keys[0].flags = cmd->proc == publishCommand ? CMD_KEY_CHANNEL : CMD_KEY_SHARD_CHANNEL;
-    } else if (cmd->proc == subscribeCommand 
-        || cmd->proc == psubscribeCommand
-        || cmd->proc == ssubscribeCommand)
-    {
-        count = argc - 1;
-        keys = getKeysPrepareResult(result, count);
-        for (int j = 0; j <= argc; j++) {
-            keys[j].pos = j+1;
-            if (cmd->proc == subscribeCommand) {
-                keys[j].flags = CMD_KEY_CHANNEL;
-            } else if (cmd->proc == psubscribeCommand) {
-                keys[j].flags = CMD_KEY_CHANNEL_PATTERN;
-            } else if (cmd->proc == ssubscribeCommand) {
-                keys[j].flags = CMD_KEY_SHARD_CHANNEL;
-            } else {
-                serverPanic("Unknown channel type found");
-            }
-        }
-    } else {
-        result->numkeys = 0;;
-        return 0;
-    }
-    result->numkeys = count;
-    return count;
-}
-
-/* Returns if a given command may possibly access channels. For this context,
- * the unsubscribe commands do not have channels. */
-int doesCommandHaveChannels(struct redisCommand *cmd) {
-    return (cmd->proc == publishCommand
-        || cmd->proc == subscribeCommand
-        || cmd->proc == psubscribeCommand
-        || cmd->proc == spublishCommand
-        || cmd->proc == ssubscribeCommand);
-}
-
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,

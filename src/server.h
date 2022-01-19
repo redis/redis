@@ -261,10 +261,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
                                   * from the value of the key. */
 /* Other flags: */
-#define CMD_KEY_CHANNEL (1ULL<<8)         /* PUBSUB channel */
-#define CMD_KEY_CHANNEL_PATTERN (1ULL<<9) /* PUBSUB channel pattern */
-#define CMD_KEY_SHARD_CHANNEL (1ULL<<10)  /* PUBSUB shard channel */
-#define CMD_KEY_INCOMPLETE (1ULL<<11)  /* Means that the keyspec might not point
+#define CMD_KEY_CHANNEL (1ULL<<8)  /* PUBSUB shard channel */
+#define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
 
 /* AOF states */
