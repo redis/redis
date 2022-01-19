@@ -530,11 +530,22 @@ void latencyAllCommandsFillCDF(client *c) {
     int command_with_data = 0;
     while((de = dictNext(di)) != NULL) {
         cmd = (struct redisCommand *) dictGetVal(de);
-        if (!cmd->latency_histogram)
-            continue;
-        addReplyBulkCString(c,cmd->name);
-        fillCommandCDF(c, cmd->latency_histogram);
-        command_with_data++;
+        if (cmd->latency_histogram) {
+            addReplyBulkCString(c,cmd->name);
+            fillCommandCDF(c, cmd->latency_histogram);
+            command_with_data++;
+        }
+
+        if (cmd->subcommands) {
+            for (int j = 0; cmd->subcommands[j].name; j++) {
+                struct redisCommand *sub = cmd->subcommands+j;
+                if (sub->latency_histogram) {
+                    addReplyBulkSds(c,getFullCommandName(sub));
+                    fillCommandCDF(c, sub->latency_histogram);
+                    command_with_data++;
+                }
+            }
+        }
     }
     dictReleaseIterator(di);
     setDeferredMapLen(c,replylen,command_with_data);
@@ -546,18 +557,28 @@ void latencySpecificCommandsFillCDF(client *c) {
     void *replylen = addReplyDeferredLen(c);
     int command_with_data = 0;
     for (int j = 2; j < c->argc; j++){
-        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        struct redisCommand *cmd = lookupCommandBySds(c->argv[j]->ptr);
         /* If the command does not exist we skip the reply */
         if (cmd == NULL) {
             continue;
         }
-        /* If no latency info we reply with the same format as non empty histograms */
-        if (!cmd->latency_histogram) {
-            continue;
+
+        if (cmd->latency_histogram) {
+            addReplyBulkSds(c,getFullCommandName(cmd));
+            fillCommandCDF(c, cmd->latency_histogram);
+            command_with_data++;
         }
-        addReplyBulkCString(c,c->argv[j]->ptr);
-        fillCommandCDF(c, cmd->latency_histogram);
-        command_with_data++;
+
+        if (cmd->subcommands) {
+            for (int j = 0; cmd->subcommands[j].name; j++) {
+                struct redisCommand *sub = cmd->subcommands+j;
+                if (sub->latency_histogram) {
+                    addReplyBulkSds(c,getFullCommandName(sub));
+                    fillCommandCDF(c, sub->latency_histogram);
+                    command_with_data++;
+                }
+            }
+        }
     }
     setDeferredMapLen(c,replylen,command_with_data);
 }

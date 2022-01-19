@@ -966,6 +966,8 @@ void functionLoadCommand(client *c) {
             desc = c->argv[argc_pos++]->ptr;
             continue;
         }
+        addReplyErrorFormat(c, "Unknown option given: %s", (char*)next_arg->ptr);
+        return;
     }
 
     if (argc_pos >= c->argc) {
