@@ -1418,7 +1418,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         } else {
             const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
             server.busy_module_yield_reply = busy_reply;
-            /* start the blocking operatoin if not already started. */
+            /* start the blocking operation if not already started. */
             if (!server.busy_module_yield_flags) {
                 server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
                     BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
