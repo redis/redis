@@ -2109,16 +2109,16 @@ static int rewriteFunctions(rio *aof) {
     while ((entry = dictNext(iter))) {
         functionLibInfo *li = dictGetVal(entry);
         if (li->desc) {
-            if (rioWrite(aof, "*7\r\n", strlen("*7\r\n")) == 0) goto werr;
+            if (rioWrite(aof, "*7\r\n", 4) == 0) goto werr;
         } else {
-            if (rioWrite(aof, "*5\r\n", strlen("*5\r\n")) == 0) goto werr;
+            if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
         }
         char fucntion_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
         if (rioWrite(aof, fucntion_load, sizeof(fucntion_load) - 1) == 0) goto werr;
         if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
         if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
         if (li->desc) {
-            if (rioWriteBulkString(aof, "description", strlen("description")) == 0) goto werr;
+            if (rioWriteBulkString(aof, "description", 11) == 0) goto werr;
             if (rioWriteBulkString(aof, li->desc, sdslen(li->desc)) == 0) goto werr;
         }
         if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
