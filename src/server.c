@@ -4374,7 +4374,7 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         if (use_map)
-            addReplyBulkSdsNoFree(c, sub->fullname);
+            addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
         reply_function(c, sub);
     }
     dictReleaseIterator(di);
@@ -4417,7 +4417,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         }
 
         addReplyArrayLen(c, 10);
-        addReplyBulkSdsNoFree(c, cmd->fullname);
+        addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
@@ -4616,7 +4616,7 @@ void commandListCommand(client *c) {
         addReplySetLen(c, dictSize(server.commands));
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkSdsNoFree(c,cmd->fullname);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
         }
     } else {
         int numcmds = 0;
@@ -4624,7 +4624,7 @@ void commandListCommand(client *c) {
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (!shouldFilterFromCommandList(cmd,&filter)) {
-                addReplyBulkSdsNoFree(c,cmd->fullname);
+                addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
                 numcmds++;
             }
         }
@@ -4665,7 +4665,7 @@ void commandDocsCommand(client *c) {
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkSdsNoFree(c, cmd->fullname);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             addReplyCommandDocs(c, cmd);
         }
         dictReleaseIterator(di);
@@ -4677,7 +4677,7 @@ void commandDocsCommand(client *c) {
             struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
             if (!cmd)
                 continue;
-            addReplyBulkSdsNoFree(c, cmd->fullname);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             addReplyCommandDocs(c, cmd);
             numcmds++;
         }

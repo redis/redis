@@ -2414,7 +2414,6 @@ void addReplyBulkLongLong(client *c, long long ll);
 void addReply(client *c, robj *obj);
 void addReplySds(client *c, sds s);
 void addReplyBulkSds(client *c, sds s);
-void addReplyBulkSdsNoFree(client *c, sds s);
 void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);

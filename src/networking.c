@@ -407,14 +407,6 @@ void addReplySds(client *c, sds s) {
     sdsfree(s);
 }
 
-/* Similar with addReplySds but doesn't free the SDS string. */
-void addReplySdsNoFree(client *c, sds s) {
-    if (prepareClientToWrite(c) != C_OK) {
-        return;
-    }
-    _addReplyToBufferOrList(c,s,sdslen(s));
-}
-
 /* This low level function just adds whatever protocol you send it to the
  * client buffer, trying the static buffer initially, and using the string
  * of objects if not possible.
@@ -893,13 +885,6 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
 void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
-    addReply(c,shared.crlf);
-}
-
-/* Similar with addReplyBulkSds but doesn't free the SDS string. */
-void addReplyBulkSdsNoFree(client *c, sds s)  {
-    addReplyLongLongWithPrefix(c,sdslen(s),'$');
-    addReplySdsNoFree(c,s);
     addReply(c,shared.crlf);
 }
 

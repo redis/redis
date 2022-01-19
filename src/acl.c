@@ -2187,7 +2187,7 @@ void aclCommand(client *c) {
             struct redisCommand *cmd = dictGetVal(de);
             if (cmd->flags & CMD_MODULE) continue;
             if (cmd->acl_categories & cflag) {
-                addReplyBulkSdsNoFree(c,cmd->fullname);
+                addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
                 arraylen++;
             }
         }

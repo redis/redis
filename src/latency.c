@@ -531,7 +531,7 @@ void latencyAllCommandsFillCDF(client *c) {
     while((de = dictNext(di)) != NULL) {
         cmd = (struct redisCommand *) dictGetVal(de);
         if (cmd->latency_histogram) {
-            addReplyBulkSdsNoFree(c, cmd->fullname);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             fillCommandCDF(c, cmd->latency_histogram);
             command_with_data++;
         }
@@ -540,7 +540,7 @@ void latencyAllCommandsFillCDF(client *c) {
             for (int j = 0; cmd->subcommands[j].fullname; j++) {
                 struct redisCommand *sub = cmd->subcommands+j;
                 if (sub->latency_histogram) {
-                    addReplyBulkSdsNoFree(c, sub->fullname);
+                    addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
                     fillCommandCDF(c, sub->latency_histogram);
                     command_with_data++;
                 }
@@ -564,7 +564,7 @@ void latencySpecificCommandsFillCDF(client *c) {
         }
 
         if (cmd->latency_histogram) {
-            addReplyBulkSdsNoFree(c, cmd->fullname);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             fillCommandCDF(c, cmd->latency_histogram);
             command_with_data++;
         }
@@ -573,7 +573,7 @@ void latencySpecificCommandsFillCDF(client *c) {
             for (int j = 0; cmd->subcommands[j].fullname; j++) {
                 struct redisCommand *sub = cmd->subcommands+j;
                 if (sub->latency_histogram) {
-                    addReplyBulkSdsNoFree(c, sub->fullname);
+                    addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
                     fillCommandCDF(c, sub->latency_histogram);
                     command_with_data++;
                 }
