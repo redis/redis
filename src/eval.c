@@ -333,7 +333,9 @@ sds luaCreateFunction(client *c, robj *body) {
     if (!strncmp(body->ptr, "#!", 2)) {
         int numparts,j;
         shebang_len = strchr(body->ptr, '\n') - (char*)body->ptr;
-        sds *parts = sdssplitlen(body->ptr, shebang_len, " ", 1, &numparts);
+        sds shebang = sdsnewlen(body->ptr, shebang_len);
+        sds *parts = sdssplitargs(shebang, &numparts);
+        sdsfree(shebang);
         if (!parts || numparts == 0) {
             addReplyError(c,"Invalid engine in script shebang");
             sdsfreesplitres(parts, numparts);
