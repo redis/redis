@@ -52,8 +52,7 @@ typedef struct luaScript {
     robj *body;
 } luaScript;
 
-static void dictLuaScriptDestructor(dict *d, void *val)
-{
+static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(((luaScript*)val)->body);
