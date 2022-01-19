@@ -8,7 +8,7 @@
         "container": "MEMORY",
         "function": "memoryCommand",
         "command_tips": [
-            "RANDOM_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

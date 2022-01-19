@@ -14,7 +14,7 @@
             "STRING"
         ],
         "command_tips": [
-            "REQUEST_POLICY:FEW_SHARDS"
+            "REQUEST_POLICY:MULTI_SHARD"
         ],
         "key_specs": [
             {

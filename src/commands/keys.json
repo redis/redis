@@ -14,8 +14,8 @@
             "DANGEROUS"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "RANDOM_ORDER_OUTPUT"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "NONDETERMINISTIC_ORDER_OUTPUT"
         ],
         "arguments": [
             {

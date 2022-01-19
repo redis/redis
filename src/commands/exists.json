@@ -20,8 +20,8 @@
             "KEYSPACE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:FEW_SHARDS",
-            "REPLY_POLICY:AGG_SUM"
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:AGG_SUM"
         ],
         "key_specs": [
             {

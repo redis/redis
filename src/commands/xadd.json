@@ -25,7 +25,7 @@
             "STREAM"
         ],
         "command_tips": [
-            "RANDOM_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "key_specs": [
             {

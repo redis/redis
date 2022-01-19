@@ -24,8 +24,8 @@
             "DANGEROUS"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:ALL_SUCCEEDED"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
         "arguments": [
             {

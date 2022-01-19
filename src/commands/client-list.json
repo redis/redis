@@ -31,7 +31,7 @@
             "CONNECTION"
         ],
         "command_tips": [
-            "RANDOM_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

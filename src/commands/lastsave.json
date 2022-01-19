@@ -12,7 +12,7 @@
             "FAST"
         ],
         "command_tips": [
-            "RANDOM_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "acl_categories": [
             "ADMIN",

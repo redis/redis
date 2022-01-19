@@ -14,8 +14,8 @@
             "SCRIPTING"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:ONE_SUCCEEDED"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "RESPONSE_POLICY:ONE_SUCCEEDED"
         ]
     }
 }

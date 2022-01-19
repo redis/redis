@@ -14,8 +14,8 @@
             "KEYSPACE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:AGG_SUM"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "RESPONSE_POLICY:AGG_SUM"
         ]
     }
 }

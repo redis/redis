@@ -14,8 +14,8 @@
             "SCRIPTING"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:AGG_LOGICAL_AND"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "RESPONSE_POLICY:AGG_LOGICAL_AND"
         ],
         "arguments": [
             {

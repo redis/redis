@@ -13,8 +13,8 @@
             "KEYSPACE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_SHARDS",
-            "RANDOM_OUTPUT"
+            "REQUEST_POLICY:ALL_MASTERS",
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }
