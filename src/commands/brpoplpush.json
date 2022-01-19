@@ -20,11 +20,13 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "NOSCRIPT",
-            "BLOCKING"
+            "NOSCRIPT"
         ],
         "acl_categories": [
             "LIST",
+            "BLOCKING"
+        ],
+        "command_tips": [
             "BLOCKING"
         ],
         "key_specs": [

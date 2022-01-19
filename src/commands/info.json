@@ -7,7 +7,6 @@
         "arity": -1,
         "function": "infoCommand",
         "command_flags": [
-            "RANDOM",
             "LOADING",
             "STALE",
             "SENTINEL"
@@ -16,6 +15,7 @@
             "DANGEROUS"
         ],
         "command_tips": [
+            "RANDOM_OUTPUT",
             "REQUEST_POLICY:ALL_SHARDS",
             "REPLY_POLICY:NON_TRIVIAL"
         ],

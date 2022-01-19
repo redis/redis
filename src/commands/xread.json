@@ -8,7 +8,6 @@
         "function": "xreadCommand",
         "get_keys_function": "xreadGetKeys",
         "command_flags": [
-            "BLOCKING",
             "READONLY"
         ],
         "acl_categories": [
@@ -16,6 +15,7 @@
             "BLOCKING"
         ],
         "command_tips": [
+            "BLOCKING",
             "BLOCK_KEYWORD:BLOCK"
         ],
         "key_specs": [

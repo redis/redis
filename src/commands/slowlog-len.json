@@ -9,13 +9,13 @@
         "function": "slowlogCommand",
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "LOADING",
             "STALE"
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
-            "REPLY_POLICY:AGG_SUM"
+            "REPLY_POLICY:AGG_SUM",
+            "RANDOM_OUTPUT"
         ]
     }
 }
