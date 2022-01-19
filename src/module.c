@@ -842,10 +842,10 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
         else if (!strcasecmp(t,"RW")) flags |= CMD_KEY_RW;
         else if (!strcasecmp(t,"OW")) flags |= CMD_KEY_OW;
         else if (!strcasecmp(t,"RM")) flags |= CMD_KEY_RM;
-        else if (!strcasecmp(t,"ACCESS")) flags |= CMD_KEY_ACCESS;
-        else if (!strcasecmp(t,"INSERT")) flags |= CMD_KEY_INSERT;
-        else if (!strcasecmp(t,"UPDATE")) flags |= CMD_KEY_UPDATE;
-        else if (!strcasecmp(t,"DELETE")) flags |= CMD_KEY_DELETE;
+        else if (!strcasecmp(t,"access")) flags |= CMD_KEY_ACCESS;
+        else if (!strcasecmp(t,"insert")) flags |= CMD_KEY_INSERT;
+        else if (!strcasecmp(t,"update")) flags |= CMD_KEY_UPDATE;
+        else if (!strcasecmp(t,"delete")) flags |= CMD_KEY_DELETE;
         else if (!strcasecmp(t,"shard_channel")) flags |= CMD_KEY_SHARD_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
@@ -1189,14 +1189,14 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommand *command, int index, keyS
  *      if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *
- *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","RW access delete",&spec_id) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,1) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *
- *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","write",&spec_id) == REDISMODULE_ERR)
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","RW insert",&spec_id) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,2) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
@@ -1208,7 +1208,7 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommand *command, int index, keyS
  *
  * Example:
  *
- *      RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
+ *      RedisModule_AddCommandKeySpec(ctx,"module.object|encoding","RO",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */

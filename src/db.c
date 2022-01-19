@@ -1673,9 +1673,18 @@ keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys) {
     return result->keys;
 }
 
-/* Fetch the keys based of the provided key specs. Returns 0 if the keyspec definition is
- * incomplete. There are several flags that can be used to modify how this function
- * finds keys in a command.
+/* Returns a bitmask with all the flags found by all key specs */
+int64_t getAllKeySpecsFlags(struct redisCommand *cmd) {
+    int64_t flags = 0;
+    for (int j = 0; j < cmd->key_specs_num; j++) {
+        keySpec *spec = cmd->key_specs + j;
+        flags |= spec->flags;
+    }
+    return flags;
+}
+
+/* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
+ * There are several flags that can be used to modify how this function finds keys in a command.
  * 
  * GET_KEYSPEC_INCLUDE_CHANNELS: Return channels as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
@@ -1684,16 +1693,6 @@ keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys) {
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, k = 0, last, first, step;
     keyReference *keys;
-    /* If partial specs are not allowed, first check to make sure there are no incomplete flags. */
-    if (!(search_flags & GET_KEYSPEC_RETURN_PARTIAL)) {
-        for (j = 0; j < cmd->key_specs_num; j++) {
-            keySpec *spec = cmd->key_specs + j;
-            if (spec->flags & CMD_KEY_INCOMPLETE) {
-                result->numkeys = 0;
-                return 0;
-            }
-        }
-    }
 
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
@@ -1708,7 +1707,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         first = 0;
         if (spec->begin_search_type == KSPEC_BS_INDEX) {
             first = spec->bs.index.pos;
-        } else { /* KSPEC_BS_IKEYWORD */
+        } else if (spec->begin_search_type == KSPEC_BS_KEYWORD) {
             int start_index = spec->bs.keyword.startfrom > 0 ? spec->bs.keyword.startfrom : argc+spec->bs.keyword.startfrom;
             int end_index = spec->bs.keyword.startfrom > 0 ? argc-1: 1;
             for (i = start_index; i != end_index; i = start_index <= end_index ? i + 1 : i - 1) {
@@ -1718,6 +1717,14 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     first = i+1;
                     break;
                 }
+            }
+        } else {
+            /* unknown spec */
+            if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
+                continue;
+            } else {
+                result->numkeys = 0;
+                return -1;
             }
         }
 
@@ -1738,7 +1745,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     last = first + ((argc-first)/spec->fk.range.limit + spec->fk.range.lastkey);
                 }
             }
-        } else { /* KSPEC_FK_KEYNUM */
+        } else if (spec->find_keys_type == KSPEC_FK_KEYNUM) {
             step = spec->fk.keynum.keystep;
             long long numkeys;
 
@@ -1750,12 +1757,20 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     continue;
                 } else {
                     result->numkeys = 0;
-                    return 0;
+                    return -1;
                 }
             }
 
             first += spec->fk.keynum.firstkey;
             last = first + (int)numkeys-1;
+        } else {
+            /* unknown spec */
+            if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
+                continue;
+            } else {
+                result->numkeys = 0;
+                return -1;
+            }
         }
 
         int count = ((last - first)+1);
@@ -1767,7 +1782,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                 continue;
             } else {
                 result->numkeys = 0;
-                return 0;
+                return -1;
             }
         }
 
@@ -1807,20 +1822,21 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
  * 'cmd' must be point to the corresponding entry into the redisCommand
  * table, according to the command name in argv[0].
  *
- * This function uses the command table if a command-specific helper function
- * is not required, otherwise it calls the command-specific function. */
+ * This function uses the command's key specs, which contain the key-spec flags,
+ * (e.g. RO / RW) and only resorts to the command-specific helper function if
+ * the keys-specs are marked as INCOMPLETE. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else {
-        int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
-        if (ret) {
-            return ret;
-        } else if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) {
-            return cmd->getkeys_proc(cmd,argv,argc,result);
-        } else {
-            return 0;
+        if (!(getAllKeySpecsFlags(cmd) & CMD_KEY_INCOMPLETE)) {
+            int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
+            if (ret >= 0)
+                return ret;
         }
+        if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc)
+            return cmd->getkeys_proc(cmd,argv,argc,result);
+        return 0;
     }
 }
 
@@ -2049,11 +2065,11 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * SORT <sort-key>
  *
- * The second argument of SORT is always a key, however an arbitrary
- * number of keys may be accessed while doing the sort, so it declares
- * incomplete keys so we need to provide a concrete implementation to
- * fetch the keys.
- * 
+ * The second argument of SORT is always a key, however an arbitrary number of
+ * keys may be accessed while doing the sort (the BY and GET args), so the
+ * key-spec declares incomplete keys which is why we have to provide a concrete
+ * implementation to fetch the keys.
+ *
  * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;

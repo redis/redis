@@ -293,7 +293,7 @@ typedef struct {
 
 /* Create a new key pattern. */
 keyPattern *ACLKeyPatternCreate(sds pattern, int flags) {
-    keyPattern *new  = (keyPattern *) zmalloc(sizeof(keyPattern));
+    keyPattern *new = (keyPattern *) zmalloc(sizeof(keyPattern));
     new->pattern = pattern;
     new->flags = flags;
     return new;

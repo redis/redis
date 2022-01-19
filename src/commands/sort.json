@@ -38,6 +38,19 @@
             },
             {
                 "flags": [
+                    "RO",
+                    "ACCESS",
+                    "INCOMPLETE"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
+            },
+            {
+                "flags": [
                     "OW",
                     "UPDATE",
                     "INCOMPLETE"
