@@ -33,7 +33,7 @@
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 1,
+                        "lastkey": 0,
                         "step": 1,
                         "limit": 0
                     }
@@ -46,12 +46,12 @@
                 ],
                 "begin_search": {
                     "index": {
-                        "pos": 1
+                        "pos": 2
                     }
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 1,
+                        "lastkey": 0,
                         "step": 1,
                         "limit": 0
                     }
