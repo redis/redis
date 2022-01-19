@@ -1698,9 +1698,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
         /* Skip specs that represent channels instead of keys */
-        if (spec->flags & (CMD_KEY_CHANNEL|CMD_KEY_CHANNEL_PATTERN|CMD_KEY_SHARD_CHANNEL) &&
-            !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) 
-        {
+        if (spec->flags & (CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
             continue;
         }
 
