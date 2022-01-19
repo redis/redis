@@ -350,7 +350,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
+#define BLOCKED_POSTPONE 6 /* Blocked by processCommand, re-try processing later. */
 #define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
 #define BLOCKED_NUM 8      /* Number of blocked states. */
 
@@ -1142,7 +1142,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
-    listNode *paused_list_node; /* list node within the pause list */
+    listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
@@ -1511,7 +1511,7 @@ struct redisServer {
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     pause_type client_pause_type;      /* True if clients are currently paused */
-    list *paused_clients;       /* List of pause clients */
+    list *postponed_clients;       /* List of postponed clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
     pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -2470,7 +2470,7 @@ void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
 void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
-void unblockPausedClients();
+void unblockPostponedClients();
 void processEventsWhileBlocked(void);
 void whileBlockedCron();
 void blockingOperationStarts();

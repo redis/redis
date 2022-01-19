@@ -657,7 +657,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-                unblockPausedClients();
+                unblockPostponedClients();
             }
         }
     }
@@ -701,7 +701,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 
     /* Calculate the initial yield time for long blocked contexes.
      * in loading we depend on the server hz, but in other cases we also wait
-     * for busy_reply_threshold. */
+     * for busy_reply_threshold.
+     * Note that in theory we could have started processing BUSY_MODULE_YIELD_EVENTS
+     * sooner, and only delay the processing fo clients till the busy_reply_threshold,
+     * but this carries some overheads of frequently marking clients with BLOCKED_POSTPONE
+     * and releasing them, i.e. if modules only block for short periods. */
     if (server.loading)
         out_ctx->next_yield_time = getMonotonicUs() + 1000000 / server.hz;
     else
@@ -1406,7 +1410,8 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
     long long now = getMonotonicUs();
     if (now >= ctx->next_yield_time) {
         /* In loading mode, there's no need to handle busy_module_yield_reply,
-         * etc, since redis is anyway rejecting all commands with -LOADING. */
+         * and busy_module_yield_flags, since redis is anyway rejecting all
+         * commands with -LOADING. */
         if (server.loading) {
             /* Let redis process events */
             processEventsWhileBlocked();
@@ -1415,8 +1420,8 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             server.busy_module_yield_reply = busy_reply;
             /* start the blocking operatoin if not already started. */
             if (!server.busy_module_yield_flags) {
-                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS?
-                    BUSY_MODULE_YIELD_CLIENTS: BUSY_MODULE_YIELD_EVENTS;
+                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
+                    BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
                 blockingOperationStarts();
             }
 
@@ -6821,7 +6826,7 @@ void moduleGILBeforeUnlock() {
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
         server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
-        unblockPausedClients();
+        unblockPostponedClients();
     }
 }
 

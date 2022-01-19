@@ -2326,7 +2326,7 @@ void initServer(void) {
     server.client_pause_end_time = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
-    server.paused_clients = listCreate();
+    server.postponed_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -3373,11 +3373,11 @@ int processCommand(client *c) {
 
     /* If we're inside a module blocked context yielding that wants to avoid
      * processing clients, postpone the command. */
-    if (server.busy_module_yield_flags!=BUSY_MODULE_YIELD_NONE &&
-        !(server.busy_module_yield_flags&BUSY_MODULE_YIELD_CLIENTS))
+    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
+        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
     {
         c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_PAUSE);
+        blockClient(c,BLOCKED_POSTPONE);
         return C_OK;
     }
 
@@ -3694,7 +3694,7 @@ int processCommand(client *c) {
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_PAUSE);
+        blockClient(c,BLOCKED_POSTPONE);
         return C_OK;       
     }
 
