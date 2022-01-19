@@ -1684,15 +1684,20 @@ keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys) {
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, k = 0, last, first, step;
     keyReference *keys;
+    /* If partial specs are not allowed, first check to make sure there are no incomplete flags. */
+    if (!(search_flags & GET_KEYSPEC_RETURN_PARTIAL)) {
+        for (j = 0; j < cmd->key_specs_num; j++) {
+            keySpec *spec = cmd->key_specs + j;
+            if (spec->flags & CMD_KEY_INCOMPLETE) {
+                result->numkeys = 0;
+                return 0;
+            }
+        }
+    }
 
     for (j = 0; j < cmd->key_specs_num; j++) {
-        keySpec *spec = cmd->key_specs+j;
+        keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
-        if (spec->flags & CMD_KEY_INCOMPLETE && !(search_flags & GET_KEYSPEC_RETURN_PARTIAL)) {
-            result->numkeys = 0;
-            return 0;
-        }
-
         /* Skip specs that represent channels instead of keys */
         if (spec->flags & (CMD_KEY_CHANNEL|CMD_KEY_CHANNEL_PATTERN|CMD_KEY_SHARD_CHANNEL) &&
             !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) 
@@ -2058,7 +2063,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 
     keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
     keys[0].pos = 1; /* <sort-key> is always present. */
-    keys[0].flags = CMD_KEY_ACCESS;
+    keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
     return 1;
 }
 
@@ -2079,7 +2084,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     num = 0;
     keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
     keys[num].pos = 1; /* <sort-key> is always present. */
-    keys[num++].flags = CMD_KEY_ACCESS;
+    keys[num++].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
 
     /* Search for STORE option. By default we consider options to don't
      * have arguments, so if we find an unknown option name we scan the
@@ -2106,7 +2111,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
                  * ones are provided. This is same behavior as SORT. */
                 found_store = 1;
                 keys[num].pos = i+1; /* <store-key> */
-                keys[num].flags = CMD_KEY_UPDATE;
+                keys[num].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
                 break;
             }
         }
@@ -2141,7 +2146,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     keys = getKeysPrepareResult(result, num);
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
-        keys[num].flags = CMD_KEY_ACCESS | CMD_KEY_DELETE;
+        keys[i].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_DELETE;
     } 
     result->numkeys = num;
     return num;
