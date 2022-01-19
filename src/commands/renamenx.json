@@ -42,7 +42,7 @@
             {
                 "flags": [
                     "OW",
-                    "UPDATE"
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {
