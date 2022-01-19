@@ -182,6 +182,17 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         }
     }
 
+    test "AOF rewrite functions" {
+        r flushall
+        r FUNCTION LOAD LUA test DESCRIPTION {desc} {
+            redis.register_function('test', function() return 1 end)
+        }
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        r FUNCTION LIST 
+    } {{library_name test engine LUA description desc functions {{name test description {} flags {}}}}}
+
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
         r flushall
         r set k v
