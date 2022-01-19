@@ -14,14 +14,11 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
-        ],
-        "command_tips": [
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
