@@ -3143,8 +3143,10 @@ void sentinelConfigSetCommand(client *c) {
         return;
     }
 
-    sentinelFlushConfig();
-    addReply(c, shared.ok);
+    if (sentinelFlushConfig() == C_ERR) 
+        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+    else
+        addReply(c, shared.ok);
 
     /* Drop Sentinel connections to initiate a reconnect if needed. */
     if (drop_conns)
@@ -3898,14 +3900,18 @@ NULL
         if (ri == NULL) {
             addReplyError(c,sentinelCheckCreateInstanceErrors(SRI_MASTER));
         } else {
-            sentinelFlushConfig();
+            if (sentinelFlushConfig() == C_ERR) 
+                addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+            else
+                addReply(c,shared.ok);
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
-            addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
         if (c->argc != 2) goto numargserr;
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        if (sentinelFlushConfig() == C_ERR) 
+            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        else
+            addReply(c,shared.ok);
         return;
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
@@ -3916,8 +3922,10 @@ NULL
             == NULL) return;
         sentinelEvent(LL_WARNING,"-monitor",ri,"%@");
         dictDelete(sentinel.masters,c->argv[2]->ptr);
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        if (sentinelFlushConfig() == C_ERR) 
+            addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        else
+            addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ckquorum")) {
         /* SENTINEL CKQUORUM <name> */
         sentinelRedisInstance *ri;
