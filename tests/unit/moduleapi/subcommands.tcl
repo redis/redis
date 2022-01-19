@@ -34,4 +34,13 @@ start_server {tags {"modules"}} {
     test "Module get current subcommand fullname" {
         assert_equal [r subcommands.sub get_fullname] {subcommands.sub|get_fullname}
     }
+
+    test "COMMAND LIST FILTERBY MODULE" {
+        set reply [r command list filterby module subcommands]
+        assert_equal [lsort $reply] {subcommands.bitarray subcommands.bitarray|get subcommands.bitarray|set subcommands.parent_get_fullname subcommands.sub subcommands.sub|get_fullname}
+    }
+
+    test "Unload the module" {
+        assert_equal {OK} [r module unload subcommands]
+    }
 }

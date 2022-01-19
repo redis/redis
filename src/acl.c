@@ -2190,6 +2190,21 @@ void aclCommand(client *c) {
                 addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
                 arraylen++;
             }
+
+            /* Handle subcommands */
+            if (cmd->subcommands_dict) {
+                dictEntry *sub_de;
+                dictIterator *sub_di = dictGetSafeIterator(cmd->subcommands_dict);
+                while((sub_de = dictNext(sub_di)) != NULL) {
+                    struct redisCommand *sub = dictGetVal(sub_de);
+                    if (cmd->flags & CMD_MODULE) continue;
+                    if (sub->acl_categories & cflag) {
+                        addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
+                        arraylen++;
+                    }
+                }
+                dictReleaseIterator(sub_di);
+            }
         }
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);

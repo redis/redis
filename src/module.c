@@ -9861,40 +9861,67 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
+/* Free a parent_cmd: freeCommand(parent_cmd, NULL)
+ * Free a sub_command: freeCommand(sub_cmd, parent_cmd) */
+void freeCommand(struct redisCommand *cmd, struct redisCommand *parent_cmd) {
+    if (cmd->key_specs != cmd->key_specs_static)
+        zfree(cmd->key_specs);
+    for (int j = 0; cmd->hints && cmd->hints[j]; j++)
+        sdsfree((sds)cmd->hints[j]);
+    for (int j = 0; cmd->history && cmd->history[j].since; j++) {
+        sdsfree((sds)cmd->history[j].since);
+        sdsfree((sds)cmd->history[j].changes);
+    }
+    if (parent_cmd) {
+        /* We are freeing a sub command. */
+        dictDelete(parent_cmd->subcommands_dict, cmd->fullname);
+    } else {
+        /* We are freeing a parent command. */
+        dictDelete(server.commands, cmd->fullname);
+        dictDelete(server.orig_commands, cmd->fullname);
+    }
+    sdsfree(cmd->fullname);
+    sdsfree((sds)cmd->summary);
+    sdsfree((sds)cmd->since);
+    sdsfree((sds)cmd->complexity);
+    if (cmd->latency_histogram) {
+        hdr_close(cmd->latency_histogram);
+        cmd->latency_histogram = NULL;
+    }
+    zfree(cmd->args);
+    zfree(cmd);
+}
+
 void moduleUnregisterCommands(struct RedisModule *module) {
     /* Unregister all the commands registered by this module. */
     dictIterator *di = dictGetSafeIterator(server.commands);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->proc == RedisModuleCommandDispatcher) {
-            RedisModuleCommand *cp =
-                (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = cmd->fullname;
-            if (cp->module == module) {
-                if (cmd->key_specs != cmd->key_specs_static)
-                    zfree(cmd->key_specs);
-                for (int j = 0; cmd->hints && cmd->hints[j]; j++)
-                    sdsfree((sds)cmd->hints[j]);
-                for (int j = 0; cmd->history && cmd->history[j].since; j++) {
-                    sdsfree((sds)cmd->history[j].since);
-                    sdsfree((sds)cmd->history[j].changes);
-                }
-                dictDelete(server.commands,cmdname);
-                dictDelete(server.orig_commands,cmdname);
-                sdsfree(cmdname);
-                sdsfree((sds)cmd->summary);
-                sdsfree((sds)cmd->since);
-                sdsfree((sds)cmd->complexity);
-                if (cmd->latency_histogram) {
-                    hdr_close(cmd->latency_histogram);
-                    cmd->latency_histogram = NULL;
-                }
-                zfree(cmd->args);
-                zfree(cmd);
-                zfree(cp);
+        if (cmd->proc != RedisModuleCommandDispatcher) continue;
+
+        RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+        if (cp->module != module) continue;
+
+        /* Free the subcommands. */
+        if (cmd->subcommands_dict) {
+            dictEntry *sub_de;
+            dictIterator *sub_di = dictGetSafeIterator(cmd->subcommands_dict);
+            while ((sub_de = dictNext(sub_di)) != NULL) {
+                struct redisCommand *sub = dictGetVal(sub_de);
+                // if (sub->proc != RedisModuleCommandDispatcher) continue; // todo no need?
+                RedisModuleCommand *sub_cp = (void*)(unsigned long)sub->getkeys_proc;
+                // if (sub_cp->module != module) continue; // todo no need?
+                freeCommand(sub, cmd);
+                zfree(sub_cp);
             }
+            dictReleaseIterator(sub_di);
+            dictRelease(cmd->subcommands_dict);
         }
+
+        /* Free the parent command. */
+        freeCommand(cmd, NULL);
+        zfree(cp);
     }
     dictReleaseIterator(di);
 }

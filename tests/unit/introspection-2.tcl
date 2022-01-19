@@ -106,8 +106,27 @@ start_server {tags {"introspection"}} {
         assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
     }
 
+    test "COMMAND LIST FILTERBY ACLCAT - SUBCOMMANDS" {
+        set reply [r command list filterby aclcat scripting]
+        assert_equal [lsort $reply] {eval eval_ro evalsha evalsha_ro fcall fcall_ro function|delete function|dump function|flush function|help function|kill function|list function|load function|restore function|stats script|debug script|exists script|flush script|help script|kill script|load}
+    }
+
     test "COMMAND LIST FILTERBY PATTERN" {
         set reply [r command list filterby pattern pf*]
         assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
+    }
+
+    test "COMMAND LIST FILTERBY PATTERN - SUBCOMMANDS" {
+        # Return the parent command and all the subcommands below it.
+        set reply [r command list filterby pattern config*]
+        assert_equal [lsort $reply] {config config|get config|help config|resetstat config|rewrite config|set}
+
+        # We can filter subcommands under a parent command.
+        set reply [r command list filterby pattern config|*re*]
+        assert_equal [lsort $reply] {config|resetstat config|rewrite}
+
+        # We can filter subcommands across parent commands.
+        set reply [r command list filterby pattern cl*help]
+        assert_equal [lsort $reply] {client|help cluster|help}
     }
 }

@@ -476,6 +476,11 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*flushall*" [r ACL CAT dangerous]
     }
 
+    test "ACL CAT category - SUBCOMMANDS" {
+        set reply [r acl cat scripting]
+        assert_equal [lsort $reply] {eval eval_ro evalsha evalsha_ro fcall fcall_ro function|delete function|dump function|flush function|help function|kill function|list function|load function|restore function|stats script|debug script|exists script|flush script|help script|kill script|load}
+    }
+
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
         r AUTH default ""
         r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c

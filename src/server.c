@@ -4484,7 +4484,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
 
 /* Helper for COMMAND(S) command
  *
- * COMMAND(S) GETKEYS arg0 arg1 arg2 ... */
+ * COMMAND(S) GETKEYS cmd arg1 arg2 ... */
 void getKeysSubcommand(client *c) {
     struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
     getKeysResult result = GETKEYS_RESULT_INIT;
@@ -4608,28 +4608,54 @@ void commandListCommand(client *c) {
         }
     }
 
+    int numcmds = 0;
+    void *replylen = addReplyDeferredLen(c);
     dictIterator *di;
     dictEntry *de;
 
     di = dictGetIterator(server.commands);
     if (!got_filter) {
-        addReplySetLen(c, dictSize(server.commands));
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            numcmds++;
+
+            /* Handle subcommands */
+            if (cmd->subcommands_dict) {
+                dictEntry *sub_de;
+                dictIterator *sub_di = dictGetSafeIterator(cmd->subcommands_dict);
+                while((sub_de = dictNext(sub_di)) != NULL) {
+                    struct redisCommand *sub = dictGetVal(sub_de);
+                    addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
+                    numcmds++;
+                }
+                dictReleaseIterator(sub_di);
+            }
         }
     } else {
-        int numcmds = 0;
-        void *replylen = addReplyDeferredLen(c);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (!shouldFilterFromCommandList(cmd,&filter)) {
                 addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
                 numcmds++;
             }
+
+            /* Handle subcommands */
+            if (cmd->subcommands_dict) {
+                dictEntry *sub_de;
+                dictIterator *sub_di = dictGetSafeIterator(cmd->subcommands_dict);
+                while((sub_de = dictNext(sub_di)) != NULL) {
+                    struct redisCommand *sub = dictGetVal(sub_de);
+                    if (!shouldFilterFromCommandList(sub, &filter)) {
+                        addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
+                        numcmds++;
+                    }
+                }
+                dictReleaseIterator(sub_di);
+            }
         }
-        setDeferredArrayLen(c,replylen,numcmds);
     }
+    setDeferredArrayLen(c,replylen,numcmds);
     dictReleaseIterator(di);
 }
 
