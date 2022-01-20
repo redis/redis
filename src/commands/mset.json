@@ -13,6 +13,10 @@
         "acl_categories": [
             "STRING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "key_specs": [
             {
                 "flags": [

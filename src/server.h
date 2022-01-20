@@ -190,8 +190,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ADMIN (1ULL<<4)
 #define CMD_PUBSUB (1ULL<<5)
 #define CMD_NOSCRIPT (1ULL<<6)
-#define CMD_RANDOM (1ULL<<7)
-#define CMD_SORT_FOR_SCRIPT (1ULL<<8)
+#define CMD_BLOCKING (1ULL<<8)       /* Has potential to block. */
 #define CMD_LOADING (1ULL<<9)
 #define CMD_STALE (1ULL<<10)
 #define CMD_SKIP_MONITOR (1ULL<<11)
@@ -209,6 +208,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_NO_ASYNC_LOADING (1ULL<<23)
 #define CMD_NO_MULTI (1ULL<<24)
 #define CMD_MOVABLE_KEYS (1ULL<<25) /* populated by populateCommandMovableKeys */
+#define CMD_ALLOW_BUSY ((1ULL<<26))
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -349,7 +349,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_PAUSE 6   /* Blocked by CLIENT PAUSE */
+#define BLOCKED_POSTPONE 6 /* Blocked by processCommand, re-try processing later. */
 #define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
 #define BLOCKED_NUM 8      /* Number of blocked states. */
 
@@ -602,6 +602,11 @@ typedef enum {
 #define LATENCY_HISTOGRAM_PRECISION 2  /* Maintain a value precision of 2 significant digits across LATENCY_HISTOGRAM_MIN_VALUE and LATENCY_HISTOGRAM_MAX_VALUE range.
                                         * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
                                         * The total size per histogram should sit around 40 KiB Bytes. */
+
+/* Busy module flags, see busy_module_yield_flags */
+#define BUSY_MODULE_YIELD_NONE (0)
+#define BUSY_MODULE_YIELD_EVENTS (1<<0)
+#define BUSY_MODULE_YIELD_CLIENTS (1<<1)
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -1114,7 +1119,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
-    listNode *paused_list_node; /* list node within the pause list */
+    listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
@@ -1189,7 +1194,8 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
     *queued, *null[4], *nullarray[4], *emptymap[4], *emptyset[4],
     *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *slowevalerr, *slowscripterr, *bgsaveerr,
+    *outofrangeerr, *noscripterr, *loadingerr,
+    *slowevalerr, *slowscripterr, *slowmoduleerr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
@@ -1437,6 +1443,8 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
+    int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
+    const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
     int propagate_no_multi;     /* True if propagatePendingCommands should avoid wrapping command in MULTI/EXEC */
     int module_ctx_nesting;     /* moduleCreateContext() nesting level */
@@ -1480,7 +1488,7 @@ struct redisServer {
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     pause_type client_pause_type;      /* True if clients are currently paused */
-    list *paused_clients;       /* List of pause clients */
+    list *postponed_clients;       /* List of postponed clients */
     mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
     pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -1834,7 +1842,7 @@ struct redisServer {
                                    * dropping packets of a specific type */
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
-    mstime_t script_time_limit;  /* Script timeout in milliseconds */
+    mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int script_oom;                    /* OOM detected when script start */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
@@ -2093,14 +2101,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NOSCRIPT:    Command not allowed in scripts.
  *
- * CMD_RANDOM:      Random command. Command is not deterministic, that is, the same
- *                  command with the same arguments, with the same key space, may
- *                  have different results. For instance SPOP and RANDOMKEY are
- *                  two random commands.
- *
- * CMD_SORT_FOR_SCRIPT:     Sort command output array if called from script, so that the
- *                          output is deterministic. When this flag is used (not always
- *                          possible), then the "random" flag is not needed.
+ * CMD_BLOCKING:    The command has the potential to block the client.
  *
  * CMD_LOADING:     Allow the command while loading the database.
  *
@@ -2173,7 +2174,7 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
-    const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
@@ -2203,7 +2204,7 @@ struct redisCommand {
                                      * COMMAND INFO and COMMAND GETKEYS */
     int num_args;
     int num_history;
-    int num_hints;
+    int num_tips;
     int key_specs_num;
     int key_specs_max;
     dict *subcommands_dict;
@@ -2445,6 +2446,7 @@ void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
 void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
 int checkClientPauseTimeoutAndReturnIfPaused(void);
+void unblockPostponedClients();
 void processEventsWhileBlocked(void);
 void whileBlockedCron();
 void blockingOperationStarts();

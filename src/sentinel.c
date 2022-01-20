@@ -402,7 +402,7 @@ void sentinelStartFailover(sentinelRedisInstance *master);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, const sentinelAddr *addr);
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch);
-void sentinelFlushConfig(void);
+int sentinelFlushConfig(void);
 void sentinelGenerateInitialMonitorEvents(void);
 int sentinelSendPing(sentinelRedisInstance *ri);
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master);
@@ -2243,7 +2243,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
  * configuration file to make sure changes are committed to disk.
  *
  * On failure the function logs a warning on the Redis log. */
-void sentinelFlushConfig(void) {
+int sentinelFlushConfig(void) {
     int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
@@ -2256,11 +2256,13 @@ void sentinelFlushConfig(void) {
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
     if (fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
-    return;
+    serverLog(LL_NOTICE,"Sentinel new configuration saved on disk");
+    return C_OK;
 
 werr:
     serverLog(LL_WARNING,"WARNING: Sentinel was not able to save the new configuration on disk!!!: %s", strerror(errno));
     if (fd != -1) close(fd);
+    return C_ERR;
 }
 
 /* ====================== hiredis connection handling ======================= */
@@ -4316,8 +4318,10 @@ void sentinelSetCommand(client *c) {
             break;
         }
     }
-
-    if (changes) sentinelFlushConfig();
+    if (changes && sentinelFlushConfig() == C_ERR) {
+        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        return;
+    }
     addReply(c,shared.ok);
     return;
 
@@ -4325,7 +4329,10 @@ badfmt: /* Bad format errors */
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
         (char*)c->argv[badarg]->ptr,option);
 seterr:
-    if (changes) sentinelFlushConfig();
+    if (changes && sentinelFlushConfig() == C_ERR) {
+        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
+        return;
+    }
     return;
 }
 

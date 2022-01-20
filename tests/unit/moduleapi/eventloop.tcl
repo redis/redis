@@ -4,9 +4,8 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     test "Module eventloop sendbytes" {
-        assert_match "OK" [r test.sendbytes 10000000]
+        assert_match "OK" [r test.sendbytes 5000000]
         assert_match "OK" [r test.sendbytes 2000000]
-        assert_match "OK" [r test.sendbytes 800000000]
     }
 
     test "Module eventloop iteration" {
