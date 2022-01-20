@@ -3751,6 +3751,14 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL SET hints */
 #define SENTINEL_GET_Hints NULL
 
+/********** SENTINEL SET ********************/
+
+/* SENTINEL SET history */
+#define SENTINEL_GET_History NULL
+
+/* SENTINEL SET hints */
+#define SENTINEL_GET_Hints NULL
+
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
 /* SENTINEL SIMULATE_FAILURE history */
