@@ -1500,7 +1500,7 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
 static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int flags) {
-    /* The selector can run any keys */
+    /* The selector can access any key */
     if (selector->flags & SELECTOR_FLAG_ALLKEYS) return ACL_OK;
 
     listIter li;
@@ -1516,9 +1516,10 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     /* Test this key against every pattern. */
     while((ln = listNext(&li))) {
         keyPattern *pattern = listNodeValue(ln);
-        if ((pattern->flags & key_flags) != key_flags) continue;
+        if ((pattern->flags & key_flags) != key_flags)
+            continue;
         size_t plen = sdslen(pattern->pattern);
-        if (stringmatchlen(pattern->pattern,plen,key,keylen,0))
+        if (stringmatchlen(pattern->pattern,plen,key,keylen,0)) 
             return ACL_OK;
     }
     return ACL_DENIED_KEY;
@@ -1552,16 +1553,16 @@ static int ACLCheckChannelAgainstList(list *reference, const char *channel, int 
     return ACL_DENIED_CHANNEL;
 }
 
-/* Check if the pub/sub channels of the command, that's ready to be executed
- * according to the ACLs channels associated with the specified user.
+/* Check if the pub/sub channels of the command can be executed
+ * according to the ACL channels associated with the specified selector.
  * 
  * idx and count are the index and count of channel arguments from the
- * command. The literal argument controls whether the user's ACL channels are 
+ * command. The literal argument controls whether the selector's ACL channels are 
  * evaluated as literal values or matched as glob-like patterns.
  *
- * If the user can execute the command ACL_OK is returned, otherwise 
+ * If the selector can execute the command ACL_OK is returned, otherwise 
  * ACL_DENIED_CHANNEL. */
-int ACLSelectorCheckPubsubArguments(aclSelector *s, robj **argv, int idx, int count, int literal, int *idxptr) {
+static int ACLSelectorCheckPubsubArguments(aclSelector *s, robj **argv, int idx, int count, int literal, int *idxptr) {
     for (int j = idx; j < idx+count; j++) {
         if (ACLCheckChannelAgainstList(s->channels, argv[j]->ptr, sdslen(argv[j]->ptr), literal != ACL_OK)) {
             if (idxptr) *idxptr = j;
@@ -1569,7 +1570,7 @@ int ACLSelectorCheckPubsubArguments(aclSelector *s, robj **argv, int idx, int co
         }
     }
 
-    /* If we survived all the above checks, the user can execute the
+    /* If we survived all the above checks, the selector can execute the
      * command. */
     return ACL_OK;
 }
@@ -1581,18 +1582,22 @@ typedef struct {
     getKeysResult keys;
 } aclKeyResultCache;
 
+void initACLKeyResultCache(aclKeyResultCache *cache) {
+    cache->keys_init = 1;
+}
+
 void cleanupACLKeyResultCache(aclKeyResultCache *cache) {
     if (cache->keys_init) getKeysFreeResult(&(cache->keys));
 }
 
 /* Check if the command is ready to be executed according to the
- * ACLs associated with the specified user.
+ * ACLs associated with the specified selector.
  *
- * If the user can execute the command ACL_OK is returned, otherwise
- * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
- * command cannot be executed because the user is not allowed to run such
- * command, the second if the command is denied because the user is trying
- * to access keys that are not among the specified patterns. */
+ * If the selector can execute the command ACL_OK is returned, otherwise
+ * ACL_DENIED_CMD, ACL_DENIED_KEY, or ACL_DENIED_CHANNEL is returned: the first in case the
+ * command cannot be executed because the selector is not allowed to run such
+ * command, the second and third if the command is denied because the selector is trying
+ * to access a key or channel that are not among the specified patterns. */
 static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, robj **argv, int argc, int *keyidxptr, aclKeyResultCache *cache) {
     uint64_t id = cmd->id;
     int ret;
@@ -1625,7 +1630,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
     if (!(selector->flags & SELECTOR_FLAG_ALLKEYS) && doesCommandHaveKeys(cmd)) {
         if (!(cache->keys_init)) {
             cache->keys = (getKeysResult) GETKEYS_RESULT_INIT;
-            getKeysFromCommandWithSpecs(cmd,argv,argc,GET_KEYSPEC_DEFAULT,&(cache->keys));
+            getKeysFromCommandWithSpecs(cmd, argv, argc, GET_KEYSPEC_DEFAULT, &(cache->keys));
             cache->keys_init = 1;
         }
         getKeysResult *result = &(cache->keys);
@@ -1644,7 +1649,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
      * mentioned in the command arguments */
     if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && ACLDoesCommandHaveChannels(cmd)) {  
         if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
-            ret = ACLSelectorCheckPubsubArguments(selector,argv, 1 ,1, 0, keyidxptr);
+            ret = ACLSelectorCheckPubsubArguments(selector,argv, 1, 1, 0, keyidxptr);
         } else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand) {
             ret = ACLSelectorCheckPubsubArguments(selector, argv, 1, argc-1, 0, keyidxptr);
         } else if (cmd->proc == psubscribeCommand) {
@@ -1710,7 +1715,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int literal) {
     return ACL_DENIED_CHANNEL;
 }
 
-/* Check whether the command is ready to be executed by ACLCheckCommandPerm. */
+/* Lower level API that checks if a specified user is able to execute a given command. */
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
     listIter li;
     listNode *ln;
@@ -1720,15 +1725,14 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
 
     /* We have to pick a single error to log, the logic for picking is as follows:
      * 1) If no selector can execute the command, return the command.
-     * 2) Return the last key or channel that no selector could match.
-     */
+     * 2) Return the last key or channel that no selector could match. */
     int relevant_error = ACL_DENIED_CMD;
     int local_idxptr = 0, last_idx = 0;
 
     /* For multiple selectors, we cache the key result in between selector
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
-    cache.keys_init = 0;
+    initACLKeyResultCache(&cache);
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1748,6 +1752,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     return relevant_error;
 }
 
+/* High level API for checking if a client can execute the queued up command */
 int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }

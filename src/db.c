@@ -1688,7 +1688,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd) {
  * 
  * GET_KEYSPEC_INCLUDE_CHANNELS: Return channels as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
- *                               found in other keyspecs. 
+ *                               found in other valid keyspecs. 
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, k = 0, last, first, step;
