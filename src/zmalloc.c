@@ -467,9 +467,15 @@ size_t zmalloc_get_rss(void) {
 
     return 0L;
 }
-#elif defined(__NetBSD__)
+#elif defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
+
+#if defined(__OpenBSD__)
+#define kinfo_proc2 kinfo_proc
+#define KERN_PROC2 KERN_PROC
+#define __arraycount(a) (sizeof(a) / sizeof(a[0]))
+#endif
 
 size_t zmalloc_get_rss(void) {
     struct kinfo_proc2 info;

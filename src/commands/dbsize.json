@@ -12,6 +12,10 @@
         ],
         "acl_categories": [
             "KEYSPACE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_SUM"
         ]
     }
 }

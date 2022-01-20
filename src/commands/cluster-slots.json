@@ -14,8 +14,10 @@
             ]
         ],
         "command_flags": [
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

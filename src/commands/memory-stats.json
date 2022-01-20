@@ -7,8 +7,8 @@
         "arity": 2,
         "container": "MEMORY",
         "function": "memoryCommand",
-        "command_flags": [
-            "RANDOM"
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

@@ -1535,8 +1535,8 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
         mstime_t elapsed = elapsedMs(rctx->start_time);
-        mstime_t timelimit = server.script_time_limit ?
-                             server.script_time_limit : 5000;
+        mstime_t timelimit = server.busy_reply_threshold ?
+                             server.busy_reply_threshold : 5000;
         if (elapsed >= timelimit) {
             timeout = 1;
             ldb.step = 1;

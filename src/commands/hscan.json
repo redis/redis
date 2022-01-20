@@ -7,11 +7,13 @@
         "arity": -3,
         "function": "hscanCommand",
         "command_flags": [
-            "READONLY",
-            "RANDOM"
+            "READONLY"
         ],
         "acl_categories": [
             "HASH"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "key_specs": [
             {
