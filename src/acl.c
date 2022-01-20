@@ -1051,8 +1051,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
 
                 /* Add the first-arg to the list of valid ones. */
                 serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
-                                      "blocked command is a misuse of ACL and may be deprecated "
-                                      "at any given moment (offender: +%s)", op+1);
+                                      "blocked command is a misuse of ACL and may get disabled "
+                                      "in the future (offender: +%s)", op+1);
                 ACLAddAllowedFirstArg(u,cmd->id,sub);
             }
 
