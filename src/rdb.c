@@ -2744,6 +2744,60 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+/* Extract the following library arguments from rio object (and returns them as out parameters):
+ * * library name
+ * * engine name
+ * * description
+ * * library blob (payload)
+ *
+ * On success return C_OK. On error, returns C_ERR and populate error out parameter with
+ * a relevant error message. */
+int rdbFunctionLoadArguments(rio *rdb, sds *name, sds *engine_name, sds *desc, sds *blob, sds *error) {
+    sds t_name = NULL;
+    sds t_engine_name = NULL;
+    sds t_desc = NULL;
+    sds t_blob = NULL;
+    uint64_t has_desc;
+
+    if (!(t_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        *error = sdsnew("Failed loading library name");
+        goto error;
+    }
+
+    if (!(t_engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        *error = sdsnew("Failed loading engine name");
+        goto error;
+    }
+
+    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+        *error = sdsnew("Failed loading library description indicator");
+        goto error;
+    }
+
+    if (has_desc && !(t_desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        *error = sdsnew("Failed loading library description");
+        goto error;
+    }
+
+    if (!(t_blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+        *error = sdsnew("Failed loading library blob");
+        goto error;
+    }
+
+    if (name) *name = t_name;
+    if (engine_name) *engine_name = t_engine_name;
+    if (desc) *desc = t_desc;
+    if (blob) *blob = t_blob;
+    return C_OK;
+
+error:
+    if (t_name) sdsfree(t_name);
+    if (t_engine_name) sdsfree(t_engine_name);
+    if (t_desc) sdsfree(t_desc);
+    if (t_blob) sdsfree(t_blob);
+    return C_ERR;
+}
+
 /* Save the given functions_ctx to the rdb.
  * The err output parameter is optional and will be set with relevant error
  * message on failure, it is the caller responsibility to free the error
@@ -2754,31 +2808,10 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, s
     sds engine_name = NULL;
     sds desc = NULL;
     sds blob = NULL;
-    uint64_t has_desc;
     sds error = NULL;
     int res = C_ERR;
-    if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library name");
-        goto error;
-    }
 
-    if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading engine name");
-        goto error;
-    }
-
-    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        error = sdsnew("Failed loading library description indicator");
-        goto error;
-    }
-
-    if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library description");
-        goto error;
-    }
-
-    if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library blob");
+    if (rdbFunctionLoadArguments(rdb, &name, &engine_name, &desc, &blob, &error) != C_OK) {
         goto error;
     }
 

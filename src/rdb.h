@@ -170,6 +170,7 @@ int rdbLoadBinaryFloatValue(rio *rdb, float *val);
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi);
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx);
 int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err);
+int rdbFunctionLoadArguments(rio *rdb, sds *name, sds *engine_name, sds *desc, sds *blob, sds *error);
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
 ssize_t rdbSaveFunctions(rio *rdb);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
