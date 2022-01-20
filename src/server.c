@@ -2632,6 +2632,8 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_PUBSUB;
     if (c->flags & CMD_FAST)
         c->acl_categories |= ACL_CATEGORY_FAST;
+    if (c->flags & CMD_BLOCKING)
+        c->acl_categories |= ACL_CATEGORY_BLOCKING;
 
     /* If it's not @fast is @slow in this binary world. */
     if (!(c->acl_categories & ACL_CATEGORY_FAST))
@@ -2671,8 +2673,8 @@ void populateCommandStructure(struct redisCommand *c) {
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
         c->num_history++;
-    while (c->hints && c->hints[c->num_hints])
-        c->num_hints++;
+    while (c->tips && c->tips[c->num_tips])
+        c->num_tips++;
     c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
@@ -4099,8 +4101,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_ADMIN,             "admin"},
         {CMD_PUBSUB,            "pubsub"},
         {CMD_NOSCRIPT,          "noscript"},
-        {CMD_RANDOM,            "random"},
-        {CMD_SORT_FOR_SCRIPT,   "sort_for_script"},
+        {CMD_BLOCKING,          "blocking"},
         {CMD_LOADING,           "loading"},
         {CMD_STALE,             "stale"},
         {CMD_SKIP_MONITOR,      "skip_monitor"},
@@ -4109,15 +4110,16 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_FAST,              "fast"},
         {CMD_NO_AUTH,           "no_auth"},
         {CMD_MAY_REPLICATE,     "may_replicate"},
+        /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
+        /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
         {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
-        {CMD_PROTECTED,         "protected"},
+        /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
         {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
         {0,NULL}
     };
-    /* "sentinel" and "only-sentinel" are hidden on purpose. */
     addReplyCommandFlags(c, cmd->flags, flagNames);
 }
 
@@ -4251,10 +4253,10 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    addReplySetLen(c, cmd->num_hints);
-    for (int j = 0; j<cmd->num_hints; j++) {
-        addReplyBulkCString(c, cmd->hints[j]);
+void addReplyCommandTips(client *c, struct redisCommand *cmd) {
+    addReplySetLen(c, cmd->num_tips);
+    for (int j = 0; j<cmd->num_tips; j++) {
+        addReplyBulkCString(c, cmd->tips[j]);
     }
 }
 
@@ -4415,7 +4417,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        addReplyCommandHints(c, cmd);
+        addReplyCommandTips(c, cmd);
         addReplyCommandKeySpecs(c, cmd);
         addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }

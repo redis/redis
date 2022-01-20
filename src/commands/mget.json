@@ -13,6 +13,9 @@
         "acl_categories": [
             "STRING"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD"
+        ],
         "key_specs": [
             {
                 "flags": [

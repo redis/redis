@@ -190,8 +190,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ADMIN (1ULL<<4)
 #define CMD_PUBSUB (1ULL<<5)
 #define CMD_NOSCRIPT (1ULL<<6)
-#define CMD_RANDOM (1ULL<<7)
-#define CMD_SORT_FOR_SCRIPT (1ULL<<8)
+#define CMD_BLOCKING (1ULL<<8)       /* Has potential to block. */
 #define CMD_LOADING (1ULL<<9)
 #define CMD_STALE (1ULL<<10)
 #define CMD_SKIP_MONITOR (1ULL<<11)
@@ -2118,14 +2117,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NOSCRIPT:    Command not allowed in scripts.
  *
- * CMD_RANDOM:      Random command. Command is not deterministic, that is, the same
- *                  command with the same arguments, with the same key space, may
- *                  have different results. For instance SPOP and RANDOMKEY are
- *                  two random commands.
- *
- * CMD_SORT_FOR_SCRIPT:     Sort command output array if called from script, so that the
- *                          output is deterministic. When this flag is used (not always
- *                          possible), then the "random" flag is not needed.
+ * CMD_BLOCKING:    The command has the potential to block the client.
  *
  * CMD_LOADING:     Allow the command while loading the database.
  *
@@ -2198,7 +2190,7 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
-    const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
@@ -2228,7 +2220,7 @@ struct redisCommand {
                                      * COMMAND INFO and COMMAND GETKEYS */
     int num_args;
     int num_history;
-    int num_hints;
+    int num_tips;
     int key_specs_num;
     int key_specs_max;
     dict *subcommands_dict;

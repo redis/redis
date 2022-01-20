@@ -215,8 +215,8 @@ class Command(object):
     def history_table_name(self):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
-    def hints_table_name(self):
-        return "%s_Hints" % (self.fullname().replace(" ", "_"))
+    def tips_table_name(self):
+        return "%s_tips" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
@@ -233,19 +233,19 @@ class Command(object):
         s += "{0}"
         return s
 
-    def hints_code(self):
-        if not self.desc.get("hints"):
+    def tips_code(self):
+        if not self.desc.get("command_tips"):
             return ""
         s = ""
-        for hint in self.desc["hints"].split(' '):
-            s += "\"%s\",\n" % hint
+        for hint in self.desc["command_tips"]:
+            s += "\"%s\",\n" % hint.lower()
         s += "NULL"
         return s
 
     def struct_code(self):
         """
         Output example:
-        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_Hints,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
+        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
         """
 
         def _flags_code():
@@ -282,7 +282,7 @@ class Command(object):
             get_optional_desc_string(self.desc, "deprecated_since"),
             GROUPS[self.group],
             self.history_table_name(),
-            self.hints_table_name(),
+            self.tips_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code(),
@@ -328,14 +328,14 @@ class Command(object):
         else:
             f.write("#define %s NULL\n\n" % self.history_table_name())
 
-        f.write("/* %s hints */\n" % self.fullname())
-        code = self.hints_code()
+        f.write("/* %s tips */\n" % self.fullname())
+        code = self.tips_code()
         if code:
-            f.write("const char *%s[] = {\n" % self.hints_table_name())
+            f.write("const char *%s[] = {\n" % self.tips_table_name())
             f.write("%s\n" % code)
             f.write("};\n\n")
         else:
-            f.write("#define %s NULL\n\n" % self.hints_table_name())
+            f.write("#define %s NULL\n\n" % self.tips_table_name())
 
         if self.args:
             for arg in self.args:
