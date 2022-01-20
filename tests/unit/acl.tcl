@@ -733,27 +733,27 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 
     test {Default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         set channelinfo [dict get [r ACL getuser alice] channels]
         assert_equal "" $channelinfo
     }
 
     test {Update acl-pubsub-default, existing users shouldn't get affected} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         r CONFIG set acl-pubsub-default allchannels
         r ACL setuser mydefault
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         r CONFIG set acl-pubsub-default resetchannels
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
     }
 
     test {Single channel is valid} {
         r ACL setuser onechannel &test
         set channelinfo [dict get [r ACL getuser onechannel] channels]
-        assert_equal test $channelinfo
+        assert_equal "&test" $channelinfo
         r ACL deluser onechannel
     }
 
@@ -772,7 +772,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 
     test {Only default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         set channelinfo [dict get [r ACL getuser alice] channels]
         assert_equal "" $channelinfo
     }

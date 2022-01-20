@@ -2,17 +2,33 @@
 #include "redismodule.h"
 #include <errno.h>
 #include <assert.h>
+#include <string.h>
+#include <strings.h>
 
 /* A wrap for SET command with ACL check on the key. */
 int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 3) {
+    if (argc < 4) {
         return RedisModule_WrongArity(ctx);
+    }
+
+    int permissions;
+    const char *flags = RedisModule_StringPtrLen(argv[1], NULL);
+
+    if (!strcasecmp(flags, "W")) {
+        permissions = REDISMODULE_KEY_PERMISSION_WRITE;
+    } else if (!strcasecmp(flags, "R")) {
+        permissions = REDISMODULE_KEY_PERMISSION_READ;
+    } else if (!strcasecmp(flags, "*")) {
+        permissions = REDISMODULE_KEY_PERMISSION_ALL;
+    } else {
+        RedisModule_ReplyWithError(ctx, "INVALID FLAGS");
+        return REDISMODULE_OK;
     }
 
     /* Check that the key can be accessed */
     RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
     RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-    int ret = RedisModule_ACLCheckKeyPermissions(user, argv[1]);
+    int ret = RedisModule_ACLCheckKeyPermissions(user, argv[2], permissions);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED KEY");
         RedisModule_FreeModuleUser(user);
@@ -20,7 +36,7 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
     }
 
-    RedisModuleCallReply *rep = RedisModule_Call(ctx, "SET", "v", argv + 1, argc - 1);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "SET", "v", argv + 2, argc - 2);
     if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     } else {

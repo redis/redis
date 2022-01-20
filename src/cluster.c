@@ -6423,7 +6423,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     for (i = 0; i < ms->count; i++) {
         struct redisCommand *mcmd;
         robj **margv;
-        int margc, *keyindex, numkeys, j;
+        int margc, numkeys, j;
+        keyReference *keyindex;
 
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
@@ -6434,7 +6435,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         keyindex = result.keys;
 
         for (j = 0; j < numkeys; j++) {
-            robj *thiskey = margv[keyindex[j]];
+            robj *thiskey = margv[keyindex[j].pos];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
                                        sdslen(thiskey->ptr));
 
