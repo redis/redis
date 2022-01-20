@@ -305,7 +305,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_FUNCTION) {
             sds err = NULL;
-            if (rdbFunctionLoadArguments(&rdb, NULL, NULL, NULL, NULL, &err) != C_OK) {
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
                 rdbCheckError("Failed loading library, %s", err);
                 sdsfree(err);
                 goto err;
