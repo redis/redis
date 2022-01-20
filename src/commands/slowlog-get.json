@@ -19,7 +19,7 @@
             "STALE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_MASTERS",
+            "REQUEST_POLICY:ALL_NODES",
             "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
