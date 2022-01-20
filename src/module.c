@@ -699,11 +699,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
         out_ctx->client = createClient(NULL);
 
-    /* Calculate the initial yield time for long blocked contexes.
+    /* Calculate the initial yield time for long blocked contexts.
      * in loading we depend on the server hz, but in other cases we also wait
      * for busy_reply_threshold.
      * Note that in theory we could have started processing BUSY_MODULE_YIELD_EVENTS
-     * sooner, and only delay the processing fo clients till the busy_reply_threshold,
+     * sooner, and only delay the processing for clients till the busy_reply_threshold,
      * but this carries some overheads of frequently marking clients with BLOCKED_POSTPONE
      * and releasing them, i.e. if modules only block for short periods. */
     if (server.loading)
