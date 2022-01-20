@@ -325,7 +325,7 @@ void *ACLListDupKeyPattern(void *item) {
 /* Append the string representation of a key pattern onto the
  * provided base string. */
 sds sdsCatPatternString(sds base, keyPattern *pat) {
-    if (pat->flags == (ACL_READ_PERMISSION | ACL_WRITE_PERMISSION)) {
+    if (pat->flags == ACL_ALL_PERMISSION) {
         base = sdscatlen(base,"~",1);
     } else if (pat->flags == ACL_READ_PERMISSION) {
         base = sdscatlen(base,"%R~",3);
@@ -428,7 +428,6 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     /* Add the initial root selector */
     aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_ROOT);
     listAddNodeHead(u->selectors, s);
-    ACLUserGetRootSelector(u)->flags |= SELECTOR_FLAG_ROOT;
 
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -864,9 +863,9 @@ sds ACLDescribeUser(user *u) {
     /* Selectors (Commands and keys) */
     listRewind(u->selectors,&li);
     while((ln = listNext(&li))) {
-        aclSelector *select = (aclSelector *) listNodeValue(ln);
-        sds default_perm = ACLDescribeSelector((aclSelector *) listNodeValue(ln));
-        if (select->flags & SELECTOR_FLAG_ROOT) {
+        aclSelector *selector = (aclSelector *) listNodeValue(ln);
+        sds default_perm = ACLDescribeSelector(selector);
+        if (selector->flags & SELECTOR_FLAG_ROOT) {
             res = sdscatfmt(res, "%s", default_perm);
         } else {
             res = sdscatfmt(res, " (%s)", default_perm);
@@ -1059,7 +1058,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                 }
             }
         } else {
-            flags = ACL_READ_PERMISSION | ACL_WRITE_PERMISSION;
+            flags = ACL_ALL_PERMISSION;
         }
 
         if (ACLStringHasSpaces(op+offset,oplen-offset)) {
@@ -1298,12 +1297,12 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             return C_ERR;
         }
     } else if (op[0] == '(' && op[oplen - 1] == ')') {
-        aclSelector *select = aclCreateSelectorFromOpSet(op, oplen);
-        if (!select) {
+        aclSelector *selector = aclCreateSelectorFromOpSet(op, oplen);
+        if (!selector) {
             /* No errorno set, propagate it from interior error. */
             return C_ERR;
         }
-        listAddNodeTail(u->selectors, select);
+        listAddNodeTail(u->selectors, selector);
         return C_OK;
     } else if (!strcasecmp(op,"clearselectors")) {
         listIter li;
@@ -1525,6 +1524,16 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
+/* Returns if a given command may possibly access channels. For this context,
+ * the unsubscribe commands do not have channels. */
+static int ACLDoesCommandHaveChannels(struct redisCommand *cmd) {
+    return (cmd->proc == publishCommand
+        || cmd->proc == subscribeCommand
+        || cmd->proc == psubscribeCommand
+        || cmd->proc == spublishCommand
+        || cmd->proc == ssubscribeCommand);
+}
+
 /* Checks a channel against a provide list of channels. */
 static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
     listIter li;
@@ -1637,7 +1646,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
 
     /* Check if the user can execute commands explicitly touching the channels
      * mentioned in the command arguments */
-    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && doesCommandHaveChannels(cmd)) {
+    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && ACLDoesCommandHaveChannels(cmd)) {
         if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
             ret = ACLSelectorCheckPubsubArguments(selector,argv, 1, 1, 0, keyidxptr);
         } else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand) {

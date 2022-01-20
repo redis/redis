@@ -1842,15 +1842,6 @@ int doesCommandHaveKeys(struct redisCommand *cmd) {
         (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);       /* has at least one key-spec not marked as CHANNEL */
 }
 
-/* Returns if a given command may possibly access channels. For this context. */
-int doesCommandHaveChannels(struct redisCommand *cmd) {
-    return (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_CHANNEL) || /* has at least one key-spec marked as CHANNEL */
-        /* the a pub/sub command. (unsubscribe commands do not have channels) */
-        cmd->proc == publishCommand ||
-        cmd->proc == subscribeCommand ||
-        cmd->proc == psubscribeCommand;
-}
-
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,

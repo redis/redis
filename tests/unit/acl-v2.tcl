@@ -258,6 +258,18 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
+    test {Test sharded channel permissions} {
+        r ACL setuser test-channels +@all resetchannels &channel
+        assert_equal "OK" [r ACL DRYRUN test-channels spublish channel foo]
+        assert_equal "OK" [r ACL DRYRUN test-channels ssubscribe channel]
+        assert_equal "OK" [r ACL DRYRUN test-channels sunsubscribe]
+        assert_equal "OK" [r ACL DRYRUN test-channels sunsubscribe channel]
+        assert_equal "OK" [r ACL DRYRUN test-channels sunsubscribe otherchannel]
+
+        assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels spublish otherchannel foo]
+        assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels ssubscribe otherchannel foo]
+    }
+
     $r2 close
 }
 
