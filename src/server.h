@@ -261,7 +261,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
                                   * from the value of the key. */
 /* Other flags: */
-#define CMD_KEY_CHANNEL (1ULL<<8)  /* PUBSUB shard channel */
+#define CMD_KEY_CHANNEL (1ULL<<8)     /* PUBSUB shard channel */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
 
@@ -995,7 +995,7 @@ typedef struct readyList {
                                            is USER_COMMAND_BITS_COUNT-1. */
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
 #define USER_FLAG_DISABLED (1<<1)       /* The user is disabled. */
-#define USER_FLAG_NOPASS      (1<<2)    /* The user requires no password, any
+#define USER_FLAG_NOPASS (1<<2)         /* The user requires no password, any
                                            provided password will work. For the
                                            default user, this also means that
                                            no AUTH is needed, and every
@@ -2999,6 +2999,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int doesCommandHaveKeys(struct redisCommand *cmd);
+int doesCommandHaveChannels(struct redisCommand *cmd);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);

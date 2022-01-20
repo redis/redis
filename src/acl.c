@@ -1499,7 +1499,7 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  *
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
-static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int flags) {
+static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int keyspec_flags) {
     /* The selector can access any key */
     if (selector->flags & SELECTOR_FLAG_ALLKEYS) return ACL_OK;
 
@@ -1508,10 +1508,10 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     listRewind(selector->patterns,&li);
 
     int key_flags = 0;
-    if (flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
-    if (flags & CMD_KEY_INSERT) key_flags |= ACL_WRITE_PERMISSION;
-    if (flags & CMD_KEY_DELETE) key_flags |= ACL_WRITE_PERMISSION;
-    if (flags & CMD_KEY_UPDATE) key_flags |= ACL_WRITE_PERMISSION;
+    if (keyspec_flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
+    if (keyspec_flags & CMD_KEY_INSERT) key_flags |= ACL_WRITE_PERMISSION;
+    if (keyspec_flags & CMD_KEY_DELETE) key_flags |= ACL_WRITE_PERMISSION;
+    if (keyspec_flags & CMD_KEY_UPDATE) key_flags |= ACL_WRITE_PERMISSION;
 
     /* Test this key against every pattern. */
     while((ln = listNext(&li))) {
@@ -1519,20 +1519,10 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
         if ((pattern->flags & key_flags) != key_flags)
             continue;
         size_t plen = sdslen(pattern->pattern);
-        if (stringmatchlen(pattern->pattern,plen,key,keylen,0)) 
+        if (stringmatchlen(pattern->pattern,plen,key,keylen,0))
             return ACL_OK;
     }
     return ACL_DENIED_KEY;
-}
-
-/* Returns if a given command may possibly access channels. For this context,
- * the unsubscribe commands do not have channels. */
-static int ACLDoesCommandHaveChannels(struct redisCommand *cmd) {
-    return (cmd->proc == publishCommand
-        || cmd->proc == subscribeCommand
-        || cmd->proc == psubscribeCommand
-        || cmd->proc == spublishCommand
-        || cmd->proc == ssubscribeCommand);
 }
 
 /* Checks a channel against a provide list of channels. */
@@ -1647,7 +1637,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
 
     /* Check if the user can execute commands explicitly touching the channels
      * mentioned in the command arguments */
-    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && ACLDoesCommandHaveChannels(cmd)) {  
+    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && doesCommandHaveChannels(cmd)) {
         if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
             ret = ACLSelectorCheckPubsubArguments(selector,argv, 1, 1, 0, keyidxptr);
         } else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand) {
@@ -1743,8 +1733,12 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
             cleanupACLKeyResultCache(&cache);
             return ACL_OK;
         }
-        if (local_idxptr > last_idx) last_idx = local_idxptr;
-        if (acl_retval > relevant_error) relevant_error = acl_retval;
+        if (acl_retval > relevant_error ||
+            (acl_retval == relevant_error && local_idxptr > last_idx))
+        {
+            relevant_error = acl_retval;
+            last_idx = local_idxptr;
+        }
     }
 
     *idxptr = last_idx;
@@ -2529,7 +2523,7 @@ void aclCommand(client *c) {
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)acl_args[j], errmsg);
-                goto cleanup;
+                goto setuser_cleanup;
             }
         }
 
@@ -2542,7 +2536,7 @@ void aclCommand(client *c) {
         serverAssert(u != NULL);
         ACLCopyUser(u, tempu);
         addReply(c,shared.ok);
-cleanup:
+setuser_cleanup:
         ACLFreeUser(tempu);
         for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
         zfree(acl_args);

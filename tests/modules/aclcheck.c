@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
+#include <strings.h>
 
 /* A wrap for SET command with ACL check on the key. */
 int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

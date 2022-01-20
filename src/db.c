@@ -1678,12 +1678,13 @@ keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys) {
     return result->keys;
 }
 
-/* Returns a bitmask with all the flags found by all key specs */
-int64_t getAllKeySpecsFlags(struct redisCommand *cmd) {
+/* Returns a bitmask with all the flags found in any of the key specs of the command.
+ * The 'inv' argument means we'll return a mask with all flags that are missing in at least one spec. */
+int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
     int64_t flags = 0;
     for (int j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
-        flags |= spec->flags;
+        flags |= inv? ~spec->flags : spec->flags;
     }
     return flags;
 }
@@ -1721,19 +1722,13 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     break;
                 }
             }
+            /* keyword not found */
+            if (!first) {
+                continue;
+            }
         } else {
             /* unknown spec */
-            if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
-                continue;
-            } else {
-                result->numkeys = 0;
-                return -1;
-            }
-        }
-
-        /* No first key was found, assume we haven't found any keys */
-        if (!first) {
-            continue;
+            goto invalid_spec;
         }
 
         if (spec->find_keys_type == KSPEC_FK_RANGE) {
@@ -1751,42 +1746,28 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         } else if (spec->find_keys_type == KSPEC_FK_KEYNUM) {
             step = spec->fk.keynum.keystep;
             long long numkeys;
+            if (spec->fk.keynum.keynumidx >= argc)
+                goto invalid_spec;
 
-            if (!string2ll(argv[first+spec->fk.keynum.keynumidx]->ptr,sdslen(argv[first+spec->fk.keynum.keynumidx]->ptr),&numkeys)
-                || numkeys < 0) 
-            {
+            sds keynum_str = argv[first + spec->fk.keynum.keynumidx]->ptr;
+            if (!string2ll(keynum_str,sdslen(keynum_str),&numkeys) || numkeys < 0) {
                 /* Unable to parse the numkeys argument or it was invalid */
-                if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
-                    continue;
-                } else {
-                    result->numkeys = 0;
-                    return -1;
-                }
+                goto invalid_spec;
             }
 
             first += spec->fk.keynum.firstkey;
             last = first + (int)numkeys-1;
         } else {
             /* unknown spec */
-            if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
-                continue;
-            } else {
-                result->numkeys = 0;
-                return -1;
-            }
+            goto invalid_spec;
         }
 
         int count = ((last - first)+1);
         keys = getKeysPrepareResult(result, count);
 
         /* First or last is out of bounds, which indicates a syntax error */
-        if (last >= argc || last < first || first > argc) {
-            if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
-                continue;
-            } else {
-                result->numkeys = 0;
-                return -1;
-            }
+        if (last >= argc || last < first || first >= argc) {
+            goto invalid_spec;
         }
 
         for (i = first; i <= last; i += step) {
@@ -1805,6 +1786,17 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
             keys[k].pos = i;
             keys[k++].flags = spec->flags;
+        }
+
+        /* Done with this spec */
+        continue;
+
+invalid_spec:
+        if (search_flags & GET_KEYSPEC_RETURN_PARTIAL) {
+            continue;
+        } else {
+            result->numkeys = 0;
+            return -1;
         }
     }
 
@@ -1827,12 +1819,12 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
  *
  * This function uses the command's key specs, which contain the key-spec flags,
  * (e.g. RO / RW) and only resorts to the command-specific helper function if
- * the keys-specs are marked as INCOMPLETE. */
+ * any of the keys-specs are marked as INCOMPLETE. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else {
-        if (!(getAllKeySpecsFlags(cmd) & CMD_KEY_INCOMPLETE)) {
+        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_INCOMPLETE)) {
             int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
             if (ret >= 0)
                 return ret;
@@ -1845,7 +1837,18 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 
 /* This function returns a sanity check if the command may have keys. */
 int doesCommandHaveKeys(struct redisCommand *cmd) {
-    return cmd->getkeys_proc || cmd->key_specs_num;
+    return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
+        (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);       /* has at least one key-spec not marked as CHANNEL */
+}
+
+/* Returns if a given command may possibly access channels. For this context. */
+int doesCommandHaveChannels(struct redisCommand *cmd) {
+    return (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_CHANNEL) || /* has at least one key-spec marked as CHANNEL */
+        /* the a pub/sub command. (unsubscribe commands do not have channels) */
+        cmd->proc == publishCommand ||
+        cmd->proc == subscribeCommand ||
+        cmd->proc == psubscribeCommand;
 }
 
 /* The base case is to use the keys position as given in the command table
@@ -1941,7 +1944,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * This function has a fully defined keyspec, so returning flags isn't needed. */
+ * The commands using this functoin have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2129,7 +2132,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  *                             [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * 
- * This function has a fully defined keyspec, so returning flags isn't needed. */
+ * This command has a fully defined keyspec, so returning flags isn't needed. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
     keyReference *keys;
@@ -2170,7 +2173,7 @@ int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
  *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N
  *
- * This function has a fully defined keyspec, so returning flags isn't needed. */
+ * This command has a fully defined keyspec, so returning flags isn't needed. */
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num = 0;
     keyReference *keys;
