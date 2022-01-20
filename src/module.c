@@ -1109,6 +1109,7 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
         return REDISMODULE_ERR;
     }
 
+    sdsfree(sub_name);
     sds fullname = catSubCommandFullname(parent_cmd->fullname, name);
     RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = -2;
