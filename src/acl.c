@@ -2463,8 +2463,8 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
         listRewind(s->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
-            if (ln != listFirst(s->channels)) sdscat(dsl, " ");
-            sdscatfmt(dsl, "&%S", thispat);
+            if (ln != listFirst(s->channels)) dsl = sdscat(dsl, " ");
+            dsl = sdscatfmt(dsl, "&%S", thispat);
         }
         addReplyBulkSds(c, dsl);
     }
