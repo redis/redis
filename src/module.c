@@ -877,7 +877,7 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
     return flags;
 }
 
-RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds fullname, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep);
+RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const char *name, sds fullname, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep);
 
 /* Register a new command in the Redis server, that will be handled by
  * calling the function pointer 'cmdfunc' using the RedisModule calling
@@ -979,8 +979,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
         return REDISMODULE_ERR;
 
     sds fullname = sdsnew(name);
-    RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
+    RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = cmdfunc ? -1 : -2; /* Default value, can be changed later via dedicated API */
+
+    serverLog(LL_WARNING, "parent 1111111111111");
 
     dictAdd(server.commands,sdsdup(fullname),cp->rediscmd);
     dictAdd(server.orig_commands,sdsdup(fullname),cp->rediscmd);
@@ -989,7 +991,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
 }
 
 /* The function will take the ownership of the 'fullname' SDS string. */
-RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds fullname, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
+RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const char *declared_name, sds fullname, RedisModuleCmdFunc cmdfunc, int64_t flags, int firstkey, int lastkey, int keystep) {
     struct redisCommand *rediscmd;
     RedisModuleCommand *cp;
 
@@ -1004,6 +1006,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds ful
     cp->module = module;
     cp->func = cmdfunc;
     cp->rediscmd = zcalloc(sizeof(*rediscmd));
+    cp->rediscmd->declared_name = declared_name;
     cp->rediscmd->fullname = fullname;
     cp->rediscmd->group = COMMAND_GROUP_MODULE;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
@@ -1100,13 +1103,14 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
 
     /* Check if the command name is busy within the parent command. */
-    sds fullname = catSubCommandFullname(parent_cmd->fullname, name);
-    if (parent_cmd->subcommands_dict && lookupSubcommandByFullname(parent_cmd, fullname) != NULL) {
-        sdsfree(fullname);
+    sds sub_name = sdsnew(name);
+    if (parent_cmd->subcommands_dict && lookupSubcommand(parent_cmd, sub_name) != NULL) {
+        sdsfree(sub_name);
         return REDISMODULE_ERR;
     }
 
-    RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
+    sds fullname = catSubCommandFullname(parent_cmd->fullname, name);
+    RedisModuleCommand *cp = moduleCreateCommandProxy(parent->module, name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = -2;
 
     commandAddSubcommand(parent_cmd, cp->rediscmd);

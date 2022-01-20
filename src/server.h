@@ -2225,7 +2225,7 @@ struct redisCommand {
     int key_specs_num;
     int key_specs_max;
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand
-                             * fullname, and the value is the redisCommand structure pointer. */
+                             * declared_name, and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
 };
 
@@ -2813,8 +2813,7 @@ void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
 int changeBindAddr(void);
-struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, sds fullname);
-struct redisCommand *lookupSubcommand(struct redisCommand *container, const char *sub_name);
+struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name);
 struct redisCommand *lookupCommand(robj **argv, int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);

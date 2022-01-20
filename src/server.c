@@ -2618,7 +2618,7 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
     subcommand->parent = parent; /* Assign the parent command */
     subcommand->id = ACLGetCommandID(subcommand->fullname); /* Assign the ID used for ACL. */
 
-    serverAssert(dictAdd(parent->subcommands_dict, sdsdup(subcommand->fullname), subcommand) == DICT_OK);
+    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->declared_name), subcommand) == DICT_OK);
 }
 
 /* Set implicit ACl categories (see comment above the definition of
@@ -2816,15 +2816,8 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
-struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, sds fullname) {
-    struct redisCommand *sub_command = dictFetchValue(container->subcommands_dict, fullname);
-    return sub_command;
-}
-
-struct redisCommand *lookupSubcommand(struct redisCommand *container, const char *sub_name) {
-    sds fullname = catSubCommandFullname(container->fullname, sub_name);
-    struct redisCommand *sub_command = lookupSubcommandByFullname(container, fullname);
-    sdsfree(fullname);
+struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name) {
+    struct redisCommand *sub_command = dictFetchValue(container->subcommands_dict, sub_name);
     return sub_command;
 }
 
