@@ -3414,6 +3414,14 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL SET hints */
 #define SENTINEL_SET_Hints NULL
 
+/********** SENTINEL SET ********************/
+
+/* SENTINEL SET history */
+#define SENTINEL_GET_History NULL
+
+/* SENTINEL SET hints */
+#define SENTINEL_GET_Hints NULL
+
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
 /* SENTINEL SIMULATE_FAILURE history */
@@ -3443,6 +3451,7 @@ struct redisCommand SENTINEL_Subcommands[] = {
 {"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_Hints,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_Hints,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_Hints,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"get","Get the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_History,SENTINEL_GET_Hints,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_Hints,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {0}
 };
