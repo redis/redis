@@ -101,6 +101,22 @@ start_server {tags {"introspection"}} {
         assert_equal {key1 key2} [r command getkeys lcs key1 key2]
     }
 
+    test "COMMAND LIST syntax error" {
+        assert_error "ERR syntax error*" {r command list bad_arg}
+        assert_error "ERR syntax error*" {r command list filterby bad_arg}
+        assert_error "ERR syntax error*" {r command list filterby bad_arg bad_arg2}
+    }
+
+    test "COMMAND LIST WITHOUT FILTERBY" {
+        set reply [r command list]
+        assert_match "*set*" $reply
+        assert_match "*client|list*" $reply
+    }
+
+    test "COMMAND LIST FILTERBY ACLCAT against non existing category" {
+        assert_equal {} [r command list filterby aclcat non_existing_category]
+    }
+
     test "COMMAND LIST FILTERBY ACLCAT" {
         set reply [r command list filterby aclcat hyperloglog]
         assert_match "*pfadd*" $reply
@@ -135,5 +151,10 @@ start_server {tags {"introspection"}} {
         set reply [r command list filterby pattern cl*help]
         assert_match "*client|help*" $reply
         assert_match "*cluster|help*" $reply
+    }
+
+    test "COMMAND LIST FILTERBY MODULE against non existing module" {
+        # This should be empty, the real one is in subcommands.tcl
+        assert_equal {} [r command list filterby module non_existing_module]
     }
 }

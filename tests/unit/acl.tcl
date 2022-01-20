@@ -465,10 +465,18 @@ start_server {tags {"acl external:skip"}} {
         }
     }
 
-    test "ACL CAT category - list all commands that belong to category" {
+    test "ACL CAT with illegal arguments" {
         assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
         assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+    }
 
+    test "ACL CAT without category - list all categories" {
+        set reply [r acl cat]
+        assert_match "*keyspace*" $reply
+        assert_match "*connection*" $reply
+    }
+
+    test "ACL CAT category - list all commands that belong to category" {
         # We simply just check a few categories.
         assert_match "*llen*" [r ACL CAT list]
         assert_match "*zcard*" [r ACL CAT sortedset]
@@ -476,9 +484,10 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*flushall*" [r ACL CAT dangerous]
     }
 
-    test "ACL CAT category - SUBCOMMANDS" {
+    test "ACL CAT category - list all commands/subcommands that belong to category" {
         set reply [r acl cat scripting]
         assert_match "*eval*" $reply
+        assert_match "*fcall_ro*" $reply
         assert_match "*function|list*" $reply
         assert_match "*script|flush*" $reply
     }

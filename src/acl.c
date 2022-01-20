@@ -1964,6 +1964,26 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
  * ACL related commands
  * ==========================================================================*/
 
+/* ACL CAT category */
+void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(commands);
+
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & CMD_MODULE) continue;
+        if (cmd->acl_categories & cflag) {
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            (*arraylen)++;
+        }
+
+        if (cmd->subcommands_dict) {
+            aclCatWithFlags(c, cmd->subcommands_dict, cflag, arraylen);
+        }
+    }
+    dictReleaseIterator(di);
+}
+
 /* ACL -- show and modify the configuration of ACL users.
  * ACL HELP
  * ACL LOAD
@@ -2181,32 +2201,7 @@ void aclCommand(client *c) {
         }
         int arraylen = 0;
         void *dl = addReplyDeferredLen(c);
-        dictIterator *di = dictGetIterator(server.orig_commands);
-        dictEntry *de;
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            if (cmd->flags & CMD_MODULE) continue;
-            if (cmd->acl_categories & cflag) {
-                addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
-                arraylen++;
-            }
-
-            /* Handle subcommands */
-            if (cmd->subcommands_dict) {
-                dictEntry *sub_de;
-                dictIterator *sub_di = dictGetSafeIterator(cmd->subcommands_dict);
-                while((sub_de = dictNext(sub_di)) != NULL) {
-                    struct redisCommand *sub = dictGetVal(sub_de);
-                    if (cmd->flags & CMD_MODULE) continue;
-                    if (sub->acl_categories & cflag) {
-                        addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
-                        arraylen++;
-                    }
-                }
-                dictReleaseIterator(sub_di);
-            }
-        }
-        dictReleaseIterator(di);
+        aclCatWithFlags(c, server.orig_commands, cflag, &arraylen);
         setDeferredArrayLen(c,dl,arraylen);
     } else if (!strcasecmp(sub,"genpass") && (c->argc == 2 || c->argc == 3)) {
         #define GENPASS_MAX_BITS 4096
