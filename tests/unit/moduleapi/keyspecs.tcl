@@ -46,6 +46,8 @@ start_server {tags {"modules"}} {
     test "Module command list filtering" {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
-        assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.legacy}
+        assert_match "*kspec.complex1*" $reply
+        assert_match "*kspec.complex2*" $reply
+        assert_match "*kspec.legacy*" $reply
     }
 }

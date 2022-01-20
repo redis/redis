@@ -37,7 +37,10 @@ start_server {tags {"modules"}} {
 
     test "COMMAND LIST FILTERBY MODULE" {
         set reply [r command list filterby module subcommands]
-        assert_equal [lsort $reply] {subcommands.bitarray subcommands.bitarray|get subcommands.bitarray|set subcommands.parent_get_fullname subcommands.sub subcommands.sub|get_fullname}
+        assert_match "*subcommands.bitarray*" $reply
+        assert_match "*subcommands.bitarray|set*" $reply
+        assert_match "*subcommands.parent_get_fullname*" $reply
+        assert_match "*subcommands.sub|get_fullname*" $reply
     }
 
     test "Unload the module" {
