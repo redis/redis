@@ -5320,7 +5320,12 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
+#ifdef __GLIBC__
+    handle = dlmopen(LM_ID_NEWLM,path,RTLD_NOW|RTLD_LOCAL);
+#else
     handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
+#endif
+
     if (handle == NULL) {
         serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
         return C_ERR;
