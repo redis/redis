@@ -16,7 +16,7 @@
             "SCRIPTING"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_MASTERS",
+            "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
         "arguments": [

@@ -13,7 +13,7 @@
             "CONNECTION"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_MASTERS",
+            "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:AGG_MIN"
         ],
         "arguments": [

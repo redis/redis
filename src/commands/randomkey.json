@@ -13,7 +13,7 @@
             "KEYSPACE"
         ],
         "command_tips": [
-            "REQUEST_POLICY:ALL_MASTERS",
+            "REQUEST_POLICY:ALL_SHARDS",
             "NONDETERMINISTIC_OUTPUT"
         ]
     }
