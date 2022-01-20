@@ -834,6 +834,11 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zinter 2 zseta{t} zsetb{t} aggregate max withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE MUL - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate mul]
+            assert_equal {a 1 b 2 d 3 c 6} [r zrange zsetc 0 -1 withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t}]
             assert_equal {b 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
@@ -891,6 +896,11 @@ start_server {tags {"zset"}} {
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate max]
             assert_equal {b 2 c 3} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE MUL - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate mul]
+            assert_equal {b 2 c 6} [r zrange zsetc 0 -1 withscores]
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {

@@ -2296,6 +2296,7 @@ static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_MUL 4
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
@@ -2309,6 +2310,8 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
         *target = val > *target ? val : *target;
+    } else if (aggregate == REDIS_AGGR_MUL) {
+        *target = *target * val;
     } else {
         /* safety net */
         serverPanic("Unknown ZUNION/INTER aggregate type");
@@ -2599,6 +2602,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
+                } else if (!strcasecmp(c->argv[j]->ptr,"mul")) {
+                    aggregate = REDIS_AGGR_MUL;
                 } else {
                     zfree(src);
                     addReplyErrorObject(c,shared.syntaxerr);
