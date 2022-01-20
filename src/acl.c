@@ -1583,7 +1583,7 @@ typedef struct {
 } aclKeyResultCache;
 
 void initACLKeyResultCache(aclKeyResultCache *cache) {
-    cache->keys_init = 1;
+    cache->keys_init = 0;
 }
 
 void cleanupACLKeyResultCache(aclKeyResultCache *cache) {
