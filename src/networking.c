@@ -194,7 +194,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
-    c->paused_list_node = NULL;
+    c->postponed_list_node = NULL;
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
@@ -3628,13 +3628,19 @@ static void updateClientPauseTypeAndEndTime(void) {
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
     if (type < old_type) {
-        listNode *ln;
-        listIter li;
-        listRewind(server.paused_clients, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            client *c = listNodeValue(ln);
-            unblockClient(c);
-        }
+        unblockPostponedClients();
+    }
+}
+
+/* Unblock all paused clients (ones that where blocked by BLOCKED_POSTPONE (possibly in processCommand).
+ * This means they'll get re-processed in beforeSleep, and may get paused again if needed. */
+void unblockPostponedClients() {
+    listNode *ln;
+    listIter li;
+    listRewind(server.postponed_clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        unblockClient(c);
     }
 }
 

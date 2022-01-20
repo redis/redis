@@ -10,7 +10,8 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
-            "FAST"
+            "FAST",
+            "ALLOW_BUSY"
         ],
         "acl_categories": [
             "TRANSACTION"
