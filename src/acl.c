@@ -2457,7 +2457,6 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
     /* Pub/sub patterns */
     addReplyBulkCString(c,"channels");
     if (s->flags & SELECTOR_FLAG_ALLCHANNELS) {
-        addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,"&*",2);
     } else {
         sds dsl = sdsempty();
