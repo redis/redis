@@ -466,8 +466,8 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test "ACL CAT category - list all commands that belong to category" {
-        assert_error {*Unknown*NON_EXISTS*} {r ACL CAT NON_EXISTS}
-        assert_error {*Unknown subcommand or wrong number*CAT*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+        assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
+        assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
 
         # We simply just check a few categories.
         assert_match "*llen*" [r ACL CAT list]
@@ -639,7 +639,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*wrong number of arguments* *acl|help*" $e
+        assert_match "*wrong number of arguments for 'acl|help' command" $e
     }
 
     test {Delete a user that the client doesn't use} {

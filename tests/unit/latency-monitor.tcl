@@ -142,6 +142,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HELP should not have unexpected options} {
         catch {r LATENCY help xxx} e
-        assert_match "*wrong number of arguments* *latency|help*" $e
+        assert_match "*wrong number of arguments for 'latency|help' command" $e
     }
 }

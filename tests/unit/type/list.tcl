@@ -487,8 +487,8 @@ start_server {
     }
 
     test "LPOP/RPOP with wrong number of arguments" {
-        assert_error {*wrong number of arguments* *lpop*} {r lpop key 1 1}
-        assert_error {*wrong number of arguments* *rpop*} {r rpop key 2 2}
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
     }
 
     test {RPOP/LPOP with the optional count argument} {
@@ -1605,9 +1605,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments* *lmpop*" {r lmpop}
-        assert_error "ERR wrong number of arguments* *lmpop*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments* *lmpop*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}

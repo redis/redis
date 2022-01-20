@@ -311,8 +311,8 @@ start_server {tags {"hash"}} {
     } {foo}
 
     test {HSET/HMSET wrong number of args} {
-        assert_error {*wrong number* *hset*} {r hset smallhash key1 val1 key2}
-        assert_error {*wrong number* *hmset*} {r hmset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
     }
 
     test {HMSET - small hash} {

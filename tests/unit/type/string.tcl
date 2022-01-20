@@ -155,7 +155,7 @@ start_server {tags {"string"}} {
          set ex {}
          catch {r getex} ex
          set ex
-     } {*wrong number of arguments* *getex*}
+     } {*wrong number of arguments for 'getex' command}
 
     test "GETDEL command" {
         r del foo
@@ -222,8 +222,8 @@ start_server {tags {"string"}} {
     } [list 10 {foo bar} "x x x x x x x\n\n\r\n"]
 
     test {MSET/MSETNX wrong number of args} {
-        assert_error {*wrong number of arguments* *mset*} {r mset x{t} 10 y{t} "foo bar" z{t}}
-        assert_error {*wrong number of arguments* *msetnx*} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
+        assert_error {*wrong number of arguments for 'mset' command} {r mset x{t} 10 y{t} "foo bar" z{t}}
+        assert_error {*wrong number of arguments for 'msetnx' command} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
     }
 
     test {MSETNX with already existent key} {

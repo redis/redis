@@ -363,7 +363,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
-        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
                                         cmdname ? cmdname : "<unknown>");
         return;
     }
@@ -610,7 +610,7 @@ void *addReplyDeferredLen(client *c) {
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
-        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command %s",
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
                                         cmdname ? cmdname : "<unknown>");
         return NULL;
     }
