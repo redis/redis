@@ -53,8 +53,9 @@ test "Sentinel Set with other error situations" {
    set configfilename [file join "sentinel_$sentinel_id" "sentinel.conf"]
    exec chmod 000 $configfilename
 
-   assert_error "ERR Failed to save Sentinel new configuration on disk" {S 0 SENTINEL SET mymaster quorum $update_quorum}
-
+   catch {[S 0 SENTINEL SET mymaster quorum $update_quorum]} err
    exec chmod 644 $configfilename
+   assert_equal "ERR Failed to save Sentinel new configuration on disk" $err
+   
 }
 
