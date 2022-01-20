@@ -2431,6 +2431,9 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
  * permissions are shown.
  */
 int aclAddReplySelectorDescription(client *c, aclSelector *s) {
+    listIter li;
+    listNode *ln;
+
     /* Commands */
     addReplyBulkCString(c,"commands");
     sds cmddescr = ACLDescribeSelectorCommandRules(s);
@@ -2439,17 +2442,16 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
     /* Key patterns */
     addReplyBulkCString(c,"keys");
     if (s->flags & SELECTOR_FLAG_ALLKEYS) {
-        addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,"~*",2);
     } else {
-        addReplyArrayLen(c,listLength(s->patterns));
-        listIter li;
-        listNode *ln;
+        sds dsl = sdsempty();
         listRewind(s->patterns,&li);
         while((ln = listNext(&li))) {
-            keyPattern *pattern = (keyPattern *) listNodeValue(ln);
-            addReplyBulkSds(c, sdsCatPatternString(sdsempty(), pattern));
+            keyPattern *thispat = (keyPattern *) listNodeValue(ln);
+            if (ln != listFirst(s->patterns)) dsl = sdscat(dsl, " ");
+            dsl = sdsCatPatternString(dsl, thispat);
         }
+        addReplyBulkSds(c, dsl);
     }
 
     /* Pub/sub patterns */
@@ -2458,14 +2460,14 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,"&*",2);
     } else {
-        addReplyArrayLen(c,listLength(s->channels));
-        listIter li;
-        listNode *ln;
+        sds dsl = sdsempty();
         listRewind(s->channels,&li);
         while((ln = listNext(&li))) {
             sds thispat = listNodeValue(ln);
-            addReplyBulkSds(c,sdscat(sdsnew("&"),thispat));
+            if (ln != listFirst(s->channels)) sdscat(dsl, " ");
+            sdscatfmt(dsl, "&%S", thispat);
         }
+        addReplyBulkSds(c, dsl);
     }
     return 3;
 }

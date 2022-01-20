@@ -24,9 +24,8 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER selector-default reset ()
         set user [r ACL GETUSER "selector-default"]
         assert_equal 1 [llength [dict get $user selectors]]
-        assert_equal 0 [llength [dict get [lindex [dict get $user selectors] 0] keys]]
-        assert_equal "&*" [lindex [dict get [lindex [dict get $user selectors] 0] channels] 0]
-        assert_equal  1 [llength [dict get [lindex [dict get $user selectors] 0] channels]]
+        assert_equal "" [dict get [lindex [dict get $user selectors] 0] keys]
+        assert_equal "&*" [dict get [lindex [dict get $user selectors] 0] channels]
         assert_equal "-@all" [dict get [lindex [dict get $user selectors] 0] commands]
     }
 
@@ -177,18 +176,14 @@ start_server {tags {"acl external:skip"}} {
         set user [r ACL GETUSER "selector-info"]
     
         # Root selector
-        assert_equal "%R~foo1" [lindex [dict get $user keys] 0]
-        assert_equal "%W~bar1" [lindex [dict get $user keys] 1]
-        assert_equal "~baz1" [lindex [dict get $user keys] 2]
-        assert_equal "&channel1" [lindex [dict get $user channels] 0]
+        assert_equal "%R~foo1 %W~bar1 ~baz1" [dict get $user keys]
+        assert_equal "&channel1" [dict get $user channels]
         assert_equal "-@all +get" [dict get $user commands]
 
         # Added selector
         set secondary_selector [lindex [dict get $user selectors] 0]
-        assert_equal "%R~foo2" [lindex [dict get $secondary_selector keys] 0]
-        assert_equal "%W~bar2" [lindex [dict get $secondary_selector keys] 1]
-        assert_equal "~baz2" [lindex [dict get $secondary_selector keys] 2]
-        assert_equal "&channel2" [lindex [dict get $secondary_selector channels] 0]
+        assert_equal "%R~foo2 %W~bar2 ~baz2" [dict get $secondary_selector keys]
+        assert_equal "&channel2" [dict get $secondary_selector channels]
         assert_equal "-@all +set" [dict get $secondary_selector commands] 
     }
 
@@ -208,8 +203,7 @@ start_server {tags {"acl external:skip"}} {
     test {Test R+W is the same as all permissions} {
         r ACL setuser selector-rw-info %R~foo %W~foo %RW~bar
         set user [r ACL GETUSER selector-rw-info]
-        assert_equal "~foo" [lindex [dict get $user keys] 0]
-        assert_equal "~bar" [lindex [dict get $user keys] 1]
+        assert_equal "~foo ~bar" [dict get $user keys]
     }
 
     test {Test basic dry run functionality} {
@@ -277,16 +271,16 @@ start_server [list overrides [list "dir" $server_path "aclfile" "userwithselecto
         assert_equal [llength $selectors] 1
         set test_selector [lindex $selectors 0]
         assert_equal "-@all +get" [dict get $test_selector "commands"]
-        assert_equal "~rw*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "~rw*" [dict get $test_selector "keys"]
 
         set selectors [dict get [r ACL getuser bob] selectors]
         assert_equal [llength $selectors] 2
         set test_selector [lindex $selectors 0]
         assert_equal "-@all +set" [dict get $test_selector "commands"]
-        assert_equal "%W~w*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "%W~w*" [dict get $test_selector "keys"]
 
         set test_selector [lindex $selectors 1]
         assert_equal "-@all +get" [dict get $test_selector "commands"]
-        assert_equal "%R~r*" [lindex [dict get $test_selector "keys"] 0]
+        assert_equal "%R~r*" [dict get $test_selector "keys"]
     }
 }
