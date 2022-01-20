@@ -8,7 +8,8 @@
         "container": "FUNCTION",
         "function": "functionStatsCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "ALLOW_BUSY"
         ],
         "acl_categories": [
             "SCRIPTING"

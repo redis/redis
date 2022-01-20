@@ -218,6 +218,10 @@ This flag should not be used directly by the module.
 #define REDISMODULE_AUX_BEFORE_RDB (1<<0)
 #define REDISMODULE_AUX_AFTER_RDB (1<<1)
 
+/* RM_Yield flags */
+#define REDISMODULE_YIELD_FLAG_NONE (1<<0)
+#define REDISMODULE_YIELD_FLAG_CLIENTS (1<<1)
+
 /* This type represents a timer handle, and is returned when a timer is
  * registered and used in order to invalidate a timer. It's just a 64 bit
  * number, because this is how each timer is represented inside the radix tree
@@ -919,7 +923,7 @@ REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModule
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommand *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
-
+REDISMODULE_API void (*RedisModule_Yield)(RedisModuleCtx *ctx, int flags, const char *busy_reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1242,6 +1246,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
+    REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);

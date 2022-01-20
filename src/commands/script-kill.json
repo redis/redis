@@ -8,7 +8,8 @@
         "container": "SCRIPT",
         "function": "scriptCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "ALLOW_BUSY"
         ],
         "acl_categories": [
             "SCRIPTING"

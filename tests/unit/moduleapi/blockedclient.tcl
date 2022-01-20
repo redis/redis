@@ -92,6 +92,83 @@ start_server {tags {"modules"}} {
         }
     }
 
+    test {Busy module command} {
+        set busy_time_limit 50
+        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
+        r config set busy-reply-threshold $busy_time_limit
+        set rd [redis_deferring_client]
+
+        # run command that blocks until released
+        set start [clock clicks -milliseconds]
+        $rd slow_fg_command 0
+        $rd flush
+
+        # make sure we get BUSY error, and that we didn't get it too early
+        assert_error {*BUSY Slow module operation*} {r ping}
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+
+        # abort the blocking operation
+        r stop_slow_fg_command
+        wait_for_condition 50 100 {
+            [catch {r ping} e] == 0
+        } else {
+            fail "Failed waiting for busy command to end"
+        }
+        $rd read
+
+        #run command that blocks for 200ms
+        set start [clock clicks -milliseconds]
+        $rd slow_fg_command 200000
+        $rd flush
+        after 10 ;# try to make sure redis started running the command before we proceed
+
+        # make sure we didn't get BUSY error, it simply blocked till the command was done
+        r ping
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 200
+        $rd read
+
+        $rd close
+        r config set busy-reply-threshold $old_time_limit
+    }
+
+    test {RM_Call from blocked client} {
+        set busy_time_limit 50
+        set old_time_limit [lindex [r config get busy-reply-threshold] 1]
+        r config set busy-reply-threshold $busy_time_limit
+
+        # trigger slow operation
+        r set_slow_bg_operation 1
+        r hset hash foo bar
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd do_bg_rm_call hgetall hash
+
+        # wait till we know we're blocked inside the module
+        wait_for_condition 50 100 {
+            [r is_in_slow_bg_operation] eq 1
+        } else {
+            fail "Failed waiting for slow operation to start"
+        }
+
+        # make sure we get BUSY error, and that we didn't get here too early
+        assert_error {*BUSY Slow module operation*} {r ping}
+        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+        # abort the blocking operation
+        r set_slow_bg_operation 0
+
+        wait_for_condition 50 100 {
+            [r is_in_slow_bg_operation] eq 0
+        } else {
+            fail "Failed waiting for slow operation to stop"
+        }
+        assert_equal [r ping] {PONG}
+
+        r config set busy-reply-threshold $old_time_limit
+        set res [$rd read]
+        $rd close
+        set _ $res
+    } {foo bar}
+
     test {blocked client reaches client output buffer limit} {
         r hset hash big [string repeat x 50000]
         r hset hash bada [string repeat x 50000]
