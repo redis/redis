@@ -2180,7 +2180,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  */
 struct redisCommand {
     /* Declarative data */
-    sds fullname; /* A string representing the command fullname. */
+    const char *declared_name; /* A string representing the command declared_name. */
     const char *summary; /* Summary of the command (optional). */
     const char *complexity; /* Complexity description (optional). */
     const char *since; /* Debut version of the command (optional). */
@@ -2211,6 +2211,7 @@ struct redisCommand {
                    ACLs. A connection is able to execute a given command if
                    the user associated to the connection has this command
                    bit set in the bitmap of allowed commands. */
+    sds fullname; /* A SDS string representing the command fullname. */
     struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */
     keySpec *key_specs;
     keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
@@ -2810,7 +2811,7 @@ void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
 int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
 int changeBindAddr(void);
-struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, const char *sub_fullname);
+struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, sds fullname);
 struct redisCommand *lookupSubcommand(struct redisCommand *container, const char *sub_name);
 struct redisCommand *lookupCommand(robj **argv, int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);

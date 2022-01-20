@@ -2651,8 +2651,6 @@ int populateArgsStructure(struct redisCommandArg *args) {
 
 /* Recursively populate the command structure. */
 void populateCommandStructure(struct redisCommand *c) {
-    c->fullname = sdsnew(c->fullname);
-
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
     c->key_specs = c->key_specs_static;
@@ -2685,16 +2683,14 @@ void populateCommandStructure(struct redisCommand *c) {
 
     /* Handle subcommands */
     if (c->subcommands) {
-        for (int j = 0; c->subcommands[j].fullname; j++) {
+        for (int j = 0; c->subcommands[j].declared_name; j++) {
             struct redisCommand *sub = c->subcommands+j;
 
             /* Translate the command string flags description into an actual
              * set of flags. */
             setImplicitACLCategories(sub);
+            sub->fullname = catSubCommandFullname(c->declared_name, sub->declared_name);
             populateCommandStructure(sub);
-            sds old_name = sub->fullname;
-            sub->fullname = catSubCommandFullname(c->fullname, sub->fullname);
-            sdsfree(old_name);
             commandAddSubcommand(c,sub);
         }
     }
@@ -2703,14 +2699,14 @@ void populateCommandStructure(struct redisCommand *c) {
 extern struct redisCommand redisCommandTable[];
 
 /* Populates the Redis Command Table starting from the hard coded list
- * we have on top of server.c file. */
+ * we have on bottom of command.c file. */
 void populateCommandTable(void) {
     int j;
     struct redisCommand *c;
 
     for (j = 0;; j++) {
         c = redisCommandTable + j;
-        if (c->fullname == NULL)
+        if (c->declared_name == NULL)
             break;
 
         int retval1, retval2;
@@ -2723,6 +2719,7 @@ void populateCommandTable(void) {
         if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
             continue;
 
+        c->fullname = sdsnew(c->declared_name);
         populateCommandStructure(c);
 
         retval1 = dictAdd(server.commands, sdsdup(c->fullname), c);
@@ -2813,7 +2810,7 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
-struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, const char *fullname) {
+struct redisCommand *lookupSubcommandByFullname(struct redisCommand *container, sds fullname) {
     struct redisCommand *sub_command = dictFetchValue(container->subcommands_dict, fullname);
     return sub_command;
 }
