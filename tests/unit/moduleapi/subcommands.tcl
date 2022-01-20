@@ -43,7 +43,7 @@ start_server {tags {"modules"}} {
         assert_match "*subcommands.sub|get_fullname*" $reply
     }
 
-    test "Unload the module" {
+    test "Unload the module - subcommands" {
         assert_equal {OK} [r module unload subcommands]
     }
 }

@@ -72,4 +72,8 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {set}}
     }
+
+    test "Unload the module - aclcheck" {
+        assert_equal {OK} [r module unload aclcheck]
+    }
 }
