@@ -158,6 +158,7 @@ struct RedisModuleCtx {
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
+    long long next_yield_time;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -650,8 +651,15 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE)) {
         /* Modules take care of their own propagation, when we are
          * outside of call() context (timers, events, etc.). */
-        if (--server.module_ctx_nesting == 0 && !server.core_propagates)
-            propagatePendingCommands();
+        if (--server.module_ctx_nesting == 0) {
+            if (!server.core_propagates)
+                propagatePendingCommands();
+            if (server.busy_module_yield_flags) {
+                blockingOperationEnds();
+                server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+                unblockPostponedClients();
+            }
+        }
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -690,6 +698,18 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
         out_ctx->client = moduleAllocTempClient();
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
         out_ctx->client = createClient(NULL);
+
+    /* Calculate the initial yield time for long blocked contexts.
+     * in loading we depend on the server hz, but in other cases we also wait
+     * for busy_reply_threshold.
+     * Note that in theory we could have started processing BUSY_MODULE_YIELD_EVENTS
+     * sooner, and only delay the processing for clients till the busy_reply_threshold,
+     * but this carries some overheads of frequently marking clients with BLOCKED_POSTPONE
+     * and releasing them, i.e. if modules only block for short periods. */
+    if (server.loading)
+        out_ctx->next_yield_time = getMonotonicUs() + 1000000 / server.hz;
+    else
+        out_ctx->next_yield_time = getMonotonicUs() + server.busy_reply_threshold * 1000;
 
     if (!(ctx_flags & REDISMODULE_CTX_THREAD_SAFE)) {
         server.module_ctx_nesting++;
@@ -791,7 +811,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
         getKeysPrepareResult(res, newsize);
     }
 
-    res->keys[res->numkeys++] = pos;
+    res->keys[res->numkeys++].pos = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -811,7 +831,8 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"deny-script")) flags |= CMD_NOSCRIPT;
         else if (!strcasecmp(t,"allow-loading")) flags |= CMD_LOADING;
         else if (!strcasecmp(t,"pubsub")) flags |= CMD_PUBSUB;
-        else if (!strcasecmp(t,"random")) flags |= CMD_RANDOM;
+        else if (!strcasecmp(t,"random")) { /* Deprecated. Silently ignore. */ }
+        else if (!strcasecmp(t,"blocking")) flags |= CMD_BLOCKING;
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
@@ -821,6 +842,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
+        else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -865,6 +887,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"pubsub"**:    The command publishes things on Pub/Sub channels.
  * * **"random"**:    The command may have different outputs even starting
  *                    from the same input arguments and key values.
+ *                    Starting from Redis 7.0 this flag has been deprecated.
+ *                    Declaring a command as "random" can be done using
+ *                    command tips, see https://redis.io/topics/command-tips.
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
@@ -890,6 +915,10 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, const c
  * * **"may-replicate"**: This command may generate replication traffic, even
  *                        though it's not a write command.
  * * **"no-mandatory-keys"**: All the keys this command may take are optional
+ * * **"blocking"**: The command has the potential to block the client.
+ * * **"allow-busy"**: Permit the command while the server is blocked either by
+ *                     a script or by a slow module command, see
+ *                     RM_Yield.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1115,9 +1144,14 @@ static int moduleConvertArgFlags(int flags);
  *
  * - `key_specs`: An array of RedisModuleCommandKeySpec, terminated by an
  *   element memset to zero. This is a scheme that tries to describe the
- *   location of key arguments better than the old RM_CreateCommand arguments
+ *   positions of key arguments better than the old RM_CreateCommand arguments
  *   `firstkey`, `lastkey`, `keystep` and is needed if those three are not
- *   enough to describe the key positions. It has the following structure:
+ *   enough to describe the key positions. There are two steps to retrieve key
+ *   positions: *begin search* (BS) in which index should find the first key and
+ *   *find keys* (FK) which, relative to the output of BS, describes how can we
+ *   will which arguments are keys. Additionally, there are key specific flags.
+ *
+ *     A key-spec has the following structure:
  *
  *         typedef struct RedisModuleCommandKeySpec {
  *             uint64_t flags;
@@ -1348,7 +1382,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
     /* Check if any info has already been set. Overwriting info involves freeing
      * the old info, which is not implemented. */
     if (cmd->summary || cmd->complexity || cmd->since || cmd->history ||
-        cmd->hints || cmd->args ||
+        cmd->tips || cmd->args ||
         !(cmd->key_specs_num == 0 ||
           /* Allow key spec populated from legacy (first,last,step) to exist. */
           (cmd->key_specs_num == 1 && cmd->key_specs == cmd->key_specs_static &&
@@ -1378,10 +1412,10 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         size_t count = 0;
         for (count = 0; info->hints[count]; count++);
         serverAssert(count < SIZE_MAX / sizeof(char *));
-        cmd->hints = zmalloc(sizeof(char *) * (count + 1));
-        for (size_t j = 0; j < count; j++) cmd->hints[j] = zstrdup(info->hints[j]);
-        cmd->hints[count] = NULL;
-        cmd->num_hints = count;
+        cmd->tips = zmalloc(sizeof(char *) * (count + 1));
+        for (size_t j = 0; j < count; j++) cmd->tips[j] = zstrdup(info->hints[j]);
+        cmd->tips[count] = NULL;
+        cmd->num_tips = count;
     }
 
     if (info->arity) cmd->arity = info->arity;
@@ -1711,6 +1745,61 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
         return REDISMODULE_ERR;
     bc->background_duration += elapsedUs(bc->background_timer);
     return REDISMODULE_OK;
+}
+
+/* This API allows modules to let Redis process background tasks, and some
+ * commands during long blocking execution of a module command.
+ * The module can call this API periodically.
+ * The flags is a bit mask of these:
+ *
+ * - `REDISMODULE_YIELD_FLAG_NONE`: No special flags, can perform some background
+ *                                  operations, but not process client commands.
+ * - `REDISMODULE_YIELD_FLAG_CLIENTS`: Redis can also process client commands.
+ *
+ * The `busy_reply` argument is optional, and can be used to control the verbose
+ * error string after the `-BUSY` error code.
+ *
+ * When the `REDISMODULE_YIELD_FLAG_CLIENTS` is used, Redis will only start
+ * processing client commands after the time defined by the
+ * `busy-reply-threshold` config, in which case Redis will start rejecting most
+ * commands with `-BUSY` error, but allow the ones marked with the `allow-busy`
+ * flag to be executed.
+ * This API can also be used in thread safe context (while locked), and during
+ * loading (in the `rdb_load` callback, in which case it'll reject commands with
+ * the -LOADING error)
+ */
+void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+    long long now = getMonotonicUs();
+    if (now >= ctx->next_yield_time) {
+        /* In loading mode, there's no need to handle busy_module_yield_reply,
+         * and busy_module_yield_flags, since redis is anyway rejecting all
+         * commands with -LOADING. */
+        if (server.loading) {
+            /* Let redis process events */
+            processEventsWhileBlocked();
+        } else {
+            const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
+            server.busy_module_yield_reply = busy_reply;
+            /* start the blocking operation if not already started. */
+            if (!server.busy_module_yield_flags) {
+                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
+                    BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
+                blockingOperationStarts();
+            }
+
+            /* Let redis process events */
+            processEventsWhileBlocked();
+
+            server.busy_module_yield_reply = prev_busy_module_yield_reply;
+            /* Possibly restore the previous flags in case of two nested contexts
+             * that use this API with different flags, but keep the first bit
+             * (PROCESS_EVENTS) set, so we know to call blockingOperationEnds on time. */
+            server.busy_module_yield_flags &= ~BUSY_MODULE_YIELD_CLIENTS;
+        }
+
+        /* decide when the next event should fire. */
+        ctx->next_yield_time = now + 1000000 / server.hz;
+    }
 }
 
 /* Set flags defining capabilities or behavior bit flags.
@@ -7095,6 +7184,12 @@ void moduleGILBeforeUnlock() {
      * released we have to propagate here). */
     server.module_ctx_nesting--;
     propagatePendingCommands();
+
+    if (server.busy_module_yield_flags) {
+        blockingOperationEnds();
+        server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        unblockPostponedClients();
+    }
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -8055,13 +8150,31 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
-/* Check if the key can be accessed by the user, according to the ACLs associated with it.
+/* Check if the key can be accessed by the user, according to the ACLs associated with it
+ * and the flags used. The supported flags are:
  *
- * If the user can access the key, REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned. */
-int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
-    if (ACLCheckKey(user->user, key->ptr, sdslen(key->ptr)) != ACL_OK)
+ * REDISMODULE_KEY_PERMISSION_READ: Can the module read data from the key.
+ * REDISMODULE_KEY_PERMISSION_WRITE: Can the module write data to the key.
+ *
+ * On success a REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ * 
+ * * EINVAL: The provided flags are invalid.
+ * * EACCESS: The user does not have permission to access the key.
+ */
+int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int flags) {
+    int acl_flags = 0;
+    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= ACL_READ_PERMISSION;
+    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= ACL_WRITE_PERMISSION;
+    if (!acl_flags || ((flags & REDISMODULE_KEY_PERMISSION_ALL) != flags)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
+
+    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), acl_flags) != ACL_OK) {
+        errno = EACCES;
+        return REDISMODULE_ERR;
+    }
 
     return REDISMODULE_OK;
 }
@@ -8073,7 +8186,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
 int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLCheckPubsubChannelPerm(ch->ptr, user->user->channels, literal) != ACL_OK)
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
@@ -10222,8 +10335,8 @@ void moduleUnregisterCommands(struct RedisModule *module) {
             if (cp->module == module) {
                 if (cmd->key_specs != cmd->key_specs_static)
                     zfree(cmd->key_specs);
-                for (int j = 0; cmd->hints && cmd->hints[j]; j++)
-                    zfree((char*)cmd->hints[j]);
+                for (int j = 0; cmd->tips && cmd->tips[j]; j++)
+                    zfree((char*)cmd->tips[j]);
                 for (int j = 0; cmd->history && cmd->history[j].since; j++) {
                     zfree((char*)cmd->history[j].since);
                     zfree((char*)cmd->history[j].changes);
@@ -10752,17 +10865,11 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
         return NULL;
     }
 
-    if (result.keys == result.keysbuf) {
-        /* If the result is using a stack based array, copy it. */
-        unsigned long int size = sizeof(int) * result.numkeys;
-        res = zmalloc(size);
-        memcpy(res, result.keys, size);
-    } else {
-        /* We return the heap based array and intentionally avoid calling
-         * getKeysFreeResult() here, as it is the caller's responsibility
-         * to free this array.
-         */
-        res = result.keys;
+    /* The return value here expects an array of key positions */
+    unsigned long int size = sizeof(int) * result.numkeys;
+    res = zmalloc(size);
+    for (int i = 0; i < result.numkeys; i++) {
+        res[i] = result.keys[i].pos;
     }
 
     return res;
@@ -11306,4 +11413,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(EventLoopAdd);
     REGISTER_API(EventLoopDel);
     REGISTER_API(EventLoopAddOneShot);
+    REGISTER_API(Yield);
 }

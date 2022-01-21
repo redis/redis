@@ -37,6 +37,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/acl-v2
     unit/latency-monitor
     integration/block-repl
     integration/replication

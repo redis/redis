@@ -1613,6 +1613,8 @@ void createSharedObjects(void) {
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowmoduleerr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a module command.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -2324,7 +2326,7 @@ void initServer(void) {
     server.client_pause_end_time = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
-    server.paused_clients = listCreate();
+    server.postponed_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -2411,6 +2413,8 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
+    server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+    server.busy_module_yield_reply = NULL;
     server.core_propagates = 0;
     server.propagate_no_multi = 0;
     server.module_ctx_nesting = 0;
@@ -2628,6 +2632,8 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_PUBSUB;
     if (c->flags & CMD_FAST)
         c->acl_categories |= ACL_CATEGORY_FAST;
+    if (c->flags & CMD_BLOCKING)
+        c->acl_categories |= ACL_CATEGORY_BLOCKING;
 
     /* If it's not @fast is @slow in this binary world. */
     if (!(c->acl_categories & ACL_CATEGORY_FAST))
@@ -2669,8 +2675,8 @@ void populateCommandStructure(struct redisCommand *c) {
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
         c->num_history++;
-    while (c->hints && c->hints[c->num_hints])
-        c->num_hints++;
+    while (c->tips && c->tips[c->num_tips])
+        c->num_tips++;
     c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
@@ -3369,6 +3375,16 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
+    /* If we're inside a module blocked context yielding that wants to avoid
+     * processing clients, postpone the command. */
+    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
+        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
+    {
+        c->bpop.timeout = 0;
+        blockClient(c,BLOCKED_POSTPONE);
+        return C_OK;
+    }
+
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
@@ -3647,30 +3663,19 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Lua script too slow? Only allow a limited number of commands.
+    /* when a busy job is being done (script / module)
+     * Only allow a limited number of commands.
      * Note that we need to allow the transactions commands, otherwise clients
      * sending a transaction with pipelining without error checking, may have
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if (scriptIsTimedout() &&
-          c->cmd->proc != authCommand &&
-          c->cmd->proc != helloCommand &&
-          c->cmd->proc != replconfCommand &&
-          c->cmd->proc != multiCommand &&
-          c->cmd->proc != discardCommand &&
-          c->cmd->proc != watchCommand &&
-          c->cmd->proc != unwatchCommand &&
-          c->cmd->proc != quitCommand &&
-          c->cmd->proc != resetCommand &&
-          c->cmd->proc != shutdownCommand && /* more checks in shutdownCommand */
-        !(c->cmd->proc == scriptCommand &&
-          c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
-        !(c->cmd->proc == functionKillCommand) &&
-        !(c->cmd->proc == functionStatsCommand))
-    {
-        if (scriptIsEval()) {
+    if ((scriptIsTimedout() || server.busy_module_yield_flags) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+        if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
+            rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
+        } else if (server.busy_module_yield_flags) {
+            rejectCommand(c, shared.slowmoduleerr);
+        } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {
             rejectCommand(c, shared.slowscripterr);
@@ -3693,7 +3698,7 @@ int processCommand(client *c) {
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_PAUSE);
+        blockClient(c,BLOCKED_POSTPONE);
         return C_OK;       
     }
 
@@ -4098,8 +4103,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_ADMIN,             "admin"},
         {CMD_PUBSUB,            "pubsub"},
         {CMD_NOSCRIPT,          "noscript"},
-        {CMD_RANDOM,            "random"},
-        {CMD_SORT_FOR_SCRIPT,   "sort_for_script"},
+        {CMD_BLOCKING,          "blocking"},
         {CMD_LOADING,           "loading"},
         {CMD_STALE,             "stale"},
         {CMD_SKIP_MONITOR,      "skip_monitor"},
@@ -4108,14 +4112,16 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_FAST,              "fast"},
         {CMD_NO_AUTH,           "no_auth"},
         {CMD_MAY_REPLICATE,     "may_replicate"},
+        /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
+        /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
         {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
-        {CMD_PROTECTED,         "protected"},
+        /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
         {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
+        {CMD_ALLOW_BUSY,        "allow_busy"},
         {0,NULL}
     };
-    /* "sentinel" and "only-sentinel" are hidden on purpose. */
     addReplyCommandFlags(c, cmd->flags, flagNames);
 }
 
@@ -4249,10 +4255,10 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    addReplySetLen(c, cmd->num_hints);
-    for (int j = 0; j<cmd->num_hints; j++) {
-        addReplyBulkCString(c, cmd->hints[j]);
+void addReplyCommandTips(client *c, struct redisCommand *cmd) {
+    addReplySetLen(c, cmd->num_tips);
+    for (int j = 0; j<cmd->num_tips; j++) {
+        addReplyBulkCString(c, cmd->tips[j]);
     }
 }
 
@@ -4413,7 +4419,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        addReplyCommandHints(c, cmd);
+        addReplyCommandTips(c, cmd);
         addReplyCommandKeySpecs(c, cmd);
         addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }
@@ -4500,7 +4506,7 @@ void getKeysSubcommand(client *c) {
         }
     } else {
         addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j].pos+2]);
     }
     getKeysFreeResult(&result);
 }

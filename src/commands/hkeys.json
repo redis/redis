@@ -7,11 +7,13 @@
         "arity": 2,
         "function": "hkeysCommand",
         "command_flags": [
-            "READONLY",
-            "SORT_FOR_SCRIPT"
+            "READONLY"
         ],
         "acl_categories": [
             "HASH"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "key_specs": [
             {

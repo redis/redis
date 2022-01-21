@@ -21,8 +21,7 @@
             {
                 "flags": [
                     "RO",
-                    "ACCESS",
-                    "INCOMPLETE"
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -35,6 +34,19 @@
                         "step": 1,
                         "limit": 0
                     }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS",
+                    "INCOMPLETE"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
                 }
             },
             {
