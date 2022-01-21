@@ -89,11 +89,9 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER key-permission-W on nopass %W~write* +@all
         $r2 auth key-permission-W password
         assert_equal PONG [$r2 PING]
-        # Note, SET is a RW command, so it's not used for testing
-        $r2 LPUSH writelist 10
         catch {$r2 GET writestr} err
         assert_match "*NOPERM*keys*" $err
-        catch {$r2 LPUSH notwrite 10} err
+        catch {$r2 SET notwrite 10} err
         assert_match "*NOPERM*keys*" $err
     }
 
@@ -107,16 +105,29 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*keys*" $err        
     }
 
+    test {Test command key_specs with RW flags needs read and write permissions} {
+        r ACL SETUSER key-permission-W on nopass %W~write* +@all
+        $r2 auth key-permission-W password
+        assert_equal PONG [$r2 PING]
+        catch {$r2 SET writestr 10} err
+        assert_match "*NOPERM*keys*" $err
+
+        r ACL SETUSER key-permission-RW on nopass %R~rw* %W~rw* +@all
+        $r2 auth key-permission-RW password
+        assert_equal PONG [$r2 PING]
+        $r2 SET rwstr 10
+    }
+
     test {Test separate read and write permissions on different selectors are not additive} {
         r ACL SETUSER key-permission-RW-selector on nopass "(%R~read* +@all)" "(%W~write* +@all)"
         $r2 auth key-permission-RW-selector password
         assert_equal PONG [$r2 PING]
 
         # Verify write selector
-        $r2 LPUSH writelist 10
+        $r2 SETNX writelist 10
         catch {$r2 GET writestr} err
         assert_match "*NOPERM*keys*" $err
-        catch {$r2 LPUSH notwrite 10} err
+        catch {$r2 SETNX notwrite 10} err
         assert_match "*NOPERM*keys*" $err
 
         # Verify read selector
