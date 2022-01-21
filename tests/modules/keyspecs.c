@@ -86,13 +86,10 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
                 .fk.keynum = {0,1,1}
             },
             {0}
-        },
-        0
+        }
     };
-    if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR) {
-        printf("ERRNO %d (line %d)\n", errno, __LINE__);
+    if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    }
 
     return REDISMODULE_OK;
 }

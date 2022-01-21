@@ -26,7 +26,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .summary = "Appends a new entry to a stream",
         .since = "5.0.0",
         .complexity = "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
-        .hints = (const char *[]){"hint1", "hint2", "hint3", 0},
+        .tips = (const char *[]){"nondeterministic_output", 0},
         .history = (RedisModuleCommandHistoryEntry[]){
             /* NOTE: All versions specified should be the module's versions, not
              * Redis'! We use Redis versions in this example for the purpose of

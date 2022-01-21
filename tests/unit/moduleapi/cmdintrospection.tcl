@@ -4,11 +4,10 @@ start_server {tags {"modules"}} {
     r module load $testmodule
 
     # cmdintrospection.xadd mimics XADD with regards to how
-    # what COMMAND exposes. There are three differences:
+    # what COMMAND exposes. There are two differences:
     #
     # 1. cmdintrospection.xadd (and all module commands) do not have ACL categories
     # 2. cmdintrospection.xadd's `group` is "module"
-    # 3. cmdintrospection.xadd has command hints and XADD doesn't (for now)
     #
     # This tests verify that, apart from the above differences, the output of
     # COMMAND INFO and COMMAND DOCS are identical for the two commands.
@@ -25,12 +24,6 @@ start_server {tags {"modules"}} {
             }
             if {$i == 6} {
                 # Skip ACL categories
-                continue
-            }
-            if {$i == 7} {
-                # Hints
-                set hints [lindex $module_reply $i]
-                assert_equal $hints {hint1 hint2 hint3}
                 continue
             }
             assert_equal [lindex $redis_reply $i] [lindex $module_reply $i]

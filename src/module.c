@@ -1104,7 +1104,7 @@ static int moduleConvertArgFlags(int flags);
  *         const char *complexity;
  *         const char *since;
  *         RedisModuleCommandHistoryEntry *history;
- *         const char **hints;
+ *         const char **tips;
  *         int arity;
  *         RedisModuleCommandKeySpec *key_specs;
  *         RedisModuleCommandArg *args;
@@ -1134,9 +1134,9 @@ static int moduleConvertArgFlags(int flags);
  *     changes. The array is terminated by a zeroed entry, i.e. an entry with
  *     both strings set to NULL.
  *
- * - `hints`: A NULL-terminated array of strings that are meant to be hints for
+ * - `tips`: A NULL-terminated array of strings that are meant to be tips for
  *   clients and proxies regarding this command (optional). See
- *   https://redis.io/topics/command-hints.
+ *   https://redis.io/topics/command-tips.
  *
  * - `arity`: Number of arguments, including the command name itself. A positive
  *   number specifies an exact number of arguments and a negative number
@@ -1408,12 +1408,12 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         cmd->num_history = count;
     }
 
-    if (info->hints) {
+    if (info->tips) {
         size_t count = 0;
-        for (count = 0; info->hints[count]; count++);
+        for (count = 0; info->tips[count]; count++);
         serverAssert(count < SIZE_MAX / sizeof(char *));
         cmd->tips = zmalloc(sizeof(char *) * (count + 1));
-        for (size_t j = 0; j < count; j++) cmd->tips[j] = zstrdup(info->hints[j]);
+        for (size_t j = 0; j < count; j++) cmd->tips[j] = zstrdup(info->tips[j]);
         cmd->tips[count] = NULL;
         cmd->num_tips = count;
     }
@@ -1511,7 +1511,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     if (info->version < 1) return 0;
 
     /* No validation for the fields summary, complexity and since (strings or
-     * NULL), hints (NULL-terminated array of strings), arity (any integer). */
+     * NULL), tips (NULL-terminated array of strings), arity (any integer). */
 
     /* History: If since is set, changes must also be set. */
     if (info->history) {
