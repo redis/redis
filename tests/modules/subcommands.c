@@ -41,8 +41,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 .fk.range = {0,1,0}
             },
             {0}
-        },
-        0
+        }
     };
     if (RedisModule_SetCommandInfo(subcmd, &cmd_set_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -61,8 +60,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 .fk.range = {0,1,0}
             },
             {0}
-        },
-        0
+        }
     };
     if (RedisModule_SetCommandInfo(subcmd, &cmd_get_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

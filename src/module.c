@@ -1504,7 +1504,6 @@ static inline int isPowerOfTwo(uint64_t v) {
 
 /* Returns 1 if the command info is valid and 0 otherwise. */
 static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
-
     /* We allow versions higher than REDISMODULE_COMMAND_INFO_VERSION. This is
      * to be forward compatible with modules compiled with future redismodule.h
      * versions. Fields added in future versions are simply ignored. */

@@ -1,5 +1,4 @@
 #include "redismodule.h"
-#include <errno.h>
 
 #define UNUSED(V) ((void) V)
 
@@ -48,8 +47,7 @@ int createKspecLegacy(RedisModuleCtx *ctx) {
                 /* Omitted find_keys_type is shorthand for RANGE {0,1,0} */
             },
             {0}
-        },
-        0
+        }
     };
     if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -141,8 +139,7 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
                 .fk.range = {-1,1,0}
             },
             {0}
-        },
-        0
+        }
     };
     if (RedisModule_SetCommandInfo(command, &info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
