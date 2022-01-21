@@ -990,10 +990,10 @@ cleanup:
  *              commands. For instance ~* allows all the keys. The pattern
  *              is a glob-style pattern like the one of KEYS.
  *              It is possible to specify multiple patterns.
- * %R~<pattern> Add key read pattern that specifies which keys can be read 
+ * %R~<pattern> Add key read pattern that specifies which keys can be read
  *              from.
  * %W~<pattern> Add key write pattern that specifies which keys can be
- *              written to. 
+ *              written to.
  * allkeys      Alias for ~*
  * resetkeys    Flush the list of allowed keys patterns.
  * &<pattern>   Add a pattern of channels that can be mentioned as part of
@@ -1001,55 +1001,7 @@ cleanup:
  *              pattern is a glob-style pattern like the one of PSUBSCRIBE.
  *              It is possible to specify multiple patterns.
  * allchannels              Alias for &*
- * resetchannels            Flush the list of allowed keys patterns.
- * ><password>  Add this password to the list of valid password for the user.
- *              For example >mypass will add "mypass" to the list.
- *              This directive clears the "nopass" flag (see later).
- * #<hash>      Add this password hash to the list of valid hashes for
- *              the user. This is useful if you have previously computed
- *              the hash, and don't want to store it in plaintext.
- *              This directive clears the "nopass" flag (see later).
- * <<password>  Remove this password from the list of valid passwords.
- * !<hash>      Remove this hashed password from the list of valid passwords.
- *              This is useful when you want to remove a password just by
- *              hash without knowing its plaintext version at all.
- * nopass       All the set passwords of the user are removed, and the user
- *              is flagged as requiring no password: it means that every
- *              password will work against this user. If this directive is
- *              used for the default user, every new connection will be
- *              immediately authenticated with the default user without
- *              any explicit AUTH command required. Note that the "resetpass"
- *              directive will clear this condition.
- * resetpass    Flush the list of allowed passwords. Moreover removes the
- *              "nopass" status. After "resetpass" the user has no associated
- *              passwords and there is no way to authenticate without adding
- *              some password (or setting it as "nopass" later).
- * reset        Performs the following actions: resetpass, resetkeys, off,
- *              -@all. The user returns to the same state it has immediately
- *              after its creation.
- *
- * The 'op' string must be null terminated. The 'oplen' argument should
- * specify the length of the 'op' string in case the caller requires to pass
- * binary data (for instance the >password form may use a binary password).
- * Otherwise the field can be set to -1 and the function will use strlen()
- * to determine the length.
- *
- * The function returns C_OK if the action to perform was understood because
- * the 'op' string made sense. Otherwise C_ERR is returned if the operation
- * is unknown or has some syntax error.
- *
- * When an error is returned, errno is set to the following values:
- *
- * EINVAL: The specified opcode is not understood or the key/channel pattern is
- *         invalid (contains non allowed characters).
- * ENOENT: The command name or command category provided with + or - is not
- *         known.
- * EEXIST: You are adding a key pattern after "*" was already added. This is
- *         almost surely an error on the user side.
- * EISDIR: You are adding a channel pattern after "*" was already added. This is
- *         almost surely an error on the user side.
- * ENODEV: The password you are trying to remove from the user does not exist.
- * EBADMSG: The hash you are trying to add is not a valid hash.
+ * resetchannels            Flush the list of allowed channel patterns.
  */
 int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
     if (!strcasecmp(op,"allkeys") ||
