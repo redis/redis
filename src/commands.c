@@ -3812,6 +3812,22 @@ struct redisCommandArg ACL_DELUSER_Args[] = {
 {0}
 };
 
+/********** ACL DRYRUN ********************/
+
+/* ACL DRYRUN history */
+#define ACL_DRYRUN_History NULL
+
+/* ACL DRYRUN tips */
+#define ACL_DRYRUN_tips NULL
+
+/* ACL DRYRUN argument table */
+struct redisCommandArg ACL_DRYRUN_Args[] = {
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** ACL GENPASS ********************/
 
 /* ACL GENPASS history */
@@ -3901,6 +3917,7 @@ struct redisCommandArg ACL_LOG_Args[] = {
 /* ACL SETUSER history */
 commandHistory ACL_SETUSER_History[] = {
 {"6.2.0","Added Pub/Sub channel patterns."},
+{"7.0.0","Added selectors and key based permissions."},
 {0}
 };
 
@@ -3934,6 +3951,7 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 struct redisCommand ACL_Subcommands[] = {
 {"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_CAT_History,ACL_CAT_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_CAT_Args},
 {"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DELUSER_History,ACL_DELUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DELUSER_Args},
+{"dryrun","Returns whether the user can execute the given command without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DRYRUN_History,ACL_DRYRUN_tips,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DRYRUN_Args},
 {"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GENPASS_History,ACL_GENPASS_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GENPASS_Args},
 {"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GETUSER_History,ACL_GETUSER_tips,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GETUSER_Args},
 {"help","Show helpful text about the different subcommands","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_HELP_History,ACL_HELP_tips,aclCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
@@ -6830,8 +6848,8 @@ struct redisCommand redisCommandTable[] = {
 {"renamenx","Rename a key, only if the new key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RENAMENX_History,RENAMENX_tips,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RENAMENX_Args},
 {"restore","Create a key using the provided serialized value, previously obtained using DUMP.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,RESTORE_History,RESTORE_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RESTORE_Args},
 {"scan","Incrementally iterate the keys space","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SCAN_History,SCAN_tips,scanCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,.args=SCAN_Args},
-{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args},
-{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SORT_RO_Args},
+{"sort","Sort the elements in a list, set or sorted set","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_History,SORT_tips,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortGetKeys,.args=SORT_Args},
+{"sort_ro","Sort the elements in a list, set or sorted set. Read-only variant of SORT.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,SORT_RO_History,SORT_RO_tips,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,{{CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}},sortROGetKeys,.args=SORT_RO_Args},
 {"touch","Alters the last access time of a key(s). Returns the number of existing keys specified.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TOUCH_History,TOUCH_tips,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=TOUCH_Args},
 {"ttl","Get the time to live for a key in seconds","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TTL_History,TTL_tips,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TTL_Args},
 {"type","Determine the type stored at key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,TYPE_History,TYPE_tips,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=TYPE_Args},

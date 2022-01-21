@@ -811,7 +811,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
         getKeysPrepareResult(res, newsize);
     }
 
-    res->keys[res->numkeys++] = pos;
+    res->keys[res->numkeys++].pos = pos;
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -864,10 +864,10 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
         else if (!strcasecmp(t,"RW")) flags |= CMD_KEY_RW;
         else if (!strcasecmp(t,"OW")) flags |= CMD_KEY_OW;
         else if (!strcasecmp(t,"RM")) flags |= CMD_KEY_RM;
-        else if (!strcasecmp(t,"ACCESS")) flags |= CMD_KEY_ACCESS;
-        else if (!strcasecmp(t,"INSERT")) flags |= CMD_KEY_INSERT;
-        else if (!strcasecmp(t,"UPDATE")) flags |= CMD_KEY_UPDATE;
-        else if (!strcasecmp(t,"DELETE")) flags |= CMD_KEY_DELETE;
+        else if (!strcasecmp(t,"access")) flags |= CMD_KEY_ACCESS;
+        else if (!strcasecmp(t,"insert")) flags |= CMD_KEY_INSERT;
+        else if (!strcasecmp(t,"update")) flags |= CMD_KEY_UPDATE;
+        else if (!strcasecmp(t,"delete")) flags |= CMD_KEY_DELETE;
         else if (!strcasecmp(t,"channel")) flags |= CMD_KEY_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
         else break;
@@ -1218,14 +1218,14 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommand *command, int index, keyS
  *      if (RedisModule_CreateCommand(ctx,"kspec.smove",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *
- *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","read write",&spec_id) == REDISMODULE_ERR)
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","RW access delete",&spec_id) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,1) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecFindKeysRange(ctx,"kspec.smove",spec_id,0,1,0) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *
- *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","write",&spec_id) == REDISMODULE_ERR)
+ *      if (RedisModule_AddCommandKeySpec(ctx,"kspec.smove","RW insert",&spec_id) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
  *      if (RedisModule_SetCommandKeySpecBeginSearchIndex(ctx,"kspec.smove",spec_id,2) == REDISMODULE_ERR)
  *          return REDISMODULE_ERR;
@@ -1237,7 +1237,7 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommand *command, int index, keyS
  *
  * Example:
  *
- *      RedisModule_AddCommandKeySpec(ctx,"module.config|get","read",&spec_id)
+ *      RedisModule_AddCommandKeySpec(ctx,"module.object|encoding","RO",&spec_id)
  *
  * Returns REDISMODULE_OK on success
  */
@@ -7793,13 +7793,31 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
-/* Check if the key can be accessed by the user, according to the ACLs associated with it.
+/* Check if the key can be accessed by the user, according to the ACLs associated with it
+ * and the flags used. The supported flags are:
  *
- * If the user can access the key, REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned. */
-int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
-    if (ACLCheckKey(user->user, key->ptr, sdslen(key->ptr)) != ACL_OK)
+ * REDISMODULE_KEY_PERMISSION_READ: Can the module read data from the key.
+ * REDISMODULE_KEY_PERMISSION_WRITE: Can the module write data to the key.
+ *
+ * On success a REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ * 
+ * * EINVAL: The provided flags are invalid.
+ * * EACCESS: The user does not have permission to access the key.
+ */
+int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int flags) {
+    int acl_flags = 0;
+    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= ACL_READ_PERMISSION;
+    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= ACL_WRITE_PERMISSION;
+    if (!acl_flags || ((flags & REDISMODULE_KEY_PERMISSION_ALL) != flags)) {
+        errno = EINVAL;
         return REDISMODULE_ERR;
+    }
+
+    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), acl_flags) != ACL_OK) {
+        errno = EACCES;
+        return REDISMODULE_ERR;
+    }
 
     return REDISMODULE_OK;
 }
@@ -7811,7 +7829,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key) {
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
 int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLCheckPubsubChannelPerm(ch->ptr, user->user->channels, literal) != ACL_OK)
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
@@ -10490,17 +10508,11 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
         return NULL;
     }
 
-    if (result.keys == result.keysbuf) {
-        /* If the result is using a stack based array, copy it. */
-        unsigned long int size = sizeof(int) * result.numkeys;
-        res = zmalloc(size);
-        memcpy(res, result.keys, size);
-    } else {
-        /* We return the heap based array and intentionally avoid calling
-         * getKeysFreeResult() here, as it is the caller's responsibility
-         * to free this array.
-         */
-        res = result.keys;
+    /* The return value here expects an array of key positions */
+    unsigned long int size = sizeof(int) * result.numkeys;
+    res = zmalloc(size);
+    for (int i = 0; i < result.numkeys; i++) {
+        res[i] = result.keys[i].pos;
     }
 
     return res;

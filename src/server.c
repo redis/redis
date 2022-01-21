@@ -4516,7 +4516,7 @@ void getKeysSubcommand(client *c) {
         }
     } else {
         addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j].pos+2]);
     }
     getKeysFreeResult(&result);
 }
