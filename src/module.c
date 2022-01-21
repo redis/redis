@@ -1182,7 +1182,7 @@ static int moduleConvertArgFlags(int flags);
  *
  *     Explanation of the fields of RedisModuleCommandKeySpec:
  *
- *     * `flags`: A bitwise or of key-spec flags decribed below.
+ *     * `flags`: A bitwise or of key-spec flags described below.
  *
  *     * `begin_search_type`: This describes how the first key is discovered.
  *       There are two ways to determine the first key:
