@@ -1507,7 +1507,10 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     /* We allow versions higher than REDISMODULE_COMMAND_INFO_VERSION. This is
      * to be forward compatible with modules compiled with future redismodule.h
      * versions. Fields added in future versions are simply ignored. */
-    if (info->version < 1) return 0;
+    if (info->version < 1) {
+        serverLog(LL_DEBUG, "Invalid command info: version %d", info->version);
+        return 0;
+    }
 
     /* No validation for the fields summary, complexity and since (strings or
      * NULL), tips (NULL-terminated array of strings), arity (any integer). */
@@ -1515,14 +1518,20 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     /* History: If since is set, changes must also be set. */
     if (info->history) {
         for (size_t j = 0; info->history[j].since; j++) {
-            if (!info->history[j].changes) return 0;
+            if (!info->history[j].changes) {
+                serverLog(LL_DEBUG, "Invalid command info: history[%zd].changes missing", j);
+                return 0;
+            }
         }
     }
 
     /* Key specs. */
     if (info->key_specs) {
         for (size_t j = 0; info->key_specs[j].begin_search_type; j++) {
-            if (j >= INT_MAX) return 0; /* redisCommand.key_specs_num is an int. */
+            if (j >= INT_MAX) {
+                serverLog(LL_DEBUG, "Invalid command info: Too many key specs");
+                return 0; /* redisCommand.key_specs_num is an int. */
+            }
 
             /* Flags. Exactly one flag in a group is set if and only if the
              * masked bits is a power of two. */
@@ -1532,17 +1541,37 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             uint64_t value_flags =
                 REDISMODULE_CMD_KEY_ACCESS | REDISMODULE_CMD_KEY_INSERT |
                 REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_DELETE;
-            if (!isPowerOfTwo(info->key_specs[j].flags & key_flags)) return 0;
+            if (!isPowerOfTwo(info->key_specs[j].flags & key_flags)) {
+                serverLog(LL_DEBUG,
+                          "Invalid command info: key_specs[%zd].flags: "
+                          "Exactly one of the flags RO, RW, OW, RM reqired", j);
+                return 0;
+            }
             if ((info->key_specs[j].flags & value_flags) != 0 &&
-                !isPowerOfTwo(info->key_specs[j].flags & value_flags)) return 0;
+                !isPowerOfTwo(info->key_specs[j].flags & value_flags))
+            {
+                serverLog(LL_DEBUG,
+                          "Invalid command info: key_specs[%zd].flags: "
+                          "ACCESS, INSERT, UPDATE and DELETE are mutually exclusive", j);
+                return 0;
+            }
 
             switch (info->key_specs[j].begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN: break;
             case REDISMODULE_KSPEC_BS_INDEX: break;
             case REDISMODULE_KSPEC_BS_KEYWORD:
-                if (info->key_specs[j].bs.keyword.keyword == NULL) return 0;
+                if (info->key_specs[j].bs.keyword.keyword == NULL) {
+                    serverLog(LL_DEBUG,
+                              "Invalid command info: key_specs[%zd].bs.keyword.keyword "
+                              "required when begin_search_type is KEYWORD", j);
+                    return 0;
+                }
                 break;
-            default: return 0; /* Invalid value. */
+            default:
+                serverLog(LL_DEBUG,
+                          "Invalid command info: key_specs[%zd].begin_search_type: "
+                          "Invalid value %d", j, info->key_specs[j].begin_search_type);
+                return 0;
             }
 
             /* Validate find_keys_type. */
@@ -1551,7 +1580,11 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             case KSPEC_FK_UNKNOWN: break;
             case KSPEC_FK_RANGE: break;
             case KSPEC_FK_KEYNUM: break;
-            default: return 0; /* Invalid value. */
+            default:
+                serverLog(LL_DEBUG,
+                          "Invalid command info: key_specs[%zd].find_keys_type: "
+                          "Invalid value %d", j, info->key_specs[j].find_keys_type);
+                return 0;
             }
         }
     }
@@ -1583,27 +1616,63 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
     for (size_t j = 0; args[j].name != NULL; j++) {
         int arg_type_error = 0;
         moduleConvertArgType(args[j].type, &arg_type_error);
-        if (arg_type_error) return 0;
-        if (args[j].type == REDISMODULE_ARG_TYPE_PURE_TOKEN && !args[j].token) return 0;
-
-        if (args[j].type == REDISMODULE_ARG_TYPE_KEY) {
-            if (args[j].key_spec_index < 0) return 0;
-        } else if (args[j].key_spec_index != -1 && args[j].key_spec_index != 0) {
-            /* 0 is allowed for convenience, to allow it to be omitted in
-             * compound struct literals on the form `.field = value`. */
+        if (arg_type_error) {
+            serverLog(LL_DEBUG,
+                      "Invalid command info: Argument \"%s\": Undefined type %d",
+                      args[j].name, args[j].type);
+            return 0;
+        }
+        if (args[j].type == REDISMODULE_ARG_TYPE_PURE_TOKEN && !args[j].token) {
+            serverLog(LL_DEBUG,
+                      "Invalid command info: Argument \"%s\": "
+                      "token required when type is PURE_TOKEN", args[j].name);
             return 0;
         }
 
-        if (args[j].flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1))
-            return 0; /* Invalid flags */
+        if (args[j].type == REDISMODULE_ARG_TYPE_KEY) {
+            if (args[j].key_spec_index < 0) {
+                serverLog(LL_DEBUG,
+                          "Invalid command info: Argument \"%s\": "
+                          "key_spec_index required when type is KEY",
+                          args[j].name);
+                return 0;
+            }
+        } else if (args[j].key_spec_index != -1 && args[j].key_spec_index != 0) {
+            /* 0 is allowed for convenience, to allow it to be omitted in
+             * compound struct literals on the form `.field = value`. */
+            serverLog(LL_DEBUG,
+                      "Invalid command info: Argument \"%s\": "
+                      "key_spec_index specified but type isn't KEY",
+                      args[j].name);
+            return 0;
+        }
+
+        if (args[j].flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1)) {
+            serverLog(LL_DEBUG,
+                      "Invalid command info: Argument \"%s\": Invalid flags",
+                      args[j].name);
+            return 0;
+        }
 
         if (args[j].type == REDISMODULE_ARG_TYPE_ONEOF ||
             args[j].type == REDISMODULE_ARG_TYPE_BLOCK)
         {
-            if (args[j].subargs == NULL) return 0;
+            if (args[j].subargs == NULL) {
+                serverLog(LL_DEBUG,
+                          "Invalid command info: Argument \"%s\": "
+                          "subargs required when type is ONEOF or BLOCK",
+                          args[j].name);
+                return 0;
+            }
             if (!moduleValidateCommandArgs(args[j].subargs)) return 0;
         } else {
-            if (args[j].subargs != NULL) return 0;
+            if (args[j].subargs != NULL) {
+                serverLog(LL_DEBUG,
+                          "Invalid command info: Argument \"%s\": "
+                          "subargs specified but type isn't ONEOF nor BLOCK",
+                          args[j].name);
+                return 0;
+            }
         }
     }
     return 1;
