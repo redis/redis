@@ -1508,7 +1508,7 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
 
     int key_flags = 0;
     if (keyspec_flags & CMD_KEY_RO) key_flags |= ACL_READ_PERMISSION;
-    if (keyspec_flags & CMD_KEY_RW) key_flags |= ACL_WRITE_PERMISSION;
+    if (keyspec_flags & CMD_KEY_RW) key_flags |= ACL_ALL_PERMISSION;
     if (keyspec_flags & CMD_KEY_OW) key_flags |= ACL_WRITE_PERMISSION;
     if (keyspec_flags & CMD_KEY_RM) key_flags |= ACL_WRITE_PERMISSION;
     if (keyspec_flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
