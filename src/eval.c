@@ -387,10 +387,12 @@ sds luaCreateFunction(client *c, robj *body) {
         sdsfreesplitres(parts, numparts);
     }
 
+    /* Build the lua function to be loaded */
     sds funcdef = sdsempty();
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
     funcdef = sdscatlen(funcdef,"() ",3);
+    /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
     funcdef = sdscatlen(funcdef,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len);
     funcdef = sdscatlen(funcdef,"\nend",4);
 
