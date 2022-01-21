@@ -316,7 +316,7 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
-    uint64_t function_flags = SCRIPT_FLAG_IGNORE_FLAGS;
+    uint64_t script_flags = SCRIPT_FLAG_IGNORE_FLAGS;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -355,9 +355,9 @@ sds luaCreateFunction(client *c, robj *body) {
             sdsfree(sha);
             return NULL;
         }
+        script_flags &= ~SCRIPT_FLAG_IGNORE_FLAGS;
         for (j = 1; j < numparts; j++) {
             if (!strncmp(parts[j], "flags=", 6)) {
-                function_flags &= ~SCRIPT_FLAG_IGNORE_FLAGS;
                 sdsrange(parts[j], 6, -1);
                 int numflags, jj;
                 sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
@@ -373,7 +373,7 @@ sds luaCreateFunction(client *c, robj *body) {
                         sdsfree(sha);
                         return NULL;
                     }
-                    function_flags |= sf->flag;
+                    script_flags |= sf->flag;
                 }
                 sdsfreesplitres(flags, numflags);
             } else {
@@ -422,7 +422,7 @@ sds luaCreateFunction(client *c, robj *body) {
      * EVALSHA commands as EVAL using the original script. */
     luaScript *l = zcalloc(sizeof(luaScript));
     l->body = body;
-    l->flags = function_flags;
+    l->flags = script_flags;
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);

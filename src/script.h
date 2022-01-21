@@ -91,7 +91,7 @@ typedef struct scriptFlag {
 
 extern scriptFlag scripts_flags_def[];
 
-int scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname, uint64_t function_flags, int ro);
+int scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro);
 void scriptResetRun(scriptRunCtx *r_ctx);
 int scriptSetResp(scriptRunCtx *r_ctx, int resp);
 int scriptSetRepl(scriptRunCtx *r_ctx, int repl);

@@ -108,23 +108,23 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 }
 
 /* Prepare the given run ctx for execution */
-int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t function_flags, int ro) {
+int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
 
-    if (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
-        if ((function_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+    if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
+        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
             addReplyError(caller, "Can not run function on cluster, 'no-cluster' flag is set.");
             return C_ERR;
         }
 
-        if (!(function_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
+        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
             addReplyError(caller, "-OOM allow-oom flag is not set on the function, "
                                   "can not run it when used memory > 'maxmemory'");
             return C_ERR;
         }
 
         if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-            server.repl_serve_stale_data == 0 && !(function_flags & SCRIPT_FLAG_ALLOW_STALE))
+            server.repl_serve_stale_data == 0 && !(script_flags & SCRIPT_FLAG_ALLOW_STALE))
         {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
@@ -132,7 +132,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             return C_ERR;
         }
 
-        if (!(function_flags & SCRIPT_FLAG_NO_WRITES)) {
+        if (!(script_flags & SCRIPT_FLAG_NO_WRITES)) {
             /* Function may perform writes we need to verify:
              * 1. we are not a readonly replica
              * 2. no disk error detected
@@ -190,12 +190,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
 
-    if (ro || (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (function_flags & SCRIPT_FLAG_NO_WRITES))) {
+    if (ro || (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (script_flags & SCRIPT_FLAG_NO_WRITES))) {
         /* On fcall_ro or on functions that do not have the 'write'
          * flag, we will not allow write commands. */
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
-    if (!(function_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (function_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+    if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 
