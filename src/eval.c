@@ -332,7 +332,13 @@ sds luaCreateFunction(client *c, robj *body) {
     ssize_t shebang_len = 0;
     if (!strncmp(body->ptr, "#!", 2)) {
         int numparts,j;
-        shebang_len = strchr(body->ptr, '\n') - (char*)body->ptr;
+        char *shebang_end = strchr(body->ptr, '\n');
+        if (shebang_end == NULL) {
+            addReplyError(c,"Invalid script shebang");
+            sdsfree(sha);
+            return NULL;
+        }
+        shebang_len = shebang_end - (char*)body->ptr;
         sds shebang = sdsnewlen(body->ptr, shebang_len);
         sds *parts = sdssplitargs(shebang, &numparts);
         sdsfree(shebang);
