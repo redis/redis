@@ -28,7 +28,6 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             # due to maxstep
             r frag.create key2 10000 100 1000
 
-            # might be a timing issue, temporarily increase the timeout
             after 2000
             set info [r info defragtest_stats]
             assert {[getInfoProperty $info defragtest_datatype_resumes] > 10}

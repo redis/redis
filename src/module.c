@@ -982,8 +982,6 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     RedisModuleCommand *cp = moduleCreateCommandProxy(ctx->module, name, fullname, cmdfunc, flags, firstkey, lastkey, keystep);
     cp->rediscmd->arity = cmdfunc ? -1 : -2; /* Default value, can be changed later via dedicated API */
 
-    serverLog(LL_WARNING, "parent 1111111111111");
-
     dictAdd(server.commands,sdsdup(fullname),cp->rediscmd);
     dictAdd(server.orig_commands,sdsdup(fullname),cp->rediscmd);
     cp->rediscmd->id = ACLGetCommandID(fullname); /* ID used for ACL. */
