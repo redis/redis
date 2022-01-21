@@ -696,6 +696,118 @@ start_server {tags {"scripting"}} {
              return redis.call("EXISTS", "key")
         } 0] 0
     }
+    
+    if {$is_eval eq 1} {
+
+    test "Shebang support for lua engine" {
+        catch {
+            r eval {#!not-lua
+                return 1
+            } 0
+        } e
+        assert_match {*Unexpected engine in script shebang*} $e
+
+        assert_equal [r eval {#!lua
+            return 1
+        } 0] 1
+    }
+
+    test "Unknown shebang option" {
+        catch {
+            r eval {#!lua badger=data
+                return 1
+            } 0
+        } e
+        assert_match {*Unknown lua shebang option*} $e
+    }
+
+    test "Unknown shebang flag" {
+        catch {
+            r eval {#!lua flags=allow-oom,what?
+                return 1
+            } 0
+        } e
+        assert_match {*Unexpected flag in script shebang*} $e
+    }
+
+    test "allow-oom shebang flag" {
+        r config set maxmemory 1
+
+        # Fail to execute deny-oom command in OOM condition (backwards compatibility mode without flags)
+        assert_error {ERR Error running script *OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval {
+                redis.call('set','x',1)
+                return 1
+            } 0
+        }
+
+        # Fail to execute regardless of script content when we use default flags in OOM condition
+        assert_error {OOM allow-oom flag is not set on the function, can not run it when used memory > 'maxmemory'} {
+            r eval {#!lua flags=
+                return 1
+            } 0
+        }
+
+        assert_equal [
+            r eval {#!lua flags=allow-oom
+                redis.call('set','x',1)
+                return 1
+            } 0
+        ] 1
+
+        r config set maxmemory 0
+    }
+
+    test "no-writes shebang flag" {
+        assert_error {ERR Error running script *Write commands are not allowed from read-only scripts.} {
+            r eval {#!lua flags=no-writes
+                redis.call('set','x',1)
+                return 1
+            } 0
+        }
+    }
+
+#    test "allow-stale shebang flag" {
+#        r config set replica-serve-stale-data no
+#        r replicaof 127.0.0.1 1
+
+#        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
+#            r eval {
+#                return redis.call('get','x')
+#            } 0
+#        }
+
+#        assert_error {*'allow-stale' flag is not set on the function*} {
+#            r eval {#!lua flags=no-writes
+#                return 1m
+#            } 0
+#        }
+
+#        assert_equal [
+#            r eval {#!lua flags=allow-stale,no-writes
+#                return 1
+#            } 0
+#        ] 1
+
+
+#        assert_error {*Can not execute the command on a stale replica*} {
+#            r eval {#!lua flags=allow-stale,no-writes
+#                return redis.call('get','x')
+#            } 0
+#        }
+#        
+#        assert_match [
+#            r eval {#!lua flags=allow-stale,no-writes
+#                return redis.call('info','server')
+#            } 0
+#        ] {*redis_version*}
+#        
+
+#        r replicaof no one
+#        r config set replica-serve-stale-data yes
+#    }
+
+    } ;# is_eval
 }
 
 # Start a new server since the last test in this stanza will kill the

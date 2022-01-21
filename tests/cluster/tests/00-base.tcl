@@ -70,3 +70,13 @@ test "Function no-cluster flag" {
     catch {R 1 fcall f1 0} e
     assert_match {*Can not run function on cluster, 'no-cluster' flag is set*} $e
 }
+
+test "Script no-cluster flag" {
+    catch {
+        R 1 eval {#!lua flags=no-cluster
+            return 1
+        } 0
+    } e
+    
+    assert_match {*Can not run function on cluster, 'no-cluster' flag is set*} $e
+}
