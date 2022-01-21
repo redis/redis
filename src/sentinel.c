@@ -4058,8 +4058,7 @@ NULL
     return;
 
 numargserr:
-    addReplyErrorFormat(c,"Wrong number of arguments for 'sentinel %s'",
-                          (char*)c->argv[1]->ptr);
+    addReplyErrorArity(c);
 }
 
 #define info_section_from_redis(section_name) do { \

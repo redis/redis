@@ -549,6 +549,16 @@ void addReplyErrorFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
+void addReplyErrorArity(client *c) {
+    addReplyErrorFormat(c, "wrong number of arguments for '%s' command",
+                        c->cmd->fullname);
+}
+
+void addReplyErrorExpireTime(client *c) {
+    addReplyErrorFormat(c, "invalid expire time in '%s' command",
+                        c->cmd->fullname);
+}
+
 void addReplyStatusLength(client *c, const char *s, size_t len) {
     addReplyProto(c,"+",1);
     addReplyProto(c,s,len);

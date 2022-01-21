@@ -2405,6 +2405,8 @@ void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);
 void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
+void addReplyErrorArity(client *c);
+void addReplyErrorExpireTime(client *c);
 void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix);
