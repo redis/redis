@@ -476,12 +476,12 @@ size_t zmalloc_get_rss(void) {
     size_t infolen = sizeof(info);
     int mib[6];
     mib[0] = CTL_KERN;
-    mib[1] = KERN_PROC;
+    mib[1] = KERN_PROC2;
     mib[2] = KERN_PROC_PID;
     mib[3] = getpid();
     mib[4] = sizeof(info);
     mib[5] = 1;
-    if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+    if (sysctl(mib, __arraycount(mib), &info, &infolen, NULL, 0) == 0)
         return (size_t)info.p_vm_rssize * getpagesize();
 
     return 0L;

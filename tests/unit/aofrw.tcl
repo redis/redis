@@ -63,7 +63,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
         waitForBgrewriteaof r
 
         # start a slow AOFRW
-        set k v
+        r set k v
         r config set rdb-key-save-delay 10000000
         r bgrewriteaof
 

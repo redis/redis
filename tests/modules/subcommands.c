@@ -34,7 +34,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
@@ -54,7 +54,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
-                .flags = REDISMODULE_CMD_KEY_READ,
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,

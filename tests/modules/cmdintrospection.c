@@ -31,14 +31,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             /* NOTE: All versions specified should be the module's versions, not
              * Redis'! We use Redis versions in this example for the purpose of
              * testing (comparing the output with the output of the vanilla
-             * XADD */
+             * XADD). */
             {"6.2.0", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
             {"7.0.0", "Added support for the `<ms>-*` explicit ID form."},
             {0}
         },
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,

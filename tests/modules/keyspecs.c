@@ -35,14 +35,14 @@ int createKspecLegacy(RedisModuleCtx *ctx) {
         .arity = -2,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
-                .flags = REDISMODULE_CMD_KEY_READ,
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
                 /* Omitted find_keys_type is shorthand for RANGE {0,1,0} */
@@ -67,17 +67,18 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
+                .flags = REDISMODULE_CMD_KEY_RO,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
             },
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "STORE",
                 .bs.keyword.startfrom = 2,
             },
             {
-                .flags = REDISMODULE_CMD_KEY_READ,
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "KEYS",
                 .bs.keyword.startfrom = 2,
@@ -106,7 +107,7 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "STORE",
                 .bs.keyword.startfrom = 5,
@@ -114,28 +115,28 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
                 .fk.range = {0,1,0}
             },
             {
-                .flags = REDISMODULE_CMD_KEY_READ,
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
             {
-                .flags = REDISMODULE_CMD_KEY_READ,
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 2,
                 .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
                 .fk.range = {0,1,0}
             },
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 3,
                 .find_keys_type = REDISMODULE_KSPEC_FK_KEYNUM,
                 .fk.keynum = {0,1,1}
             },
             {
-                .flags = REDISMODULE_CMD_KEY_WRITE,
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_KEYWORD,
                 .bs.keyword.keyword = "MOREKEYS",
                 .bs.keyword.startfrom = 5,
