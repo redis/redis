@@ -1001,7 +1001,7 @@ cleanup:
  *              pattern is a glob-style pattern like the one of PSUBSCRIBE.
  *              It is possible to specify multiple patterns.
  * allchannels              Alias for &*
- * resetchannels            Flush the list of allowed channel patterns.
+ * resetchannels            Flush the list of allowed keys patterns.
  * ><password>  Add this password to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).

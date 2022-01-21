@@ -86,5 +86,5 @@ tags "modules" {
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }
-	}
+    }
 }
