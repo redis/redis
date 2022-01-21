@@ -2611,14 +2611,14 @@ sds catSubCommandFullname(const char *parent_name, const char *sub_name) {
     return sdscatfmt(sdsempty(), "%s|%s", parent_name, sub_name);
 }
 
-void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand) {
+void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand, const char *declared_name) {
     if (!parent->subcommands_dict)
         parent->subcommands_dict = dictCreate(&commandTableDictType);
 
     subcommand->parent = parent; /* Assign the parent command */
     subcommand->id = ACLGetCommandID(subcommand->fullname); /* Assign the ID used for ACL. */
 
-    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->declared_name), subcommand) == DICT_OK);
+    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(declared_name), subcommand) == DICT_OK);
 }
 
 /* Set implicit ACl categories (see comment above the definition of
@@ -2697,7 +2697,7 @@ void populateCommandStructure(struct redisCommand *c) {
             setImplicitACLCategories(sub);
             sub->fullname = catSubCommandFullname(c->declared_name, sub->declared_name);
             populateCommandStructure(sub);
-            commandAddSubcommand(c,sub);
+            commandAddSubcommand(c, sub, sub->declared_name);
         }
     }
 }
@@ -2816,8 +2816,7 @@ int isContainerCommandBySds(sds s) {
 }
 
 struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name) {
-    struct redisCommand *sub_command = dictFetchValue(container->subcommands_dict, sub_name);
-    return sub_command;
+    return dictFetchValue(container->subcommands_dict, sub_name);
 }
 
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {

@@ -2165,7 +2165,8 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  */
 struct redisCommand {
     /* Declarative data */
-    const char *declared_name; /* A string representing the command declared_name. */
+    const char *declared_name; /* A string representing the command declared_name.
+                                * It is a const char * for native commands and SDS for module commands. */
     const char *summary; /* Summary of the command (optional). */
     const char *complexity; /* Complexity description (optional). */
     const char *since; /* Debut version of the command (optional). */
@@ -2208,8 +2209,8 @@ struct redisCommand {
     int num_tips;
     int key_specs_num;
     int key_specs_max;
-    dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand
-                             * declared_name, and the value is the redisCommand structure pointer. */
+    dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
+                             * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
 };
 
@@ -2810,7 +2811,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);
 struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
-struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc);
+struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
@@ -3394,7 +3395,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 void mixDigest(unsigned char *digest, const void *ptr, size_t len);
 void xorDigest(unsigned char *digest, const void *ptr, size_t len);
 sds catSubCommandFullname(const char *parent_name, const char *sub_name);
-void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand);
+void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand, const char *declared_name);
 void populateCommandMovableKeys(struct redisCommand *cmd);
 void debugDelay(int usec);
 void killIOThreads(void);
