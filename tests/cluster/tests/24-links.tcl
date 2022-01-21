@@ -10,16 +10,23 @@ test "Cluster should start ok" {
 
 test "Each node has two links with each peer" {
     foreach_redis_id id {
-        # Get number of peers, excluding myself
-        set nodes [get_cluster_nodes $id]
-        set num_peers [expr [llength $nodes] - 1]
+        set nodes {}
+        set num_peers 0
+        set links {}
+        set num_links 0
 
-        # Get number of links to peers
-        set links [get_cluster_links $id]
-        set num_links [llength $links]
-
-        # Two links per peer
-        assert {$num_peers*2 eq $num_links}
+        # Assert that from point of view of each node,
+        # there are two links for each peer.
+        # It might take a while for cluster to stabilize so wait 5 seconds.
+        wait_for_condition 5 1000 {
+            [catch {set nodes [get_cluster_nodes $id]} e] == 0 &&
+            [catch {set num_peers [expr [llength $nodes] - 1]} e] == 0 &&
+            [catch {set links [get_cluster_links $id]} e] == 0 &&
+            [catch {set num_links [llength $links]} e] == 0 &&
+            $num_peers*2 eq $num_links
+        } else {
+            fail "Number of peers $num_peers is not equal to double of number of links $num_links"
+        }
 
         # For each peer there should be exactly one
         # link "to" it and one link "from" it.
