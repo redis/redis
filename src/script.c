@@ -111,6 +111,10 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
 
+    int running_stale = server.masterhost &&
+            server.repl_state != REPL_STATE_CONNECTED &&
+            server.repl_serve_stale_data == 0;
+
     if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
             addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
@@ -123,9 +127,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             return C_ERR;
         }
 
-        if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-            server.repl_serve_stale_data == 0 && !(script_flags & SCRIPT_FLAG_ALLOW_STALE))
-        {
+        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
                              "and 'allow-stale' flag is not set on the script.");
@@ -162,6 +164,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
                 return C_ERR;
             }
+        }
+    } else {
+        /* Special handling for backwards compatibility (no shebang eval[sha]) mode */
+        if (running_stale) {
+            addReplyErrorObject(caller, shared.masterdownerr);
+            return C_ERR;
         }
     }
 

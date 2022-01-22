@@ -742,7 +742,7 @@ start_server {tags {"scripting"}} {
         }
 
         # Fail to execute regardless of script content when we use default flags in OOM condition
-        assert_error {OOM allow-oom flag is not set on the function, can not run it when used memory > 'maxmemory'} {
+        assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
             r eval {#!lua flags=
                 return 1
             } 0
@@ -767,45 +767,53 @@ start_server {tags {"scripting"}} {
         }
     }
 
-#    test "allow-stale shebang flag" {
-#        r config set replica-serve-stale-data no
-#        r replicaof 127.0.0.1 1
+    test "allow-stale shebang flag" {
+        set sha [
+            r script load {#!lua flags=allow-stale,no-writes
+                return redis.call('info','server')
+            }
+        ]
 
-#        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
-#            r eval {
-#                return redis.call('get','x')
-#            } 0
-#        }
+        r config set replica-serve-stale-data no
+        r replicaof 127.0.0.1 1
 
-#        assert_error {*'allow-stale' flag is not set on the function*} {
-#            r eval {#!lua flags=no-writes
-#                return 1m
-#            } 0
-#        }
+        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        }
 
-#        assert_equal [
-#            r eval {#!lua flags=allow-stale,no-writes
-#                return 1
-#            } 0
-#        ] 1
+        assert_error {*'allow-stale' flag is not set on the script*} {
+            r eval {#!lua flags=no-writes
+                return 1
+            } 0
+        }
+
+        assert_equal [
+            r eval {#!lua flags=allow-stale,no-writes
+                return 1
+            } 0
+        ] 1
 
 
-#        assert_error {*Can not execute the command on a stale replica*} {
-#            r eval {#!lua flags=allow-stale,no-writes
-#                return redis.call('get','x')
-#            } 0
-#        }
-#        
-#        assert_match [
-#            r eval {#!lua flags=allow-stale,no-writes
-#                return redis.call('info','server')
-#            } 0
-#        ] {*redis_version*}
-#        
-
-#        r replicaof no one
-#        r config set replica-serve-stale-data yes
-#    }
+        assert_error {*Can not execute the command on a stale replica*} {
+            r eval {#!lua flags=allow-stale,no-writes
+                return redis.call('get','x')
+            } 1 x
+        }
+        
+        assert_match {*redis_version*} [
+            r eval {#!lua flags=allow-stale,no-writes
+                return redis.call('info','server')
+            } 0
+        ]
+        
+        # Test again with EVALSHA
+        assert_match {*redis_version*} [r evalsha $sha 0]
+        
+        r replicaof no one
+        r config set replica-serve-stale-data yes
+    }
 
     } ;# is_eval
 }
