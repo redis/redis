@@ -115,7 +115,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             server.repl_state != REPL_STATE_CONNECTED &&
             server.repl_serve_stale_data == 0;
 
-    if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
             addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
             return C_ERR;
@@ -198,12 +198,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
 
-    if (ro || (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (script_flags & SCRIPT_FLAG_NO_WRITES))) {
+    if (ro || (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_NO_WRITES))) {
         /* On fcall_ro or on functions that do not have the 'write'
          * flag, we will not allow write commands. */
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
-    if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 

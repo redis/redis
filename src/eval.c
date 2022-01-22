@@ -316,7 +316,7 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
-    uint64_t script_flags = SCRIPT_FLAG_IGNORE_FLAGS;
+    uint64_t script_flags = SCRIPT_FLAG_EVAL_COMPAT_MODE;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -355,7 +355,7 @@ sds luaCreateFunction(client *c, robj *body) {
             sdsfree(sha);
             return NULL;
         }
-        script_flags &= ~SCRIPT_FLAG_IGNORE_FLAGS;
+        script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
         for (j = 1; j < numparts; j++) {
             if (!strncmp(parts[j], "flags=", 6)) {
                 sdsrange(parts[j], 6, -1);

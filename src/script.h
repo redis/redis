@@ -77,11 +77,11 @@ struct scriptRunCtx {
 };
 
 /* Scripts flags */
-#define SCRIPT_FLAG_IGNORE_FLAGS (1ULL<<0) /* EVAL Script backwards compatible behavior, no shebang provided */
-#define SCRIPT_FLAG_NO_WRITES    (1ULL<<1)
-#define SCRIPT_FLAG_ALLOW_OOM    (1ULL<<2)
-#define SCRIPT_FLAG_ALLOW_STALE  (1ULL<<3)
-#define SCRIPT_FLAG_NO_CLUSTER   (1ULL<<4)
+#define SCRIPT_FLAG_NO_WRITES        (1ULL<<0)
+#define SCRIPT_FLAG_ALLOW_OOM        (1ULL<<1)
+#define SCRIPT_FLAG_ALLOW_STALE      (1ULL<<2)
+#define SCRIPT_FLAG_NO_CLUSTER       (1ULL<<3)
+#define SCRIPT_FLAG_EVAL_COMPAT_MODE (1ULL<<4) /* EVAL Script backwards compatible behavior, no shebang provided */
 
 /* Defines a script flags */
 typedef struct scriptFlag {
