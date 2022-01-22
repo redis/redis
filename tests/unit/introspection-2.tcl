@@ -157,4 +157,9 @@ start_server {tags {"introspection"}} {
         # This should be empty, the real one is in subcommands.tcl
         assert_equal {} [r command list filterby module non_existing_module]
     }
+
+    test {COMMAND INFO of invalid subcommands} {
+        assert_equal {{}} [r command info get|key]
+        assert_equal {{}} [r command info config|get|key]
+    }
 }

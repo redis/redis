@@ -2819,20 +2819,32 @@ struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_na
     return dictFetchValue(container->subcommands_dict, sub_name);
 }
 
-struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
+/* Look up a command by argv and argc
+ *
+ * If `strict` is not 0 we expect argc to be exact (i.e. argc==2
+ * for a subcommand and argc==1 for a top-level command)
+ * `strict` should be used every time we want to look up a command
+ * name (e.g. in COMMAND INFO) rather than to find the command
+ * a user requested to execute (in processCommand).
+ */
+struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc, int strict) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     if (argc == 1 || !has_subcommands) {
+        if (strict && argc != 1)
+            return NULL;
         /* Note: It is possible that base_cmd->proc==NULL (e.g. CONFIG) */
         return base_cmd;
-    } else {
+    } else { /* argc > 1 && has_subcommands */
+        if (strict && argc != 2)
+            return NULL;
         /* Note: Currently we support just one level of subcommands */
         return lookupSubcommand(base_cmd, argv[1]->ptr);
     }
 }
 
 struct redisCommand *lookupCommand(robj **argv, int argc) {
-    return lookupCommandLogic(server.commands,argv,argc);
+    return lookupCommandLogic(server.commands,argv,argc,0);
 }
 
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
@@ -2853,7 +2865,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         argv[j] = &objects[j];
     }
 
-    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc);
+    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc,1);
     sdsfreesplitres(strings,argc);
     return cmd;
 }
@@ -2883,9 +2895,9 @@ struct redisCommand *lookupCommandByCString(const char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
-    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc);
+    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc, 0);
 
-    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc);
+    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc, 0);
     return cmd;
 }
 
