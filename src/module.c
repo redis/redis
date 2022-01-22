@@ -990,9 +990,8 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
 
 /* A proxy that help create a module command / subcommand.
  *
- * * **"declared_name"**: sds for module commands, it contains the sub_name,
- *                        which is just the full name for non-subcommands.
- * * **"fullname"**:      sds string representing the command fullname.
+ * 'declared_name': it contains the sub_name, which is just the fullname for non-subcommands.
+ * 'fullname': sds string representing the command fullname.
  *
  * Function will take the ownership of both 'declared_name' and 'fullname' SDS.
  */

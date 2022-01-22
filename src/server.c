@@ -2704,8 +2704,8 @@ void populateCommandStructure(struct redisCommand *c) {
 
 extern struct redisCommand redisCommandTable[];
 
-/* Populates the Redis Command Table starting from the hard coded list
- * we have on bottom of command.c file. */
+/* Populates the Redis Command Table dict from from the static table in commands.c
+ * which is auto generated from the json files in the commands folder. */
 void populateCommandTable(void) {
     int j;
     struct redisCommand *c;

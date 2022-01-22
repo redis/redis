@@ -375,12 +375,12 @@ start_server {tags {"acl external:skip"}} {
     } {*NOPERM*debug*}
 
     test {ACLs set can include subcommands, if already full command exists} {
-        r ACL setuser bob -@all +memory|doctor
+        r ACL setuser bob +memory|doctor
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {-@all +memory|doctor} $cmdstr
 
         # Validate the commands have got engulfed to +memory.
-        r ACL setuser bob -@all +memory
+        r ACL setuser bob +memory
         set cmdstr [dict get [r ACL getuser bob] commands]
         assert_equal {-@all +memory} $cmdstr
 
@@ -482,25 +482,18 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test "ACL CAT without category - list all categories" {
-        set reply [r acl cat]
-        assert_match "*keyspace*" $reply
-        assert_match "*connection*" $reply
-    }
-
-    test "ACL CAT category - list all commands that belong to category" {
-        # We simply just check a few categories.
-        assert_match "*llen*" [r ACL CAT list]
-        assert_match "*zcard*" [r ACL CAT sortedset]
-        assert_match "*exists*" [r ACL CAT keyspace]
-        assert_match "*flushall*" [r ACL CAT dangerous]
+        set categories [split [string trim [r acl cat] "\r\n"]]
+        assert_not_equal [lsearch $categories "keyspace"] -1
+        assert_not_equal [lsearch $categories "connection"] -1
     }
 
     test "ACL CAT category - list all commands/subcommands that belong to category" {
-        set reply [r acl cat scripting]
-        assert_match "*eval*" $reply
-        assert_match "*fcall_ro*" $reply
-        assert_match "*function|list*" $reply
-        assert_match "*script|flush*" $reply
+        assert_not_equal [lsearch [r acl cat transaction] "multi"] -1
+        assert_not_equal [lsearch [r acl cat scripting] "function|list"] -1
+
+        # Negative check to make sure it doesn't actually return all commands.
+        assert_equal [lsearch [r acl cat keyspace] "set"] -1
+        assert_equal [lsearch [r acl cat stream] "get"] -1
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {

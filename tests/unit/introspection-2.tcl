@@ -108,49 +108,47 @@ start_server {tags {"introspection"}} {
     }
 
     test "COMMAND LIST WITHOUT FILTERBY" {
-        set reply [r command list]
-        assert_match "*set*" $reply
-        assert_match "*client|list*" $reply
+        set commands [split [string trim [r command list] "\r\n"]]
+        assert_not_equal [lsearch $commands "set"] -1
+        assert_not_equal [lsearch $commands "client|list"] -1
     }
 
     test "COMMAND LIST FILTERBY ACLCAT against non existing category" {
         assert_equal {} [r command list filterby aclcat non_existing_category]
     }
 
-    test "COMMAND LIST FILTERBY ACLCAT" {
-        set reply [r command list filterby aclcat hyperloglog]
-        assert_match "*pfadd*" $reply
-        assert_match "*pfcount*" $reply
+    test "COMMAND LIST FILTERBY ACLCAT - list all commands/subcommands" {
+        set commands [split [string trim [r command list filterby aclcat scripting] "\r\n"]]
+        assert_not_equal [lsearch $commands "eval"] -1
+        assert_not_equal [lsearch $commands "script|kill"] -1
+
+        # Negative check, a command that should not be here
+        assert_equal [lsearch $commands "set"] -1
     }
 
-    test "COMMAND LIST FILTERBY ACLCAT - SUBCOMMANDS" {
-        set reply [r command list filterby aclcat scripting]
-        assert_match "*eval*" $reply
-        assert_match "*script|kill*" $reply
-        assert_match "*function|list*" $reply
-    }
+    test "COMMAND LIST FILTERBY PATTERN - list all commands/subcommands" {
+        # Exact command match.
+        assert_equal {set} [r command list filterby pattern set]
+        assert_equal {get} [r command list filterby pattern get]
 
-    test "COMMAND LIST FILTERBY PATTERN" {
-        set reply [r command list filterby pattern pf*]
-        assert_match "*pfadd*" $reply
-        assert_match "*pfcount*" $reply
-    }
-
-    test "COMMAND LIST FILTERBY PATTERN - SUBCOMMANDS" {
         # Return the parent command and all the subcommands below it.
-        set reply [r command list filterby pattern config*]
-        assert_match "*config*" $reply
-        assert_match "*config|get*" $reply
+        set commands [split [string trim [r command list filterby pattern config*] "\r\n"]]
+        assert_not_equal [lsearch $commands "config"] -1
+        assert_not_equal [lsearch $commands "config|get"] -1
 
         # We can filter subcommands under a parent command.
-        set reply [r command list filterby pattern config|*re*]
-        assert_match "*config|resetstat*" $reply
-        assert_match "*config|rewrite*" $reply
+        set commands [split [string trim [r command list filterby pattern config|*re*] "\r\n"]]
+        assert_not_equal [lsearch $commands "config|resetstat"] -1
+        assert_not_equal [lsearch $commands "config|rewrite"] -1
 
         # We can filter subcommands across parent commands.
-        set reply [r command list filterby pattern cl*help]
-        assert_match "*client|help*" $reply
-        assert_match "*cluster|help*" $reply
+        set commands [split [string trim [r command list filterby pattern cl*help] "\r\n"]]
+        assert_not_equal [lsearch $commands "client|help"] -1
+        assert_not_equal [lsearch $commands "cluster|help"] -1
+
+        # Negative check, command that doesn't exist.
+        assert_equal {} [r command list filterby pattern non_exists]
+        assert_equal {} [r command list filterby pattern non_exists*]
     }
 
     test "COMMAND LIST FILTERBY MODULE against non existing module" {
