@@ -113,12 +113,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     if (!(script_flags & SCRIPT_FLAG_IGNORE_FLAGS)) {
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
-            addReplyError(caller, "Can not run function on cluster, 'no-cluster' flag is set.");
+            addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
             return C_ERR;
         }
 
         if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
-            addReplyError(caller, "-OOM allow-oom flag is not set on the function, "
+            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
                                   "can not run it when used memory > 'maxmemory'");
             return C_ERR;
         }
@@ -128,19 +128,19 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
-                             "and 'allow-stale' flag is not set on the function.");
+                             "and 'allow-stale' flag is not set on the script.");
             return C_ERR;
         }
 
         if (!(script_flags & SCRIPT_FLAG_NO_WRITES)) {
-            /* Function may perform writes we need to verify:
+            /* Script may perform writes we need to verify:
              * 1. we are not a readonly replica
              * 2. no disk error detected
-             * 3. command is not 'fcall_ro' */
+             * 3. command is not `fcall_ro`/`eval[sha]_ro` */
             if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
                 && !(caller->flags & CLIENT_MASTER))
             {
-                addReplyError(caller, "Can not run a function with write flag on readonly replica");
+                addReplyError(caller, "Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
@@ -149,17 +149,17 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
                     addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
                                      "but it is currently not able to persist on disk. "
-                                     "So its impossible to run functions that has 'write' flag on.");
+                                     "So its impossible to run scripts that have 'write' flag on.");
                 else
                     addReplyErrorFormat(caller, "-MISCONF Redis is configured to persist data to AOF, "
                                            "but it is currently not able to persist on disk. "
-                                           "So its impossible to run functions that has 'write' flag on. "
+                                           "So its impossible to run scripts that have 'write' flag on. "
                                            "AOF error: %s", strerror(server.aof_last_write_errno));
                 return C_ERR;
             }
 
             if (ro) {
-                addReplyError(caller, "Can not execute a function with write flag using fcall_ro.");
+                addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
                 return C_ERR;
             }
         }
