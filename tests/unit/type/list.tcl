@@ -486,6 +486,11 @@ start_server {
         assert_equal c [r lpop mylist2]
     }
 
+    test "LPOP/RPOP with wrong number of arguments" {
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
+    }
+
     test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {gg} [r lpop listcount 1]
@@ -1600,9 +1605,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments*" {r lmpop}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}

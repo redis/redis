@@ -244,35 +244,35 @@ start_server {tags {"expire"}} {
     test {SET with EX with big integer should report an error} {
         catch {r set foo bar EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {SET with EX with smallest integer should report an error} {
         catch {r SET foo bar EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {GETEX with big integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {GETEX with smallest integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
 
         # Hit `when > LLONG_MAX - basetime`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223370399119966}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223370399119966}
 
         # Hit `when > LLONG_MAX / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 10000000000000000}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 18446744073709561}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 10000000000000000}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 18446744073709561}
 
         assert_equal {-1} [r ttl foo]
     }
@@ -281,14 +281,14 @@ start_server {tags {"expire"}} {
         r set foo bar
         catch {r PEXPIRE foo 9223372036854770000} e
         set e
-    } {ERR invalid expire time in pexpire}
+    } {ERR invalid expire time in 'pexpire' command}
 
     test {EXPIRE with big negative integer} {
         r set foo bar
 
         # Hit `when < LLONG_MIN / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9999999999999999}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9999999999999999}
 
         r ttl foo
     } {-1}

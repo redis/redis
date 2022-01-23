@@ -40,7 +40,7 @@ test "Sentinel Set with other error situations" {
    assert_error "ERR Notification script seems non existing*" {S 0 SENTINEL SET mymaster notification-script test.txt}
 
    # wrong parameter number
-   assert_error "ERR wrong number of arguments for 'set' command or subcommand" {S 0 SENTINEL SET mymaster fakeoption}
+   assert_error "ERR wrong number of arguments for 'sentinel|set' command" {S 0 SENTINEL SET mymaster fakeoption}
 
    # unknown parameter option
    assert_error "ERR Unknown option or number of arguments for SENTINEL SET 'fakeoption'" {S 0 SENTINEL SET mymaster fakeoption fakevalue}

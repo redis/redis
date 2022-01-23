@@ -209,7 +209,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
         set _ $e
-    } {*wrong number of arguments*}
+    } {*Unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load lua test REPLACE [get_no_writes_function_code test {return redis.call('set', 'x', '1')}]
@@ -302,7 +302,7 @@ start_server {tags {"scripting"}} {
         assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
-        assert_match {*wrong number of arguments*} $e
+        assert_match {*Unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
     }
 }
 
