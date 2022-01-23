@@ -38,7 +38,7 @@ start_server {tags {"modules"}} {
     test "COMMAND LIST FILTERBY MODULE" {
         assert_equal {} [r command list filterby module non_existing]
 
-        set commands [split [string trim [r command list filterby module subcommands] "\r\n"]]
+        set commands [r command list filterby module subcommands]
         assert_not_equal [lsearch $commands "subcommands.bitarray"] -1
         assert_not_equal [lsearch $commands "subcommands.bitarray|set"] -1
         assert_not_equal [lsearch $commands "subcommands.parent_get_fullname"] -1

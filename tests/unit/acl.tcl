@@ -482,7 +482,7 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test "ACL CAT without category - list all categories" {
-        set categories [split [string trim [r acl cat] "\r\n"]]
+        set categories [r acl cat]
         assert_not_equal [lsearch $categories "keyspace"] -1
         assert_not_equal [lsearch $categories "connection"] -1
     }

@@ -108,7 +108,7 @@ start_server {tags {"introspection"}} {
     }
 
     test "COMMAND LIST WITHOUT FILTERBY" {
-        set commands [split [string trim [r command list] "\r\n"]]
+        set commands [r command list]
         assert_not_equal [lsearch $commands "set"] -1
         assert_not_equal [lsearch $commands "client|list"] -1
     }
@@ -118,7 +118,7 @@ start_server {tags {"introspection"}} {
     }
 
     test "COMMAND LIST FILTERBY ACLCAT - list all commands/subcommands" {
-        set commands [split [string trim [r command list filterby aclcat scripting] "\r\n"]]
+        set commands [r command list filterby aclcat scripting]
         assert_not_equal [lsearch $commands "eval"] -1
         assert_not_equal [lsearch $commands "script|kill"] -1
 
@@ -132,17 +132,17 @@ start_server {tags {"introspection"}} {
         assert_equal {get} [r command list filterby pattern get]
 
         # Return the parent command and all the subcommands below it.
-        set commands [split [string trim [r command list filterby pattern config*] "\r\n"]]
+        set commands [r command list filterby pattern config*]
         assert_not_equal [lsearch $commands "config"] -1
         assert_not_equal [lsearch $commands "config|get"] -1
 
         # We can filter subcommands under a parent command.
-        set commands [split [string trim [r command list filterby pattern config|*re*] "\r\n"]]
+        set commands [r command list filterby pattern config|*re*]
         assert_not_equal [lsearch $commands "config|resetstat"] -1
         assert_not_equal [lsearch $commands "config|rewrite"] -1
 
         # We can filter subcommands across parent commands.
-        set commands [split [string trim [r command list filterby pattern cl*help] "\r\n"]]
+        set commands [r command list filterby pattern cl*help]
         assert_not_equal [lsearch $commands "client|help"] -1
         assert_not_equal [lsearch $commands "cluster|help"] -1
 
