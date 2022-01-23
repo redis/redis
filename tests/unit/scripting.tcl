@@ -1297,12 +1297,6 @@ start_server {tags {"scripting"}} {
     }
 
     test "allow-stale shebang flag" {
-        set sha [
-            r script load {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
-            }
-        ]
-
         r config set replica-serve-stale-data no
         r replicaof 127.0.0.1 1
 
@@ -1338,6 +1332,11 @@ start_server {tags {"scripting"}} {
         ]
         
         # Test again with EVALSHA
+        set sha [
+            r script load {#!lua flags=allow-stale,no-writes
+                return redis.call('info','server')
+            }
+        ]
         assert_match {*redis_version*} [r evalsha $sha 0]
         
         r replicaof no one
