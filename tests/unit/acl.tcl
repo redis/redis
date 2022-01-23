@@ -327,16 +327,27 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*config|set*}
 
-    test {ACLs can include a subcommand with a specific arg} {
+    test {ACLs cannot include a subcommand with a specific arg} {
         r ACL setuser newuser +@all -config|get
-        r ACL setuser newuser +config|get|appendonly
-        set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_match {*-config|get*} $cmdstr
-        assert_match {*+config|get|appendonly*} $cmdstr
-        r CONFIG GET appendonly; # Should not fail
-        catch {r CONFIG GET loglevel} e
+        catch { r ACL setuser newuser +config|get|appendonly} e
         set e
-    } {*NOPERM*config|get*}
+    } {*Allowing first-arg of a subcommand is not supported*}
+
+    test {ACLs cannot exclude or include a container commands with a specific arg} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
+
+    test {ACLs cannot exclude or include a container command with two args} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
 
     test {ACLs including of a type includes also subcommands} {
         r ACL setuser newuser -@all +acl +@stream
@@ -463,6 +474,26 @@ start_server {tags {"acl external:skip"}} {
             set cmdstr [dict get [r ACL getuser restrictive] commands]
             assert_equal "-@all +@$category" $cmdstr
         }
+    }
+
+    test "ACL CAT with illegal arguments" {
+        assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
+        assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+    }
+
+    test "ACL CAT without category - list all categories" {
+        set categories [r acl cat]
+        assert_not_equal [lsearch $categories "keyspace"] -1
+        assert_not_equal [lsearch $categories "connection"] -1
+    }
+
+    test "ACL CAT category - list all commands/subcommands that belong to category" {
+        assert_not_equal [lsearch [r acl cat transaction] "multi"] -1
+        assert_not_equal [lsearch [r acl cat scripting] "function|list"] -1
+
+        # Negative check to make sure it doesn't actually return all commands.
+        assert_equal [lsearch [r acl cat keyspace] "set"] -1
+        assert_equal [lsearch [r acl cat stream] "get"] -1
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
@@ -621,7 +652,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'acl|help' command" $e
     }
 
     test {Delete a user that the client doesn't use} {
@@ -733,27 +764,27 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 
     test {Default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         set channelinfo [dict get [r ACL getuser alice] channels]
         assert_equal "" $channelinfo
     }
 
     test {Update acl-pubsub-default, existing users shouldn't get affected} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         r CONFIG set acl-pubsub-default allchannels
         r ACL setuser mydefault
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         r CONFIG set acl-pubsub-default resetchannels
         set channelinfo [dict get [r ACL getuser mydefault] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
     }
 
     test {Single channel is valid} {
         r ACL setuser onechannel &test
         set channelinfo [dict get [r ACL getuser onechannel] channels]
-        assert_equal test $channelinfo
+        assert_equal "&test" $channelinfo
         r ACL deluser onechannel
     }
 
@@ -772,7 +803,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 
     test {Only default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
-        assert_equal "*" $channelinfo
+        assert_equal "&*" $channelinfo
         set channelinfo [dict get [r ACL getuser alice] channels]
         assert_equal "" $channelinfo
     }

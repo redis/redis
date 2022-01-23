@@ -19,6 +19,10 @@
             "LOADING",
             "STALE"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
             {
                 "name": "parameter_value",

@@ -8,6 +8,7 @@ start_server {tags {"latency-monitor needs:latency"}} {
         set histo [dict create {*}[r latency histogram]]
         # Config resetstat is recorded
         assert_equal [dict size $histo] 1
+        assert_match {*config|resetstat*} $histo
     }
 
     test {LATENCY HISTOGRAM all commands} {
@@ -141,6 +142,6 @@ start_server {tags {"latency-monitor needs:latency"}} {
 
     test {LATENCY HELP should not have unexpected options} {
         catch {r LATENCY help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'latency|help' command" $e
     }
 }

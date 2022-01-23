@@ -20,7 +20,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -37,7 +38,21 @@
             },
             {
                 "flags": [
-                    "WRITE",
+                    "RO",
+                    "ACCESS",
+                    "INCOMPLETE"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
+            },
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE",
                     "INCOMPLETE"
                 ],
                 "begin_search": {

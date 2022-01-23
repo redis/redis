@@ -303,6 +303,14 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_FUNCTION) {
+            sds err = NULL;
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
+                rdbCheckError("Failed loading library, %s", err);
+                sdsfree(err);
+                goto err;
+            }
+            continue;
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);

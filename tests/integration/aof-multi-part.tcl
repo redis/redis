@@ -675,10 +675,10 @@ tags {"external:skip"} {
         }
     }
 
-    test {Multi Part AOF can handle appendfilename contains spaces} {
-        start_server [list overrides [list appendonly yes appendfilename "\" file seq .aof \""]] {
+    test {Multi Part AOF can handle appendfilename contains whitespaces} {
+        start_server [list overrides [list appendonly yes appendfilename "\" file seq \\n\\n.aof \""]] {
             set dir [get_redis_dir]
-            set aof_manifest_name [format "%s/%s/%s%s" $dir "appendonlydir" " file seq .aof " $::manifest_suffix]
+            set aof_manifest_name [format "%s/%s/%s%s" $dir "appendonlydir" " file seq \n\n.aof " $::manifest_suffix]
             set redis [redis [srv host] [srv port] 0 $::tls]
 
             assert_equal OK [$redis set k1 v1]
@@ -687,8 +687,8 @@ tags {"external:skip"} {
             waitForBgrewriteaof $redis
 
             assert_aof_manifest_content $aof_manifest_name {
-                {file " file seq .aof .2.base.rdb" seq 2 type b}
-                {file " file seq .aof .2.incr.aof" seq 2 type i}
+                {file " file seq \n\n.aof .2.base.rdb" seq 2 type b}
+                {file " file seq \n\n.aof .2.incr.aof" seq 2 type i}
             }
 
             set d1 [$redis debug digest]

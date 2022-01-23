@@ -160,7 +160,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
         /* Negative value provided or multiplication is gonna overflow. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -172,7 +172,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0) {
         /* Overflow detected. */
-        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -557,8 +557,7 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 

@@ -11,8 +11,8 @@ start_server {tags {"modules"}} {
         assert_equal [lindex $reply 5] 1
         # Verify key-specs
         set keyspecs [lindex $reply 8]
-        assert_equal [lindex $keyspecs 0] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags write begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 0] {flags {RO access} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags {RW update} begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
     }
 
     test "Module key specs: Complex specs, case 1" {
@@ -24,8 +24,8 @@ start_server {tags {"modules"}} {
         # Verify key-specs
         set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags {} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags write begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 2] {flags read begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
+        assert_equal [lindex $keyspecs 1] {flags {RW update} begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 2] {flags {RO access} begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
     }
 
     test "Module key specs: Complex specs, case 2" {
@@ -36,16 +36,20 @@ start_server {tags {"modules"}} {
         assert_equal [lindex $reply 5] 1
         # Verify key-specs
         set keyspecs [lindex $reply 8]
-        assert_equal [lindex $keyspecs 0] {flags write begin_search {type keyword spec {keyword STORE startfrom 5}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 1] {flags read begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 2] {flags read begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
-        assert_equal [lindex $keyspecs 3] {flags write begin_search {type index spec {index 3}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
-        assert_equal [lindex $keyspecs 4] {flags write begin_search {type keyword spec {keyword MOREKEYS startfrom 5}} find_keys {type range spec {lastkey -1 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 0] {flags {RW update} begin_search {type keyword spec {keyword STORE startfrom 5}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags {RO access} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 2] {flags {RO access} begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 3] {flags {RW update} begin_search {type index spec {index 3}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
+        assert_equal [lindex $keyspecs 4] {flags {RW update} begin_search {type keyword spec {keyword MOREKEYS startfrom 5}} find_keys {type range spec {lastkey -1 keystep 1 limit 0}}}
     }
 
     test "Module command list filtering" {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
         assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.legacy}
+    }
+
+    test "Unload the module - keyspecs" {
+        assert_equal {OK} [r module unload keyspecs]
     }
 }

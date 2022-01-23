@@ -1363,7 +1363,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
      * each time the Lua hook is invoked. */
     luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, run_ctx);
 
-    if (server.script_time_limit > 0 && !debug_enabled) {
+    if (server.busy_reply_threshold > 0 && !debug_enabled) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
     } else if (debug_enabled) {
