@@ -1292,7 +1292,32 @@ start_server {tags {"scripting"}} {
             r eval {#!lua flags=no-writes
                 redis.call('set','x',1)
                 return 1
-            } 0
+            } 1 x
+        }
+    }
+    
+    start_server {tags {"external:skip"}} {
+        r -1 set x "some value"
+        test "no-writes shebang flag on replica" {
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_for_condition 50 100 {
+                [s role] eq {slave} &&
+                [string match {*master_link_status:up*} [r info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal [
+                r eval {#!lua flags=no-writes
+                    return redis.call('get','x')
+                } 1 x
+            ] "some value"
+
+            assert_error {ERR Can not run script with write flag on readonly replica} {
+                r eval {#!lua
+                    return redis.call('get','x')
+                } 1 x
+            }
         }
     }
 
