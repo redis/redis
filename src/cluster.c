@@ -67,6 +67,7 @@ void clusterSetMaster(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
+void bitmapSetBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
@@ -82,6 +83,7 @@ void removeChannelsInSlot(unsigned int slot);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
+sds clusterGenSlotInfoFromSlotsBitmap(slot_bitmap slots);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -133,6 +135,7 @@ int clusterLoadConfig(char *filename) {
     struct stat sb;
     char *line;
     int maxline, j;
+    slot_bitmap slots;
 
     if (fp == NULL) {
         if (errno == ENOENT) {
@@ -303,6 +306,11 @@ int clusterLoadConfig(char *filename) {
         /* Set configEpoch for this node. */
         n->configEpoch = strtoull(argv[6],NULL,10);
 
+        /* Reinitialize the temp slots bitmap if we are dealing with a failed node */
+        if (nodeFailed(n)) {
+            memset(slots, 0, sizeof(slots));
+        }
+
         /* Populate hash slots served by this instance. */
         for (j = 8; j < argc; j++) {
             int start, stop;
@@ -347,7 +355,20 @@ int clusterLoadConfig(char *filename) {
                 sdsfreesplitres(argv,argc);
                 goto fmterr;
             }
-            while(start <= stop) clusterAddSlot(n, start++);
+            /* Add the slot ranges to the officical slots bitmap only if the
+             * node is not marked as "failed" */
+            while(start <= stop) {
+                if (!nodeFailed(n)) {
+                    clusterAddSlot(n, start++);
+                } else {
+                    bitmapSetBit(slots, start++);
+                }
+            }
+        }
+
+        /* Recreate previous_slots_info for failed nodes */
+        if (nodeFailed(n)) {
+            n->previous_slots_info = clusterGenSlotInfoFromSlotsBitmap(slots);
         }
 
         sdsfreesplitres(argv,argc);
@@ -949,6 +970,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->slots_info = NULL;
+    node->previous_slots_info = NULL;
     node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
@@ -1112,6 +1134,9 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
 void freeClusterNode(clusterNode *n) {
     sds nodename;
     int j;
+
+    /* Free previous_slot_info */
+    if (n->previous_slots_info) sdsfree(n->previous_slots_info);
 
     /* If the node has associated slaves, we have to set
      * all the slaves->slaveof fields to NULL (unknown). */
@@ -1429,6 +1454,47 @@ int clusterBlacklistExists(char *nodeid) {
     return retval;
 }
 
+/* This is a helper function that generates a string representation 
+ * of the slots owned by the given node. */
+sds clusterGenSlotInfoFromSlotsBitmap(slot_bitmap slots) {
+    sds slots_info = sdsempty();
+
+    for (int start = -1, i = 0; i <= CLUSTER_SLOTS; i++) {
+        if (i == CLUSTER_SLOTS || bitmapTestBit(slots, i) == 0) {
+            if (start < 0) continue;
+            if (start == i - 1) {
+                slots_info = sdscatfmt(slots_info," %i",start);
+            } else {
+                slots_info = sdscatfmt(slots_info," %i-%i",start,i-1);
+            }
+            start = -1;
+        } else if (start < 0) {
+            start = i;
+        } 
+    }
+
+    return slots_info;
+}
+
+/* This function saves a copy of the slot info for the given node before 
+ * marking it as failing. */
+void markNodeAsFailing(clusterNode *node) {
+    if (node->flags & CLUSTER_NODE_FAIL) return;
+
+    /* Save old slot assignments if the node is a master*/
+    if (nodeIsMaster(node)) {
+        if (node->previous_slots_info) {
+            sdsfree(node->previous_slots_info);
+        }
+        node->previous_slots_info = clusterGenSlotInfoFromSlotsBitmap(node->slots);
+    }
+ 
+    /* Mark the node as failing. */
+    node->flags &= ~CLUSTER_NODE_PFAIL;
+    node->flags |= CLUSTER_NODE_FAIL;
+    node->fail_time = mstime();
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER messages exchange - PING/PONG and gossip
  * -------------------------------------------------------------------------- */
@@ -1469,11 +1535,8 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     serverLog(LL_NOTICE,
         "Marking node %.40s as failing (quorum reached).", node->name);
 
-    /* Mark the node as failing. */
-    node->flags &= ~CLUSTER_NODE_PFAIL;
-    node->flags |= CLUSTER_NODE_FAIL;
-    node->fail_time = mstime();
-
+    markNodeAsFailing(node);
+ 
     /* Broadcast the failing node name to everybody, forcing all the other
      * reachable nodes to flag the node as FAIL.
      * We do that even if this node is a replica and not a master: anyway
@@ -2443,9 +2506,7 @@ int clusterProcessPacket(clusterLink *link) {
                 serverLog(LL_NOTICE,
                     "FAIL message received from %.40s about %.40s",
                     hdr->sender, hdr->data.fail.about.nodename);
-                failing->flags |= CLUSTER_NODE_FAIL;
-                failing->fail_time = now;
-                failing->flags &= ~CLUSTER_NODE_PFAIL;
+                markNodeAsFailing(failing);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE);
             }
@@ -4572,7 +4633,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
  *
  * The function returns the string representation as an SDS string. */
 sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
-    int j, start;
+    int j;
     sds ci;
     int port = use_pport && node->pport ? node->pport : node->port;
 
@@ -4618,24 +4679,9 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     if (node->slots_info) {
         ci = sdscatsds(ci, node->slots_info);
     } else if (node->numslots > 0) {
-        start = -1;
-        for (j = 0; j < CLUSTER_SLOTS; j++) {
-            int bit;
-
-            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
-                if (start == -1) start = j;
-            }
-            if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {
-                if (bit && j == CLUSTER_SLOTS-1) j++;
-
-                if (start == j-1) {
-                    ci = sdscatfmt(ci," %i",start);
-                } else {
-                    ci = sdscatfmt(ci," %i-%i",start,j-1);
-                }
-                start = -1;
-            }
-        }
+        ci = sdscatsds(ci, clusterGenSlotInfoFromSlotsBitmap(node->slots));
+    } else if (nodeFailed(node) && nodeIsMaster(node) && node->previous_slots_info != NULL) {
+        ci = sdscatsds(ci, node->previous_slots_info);
     }
 
     /* Just for MYSELF node we also dump info about slots that

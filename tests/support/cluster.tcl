@@ -105,7 +105,11 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
         if {$line eq {}} continue
         set args [split $line " "]
         lassign $args nodeid addr flags slaveof pingsent pongrecv configepoch linkstate
-        set slots [lrange $args 8 end]
+        if {[string first ",fail" $flags] == -1} {
+            set slots [lrange $args 8 end]
+        } else {
+            set slots {}
+        }
         set addr [lindex [split $addr @] 0]
         if {$addr eq {:0}} {
             set addr $start_host:$start_port
