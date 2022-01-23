@@ -2632,6 +2632,8 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_PUBSUB;
     if (c->flags & CMD_FAST)
         c->acl_categories |= ACL_CATEGORY_FAST;
+    if (c->flags & CMD_BLOCKING)
+        c->acl_categories |= ACL_CATEGORY_BLOCKING;
 
     /* If it's not @fast is @slow in this binary world. */
     if (!(c->acl_categories & ACL_CATEGORY_FAST))
@@ -2671,8 +2673,8 @@ void populateCommandStructure(struct redisCommand *c) {
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
         c->num_history++;
-    while (c->hints && c->hints[c->num_hints])
-        c->num_hints++;
+    while (c->tips && c->tips[c->num_tips])
+        c->num_tips++;
     c->num_args = populateArgsStructure(c->args);
 
     populateCommandLegacyRangeSpec(c);
@@ -2810,20 +2812,32 @@ int isContainerCommandBySds(sds s) {
     return has_subcommands;
 }
 
-struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
+/* Look up a command by argv and argc
+ *
+ * If `strict` is not 0 we expect argc to be exact (i.e. argc==2
+ * for a subcommand and argc==1 for a top-level command)
+ * `strict` should be used every time we want to look up a command
+ * name (e.g. in COMMAND INFO) rather than to find the command
+ * a user requested to execute (in processCommand).
+ */
+struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc, int strict) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     if (argc == 1 || !has_subcommands) {
+        if (strict && argc != 1)
+            return NULL;
         /* Note: It is possible that base_cmd->proc==NULL (e.g. CONFIG) */
         return base_cmd;
-    } else {
+    } else { /* argc > 1 && has_subcommands */
+        if (strict && argc != 2)
+            return NULL;
         /* Note: Currently we support just one level of subcommands */
         return dictFetchValue(base_cmd->subcommands_dict, argv[1]->ptr);
     }
 }
 
 struct redisCommand *lookupCommand(robj **argv, int argc) {
-    return lookupCommandLogic(server.commands,argv,argc);
+    return lookupCommandLogic(server.commands,argv,argc,0);
 }
 
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
@@ -2844,7 +2858,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         argv[j] = &objects[j];
     }
 
-    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc);
+    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc,1);
     sdsfreesplitres(strings,argc);
     return cmd;
 }
@@ -2874,9 +2888,9 @@ struct redisCommand *lookupCommandByCString(const char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
-    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc);
+    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc, 0);
 
-    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc);
+    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc, 0);
     return cmd;
 }
 
@@ -4099,8 +4113,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_ADMIN,             "admin"},
         {CMD_PUBSUB,            "pubsub"},
         {CMD_NOSCRIPT,          "noscript"},
-        {CMD_RANDOM,            "random"},
-        {CMD_SORT_FOR_SCRIPT,   "sort_for_script"},
+        {CMD_BLOCKING,          "blocking"},
         {CMD_LOADING,           "loading"},
         {CMD_STALE,             "stale"},
         {CMD_SKIP_MONITOR,      "skip_monitor"},
@@ -4109,15 +4122,16 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_FAST,              "fast"},
         {CMD_NO_AUTH,           "no_auth"},
         {CMD_MAY_REPLICATE,     "may_replicate"},
+        /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
+        /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
         {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
-        {CMD_PROTECTED,         "protected"},
+        /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
         {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
         {CMD_NO_MULTI,          "no_multi"},
         {CMD_MOVABLE_KEYS,      "movablekeys"},
         {CMD_ALLOW_BUSY,        "allow_busy"},
         {0,NULL}
     };
-    /* "sentinel" and "only-sentinel" are hidden on purpose. */
     addReplyCommandFlags(c, cmd->flags, flagNames);
 }
 
@@ -4251,10 +4265,10 @@ void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    addReplySetLen(c, cmd->num_hints);
-    for (int j = 0; j<cmd->num_hints; j++) {
-        addReplyBulkCString(c, cmd->hints[j]);
+void addReplyCommandTips(client *c, struct redisCommand *cmd) {
+    addReplySetLen(c, cmd->num_tips);
+    for (int j = 0; j<cmd->num_tips; j++) {
+        addReplyBulkCString(c, cmd->tips[j]);
     }
 }
 
@@ -4415,7 +4429,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        addReplyCommandHints(c, cmd);
+        addReplyCommandTips(c, cmd);
         addReplyCommandKeySpecs(c, cmd);
         addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }
@@ -4502,7 +4516,7 @@ void getKeysSubcommand(client *c) {
         }
     } else {
         addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j].pos+2]);
     }
     getKeysFreeResult(&result);
 }

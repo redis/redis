@@ -23,6 +23,10 @@
             "KEYSPACE",
             "DANGEROUS"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
         "arguments": [
             {
                 "name": "async",

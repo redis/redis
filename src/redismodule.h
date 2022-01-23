@@ -261,6 +261,12 @@ typedef enum {
 #define REDISMODULE_CMD_ARG_MULTIPLE        (1<<1) /* The argument may repeat itself (like key in DEL) */
 #define REDISMODULE_CMD_ARG_MULTIPLE_TOKEN  (1<<2) /* The argument may repeat itself, and so does its token (like `GET pattern` in SORT) */
 
+/* Redis ACL key permission flags, which specify which permissions a module
+ * needs on a key. */
+#define REDISMODULE_KEY_PERMISSION_READ (1<<0) 
+#define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
+#define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)
+
 /* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
 #define REDISMODULE_EVENTLOOP_WRITABLE 2
@@ -978,7 +984,7 @@ REDISMODULE_API int (*RedisModule_SetModuleUserACL)(RedisModuleUser *user, const
 REDISMODULE_API RedisModuleString * (*RedisModule_GetCurrentUserName)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleUser * (*RedisModule_GetModuleUserFromUserName)(RedisModuleString *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissions)(RedisModuleUser *user, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckChannelPermissions)(RedisModuleUser *user, RedisModuleString *ch, int literal) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;

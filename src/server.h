@@ -190,8 +190,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ADMIN (1ULL<<4)
 #define CMD_PUBSUB (1ULL<<5)
 #define CMD_NOSCRIPT (1ULL<<6)
-#define CMD_RANDOM (1ULL<<7)
-#define CMD_SORT_FOR_SCRIPT (1ULL<<8)
+#define CMD_BLOCKING (1ULL<<8)       /* Has potential to block. */
 #define CMD_LOADING (1ULL<<9)
 #define CMD_STALE (1ULL<<10)
 #define CMD_SKIP_MONITOR (1ULL<<11)
@@ -996,54 +995,32 @@ typedef struct readyList {
                                            is USER_COMMAND_BITS_COUNT-1. */
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
 #define USER_FLAG_DISABLED (1<<1)       /* The user is disabled. */
-#define USER_FLAG_ALLKEYS (1<<2)        /* The user can mention any key. */
-#define USER_FLAG_ALLCOMMANDS (1<<3)    /* The user can run all commands. */
-#define USER_FLAG_NOPASS      (1<<4)    /* The user requires no password, any
+#define USER_FLAG_NOPASS (1<<2)         /* The user requires no password, any
                                            provided password will work. For the
                                            default user, this also means that
                                            no AUTH is needed, and every
                                            connection is immediately
                                            authenticated. */
-#define USER_FLAG_ALLCHANNELS (1<<5)    /* The user can mention any Pub/Sub
-                                           channel. */
-#define USER_FLAG_SANITIZE_PAYLOAD (1<<6)       /* The user require a deep RESTORE
+#define USER_FLAG_SANITIZE_PAYLOAD (1<<3)       /* The user require a deep RESTORE
                                                  * payload sanitization. */
-#define USER_FLAG_SANITIZE_PAYLOAD_SKIP (1<<7)  /* The user should skip the
+#define USER_FLAG_SANITIZE_PAYLOAD_SKIP (1<<4)  /* The user should skip the
                                                  * deep sanitization of RESTORE
                                                  * payload. */
 
+#define SELECTOR_FLAG_ROOT (1<<0)           /* This is the root user permission
+                                             * selector. */
+#define SELECTOR_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
+#define SELECTOR_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
+#define SELECTOR_FLAG_ALLCHANNELS (1<<3)    /* The user can mention any Pub/Sub
+                                               channel. */
+
 typedef struct {
     sds name;       /* The username as an SDS string. */
-    uint64_t flags; /* See USER_FLAG_* */
-
-    /* The bit in allowed_commands is set if this user has the right to
-     * execute this command.
-     *
-     * If the bit for a given command is NOT set and the command has
-     * allowed first-args, Redis will also check allowed_firstargs in order to
-     * understand if the command can be executed. */
-    uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
-
-    /* allowed_firstargs is used by ACL rules to block access to a command unless a
-     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * For example, a user can use the rule "-select +select|0" to block all
-     * SELECT commands, except "SELECT 0".
-     * And for a sub-command: "+config -config|set +config|set|loglevel"
-     *
-     * For each command ID (corresponding to the command bit set in allowed_commands),
-     * This array points to an array of SDS strings, terminated by a NULL pointer,
-     * with all the first-args that are allowed for this command. When no first-arg
-     * matching is used, the field is just set to NULL to avoid allocating
-     * USER_COMMAND_BITS_COUNT pointers. */
-    sds **allowed_firstargs;
+    uint32_t flags; /* See USER_FLAG_* */
     list *passwords; /* A list of SDS valid passwords for this user. */
-    list *patterns;  /* A list of allowed key patterns. If this field is NULL
-                        the user cannot mention any key in a command, unless
-                        the flag ALLKEYS is set in the user. */
-    list *channels;  /* A list of allowed Pub/Sub channel patterns. If this
-                        field is NULL the user cannot mention any channel in a
-                        `PUBLISH` or [P][UNSUBSCRIBE] command, unless the flag
-                        ALLCHANNELS is set in the user. */
+    list *selectors; /* A list of selectors this user validates commands
+                        against. This list will always contain at least
+                        one selector for backwards compatibility. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1914,16 +1891,22 @@ struct redisServer {
 
 #define MAX_KEYS_BUFFER 256
 
+typedef struct {
+    int pos; /* The position of the key within the client array */
+    int flags; /* The flags associted with the key access, see
+                  CMD_KEY_* for more information */
+} keyReference;
+
 /* A result structure for the various getkeys function calls. It lists the
  * keys as indices to the provided argv.
  */
 typedef struct {
-    int keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */
-    int *keys;                          /* Key indices array, points to keysbuf or heap */
+    keyReference keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */
+    keyReference *keys;                          /* Key indices array, points to keysbuf or heap */
     int numkeys;                        /* Number of key indices return */
     int size;                           /* Available array size */
 } getKeysResult;
-#define GETKEYS_RESULT_INIT { {0}, NULL, 0, MAX_KEYS_BUFFER }
+#define GETKEYS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYS_BUFFER }
 
 /* Key specs definitions.
  *
@@ -2118,14 +2101,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NOSCRIPT:    Command not allowed in scripts.
  *
- * CMD_RANDOM:      Random command. Command is not deterministic, that is, the same
- *                  command with the same arguments, with the same key space, may
- *                  have different results. For instance SPOP and RANDOMKEY are
- *                  two random commands.
- *
- * CMD_SORT_FOR_SCRIPT:     Sort command output array if called from script, so that the
- *                          output is deterministic. When this flag is used (not always
- *                          possible), then the "random" flag is not needed.
+ * CMD_BLOCKING:    The command has the potential to block the client.
  *
  * CMD_LOADING:     Allow the command while loading the database.
  *
@@ -2198,7 +2174,7 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
-    const char **hints; /* An array of strings that are meant o be hints for clients/proxies regarding this command */
+    const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
@@ -2228,7 +2204,7 @@ struct redisCommand {
                                      * COMMAND INFO and COMMAND GETKEYS */
     int num_args;
     int num_history;
-    int num_hints;
+    int num_tips;
     int key_specs_num;
     int key_specs_max;
     dict *subcommands_dict;
@@ -2722,14 +2698,19 @@ void ACLInit(void);
 #define ACL_LOG_CTX_MULTI 2
 #define ACL_LOG_CTX_MODULE 3
 
+/* ACL key permission types */
+#define ACL_READ_PERMISSION (1<<0)
+#define ACL_WRITE_PERMISSION (1<<1)
+#define ACL_ALL_PERMISSION (ACL_READ_PERMISSION|ACL_WRITE_PERMISSION)
+
 int ACLCheckUserCredentials(robj *username, robj *password);
 int ACLAuthenticateUser(client *c, robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
-int ACLCheckKey(const user *u, const char *key, int keylen);
-int ACLCheckPubsubChannelPerm(sds channel, list *allowed, int literal);
-int ACLCheckAllUserCommandPerm(const user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
+int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
+int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
+int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -3011,9 +2992,14 @@ void freeObjAsync(robj *key, robj *obj, int dbid);
 void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 /* API to get key arguments from commands */
-int *getKeysPrepareResult(getKeysResult *result, int numkeys);
+#define GET_KEYSPEC_DEFAULT 0
+#define GET_KEYSPEC_INCLUDE_CHANNELS (1<<0) /* Consider channels as keys */
+#define GET_KEYSPEC_RETURN_PARTIAL (1<<1) /* Return all keys that can be found */
+
+int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);
+keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int getChannelsFromCommand(struct redisCommand *cmd, int argc, getKeysResult *result);
+int doesCommandHaveKeys(struct redisCommand *cmd);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
@@ -3021,6 +3007,7 @@ int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);

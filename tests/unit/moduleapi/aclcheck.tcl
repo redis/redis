@@ -20,11 +20,20 @@ start_server {tags {"modules acl"}} {
 
     test {test module check acl for key perm} {
         # give permission for SET and block all keys but x
-        r acl setuser default +set resetkeys ~x
-        assert_equal [r aclcheck.set.check.key x 5] OK
-        catch {r aclcheck.set.check.key y 5} e
-        set e
-    } {*DENIED KEY*}
+        r acl setuser default +set resetkeys ~x %W~y %R~z
+
+        assert_equal [r aclcheck.set.check.key "*" x 5] OK
+        catch {r aclcheck.set.check.key "*" v 5} e
+        assert_match "*DENIED KEY*" $e
+
+        assert_equal [r aclcheck.set.check.key "W" y 5] OK
+        catch {r aclcheck.set.check.key "W" v 5} e
+        assert_match "*DENIED KEY*" $e
+
+        assert_equal [r aclcheck.set.check.key "R" z 5] OK
+        catch {r aclcheck.set.check.key "R" v 5} e
+        assert_match "*DENIED KEY*" $e
+    }
 
     test {test module check acl for module user} {
         # the module user has access to all keys

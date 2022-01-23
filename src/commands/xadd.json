@@ -19,11 +19,13 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "key_specs": [
             {
