@@ -259,7 +259,7 @@ start_server {tags {"acl external:skip"}} {
     }
 
     # Existence test commands are not marked as access since they are the result
-    # of a lot of write commands. We therefor make the claim they can be executed
+    # of a lot of write commands. We therefore make the claim they can be executed
     # when either READ or WRITE flags are provided.
     test {Existence test commands are not marked as access} {
         assert_equal "OK" [r ACL DRYRUN command-test HEXISTS read foo]
@@ -276,12 +276,16 @@ start_server {tags {"acl external:skip"}} {
     }
 
     # Unlike existence test commands, intersection cardinality commands process the data
-    # between keys and return an aggregated cardinality. Therefor they have the access
+    # between keys and return an aggregated cardinality. therefore they have the access
     # requirement.
     test {Intersection cardinaltiy commands are access commands} {
         assert_equal "OK" [r ACL DRYRUN command-test SINTERCARD 2 read read]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test SINTERCARD 2 write read]
         assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SINTERCARD 2 nothing read]
+
+        assert_equal "OK" [r ACL DRYRUN command-test ZCOUNT read 0 1]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZCOUNT write 0 1]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZCOUNT nothing 0 1]
 
         assert_equal "OK" [r ACL DRYRUN command-test PFCOUNT read read]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test PFCOUNT write read]
