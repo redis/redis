@@ -372,9 +372,9 @@ typedef struct RedisModuleCommandInfo {
     const char *complexity;       /* Complexity description */
     const char *since;            /* Debut module version of the command */
     RedisModuleCommandHistoryEntry *history; /* History */
-    /* An array of strings that are meant o be tips for clients/proxies
-     * regarding this command */
-    const char **tips;
+    /* A string of space-separated tips meant for clients/proxies regarding this
+     * command */
+    const char *tips;
     /* Number of arguments, it is possible to use -N to say >= N */
     int arity;
     RedisModuleCommandKeySpec *key_specs;

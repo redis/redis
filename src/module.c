@@ -1104,7 +1104,7 @@ static int moduleConvertArgFlags(int flags);
  *         const char *complexity;
  *         const char *since;
  *         RedisModuleCommandHistoryEntry *history;
- *         const char **tips;
+ *         const char *tips;
  *         int arity;
  *         RedisModuleCommandKeySpec *key_specs;
  *         RedisModuleCommandArg *args;
@@ -1134,9 +1134,8 @@ static int moduleConvertArgFlags(int flags);
  *     changes. The array is terminated by a zeroed entry, i.e. an entry with
  *     both strings set to NULL.
  *
- * - `tips`: A NULL-terminated array of strings that are meant to be tips for
- *   clients and proxies regarding this command (optional). See
- *   https://redis.io/topics/command-tips.
+ * - `tips`: A string of space-separated tips regarding this command, meant for
+ *   clients and proxies. See https://redis.io/topics/command-tips.
  *
  * - `arity`: Number of arguments, including the command name itself. A positive
  *   number specifies an exact number of arguments and a negative number
@@ -1421,13 +1420,17 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
     }
 
     if (info->tips) {
-        size_t count = 0;
-        for (count = 0; info->tips[count]; count++);
-        serverAssert(count < SIZE_MAX / sizeof(char *));
-        cmd->tips = zmalloc(sizeof(char *) * (count + 1));
-        for (size_t j = 0; j < count; j++) cmd->tips[j] = zstrdup(info->tips[j]);
-        cmd->tips[count] = NULL;
-        cmd->num_tips = count;
+        int count;
+        sds *tokens = sdssplitlen(info->tips, strlen(info->tips), " ", 1, &count);
+        if (tokens) {
+            cmd->tips = zmalloc(sizeof(char *) * (count + 1));
+            for (int j = 0; j < count; j++) {
+                cmd->tips[j] = zstrdup(tokens[j]);
+            }
+            cmd->tips[count] = NULL;
+            cmd->num_tips = count;
+            sdsfreesplitres(tokens, count);
+        }
     }
 
     if (info->arity) cmd->arity = info->arity;
@@ -1526,8 +1529,8 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
         return 0;
     }
 
-    /* No validation for the fields summary, complexity and since (strings or
-     * NULL), tips (NULL-terminated array of strings), arity (any integer). */
+    /* No validation for the fields summary, complexity, since, tips (strings or
+     * NULL) and arity (any integer). */
 
     /* History: If since is set, changes must also be set. */
     if (info->history) {
