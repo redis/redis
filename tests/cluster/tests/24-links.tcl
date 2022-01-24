@@ -8,25 +8,27 @@ test "Cluster should start ok" {
     assert_cluster_state ok
 }
 
+proc number_of_peers {id} {
+    expr [llength [get_cluster_nodes $id]] - 1
+}
+
+proc number_of_links {id} {
+    llength [get_cluster_links $id]
+}
+
 test "Each node has two links with each peer" {
     foreach_redis_id id {
-        set nodes {}
-        set num_peers 0
-        set links {}
-        set num_links 0
-
-        # Assert that from point of view of each node,
-        # there are two links for each peer.
-        # It might take a while for cluster to stabilize so wait 5 seconds.
-        wait_for_condition 5 1000 {
-            [catch {set nodes [get_cluster_nodes $id]} e] == 0 &&
-            [catch {set num_peers [expr [llength $nodes] - 1]} e] == 0 &&
-            [catch {set links [get_cluster_links $id]} e] == 0 &&
-            [catch {set num_links [llength $links]} e] == 0 &&
-            $num_peers*2 eq $num_links
+        # Assert that from point of view of each node, there are two links for
+        # each peer. It might take a while for cluster to stabilize so wait up
+        # to 5 seconds.
+        wait_for_condition 50 100 {
+            [number_of_peers $id]*2 == [number_of_links $id]
         } else {
-            fail "Number of peers $num_peers is not equal to double of number of links $num_links"
+            assert_equal [expr [number_of_peers $id]*2] [number_of_links $id]
         }
+
+        set nodes [get_cluster_nodes $id]
+        set links [get_cluster_links $id]
 
         # For each peer there should be exactly one
         # link "to" it and one link "from" it.
@@ -93,7 +95,7 @@ test "Disconnect link when send buffer limit reached" {
     } else {
         fail "Cluster link not freed as expected"
     }
-    puts "\n# of 128KB messages needed to overflow 256KB buffer limit: $i"
+    puts -nonewline "$i 128KB messages needed to overflow 256KB buffer limit. "
 
     # A new link to primary2 should have been recreated
     set new_link_p1_to_p2 [get_link_to_peer $primary1_id $primary2_name]
