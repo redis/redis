@@ -1093,7 +1093,7 @@ tags {"external:skip"} {
             r config set rdb-key-save-delay 10000000
             # Let us trigger AOFRW easily
             r config set auto-aof-rewrite-percentage 1
-            r config set auto-aof-rewrite-min-size 1mb
+            r config set auto-aof-rewrite-min-size 1kb
 
             # Let AOFRW fail two times, this will trigger AOFRW limit
             r bgrewriteaof
@@ -1110,18 +1110,14 @@ tags {"external:skip"} {
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
             }
-
-            set orig_size [r dbsize]
-            set load_handle0 [start_write_load $master_host $master_port 10]
-
-            wait_for_condition 50 100 {
-                [r dbsize] > $orig_size
-            } else {
-                fail "No write load detected."
+            
+            # Write more than 1KB data to trigger AOFRW
+            for {set j 0} {$j < 1024} {incr j} {
+                r set [expr rand()] [expr rand()]
             }
 
             # Make sure we have limit log
-            wait_for_condition 1000 10 {
+            wait_for_condition 1000 50 {
                 [count_log_message 0 "triggered the limit"] == 1
             } else {
                 fail "aof rewrite did trigger limit"
@@ -1157,9 +1153,6 @@ tags {"external:skip"} {
                 {file appendonly.aof.10.base.rdb seq 10 type b}
                 {file appendonly.aof.8.incr.aof seq 8 type i}
             }
-
-            stop_write_load $load_handle0
-            wait_load_handlers_disconnected
 
             set d1 [r debug digest]
             r debug loadaof
