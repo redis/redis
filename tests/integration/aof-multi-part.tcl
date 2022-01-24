@@ -1090,10 +1090,19 @@ tags {"external:skip"} {
         }
 
         test "AOF will trigger limit when AOFRW fails many times" {
+            # Clear all data and trigger a successful AOFRW, so we can let 
+            # server.aof_current_size equal to 0
+            r flushall
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
             r config set rdb-key-save-delay 10000000
             # Let us trigger AOFRW easily
             r config set auto-aof-rewrite-percentage 1
             r config set auto-aof-rewrite-min-size 1kb
+
+            # Set a key so that AOFRW can be delayed
+            r set k v
 
             # Let AOFRW fail two times, this will trigger AOFRW limit
             r bgrewriteaof
@@ -1105,31 +1114,29 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.9.base.rdb seq 9 type b}
-                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.10.base.rdb seq 10 type b}
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
+                {file appendonly.aof.8.incr.aof seq 8 type i}
             }
             
-            # Write more than 1KB data to trigger AOFRW
-            for {set j 0} {$j < 1024} {incr j} {
-                r set [expr rand()] [expr rand()]
-            }
+            # Write 1KB data to trigger AOFRW
+            r set x [string repeat x 1024]
 
             # Make sure we have limit log
             wait_for_condition 1000 50 {
                 [count_log_message 0 "triggered the limit"] == 1
             } else {
-                fail "aof rewrite did trigger limit"
+                fail "aof rewrite did not trigger limit"
             }
             assert_equal [status r aof_rewrite_in_progress] 0
 
             # No new INCR AOF be created
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.9.base.rdb seq 9 type b}
-                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.10.base.rdb seq 10 type b}
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
+                {file appendonly.aof.8.incr.aof seq 8 type i}
             }
 
             # Turn off auto rewrite
@@ -1147,11 +1154,11 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.8${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.9${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.10.base.rdb seq 10 type b}
-                {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.11.base.rdb seq 11 type b}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
 
             set d1 [r debug digest]
