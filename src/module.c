@@ -1140,7 +1140,11 @@ static int moduleConvertArgFlags(int flags);
  *
  * - `arity`: Number of arguments, including the command name itself. A positive
  *   number specifies an exact number of arguments and a negative number
- *   specifies a minimum number of arguments, so use -N to say >= N.
+ *   specifies a minimum number of arguments, so use -N to say >= N. Redis
+ *   validates a call before passing it to a module, so this can replace an
+ *   arity check inside the module command implementation. A value of 0 (or an
+ *   omitted arity field) is equivalent to -2 if the command has sub commands
+ *   and -1 otherwise.
  *
  * - `key_specs`: An array of RedisModuleCommandKeySpec, terminated by an
  *   element memset to zero. This is a scheme that tries to describe the
@@ -1150,6 +1154,10 @@ static int moduleConvertArgFlags(int flags);
  *   positions: *begin search* (BS) in which index should find the first key and
  *   *find keys* (FK) which, relative to the output of BS, describes how can we
  *   will which arguments are keys. Additionally, there are key specific flags.
+ *
+ *   Note that key-specs don't fully replace the "getkeys-api" (see
+ *   RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be a
+ *   good idea to both supply key-specs and a implement the getkeys-api.
  *
  *     A key-spec has the following structure:
  *
@@ -1187,9 +1195,11 @@ static int moduleConvertArgFlags(int flags);
  *     * `begin_search_type`: This describes how the first key is discovered.
  *       There are two ways to determine the first key:
  *
- *         * `REDISMODULE_KSPEC_BS_INDEX`: key args start at a constant index.
- *         * `REDISMODULE_KSPEC_BS_KEYWORD`: key args start just after a specific
- *           keyword.
+ *         * `REDISMODULE_KSPEC_BS_UNKNOWN`: There is no way to tell where the
+ *           key args start.
+ *         * `REDISMODULE_KSPEC_BS_INDEX`: Key args start at a constant index.
+ *         * `REDISMODULE_KSPEC_BS_KEYWORD`: Key args start just after a
+ *           specific keyword.
  *
  *     * `bs`: This is a union in which the `index` or `keyword` branch is used
  *       depending on the value of the `begin_search_type` field.
@@ -1208,6 +1218,8 @@ static int moduleConvertArgFlags(int flags);
  *     * `find_keys_type`: After the "begin search", this describes which
  *       arguments are keys. The strategies are:
  *
+ *         * `REDISMODULE_KSPEC_BS_UNKNOWN`: There is no way to tell where the
+ *           key args are located.
  *         * `REDISMODULE_KSPEC_FK_RANGE`: Keys end at a specific index (or
  *           relative to the last argument).
  *         * `REDISMODULE_KSPEC_FK_KEYNUM`: There's an argument that contains
@@ -1270,9 +1282,9 @@ static int moduleConvertArgFlags(int flags);
  *     metadata like LRU, type, cardinality. It refers to the logical operation
  *     on the user's data (actual input strings or TTL), being
  *     used/returned/copied/changed. It doesn't refer to modification or
- *     returning of metadata (like type, count, presence of data). Any write
- *     that's not INSERT or DELETE, would be an UPDATE. Each key-spec may have
- *     one of the writes with or without access, or none:
+ *     returning of metadata (like type, count, presence of data). ACCESS can be
+ *     combined with one of the write operations INSERT, DELETE or UPDATE. Any
+ *     write that's not an INSERT or a DELETE would be UPDATE.
  *
  *     * `REDISMODULE_CMD_KEY_ACCESS`: Returns, copies or uses the user data
  *       from the value of the key.
@@ -1296,8 +1308,8 @@ static int moduleConvertArgFlags(int flags);
  *       the keys it should cover.
  *
  * - `args`: An array of RedisModuleCommandArg, terminated by an element memset
- *   to zero. May be NULL. RedisModuleCommandArg is a structure with at the
- *   fields described below.
+ *   to zero. RedisModuleCommandArg is a structure with at the fields described
+ *   below.
  *
  *         typedef struct RedisModuleCommandArg {
  *             const char *name;
@@ -1337,11 +1349,6 @@ static int moduleConvertArgFlags(int flags);
  *       be displayed when creating the command syntax from the output of
  *       `COMMAND`. If `token` is not NULL, it should also be displayed.
  *
- *     Use the returned RedisModuleCommandArg to either add sub-arguments or
- *     become a sub-argument by calling RedisModule_AppendSubarg or directly
- *     make it an argument of a command by calling
- *     RedisModule_AppendArgToCommand.
- *
  *     Explanation of `RedisModuleCommandArgType`:
  *
  *     * `REDISMODULE_ARG_TYPE_STRING`: String argument.
@@ -1351,13 +1358,15 @@ static int moduleConvertArgFlags(int flags);
  *     * `REDISMODULE_ARG_TYPE_PATTERN`: String, but regex pattern.
  *     * `REDISMODULE_ARG_TYPE_UNIX_TIME`: Integer, but Unix timestamp.
  *     * `REDISMODULE_ARG_TYPE_PURE_TOKEN`: Argument doesn't have a placeholder.
- *       It's just a binary token. (TODO: Add example.)
- *     * `REDISMODULE_ARG_TYPE_ONEOF`: Used when user can choose only one of a
- *       few sub-arguments. Requires `subargs`. (TODO: Add example.)
+ *       It's just a token without a value. Example: the `KEEPTTL` option of the
+ *       `SET` command.
+ *     * `REDISMODULE_ARG_TYPE_ONEOF`: Used when the user can choose only one of
+ *       a few sub-arguments. Requires `subargs`. Example: the `NX` and `XX`
+ *       options of `SET`.
  *     * `REDISMODULE_ARG_TYPE_BLOCK`: Used when one wants to group together
  *       several sub-arguments, usually to apply something on all of them (like
- *       making the entire group "optional"). Requires `subargs`. (TODO: Add
- *       example.)
+ *       making the entire group "optional"). Requires `subargs`. Example: the
+ *       field-value pair in `HSET`.
  *
  *     Explanation of the command argument flags:
  *
@@ -1370,7 +1379,8 @@ static int moduleConvertArgFlags(int flags);
  *
  * On success REDISMODULE_OK is returned. On error REDISMODULE_ERR is returned
  * and `errno` is set to EINVAL if invalid info was provided or EEXIST if info
- * has already been set. */
+ * has already been set. If the info is invalid, a warning is logged explaining
+ * which part of the info is invalid and why. */
 int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
     if (!moduleValidateCommandInfo(info)) {
         errno = EINVAL;
@@ -1400,11 +1410,13 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         size_t count;
         for (count = 0; info->history[count].since; count++);
         serverAssert(count < SIZE_MAX / sizeof(commandHistory));
-        cmd->history = zcalloc(sizeof(commandHistory) * (count + 1));
+        cmd->history = zmalloc(sizeof(commandHistory) * (count + 1));
         for (size_t j = 0; j < count; j++) {
             cmd->history[j].since = zstrdup(info->history[j].since);
             cmd->history[j].changes = zstrdup(info->history[j].changes);
         }
+        cmd->history[count].since = NULL;
+        cmd->history[count].changes = NULL;
         cmd->num_history = count;
     }
 
@@ -1451,12 +1463,13 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
                 cmd->key_specs[j].bs.keyword.startfrom = info->key_specs[j].bs.keyword.startfrom;
                 break;
             default:
-                serverAssert(0);
+                /* Can't happen; stopped in moduleValidateCommandInfo(). */
+                serverPanic("Unknown begin_search_type");
             }
 
             switch (info->key_specs[j].find_keys_type) {
-            case 0:
-                /* Omitted. This is shorthand to say that it's a single key. */
+            case REDISMODULE_KSPEC_FK_OMITTED:
+                /* Omitted field is shorthand to say that it's a single key. */
                 cmd->key_specs[j].find_keys_type = KSPEC_FK_RANGE;
                 cmd->key_specs[j].fk.range.lastkey = 0;
                 cmd->key_specs[j].fk.range.keystep = 1;
@@ -1478,7 +1491,8 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
                 cmd->key_specs[j].fk.keynum.keystep = info->key_specs[j].fk.keynum.keystep;
                 break;
             default:
-                serverAssert(0);
+                /* Can't happen; stopped in moduleValidateCommandInfo(). */
+                serverPanic("Unknown find_keys_type");
             }
         }
         populateCommandLegacyRangeSpec(cmd);
@@ -1508,7 +1522,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
      * to be forward compatible with modules compiled with future redismodule.h
      * versions. Fields added in future versions are simply ignored. */
     if (info->version < 1) {
-        serverLog(LL_DEBUG, "Invalid command info: version %d", info->version);
+        serverLog(LL_WARNING, "Invalid command info: version %d", info->version);
         return 0;
     }
 
@@ -1519,7 +1533,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     if (info->history) {
         for (size_t j = 0; info->history[j].since; j++) {
             if (!info->history[j].changes) {
-                serverLog(LL_DEBUG, "Invalid command info: history[%zd].changes missing", j);
+                serverLog(LL_WARNING, "Invalid command info: history[%zd].changes missing", j);
                 return 0;
             }
         }
@@ -1529,7 +1543,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     if (info->key_specs) {
         for (size_t j = 0; info->key_specs[j].begin_search_type; j++) {
             if (j >= INT_MAX) {
-                serverLog(LL_DEBUG, "Invalid command info: Too many key specs");
+                serverLog(LL_WARNING, "Invalid command info: Too many key specs");
                 return 0; /* redisCommand.key_specs_num is an int. */
             }
 
@@ -1538,21 +1552,21 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             uint64_t key_flags =
                 REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_RW |
                 REDISMODULE_CMD_KEY_OW | REDISMODULE_CMD_KEY_RM;
-            uint64_t value_flags =
-                REDISMODULE_CMD_KEY_ACCESS | REDISMODULE_CMD_KEY_INSERT |
-                REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_DELETE;
+            uint64_t write_flags =
+                REDISMODULE_CMD_KEY_INSERT | REDISMODULE_CMD_KEY_DELETE |
+                REDISMODULE_CMD_KEY_UPDATE;
             if (!isPowerOfTwo(info->key_specs[j].flags & key_flags)) {
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].flags: "
                           "Exactly one of the flags RO, RW, OW, RM reqired", j);
                 return 0;
             }
-            if ((info->key_specs[j].flags & value_flags) != 0 &&
-                !isPowerOfTwo(info->key_specs[j].flags & value_flags))
+            if ((info->key_specs[j].flags & write_flags) != 0 &&
+                !isPowerOfTwo(info->key_specs[j].flags & write_flags))
             {
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].flags: "
-                          "ACCESS, INSERT, UPDATE and DELETE are mutually exclusive", j);
+                          "INSERT, DELETE and UPDATE are mutually exclusive", j);
                 return 0;
             }
 
@@ -1561,14 +1575,14 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             case REDISMODULE_KSPEC_BS_INDEX: break;
             case REDISMODULE_KSPEC_BS_KEYWORD:
                 if (info->key_specs[j].bs.keyword.keyword == NULL) {
-                    serverLog(LL_DEBUG,
+                    serverLog(LL_WARNING,
                               "Invalid command info: key_specs[%zd].bs.keyword.keyword "
                               "required when begin_search_type is KEYWORD", j);
                     return 0;
                 }
                 break;
             default:
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].begin_search_type: "
                           "Invalid value %d", j, info->key_specs[j].begin_search_type);
                 return 0;
@@ -1576,12 +1590,12 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
 
             /* Validate find_keys_type. */
             switch (info->key_specs[j].find_keys_type) {
-            case 0: break; /* Omitted field is shorthand for RANGE {0,1,0} */
-            case KSPEC_FK_UNKNOWN: break;
-            case KSPEC_FK_RANGE: break;
-            case KSPEC_FK_KEYNUM: break;
+            case REDISMODULE_KSPEC_FK_OMITTED: break; /* short for RANGE {0,1,0} */
+            case REDISMODULE_KSPEC_FK_UNKNOWN: break;
+            case REDISMODULE_KSPEC_FK_RANGE: break;
+            case REDISMODULE_KSPEC_FK_KEYNUM: break;
             default:
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].find_keys_type: "
                           "Invalid value %d", j, info->key_specs[j].find_keys_type);
                 return 0;
@@ -1617,13 +1631,13 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
         int arg_type_error = 0;
         moduleConvertArgType(args[j].type, &arg_type_error);
         if (arg_type_error) {
-            serverLog(LL_DEBUG,
+            serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": Undefined type %d",
                       args[j].name, args[j].type);
             return 0;
         }
         if (args[j].type == REDISMODULE_ARG_TYPE_PURE_TOKEN && !args[j].token) {
-            serverLog(LL_DEBUG,
+            serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": "
                       "token required when type is PURE_TOKEN", args[j].name);
             return 0;
@@ -1631,7 +1645,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
 
         if (args[j].type == REDISMODULE_ARG_TYPE_KEY) {
             if (args[j].key_spec_index < 0) {
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "key_spec_index required when type is KEY",
                           args[j].name);
@@ -1640,7 +1654,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
         } else if (args[j].key_spec_index != -1 && args[j].key_spec_index != 0) {
             /* 0 is allowed for convenience, to allow it to be omitted in
              * compound struct literals on the form `.field = value`. */
-            serverLog(LL_DEBUG,
+            serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": "
                       "key_spec_index specified but type isn't KEY",
                       args[j].name);
@@ -1648,7 +1662,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
         }
 
         if (args[j].flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1)) {
-            serverLog(LL_DEBUG,
+            serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": Invalid flags",
                       args[j].name);
             return 0;
@@ -1658,7 +1672,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
             args[j].type == REDISMODULE_ARG_TYPE_BLOCK)
         {
             if (args[j].subargs == NULL) {
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "subargs required when type is ONEOF or BLOCK",
                           args[j].name);
@@ -1667,7 +1681,7 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
             if (!moduleValidateCommandArgs(args[j].subargs)) return 0;
         } else {
             if (args[j].subargs != NULL) {
-                serverLog(LL_DEBUG,
+                serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "subargs specified but type isn't ONEOF nor BLOCK",
                           args[j].name);

@@ -31,20 +31,12 @@ start_server {tags {"modules"}} {
     }
 
     test "Module command introspection via COMMAND DOCS" {
-        set redis_reply [lindex [r command docs xadd] 1]
-        set module_reply [lindex [r command docs cmdintrospection.xadd] 1]
-        # Compare the map. We need to pop "group" first
-        unset -nocomplain redis_dict
-        foreach {k v} $redis_reply {
-            dict append redis_dict $k $v
-        }
-        unset -nocomplain module_dict
-        foreach {k v} $module_reply {
-            dict append module_dict $k $v
-        }
-        dict unset redis_dict group
-        dict unset module_dict group
+        set redis_reply [dict create {*}[lindex [r command docs xadd] 1]]
+        set module_reply [dict create {*}[lindex [r command docs cmdintrospection.xadd] 1]]
+        # Compare the maps. We need to pop "group" first.
+        dict unset redis_reply group
+        dict unset module_reply group
 
-        assert_equal $redis_dict $module_dict
+        assert_equal $redis_reply $module_reply
     }
 }
