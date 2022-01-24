@@ -488,7 +488,11 @@ tags {"aof external:skip"} {
             set rd [redis_deferring_client]
             $rd debug loadaof
             $rd flush
-            after 200
+            wait_for_condition 100 10 {
+                [s loading] == 1
+            } else {
+                fail "server didn't start loading"
+            }
             catch {r ping} err
             assert_match {LOADING*} $err
             $rd read
