@@ -259,7 +259,6 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test {Test general commands don't require specific permission} {
-        # Test commands with declared keys that have no flag (they require either read or write permission)
         assert_equal "OK" [r ACL DRYRUN command-test touch read]
         assert_equal "OK" [r ACL DRYRUN command-test touch write]
         assert_equal "OK" [r ACL DRYRUN command-test touch rw]
