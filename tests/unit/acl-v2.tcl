@@ -258,7 +258,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
-    test {Test general commands don't require specific permission} {
+    test {Test general keyspace commands require some type of permission to execute} {
         assert_equal "OK" [r ACL DRYRUN command-test touch read]
         assert_equal "OK" [r ACL DRYRUN command-test touch write]
         assert_equal "OK" [r ACL DRYRUN command-test touch rw]
