@@ -90,5 +90,9 @@ start_server {tags {"modules"}} {
         assert_match {*infotest_unsafe_field:value=1*} $info
     }
 
+    test "Unload the module - infotest" {
+        assert_equal {OK} [r module unload infotest]
+    }
+
     # TODO: test crash report.
 } 

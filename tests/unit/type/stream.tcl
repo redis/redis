@@ -52,6 +52,12 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    test "XADD wrong number of args" {
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream * field}
+    }
+
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
@@ -797,11 +803,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xgroup|help' command" $e
     }
 
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xinfo|help' command" $e
     }
 }

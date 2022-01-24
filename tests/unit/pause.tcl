@@ -104,7 +104,7 @@ start_server {tags {"pause network"}} {
     test "Test clients with syntax errors will get responses immediately" {
         r client PAUSE 100000 WRITE
         catch {r set FOO} err
-        assert_match "ERR wrong number of arguments for *" $err
+        assert_match "ERR wrong number of arguments for 'set' command" $err
         r client unpause
     }
 

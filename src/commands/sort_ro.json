@@ -6,6 +6,7 @@
         "since": "7.0.0",
         "arity": -2,
         "function": "sortroCommand",
+        "get_keys_function": "sortROGetKeys",
         "command_flags": [
             "READONLY"
         ],
@@ -19,8 +20,7 @@
             {
                 "flags": [
                     "RO",
-                    "ACCESS",
-                    "INCOMPLETE"
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -33,6 +33,19 @@
                         "step": 1,
                         "limit": 0
                     }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS",
+                    "INCOMPLETE"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
                 }
             }
         ],

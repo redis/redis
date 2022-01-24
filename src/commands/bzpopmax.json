@@ -15,11 +15,11 @@
         "command_flags": [
             "WRITE",
             "NOSCRIPT",
-            "FAST"
+            "FAST",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "SORTEDSET",
-            "BLOCKING"
+            "SORTEDSET"
         ],
         "key_specs": [
             {

@@ -492,8 +492,7 @@ void popGenericCommand(client *c, int where) {
     robj *value;
 
     if (c->argc > 3) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     } else if (hascount) {
         /* Parse the optional count argument. */
