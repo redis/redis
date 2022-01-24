@@ -353,7 +353,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
         } else {
             *err = sdsempty();
             *err = sdscatfmt(*err,
-                    "MISCONF Errors writing to the AOF file: %s\r\n",
+                    "-MISCONF Errors writing to the AOF file: %s\r\n",
                     strerror(server.aof_last_write_errno));
         }
         return C_ERR;
