@@ -322,9 +322,7 @@ sds luaCreateFunction(client *c, robj *body) {
     funcname[1] = '_';
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
-    sds sha = sdsnewlen(funcname+2,40);
-    if ((de = dictFind(lctx.lua_scripts,sha)) != NULL) {
-        sdsfree(sha);
+    if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
         return dictGetKey(de);
     }
 
@@ -335,7 +333,6 @@ sds luaCreateFunction(client *c, robj *body) {
         char *shebang_end = strchr(body->ptr, '\n');
         if (shebang_end == NULL) {
             addReplyError(c,"Invalid script shebang");
-            sdsfree(sha);
             return NULL;
         }
         shebang_len = shebang_end - (char*)body->ptr;
@@ -345,14 +342,12 @@ sds luaCreateFunction(client *c, robj *body) {
         if (!parts || numparts == 0) {
             addReplyError(c,"Invalid engine in script shebang");
             sdsfreesplitres(parts, numparts);
-            sdsfree(sha);
             return NULL;
         }
         /* Verify lua interpreter was specified */
         if (strcmp(parts[0], "#!lua")) {
             addReplyErrorFormat(c,"Unexpected engine in script shebang: %s", parts[0]);
             sdsfreesplitres(parts, numparts);
-            sdsfree(sha);
             return NULL;
         }
         script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
@@ -370,7 +365,6 @@ sds luaCreateFunction(client *c, robj *body) {
                         addReplyErrorFormat(c,"Unexpected flag in script shebang: %s", flags[jj]);
                         sdsfreesplitres(flags, numflags);
                         sdsfreesplitres(parts, numparts);
-                        sdsfree(sha);
                         return NULL;
                     }
                     script_flags |= sf->flag;
@@ -380,7 +374,6 @@ sds luaCreateFunction(client *c, robj *body) {
                 /* We only support function flags options for lua scripts */
                 addReplyErrorFormat(c,"Unknown lua shebang option: %s", parts[j]);
                 sdsfreesplitres(parts, numparts);
-                sdsfree(sha);
                 return NULL;
             }
         }
@@ -403,7 +396,6 @@ sds luaCreateFunction(client *c, robj *body) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(sha);
         sdsfree(funcdef);
         return NULL;
     }
@@ -415,7 +407,6 @@ sds luaCreateFunction(client *c, robj *body) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(sha);
         return NULL;
     }
 
@@ -425,6 +416,7 @@ sds luaCreateFunction(client *c, robj *body) {
     luaScript *l = zcalloc(sizeof(luaScript));
     l->body = body;
     l->flags = script_flags;
+    sds sha = sdsnewlen(funcname+2,40);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
