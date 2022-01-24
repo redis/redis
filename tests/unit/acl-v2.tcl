@@ -258,6 +258,39 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
+    test {Test general commands don't require specific permission} {
+        # Test commands with declared keys that have no flag (they require either read or write permission)
+        assert_equal "OK" [r ACL DRYRUN command-test touch read]
+        assert_equal "OK" [r ACL DRYRUN command-test touch write]
+        assert_equal "OK" [r ACL DRYRUN command-test touch rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test touch nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test exists read]
+        assert_equal "OK" [r ACL DRYRUN command-test exists write]
+        assert_equal "OK" [r ACL DRYRUN command-test exists rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test exists nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE read]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE write]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test MEMORY USAGE nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE read]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE write]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test TYPE nothing]
+    }
+
+    test {Cardinality commands require some type of permission to execute} {
+        set commands {PFCOUNT STRLEN HLEN LLEN SCARD ZCARD XLEN PFCOUNT}
+        foreach command $commands {
+            assert_equal "OK" [r ACL DRYRUN command-test $command read]
+            assert_equal "OK" [r ACL DRYRUN command-test $command write]
+            assert_equal "OK" [r ACL DRYRUN command-test $command rw]
+            assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test $command nothing]
+        }
+    }
+
     test {Test sharded channel permissions} {
         r ACL setuser test-channels +@all resetchannels &channel
         assert_equal "OK" [r ACL DRYRUN test-channels spublish channel foo]
