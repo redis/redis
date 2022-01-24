@@ -407,17 +407,6 @@ dictType dbDictType = {
     dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
-/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
-dictType shaScriptObjectDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
 /* Db->expires */
 dictType dbExpiresDictType = {
     dictSdsHash,                /* hash function */
@@ -1618,7 +1607,7 @@ void createSharedObjects(void) {
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
-        "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
+        "-MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
     shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
         "-READONLY You can't write against a read only replica.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(

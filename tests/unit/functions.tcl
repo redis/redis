@@ -428,7 +428,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 r -1 fcall test 0
             } e
             set _ $e
-        } {*Can not run a function with write flag on readonly replica*}
+        } {*Can not run script with write flag on readonly replica*}
     }
 }
 
@@ -1023,7 +1023,7 @@ start_server {tags {"scripting"}} {
         }}
         catch {r fcall_ro f1 0} e
         set _ $e
-    } {*Can not execute a function with write flag using fcall_ro*}
+    } {*Can not execute a script with write flag using \*_ro command*}
 
     test {FUNCTION - write script with no-writes flag} {
         r function load lua test replace {redis.register_function{
@@ -1072,7 +1072,7 @@ start_server {tags {"scripting"}} {
         r replicaof 127.0.0.1 1
 
         catch {[r fcall f1 0]} e
-        assert_match {*'allow-stale' flag is not set on the function*} $e
+        assert_match {*'allow-stale' flag is not set on the script*} $e
 
         assert_equal {hello} [r fcall f2 0]
 
