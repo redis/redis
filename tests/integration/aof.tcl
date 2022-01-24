@@ -489,12 +489,11 @@ tags {"aof external:skip"} {
             $rd debug loadaof
             $rd flush
             wait_for_condition 100 10 {
-                [s loading] == 1
+                [catch {r ping} e] == 1
             } else {
                 fail "server didn't start loading"
             }
-            catch {r ping} err
-            assert_match {LOADING*} $err
+            assert_error {LOADING*} {r ping}
             $rd read
             $rd close
             wait_for_log_messages 0 {"*Slow script detected*"} 0 100 100
