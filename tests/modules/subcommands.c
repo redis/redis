@@ -42,23 +42,27 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
 
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
     if (RedisModule_AddCommandKeySpec(subcmd,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+#endif
 
     if (RedisModule_CreateSubcommand(parent,"get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
 
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
     if (RedisModule_AddCommandKeySpec(subcmd,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+#endif
 
     /* Get the name of the command currently running. */
     if (RedisModule_CreateCommand(ctx,"subcommands.parent_get_fullname",cmd_get_fullname,"",0,0,0) == REDISMODULE_ERR)

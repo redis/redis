@@ -1,4 +1,5 @@
 #include "redismodule.h"
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
 
 #define UNUSED(V) ((void) V)
 
@@ -112,3 +113,4 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     return REDISMODULE_OK;
 }
+#endif

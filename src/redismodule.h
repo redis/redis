@@ -924,11 +924,14 @@ REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
 REDISMODULE_API int (*RedisModule_AddCommandKeySpec)(RedisModuleCommand *command, const char *specflags, int *spec_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchIndex)(RedisModuleCommand *command, int spec_id, int index) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecBeginSearchKeyword)(RedisModuleCommand *command, int spec_id, const char *keyword, int startfrom) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysRange)(RedisModuleCommand *command, int spec_id, int lastkey, int keystep, int limit) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetCommandKeySpecFindKeysKeynum)(RedisModuleCommand *command, int spec_id, int keynumidx, int firstkey, int keystep) REDISMODULE_ATTR;
+#endif
+
 REDISMODULE_API void (*RedisModule_Yield)(RedisModuleCtx *ctx, int flags, const char *busy_reply) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleBlockedClient * (*RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata) REDISMODULE_ATTR;
@@ -1247,11 +1250,13 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
     REDISMODULE_GET_API(GetTypeMethodVersion);
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
     REDISMODULE_GET_API(AddCommandKeySpec);
     REDISMODULE_GET_API(SetCommandKeySpecBeginSearchIndex);
     REDISMODULE_GET_API(SetCommandKeySpecBeginSearchKeyword);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysRange);
     REDISMODULE_GET_API(SetCommandKeySpecFindKeysKeynum);
+#endif
     REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);

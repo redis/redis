@@ -1198,7 +1198,10 @@ int moduleSetCommandKeySpecFindKeys(RedisModuleCommand *command, int index, keyS
     return REDISMODULE_OK;
 }
 
-/* Key specs is a scheme that tries to describe the location
+/* **The key spec API is not officially released and it is going to be changed
+ * in Redis 7.0. It has been disabled temporarily.**
+ *
+ * Key specs is a scheme that tries to describe the location
  * of key arguments better than the old [first,last,step] scheme
  * which is limited and doesn't fit many commands.
  *
@@ -11095,11 +11098,13 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);
     REGISTER_API(DefragCursorGet);
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
     REGISTER_API(AddCommandKeySpec);
     REGISTER_API(SetCommandKeySpecBeginSearchIndex);
     REGISTER_API(SetCommandKeySpecBeginSearchKeyword);
     REGISTER_API(SetCommandKeySpecFindKeysRange);
     REGISTER_API(SetCommandKeySpecFindKeysKeynum);
+#endif
     REGISTER_API(EventLoopAdd);
     REGISTER_API(EventLoopDel);
     REGISTER_API(EventLoopAddOneShot);
