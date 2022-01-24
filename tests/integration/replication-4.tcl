@@ -106,6 +106,15 @@ start_server {tags {"repl external:skip"}} {
             }
         }
 
+        test {With not enough good slaves, read in Lua script is still accepted} {
+            $master config set min-slaves-max-lag 3
+            $master config set min-slaves-to-write 1
+            $master eval "redis.call('set','foo','bar')" 0
+
+            $master config set min-slaves-to-write 2
+            $master eval "return redis.call('get','foo')" 0
+        } {bar}
+
         test {No accepted write in Lua script, if min-slaves-to-write is < attached slaves} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 2
