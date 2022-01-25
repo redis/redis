@@ -1213,6 +1213,11 @@ start_server {tags {"scripting needs:debug"}} {
         r DEBUG set-active-expire 1
     }
 
+    test "Scripts can handle commands with incorrect arity" {
+        assert_error "*Wrong number of args calling Redis command from script" {r eval "redis.call('set','invalid')" 0}
+        assert_error "*Wrong number of args calling Redis command from script" {r eval "redis.call('incr')" 0}
+    }
+
     r debug set-disable-deny-scripts 0
 }
 } ;# foreach is_eval
