@@ -462,7 +462,7 @@ void functionStatsCommand(client *c) {
         addReplyMapLen(c, 3);
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, ei->name);
-        functionsLibEngineStats *e_stats =dictFetchValue(curr_functions_lib_ctx->engines_stats, ei->name);
+        functionsLibEngineStats *e_stats = dictFetchValue(curr_functions_lib_ctx->engines_stats, ei->name);
         addReplyBulkCString(c, "libraries_count");
         addReplyLongLong(c, e_stats->n_lib);
         addReplyBulkCString(c, "functions_count");
