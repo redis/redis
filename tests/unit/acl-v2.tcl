@@ -258,6 +258,76 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
     }
 
+    # Existence test commands are not marked as access since they are the result
+    # of a lot of write commands. We therefore make the claim they can be executed
+    # when either READ or WRITE flags are provided.
+    test {Existence test commands are not marked as access} {
+        assert_equal "OK" [r ACL DRYRUN command-test HEXISTS read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test HEXISTS write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HEXISTS nothing foo]
+
+        assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HSTRLEN nothing foo]
+
+        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SISMEMBER nothing foo]
+    }
+
+    # Unlike existence test commands, intersection cardinality commands process the data
+    # between keys and return an aggregated cardinality. therefore they have the access
+    # requirement.
+    test {Intersection cardinaltiy commands are access commands} {
+        assert_equal "OK" [r ACL DRYRUN command-test SINTERCARD 2 read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test SINTERCARD 2 write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SINTERCARD 2 nothing read]
+
+        assert_equal "OK" [r ACL DRYRUN command-test ZCOUNT read 0 1]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZCOUNT write 0 1]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZCOUNT nothing 0 1]
+
+        assert_equal "OK" [r ACL DRYRUN command-test PFCOUNT read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test PFCOUNT write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test PFCOUNT nothing read]
+
+        assert_equal "OK" [r ACL DRYRUN command-test ZINTERCARD 2 read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZINTERCARD 2 write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZINTERCARD 2 nothing read]
+    }
+
+    test {Test general keyspace commands require some type of permission to execute} {
+        assert_equal "OK" [r ACL DRYRUN command-test touch read]
+        assert_equal "OK" [r ACL DRYRUN command-test touch write]
+        assert_equal "OK" [r ACL DRYRUN command-test touch rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test touch nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test exists read]
+        assert_equal "OK" [r ACL DRYRUN command-test exists write]
+        assert_equal "OK" [r ACL DRYRUN command-test exists rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test exists nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE read]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE write]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test MEMORY USAGE nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE read]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE write]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test TYPE nothing]
+    }
+
+    test {Cardinality commands require some type of permission to execute} {
+        set commands {STRLEN HLEN LLEN SCARD ZCARD XLEN}
+        foreach command $commands {
+            assert_equal "OK" [r ACL DRYRUN command-test $command read]
+            assert_equal "OK" [r ACL DRYRUN command-test $command write]
+            assert_equal "OK" [r ACL DRYRUN command-test $command rw]
+            assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test $command nothing]
+        }
+    }
+
     test {Test sharded channel permissions} {
         r ACL setuser test-channels +@all resetchannels &channel
         assert_equal "OK" [r ACL DRYRUN test-channels spublish channel foo]
