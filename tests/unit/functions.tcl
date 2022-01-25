@@ -1116,20 +1116,20 @@ start_server {tags {"scripting"}} {
         }
 
         r function stats
-    } {running_script {} engines {{name LUA libraries_count 2 functions_count 3}}}
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}}
 
     test {FUNCTION - function stats reloaded correctly from rdb} {
         r debug reload
         r function stats
-    } {running_script {} engines {{name LUA libraries_count 2 functions_count 3}}} {needs:debug}
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}} {needs:debug}
 
     test {FUNCTION - function stats delete library} {
         r function delete test1
         r function stats
-    } {running_script {} engines {{name LUA libraries_count 1 functions_count 1}}}
+    } {running_script {} engines {LUA {libraries_count 1 functions_count 1}}}
 
     test {FUNCTION - function stats cleaned after flush} {
         r function flush
         r function stats
-    } {running_script {} engines {{name LUA libraries_count 0 functions_count 0}}}
+    } {running_script {} engines {LUA {libraries_count 0 functions_count 0}}}
 }

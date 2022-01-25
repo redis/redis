@@ -454,14 +454,13 @@ void functionStatsCommand(client *c) {
     }
 
     addReplyBulkCString(c, "engines");
-    addReplyArrayLen(c, dictSize(engines));
+    addReplyMapLen(c, dictSize(engines));
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         engineInfo *ei = dictGetVal(entry);
-        addReplyMapLen(c, 3);
-        addReplyBulkCString(c, "name");
         addReplyBulkCString(c, ei->name);
+        addReplyMapLen(c, 2);
         functionsLibEngineStats *e_stats = dictFetchValue(curr_functions_lib_ctx->engines_stats, ei->name);
         addReplyBulkCString(c, "libraries_count");
         addReplyLongLong(c, e_stats->n_lib);
