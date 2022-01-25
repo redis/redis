@@ -51,7 +51,7 @@ typedef struct functionsLibEngineStats {
 } functionsLibEngineStats;
 
 struct functionsLibCtx {
-    dict *libraries;     /* Function name -> Function object that can be used to run the function */
+    dict *libraries;     /* Library name -> Library object that can be used to run the function */
     dict *functions;     /* Function name -> Function object that can be used to run the function */
     size_t cache_memory; /* Overhead memory (structs, dictionaries, ..) used by all the functions */
     dict *engines_stats; /* Per engine statistics */
