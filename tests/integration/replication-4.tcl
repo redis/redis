@@ -54,56 +54,44 @@ start_server {tags {"repl external:skip"}} {
         test {With min-slaves-to-write (1,3): master should be writable} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 1
-            $master set foo bar
-        } {OK}
+            assert_equal OK [$master set foo 123]
+            wait_for_condition 50 100 {
+               [$slave get foo] eq {123}
+            } else {
+                fail "Write did not synced to slave"
+            }
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
+            wait_for_condition 50 100 {
+               [$slave get foo] eq {12345}
+            } else {
+                fail "Write did not synced to slave"
+            }
+        }
 
         test {With min-slaves-to-write (2,3): master should not be writable} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 2
-            catch {$master set foo bar} e
-            set e
-        } {NOREPLICAS*}
+            assert_error "*NOREPLICAS*" {$master set foo bar}
+            assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 0}
+        }
 
         test {With min-slaves-to-write: master not writable with lagged slave} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
-            assert {[$master set foo bar] eq {OK}}
+            assert_equal OK [$master set foo 123]
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
+            # Killing a slave to make it become a lagged slave.
             exec kill -SIGSTOP [srv 0 pid]
+            # Waiting for slave kill.
             wait_for_condition 100 100 {
-                [catch {$master set foo bar}] != 0
+                [catch {$master set foo 123}] != 0 &&
+                [catch {$master eval "redis.call('set','foo',12345)" 0}] != 0
             } else {
                 fail "Master didn't become readonly"
             }
-            catch {$master set foo bar} err
-            assert_match {NOREPLICAS*} $err
+            assert_error "*NOREPLICAS*" {$master set foo 123}
+            assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
             exec kill -SIGCONT [srv 0 pid]
-        }
-    }
-}
-
-# Test added for issue #9993: check min-slave-* feature when evaluating Lua script.
-start_server {tags {"repl external:skip"}} {
-    start_server {} {
-        # Topo: 1 master - 1 slave
-        set master [srv -1 client]
-        set master_host [srv -1 host]
-        set master_port [srv -1 port]
-        set slave [srv 0 client]
-
-        test {First server should have role slave after SLAVEOF} {
-            $slave slaveof $master_host $master_port
-            wait_replica_online $master
-        }
-
-        test {With enough good slaves, write in Lua script is accepted} {
-            $master config set min-slaves-max-lag 3
-            $master config set min-slaves-to-write 1
-            $master eval "redis.call('set','foo','bar')" 0
-            wait_for_condition 50 100 {
-                [$slave get foo] eq {bar}
-            } else {
-                fail "Write did not synced to slave"
-            }
         }
 
         test {With not enough good slaves, read in Lua script is still accepted} {
@@ -114,30 +102,6 @@ start_server {tags {"repl external:skip"}} {
             $master config set min-slaves-to-write 2
             $master eval "return redis.call('get','foo')" 0
         } {bar}
-
-        test {No accepted write in Lua script, if min-slaves-to-write is < attached slaves} {
-            $master config set min-slaves-max-lag 3
-            $master config set min-slaves-to-write 2
-            catch {$master eval "return redis.call('set','foo','bar')" 0} e
-            set e
-        } {*NOREPLICAS*}
-
-        test {No accepted write in Lua script, if min-slaves-max-lag is > of the slave lag} {
-            $master config set min-slaves-max-lag 2
-            $master config set min-slaves-to-write 1
-            assert {[$master eval "return redis.call('set','foo','bar')" 0] eq {OK}}
-            # Killing a slave to make it become a lagged slave.
-            exec kill -SIGSTOP [srv 0 pid]
-            # Waiting for slave kill.
-            wait_for_condition 100 100 {
-                [catch {$master eval "return redis.call('set','foo','bar')" 0}] != 0
-            } else {
-                fail "Master didn't become readonly"
-            }
-            catch {$master eval "return redis.call('set','foo','bar')" 0} err
-            assert_match {*NOREPLICAS*} $err
-            exec kill -SIGCONT [srv 0 pid]
-        }
     }
 }
 
