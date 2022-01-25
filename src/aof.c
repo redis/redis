@@ -2334,7 +2334,7 @@ int rewriteAppendOnlyFileBackground(void) {
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
     if (openNewIncrAofForAppend() != C_OK) return C_ERR;
-
+    server.stat_aof_rewrites++;
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
