@@ -21,7 +21,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommand *xadd = RedisModule_GetCommand(ctx,"cmdintrospection.xadd");
 
     RedisModuleCommandInfo info = {
-        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .arity = -5,
         .summary = "Appends a new entry to a stream",
         .since = "5.0.0",

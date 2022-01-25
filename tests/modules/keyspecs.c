@@ -30,7 +30,6 @@ int createKspecLegacy(RedisModuleCtx *ctx) {
 
     RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.legacy");
     RedisModuleCommandInfo info = {
-        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .arity = -2,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
@@ -62,7 +61,6 @@ int createKspecComplex1(RedisModuleCtx *ctx) {
 
     RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.complex1");
     RedisModuleCommandInfo info = {
-        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
                 .flags = REDISMODULE_CMD_KEY_RO,
@@ -99,7 +97,6 @@ int createKspecComplex2(RedisModuleCtx *ctx) {
 
     RedisModuleCommand *command = RedisModule_GetCommand(ctx,"kspec.complex2");
     RedisModuleCommandInfo info = {
-        .version = REDISMODULE_COMMAND_INFO_VERSION,
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
                 .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,

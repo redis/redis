@@ -1093,12 +1093,19 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
 }
 
 /* Helpers for RM_SetCommandInfo. */
-static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info,
+                                     const RedisModuleCommandInfoVersion *version);
 static int64_t moduleConvertKeySpecsFlags(int64_t flags);
-static int moduleValidateCommandArgs(RedisModuleCommandArg *args);
-static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args);
+static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
+                                     const RedisModuleCommandInfoVersion *version);
+static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args,
+                                                     const RedisModuleCommandInfoVersion *version);
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
+
+/* The real RedisModule_SetCommandInfo is defined in redismodule.h. The
+ * following stub is provided for generated API documentation. */
+#if 0
 
 /* Set additional command information.
  *
@@ -1111,7 +1118,6 @@ static int moduleConvertArgFlags(int flags);
  * only be set once for each command and has the following structure:
  *
  *     typedef struct RedisModuleCommandInfo {
- *         int version;
  *         const char *summary;
  *         const char *complexity;
  *         const char *since;
@@ -1122,12 +1128,7 @@ static int moduleConvertArgFlags(int flags);
  *         RedisModuleCommandArg *args;
  *     } RedisModuleCommandInfo;
  *
- * All fields are optional except `version`. Explanation of the fields:
- *
- * - `version`: Set this to REDISMODULE_COMMAND_INFO_VERSION. It makes the
- *   module backward and forward compatible with older and newer Redis versions
- *   and allows Redis to figure out which fields are defined, even if the module
- *   is compiled with a `redismodule.h` copied from another Redis version.
+ * All fields are optional. Explanation of the fields:
  *
  * - `summary`: A short description of the command (optional).
  *
@@ -1393,7 +1394,44 @@ static int moduleConvertArgFlags(int flags);
  * has already been set. If the info is invalid, a warning is logged explaining
  * which part of the info is invalid and why. */
 int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
-    if (!moduleValidateCommandInfo(info)) {
+    /* This stub is provided for generated documentation. The real definition is
+     * in redismodule.h which handles struct versioning and calls
+     * `RM_SetCommandInfo_` defined below. */
+    UNUSED(command); UNUSED(info);
+    return REDISMODULE_ERR;
+}
+#endif
+
+/* Accessors of array elements of structs where the element size is stored
+ * separately in the version struct. */
+static RedisModuleCommandHistoryEntry *
+moduleCmdHistoryEntryAt(const RedisModuleCommandInfoVersion *version,
+                        RedisModuleCommandHistoryEntry *entries, int index) {
+    off_t offset = index * version->sizeof_historyentry;
+    return (RedisModuleCommandHistoryEntry *)((char *)(entries) + offset);
+}
+static RedisModuleCommandKeySpec *
+moduleCmdKeySpecAt(const RedisModuleCommandInfoVersion *version,
+                   RedisModuleCommandKeySpec *keyspecs, int index) {
+    off_t offset = index * version->sizeof_keyspec;
+    return (RedisModuleCommandKeySpec *)((char *)(keyspecs) + offset);
+}
+static RedisModuleCommandArg *
+moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
+               const RedisModuleCommandArg *args, int index) {
+    off_t offset = index * version->sizeof_arg;
+    return (RedisModuleCommandArg *)((char *)(args) + offset);
+}
+
+int RM_SetCommandInfo_(RedisModuleCommand *command,
+                       const RedisModuleCommandInfo *info,
+                       const RedisModuleCommandInfoVersion *version) {
+    /* This is the internal function implementing the RedisModule_SetCommandInfo
+     * functionality. Don't call this function directly! It is called by an
+     * inline wrapper function defined in redismodule.h. Note: This function is
+     * intentionally hidden from the module API docs, so there's no comment just
+     * before this function. */
+    if (!moduleValidateCommandInfo(info, version)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -1419,12 +1457,16 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
 
     if (info->history) {
         size_t count;
-        for (count = 0; info->history[count].since; count++);
+        for (count = 0;
+             moduleCmdHistoryEntryAt(version, info->history, count)->since;
+             count++);
         serverAssert(count < SIZE_MAX / sizeof(commandHistory));
         cmd->history = zmalloc(sizeof(commandHistory) * (count + 1));
         for (size_t j = 0; j < count; j++) {
-            cmd->history[j].since = zstrdup(info->history[j].since);
-            cmd->history[j].changes = zstrdup(info->history[j].changes);
+            RedisModuleCommandHistoryEntry *entry =
+                moduleCmdHistoryEntryAt(version, info->history, j);
+            cmd->history[j].since = zstrdup(entry->since);
+            cmd->history[j].changes = zstrdup(entry->changes);
         }
         cmd->history[count].since = NULL;
         cmd->history[count].changes = NULL;
@@ -1450,7 +1492,9 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
     if (info->key_specs) {
         /* Count and allocate the key specs. */
         size_t count;
-        for (count = 0; info->key_specs[count].begin_search_type; count++);
+        for (count = 0;
+             moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type;
+             count++);
         serverAssert(count < INT_MAX);
         if (count <= STATIC_KEY_SPECS_NUM) {
             cmd->key_specs_max = STATIC_KEY_SPECS_NUM;
@@ -1463,26 +1507,28 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         /* Copy the contents of the RedisModuleCommandKeySpec array. */
         cmd->key_specs_num = count;
         for (size_t j = 0; j < count; j++) {
-            cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(info->key_specs[j].flags);
-            switch (info->key_specs[j].begin_search_type) {
+            RedisModuleCommandKeySpec *spec =
+                moduleCmdKeySpecAt(version, info->key_specs, j);
+            cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(spec->flags);
+            switch (spec->begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN:
                 cmd->key_specs[j].begin_search_type = KSPEC_BS_UNKNOWN;
                 break;
             case REDISMODULE_KSPEC_BS_INDEX:
                 cmd->key_specs[j].begin_search_type = KSPEC_BS_INDEX;
-                cmd->key_specs[j].bs.index.pos = info->key_specs[j].bs.index.pos;
+                cmd->key_specs[j].bs.index.pos = spec->bs.index.pos;
                 break;
             case REDISMODULE_KSPEC_BS_KEYWORD:
                 cmd->key_specs[j].begin_search_type = KSPEC_BS_KEYWORD;
-                cmd->key_specs[j].bs.keyword.keyword = zstrdup(info->key_specs[j].bs.keyword.keyword);
-                cmd->key_specs[j].bs.keyword.startfrom = info->key_specs[j].bs.keyword.startfrom;
+                cmd->key_specs[j].bs.keyword.keyword = zstrdup(spec->bs.keyword.keyword);
+                cmd->key_specs[j].bs.keyword.startfrom = spec->bs.keyword.startfrom;
                 break;
             default:
                 /* Can't happen; stopped in moduleValidateCommandInfo(). */
                 serverPanic("Unknown begin_search_type");
             }
 
-            switch (info->key_specs[j].find_keys_type) {
+            switch (spec->find_keys_type) {
             case REDISMODULE_KSPEC_FK_OMITTED:
                 /* Omitted field is shorthand to say that it's a single key. */
                 cmd->key_specs[j].find_keys_type = KSPEC_FK_RANGE;
@@ -1495,15 +1541,15 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
                 break;
             case REDISMODULE_KSPEC_FK_RANGE:
                 cmd->key_specs[j].find_keys_type = KSPEC_FK_RANGE;
-                cmd->key_specs[j].fk.range.lastkey = info->key_specs[j].fk.range.lastkey;
-                cmd->key_specs[j].fk.range.keystep = info->key_specs[j].fk.range.keystep;
-                cmd->key_specs[j].fk.range.limit = info->key_specs[j].fk.range.limit;
+                cmd->key_specs[j].fk.range.lastkey = spec->fk.range.lastkey;
+                cmd->key_specs[j].fk.range.keystep = spec->fk.range.keystep;
+                cmd->key_specs[j].fk.range.limit = spec->fk.range.limit;
                 break;
             case REDISMODULE_KSPEC_FK_KEYNUM:
                 cmd->key_specs[j].find_keys_type = KSPEC_FK_KEYNUM;
-                cmd->key_specs[j].fk.keynum.keynumidx = info->key_specs[j].fk.keynum.keynumidx;
-                cmd->key_specs[j].fk.keynum.firstkey = info->key_specs[j].fk.keynum.firstkey;
-                cmd->key_specs[j].fk.keynum.keystep = info->key_specs[j].fk.keynum.keystep;
+                cmd->key_specs[j].fk.keynum.keynumidx = spec->fk.keynum.keynumidx;
+                cmd->key_specs[j].fk.keynum.firstkey = spec->fk.keynum.firstkey;
+                cmd->key_specs[j].fk.keynum.keystep = spec->fk.keynum.keystep;
                 break;
             default:
                 /* Can't happen; stopped in moduleValidateCommandInfo(). */
@@ -1515,7 +1561,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
     }
 
     if (info->args) {
-        cmd->args = moduleCopyCommandArgs(info->args);
+        cmd->args = moduleCopyCommandArgs(info->args, version);
         /* Populate arg.num_args with the number of subargs, recursively */
         cmd->num_args = populateArgsStructure(cmd->args);
     }
@@ -1532,22 +1578,18 @@ static inline int isPowerOfTwo(uint64_t v) {
 }
 
 /* Returns 1 if the command info is valid and 0 otherwise. */
-static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
-    /* We allow versions higher than REDISMODULE_COMMAND_INFO_VERSION. This is
-     * to be forward compatible with modules compiled with future redismodule.h
-     * versions. Fields added in future versions are simply ignored. */
-    if (info->version < 1) {
-        serverLog(LL_WARNING, "Invalid command info: version %d", info->version);
-        return 0;
-    }
-
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info,
+                                     const RedisModuleCommandInfoVersion *version) {
     /* No validation for the fields summary, complexity, since, tips (strings or
      * NULL) and arity (any integer). */
 
     /* History: If since is set, changes must also be set. */
     if (info->history) {
-        for (size_t j = 0; info->history[j].since; j++) {
-            if (!info->history[j].changes) {
+        for (size_t j = 0;
+             moduleCmdHistoryEntryAt(version, info->history, j)->since;
+             j++)
+        {
+            if (!moduleCmdHistoryEntryAt(version, info->history, j)->changes) {
                 serverLog(LL_WARNING, "Invalid command info: history[%zd].changes missing", j);
                 return 0;
             }
@@ -1556,7 +1598,12 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
 
     /* Key specs. */
     if (info->key_specs) {
-        for (size_t j = 0; info->key_specs[j].begin_search_type; j++) {
+        for (size_t j = 0;
+             moduleCmdKeySpecAt(version, info->key_specs, j)->begin_search_type;
+             j++)
+        {
+            RedisModuleCommandKeySpec *spec =
+                moduleCmdKeySpecAt(version, info->key_specs, j);
             if (j >= INT_MAX) {
                 serverLog(LL_WARNING, "Invalid command info: Too many key specs");
                 return 0; /* redisCommand.key_specs_num is an int. */
@@ -1570,14 +1617,14 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             uint64_t write_flags =
                 REDISMODULE_CMD_KEY_INSERT | REDISMODULE_CMD_KEY_DELETE |
                 REDISMODULE_CMD_KEY_UPDATE;
-            if (!isPowerOfTwo(info->key_specs[j].flags & key_flags)) {
+            if (!isPowerOfTwo(spec->flags & key_flags)) {
                 serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].flags: "
                           "Exactly one of the flags RO, RW, OW, RM reqired", j);
                 return 0;
             }
-            if ((info->key_specs[j].flags & write_flags) != 0 &&
-                !isPowerOfTwo(info->key_specs[j].flags & write_flags))
+            if ((spec->flags & write_flags) != 0 &&
+                !isPowerOfTwo(spec->flags & write_flags))
             {
                 serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].flags: "
@@ -1585,11 +1632,11 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
                 return 0;
             }
 
-            switch (info->key_specs[j].begin_search_type) {
+            switch (spec->begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN: break;
             case REDISMODULE_KSPEC_BS_INDEX: break;
             case REDISMODULE_KSPEC_BS_KEYWORD:
-                if (info->key_specs[j].bs.keyword.keyword == NULL) {
+                if (spec->bs.keyword.keyword == NULL) {
                     serverLog(LL_WARNING,
                               "Invalid command info: key_specs[%zd].bs.keyword.keyword "
                               "required when begin_search_type is KEYWORD", j);
@@ -1599,12 +1646,12 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             default:
                 serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].begin_search_type: "
-                          "Invalid value %d", j, info->key_specs[j].begin_search_type);
+                          "Invalid value %d", j, spec->begin_search_type);
                 return 0;
             }
 
             /* Validate find_keys_type. */
-            switch (info->key_specs[j].find_keys_type) {
+            switch (spec->find_keys_type) {
             case REDISMODULE_KSPEC_FK_OMITTED: break; /* short for RANGE {0,1,0} */
             case REDISMODULE_KSPEC_FK_UNKNOWN: break;
             case REDISMODULE_KSPEC_FK_RANGE: break;
@@ -1612,14 +1659,14 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             default:
                 serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].find_keys_type: "
-                          "Invalid value %d", j, info->key_specs[j].find_keys_type);
+                          "Invalid value %d", j, spec->find_keys_type);
                 return 0;
             }
         }
     }
 
     /* Args, subargs (recursive) */
-    return moduleValidateCommandArgs(info->args);
+    return moduleValidateCommandArgs(info->args, version);
 }
 
 /* Converts from REDISMODULE_CMD_KEY_* flags to CMD_KEY_* flags. */
@@ -1640,66 +1687,68 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags) {
 
 /* Validates an array of RedisModuleCommandArg. Returns 1 if it's valid and 0 if
  * it's invalid. */
-static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
+static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
+                                     const RedisModuleCommandInfoVersion *version) {
     if (args == NULL) return 1; /* Missing args is OK. */
-    for (size_t j = 0; args[j].name != NULL; j++) {
+    for (size_t j = 0; moduleCmdArgAt(version, args, j)->name != NULL; j++) {
+        RedisModuleCommandArg *arg = moduleCmdArgAt(version, args, j);
         int arg_type_error = 0;
-        moduleConvertArgType(args[j].type, &arg_type_error);
+        moduleConvertArgType(arg->type, &arg_type_error);
         if (arg_type_error) {
             serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": Undefined type %d",
-                      args[j].name, args[j].type);
+                      arg->name, arg->type);
             return 0;
         }
-        if (args[j].type == REDISMODULE_ARG_TYPE_PURE_TOKEN && !args[j].token) {
+        if (arg->type == REDISMODULE_ARG_TYPE_PURE_TOKEN && !arg->token) {
             serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": "
                       "token required when type is PURE_TOKEN", args[j].name);
             return 0;
         }
 
-        if (args[j].type == REDISMODULE_ARG_TYPE_KEY) {
-            if (args[j].key_spec_index < 0) {
+        if (arg->type == REDISMODULE_ARG_TYPE_KEY) {
+            if (arg->key_spec_index < 0) {
                 serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "key_spec_index required when type is KEY",
-                          args[j].name);
+                          arg->name);
                 return 0;
             }
-        } else if (args[j].key_spec_index != -1 && args[j].key_spec_index != 0) {
+        } else if (arg->key_spec_index != -1 && arg->key_spec_index != 0) {
             /* 0 is allowed for convenience, to allow it to be omitted in
              * compound struct literals on the form `.field = value`. */
             serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": "
                       "key_spec_index specified but type isn't KEY",
-                      args[j].name);
+                      arg->name);
             return 0;
         }
 
-        if (args[j].flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1)) {
+        if (arg->flags & ~(_REDISMODULE_CMD_ARG_NEXT - 1)) {
             serverLog(LL_WARNING,
                       "Invalid command info: Argument \"%s\": Invalid flags",
-                      args[j].name);
+                      arg->name);
             return 0;
         }
 
-        if (args[j].type == REDISMODULE_ARG_TYPE_ONEOF ||
-            args[j].type == REDISMODULE_ARG_TYPE_BLOCK)
+        if (arg->type == REDISMODULE_ARG_TYPE_ONEOF ||
+            arg->type == REDISMODULE_ARG_TYPE_BLOCK)
         {
-            if (args[j].subargs == NULL) {
+            if (arg->subargs == NULL) {
                 serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "subargs required when type is ONEOF or BLOCK",
-                          args[j].name);
+                          arg->name);
                 return 0;
             }
-            if (!moduleValidateCommandArgs(args[j].subargs)) return 0;
+            if (!moduleValidateCommandArgs(arg->subargs, version)) return 0;
         } else {
-            if (args[j].subargs != NULL) {
+            if (arg->subargs != NULL) {
                 serverLog(LL_WARNING,
                           "Invalid command info: Argument \"%s\": "
                           "subargs specified but type isn't ONEOF nor BLOCK",
-                          args[j].name);
+                          arg->name);
                 return 0;
             }
         }
@@ -1709,24 +1758,26 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args) {
 
 /* Converts an array of RedisModuleCommandArg into a freshly allocated array of
  * struct redisCommandArg. */
-static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args) {
+static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args,
+                                                     const RedisModuleCommandInfoVersion *version) {
     size_t count;
-    for (count = 0; args[count].name; count++);
+    for (count = 0; moduleCmdArgAt(version, args, count)->name; count++);
     serverAssert(count < SIZE_MAX / sizeof(struct redisCommandArg));
     struct redisCommandArg *realargs = zcalloc((count+1) * sizeof(redisCommandArg));
 
     for (size_t j = 0; j < count; j++) {
-        realargs[j].name = zstrdup(args[j].name);
-        realargs[j].type = moduleConvertArgType(args[j].type, NULL);
-        if (args[j].type == REDISMODULE_ARG_TYPE_KEY)
-            realargs[j].key_spec_index = args[j].key_spec_index;
+        RedisModuleCommandArg *arg = moduleCmdArgAt(version, args, j);
+        realargs[j].name = zstrdup(arg->name);
+        realargs[j].type = moduleConvertArgType(arg->type, NULL);
+        if (arg->type == REDISMODULE_ARG_TYPE_KEY)
+            realargs[j].key_spec_index = arg->key_spec_index;
         else
             realargs[j].key_spec_index = -1;
-        if (args[j].token) realargs[j].token = zstrdup(args[j].token);
-        if (args[j].summary) realargs[j].summary = zstrdup(args[j].summary);
-        if (args[j].since) realargs[j].since = zstrdup(args[j].since);
-        realargs[j].flags = moduleConvertArgFlags(args[j].flags);
-        if (args[j].subargs) realargs[j].subargs = moduleCopyCommandArgs(args[j].subargs);
+        if (arg->token) realargs[j].token = zstrdup(arg->token);
+        if (arg->summary) realargs[j].summary = zstrdup(arg->summary);
+        if (arg->since) realargs[j].since = zstrdup(arg->since);
+        realargs[j].flags = moduleConvertArgFlags(arg->flags);
+        if (arg->subargs) realargs[j].subargs = moduleCopyCommandArgs(arg->subargs, version);
     }
     return realargs;
 }
@@ -11242,7 +11293,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateCommand);
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
-    REGISTER_API(SetCommandInfo);
+    REGISTER_API(SetCommandInfo_);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
