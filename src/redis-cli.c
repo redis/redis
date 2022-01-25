@@ -878,6 +878,24 @@ static sds cliFormatInvalidateTTY(redisReply *r) {
     return sdscatlen(out, "\n", 1);
 }
 
+/* Returns non-zero if cliFormatReplyTTY renders the reply in multiple lines. */
+static int cliIsMultilineValueTTY(redisReply *r) {
+    switch (r->type) {
+    case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
+    case REDIS_REPLY_PUSH:
+        if (r->elements == 0) return 0;
+        if (r->elements > 1) return 1;
+        return cliIsMultilineValueTTY(r->element[0]);
+    case REDIS_REPLY_MAP:
+        if (r->elements == 0) return 0;
+        if (r->elements > 2) return 1;
+        return cliIsMultilineValueTTY(r->element[1]);
+    default:
+        return 0;
+    }
+}
+
 static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
@@ -974,6 +992,11 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
                     i++;
                     sdsrange(out,0,-2);
                     out = sdscat(out," => ");
+                    if (cliIsMultilineValueTTY(r->element[i])) {
+                        /* linebreak before multiline value to fix alignment */
+                        out = sdscat(out, "\n");
+                        out = sdscat(out, _prefix);
+                    }
                     tmp = cliFormatReplyTTY(r->element[i],_prefix);
                     out = sdscatlen(out,tmp,sdslen(tmp));
                     sdsfree(tmp);
