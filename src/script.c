@@ -284,7 +284,7 @@ void scriptKill(client *c, int is_eval) {
 }
 
 static int scriptVerifyCommandArity(struct redisCommand *cmd, int argc, sds *err) {
-    if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) || (argc < cmd->arity))) {
+    if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity))) {
         if (cmd)
             *err = sdsnew("Wrong number of args calling Redis command from script");
         else
