@@ -55,16 +55,11 @@ start_server {tags {"repl external:skip"}} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 1
             assert_equal OK [$master set foo 123]
-            wait_for_condition 50 100 {
-               [$slave get foo] eq {123}
-            } else {
-                fail "Write did not synced to slave"
-            }
             assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
             wait_for_condition 50 100 {
-               [$slave get foo] eq {12345}
+                [string match {*min_slaves_good_slaves:1*} [$master info replication]]
             } else {
-                fail "Write did not synced to slave"
+                fail "Slave didn't sync in time"
             }
         }
 
@@ -84,8 +79,7 @@ start_server {tags {"repl external:skip"}} {
             exec kill -SIGSTOP [srv 0 pid]
             # Waiting for slave kill.
             wait_for_condition 100 100 {
-                [catch {$master set foo 123}] != 0 &&
-                [catch {$master eval "redis.call('set','foo',12345)" 0}] != 0
+                [catch {$master set foo 123}] != 0
             } else {
                 fail "Master didn't become readonly"
             }
