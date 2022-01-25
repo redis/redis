@@ -209,7 +209,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
         set _ $e
-    } {*wrong number of arguments*}
+    } {*Unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load lua test REPLACE [get_no_writes_function_code test {return redis.call('set', 'x', '1')}]
@@ -302,7 +302,7 @@ start_server {tags {"scripting"}} {
         assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
-        assert_match {*wrong number of arguments*} $e
+        assert_match {*Unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
     }
 }
 
@@ -428,7 +428,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 r -1 fcall test 0
             } e
             set _ $e
-        } {*Can not run a function with write flag on readonly replica*}
+        } {*Can not run script with write flag on readonly replica*}
     }
 }
 
@@ -1023,7 +1023,7 @@ start_server {tags {"scripting"}} {
         }}
         catch {r fcall_ro f1 0} e
         set _ $e
-    } {*Can not execute a function with write flag using fcall_ro*}
+    } {*Can not execute a script with write flag using \*_ro command*}
 
     test {FUNCTION - write script with no-writes flag} {
         r function load lua test replace {redis.register_function{
@@ -1072,7 +1072,7 @@ start_server {tags {"scripting"}} {
         r replicaof 127.0.0.1 1
 
         catch {[r fcall f1 0]} e
-        assert_match {*'allow-stale' flag is not set on the function*} $e
+        assert_match {*'allow-stale' flag is not set on the script*} $e
 
         assert_equal {hello} [r fcall f2 0]
 

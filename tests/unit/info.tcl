@@ -197,7 +197,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {} [errorstat ERR]
             r multi
             catch {r set} e
-            assert_match {ERR wrong number of arguments*} $e
+            assert_match {ERR wrong number of arguments for 'set' command} $e
             catch {r exec} e
             assert_match {EXECABORT*} $e
             assert_match {*count=1*} [errorstat ERR]
@@ -216,7 +216,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 0
             assert_match {} [errorstat ERR]
             catch {r set k} e
-            assert_match {ERR wrong number of arguments*} $e
+            assert_match {ERR wrong number of arguments for 'set' command} $e
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
             # ensure that after a rejected command, valid ones are counted properly

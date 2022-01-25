@@ -644,9 +644,7 @@ sds ACLDescribeSelectorCommandRulesSingleCommands(aclSelector *selector, aclSele
         int fakebit = ACLGetSelectorCommandBit(fake_selector,cmd->id);
         if (userbit != fakebit) {
             rules = sdscatlen(rules, userbit ? "+" : "-", 1);
-            sds fullname = getFullCommandName(cmd);
-            rules = sdscat(rules,fullname);
-            sdsfree(fullname);
+            rules = sdscatsds(rules,cmd->fullname);
             rules = sdscatlen(rules," ",1);
             ACLChangeSelectorPerm(fake_selector,cmd,userbit);
         }
@@ -660,9 +658,7 @@ sds ACLDescribeSelectorCommandRulesSingleCommands(aclSelector *selector, aclSele
         {
             for (int j = 0; selector->allowed_firstargs[cmd->id][j]; j++) {
                 rules = sdscatlen(rules,"+",1);
-                sds fullname = getFullCommandName(cmd);
-                rules = sdscat(rules,fullname);
-                sdsfree(fullname);
+                rules = sdscatsds(rules,cmd->fullname);
                 rules = sdscatlen(rules,"|",1);
                 rules = sdscatsds(rules,selector->allowed_firstargs[cmd->id][j]);
                 rules = sdscatlen(rules," ",1);
@@ -994,10 +990,10 @@ cleanup:
  *              commands. For instance ~* allows all the keys. The pattern
  *              is a glob-style pattern like the one of KEYS.
  *              It is possible to specify multiple patterns.
- * %R~<pattern> Add key read pattern that specifies which keys can be read 
+ * %R~<pattern> Add key read pattern that specifies which keys can be read
  *              from.
  * %W~<pattern> Add key write pattern that specifies which keys can be
- *              written to. 
+ *              written to.
  * allkeys      Alias for ~*
  * resetkeys    Flush the list of allowed keys patterns.
  * &<pattern>   Add a pattern of channels that can be mentioned as part of
@@ -1005,7 +1001,7 @@ cleanup:
  *              pattern is a glob-style pattern like the one of PSUBSCRIBE.
  *              It is possible to specify multiple patterns.
  * allchannels              Alias for &*
- * resetchannels            Flush the list of allowed keys patterns.
+ * resetchannels            Flush the list of allowed channel patterns.
  */
 int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
     if (!strcasecmp(op,"allkeys") ||
@@ -1110,10 +1106,17 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
             struct redisCommand *cmd = ACLLookupCommand(copy);
 
             /* Check if the command exists. We can't check the
-             * subcommand to see if it is valid. */
+             * first-arg to see if it is valid. */
             if (cmd == NULL) {
                 zfree(copy);
                 errno = ENOENT;
+                return C_ERR;
+            }
+
+            /* We do not support allowing first-arg of a subcommand */
+            if (cmd->parent) {
+                zfree(copy);
+                errno = ECHILD;
                 return C_ERR;
             }
 
@@ -1127,7 +1130,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
 
             if (cmd->subcommands_dict) {
                 /* If user is trying to allow a valid subcommand we can just add its unique ID */
-                struct redisCommand *cmd = ACLLookupCommand(op+1);
+                cmd = ACLLookupCommand(op+1);
                 if (cmd == NULL) {
                     zfree(copy);
                     errno = ENOENT;
@@ -1138,13 +1141,11 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                 /* If user is trying to use the ACL mech to block SELECT except SELECT 0 or
                  * block DEBUG except DEBUG OBJECT (DEBUG subcommands are not considered
                  * subcommands for now) we use the allowed_firstargs mechanism. */
-                struct redisCommand *cmd = ACLLookupCommand(copy);
-                if (cmd == NULL) {
-                    zfree(copy);
-                    errno = ENOENT;
-                    return C_ERR;
-                }
+
                 /* Add the first-arg to the list of valid ones. */
+                serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
+                                      "blocked command is a misuse of ACL and may get disabled "
+                                      "in the future (offender: +%s)", op+1);
                 ACLAddAllowedFirstArg(selector,cmd->id,sub);
             }
 
@@ -1236,6 +1237,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
  * EBADMSG: The hash you are trying to add is not a valid hash.
+ * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -1360,6 +1362,8 @@ const char *ACLSetUserStringError(void) {
     else if (errno == EALREADY)
         errmsg = "Duplicate user found. A user can only be defined once in "
                  "config files";
+    else if (errno == ECHILD)
+        errmsg = "Allowing first-arg of a subcommand is not supported";
     return errmsg;
 }
 
@@ -1448,9 +1452,12 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
  * should have an assigned ID (that is used to index the bitmap). This function
  * creates such an ID: it uses sequential IDs, reusing the same ID for the same
  * command name, so that a command retains the same ID in case of modules that
- * are unloaded and later reloaded. */
-unsigned long ACLGetCommandID(const char *cmdname) {
-    sds lowername = sdsnew(cmdname);
+ * are unloaded and later reloaded.
+ *
+ * The function does not take ownership of the 'cmdname' SDS string.
+ * */
+unsigned long ACLGetCommandID(sds cmdname) {
+    sds lowername = sdsdup(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
     void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
@@ -2366,7 +2373,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         le->object = object;
     } else {
         switch(reason) {
-            case ACL_DENIED_CMD: le->object = getFullCommandName(c->cmd); break;
+            case ACL_DENIED_CMD: le->object = sdsdup(c->cmd->fullname); break;
             case ACL_DENIED_KEY: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_CHANNEL: le->object = sdsdup(c->argv[argpos]->ptr); break;
             case ACL_DENIED_AUTH: le->object = sdsdup(c->argv[0]->ptr); break;
@@ -2426,6 +2433,26 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/
+
+/* ACL CAT category */
+void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(commands);
+
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & CMD_MODULE) continue;
+        if (cmd->acl_categories & cflag) {
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            (*arraylen)++;
+        }
+
+        if (cmd->subcommands_dict) {
+            aclCatWithFlags(c, cmd->subcommands_dict, cflag, arraylen);
+        }
+    }
+    dictReleaseIterator(di);
+}
 
 /* Add the formatted response from a single selector to the ACL GETUSER
  * response. This function returns the number of fields added. 
@@ -2678,22 +2705,12 @@ setuser_cleanup:
     } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
         uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
         if (cflag == 0) {
-            addReplyErrorFormat(c, "Unknown category '%s'", (char*)c->argv[2]->ptr);
+            addReplyErrorFormat(c, "Unknown category '%.128s'", (char*)c->argv[2]->ptr);
             return;
         }
         int arraylen = 0;
         void *dl = addReplyDeferredLen(c);
-        dictIterator *di = dictGetIterator(server.orig_commands);
-        dictEntry *de;
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            if (cmd->flags & CMD_MODULE) continue;
-            if (cmd->acl_categories & cflag) {
-                addReplyBulkCString(c,cmd->name);
-                arraylen++;
-            }
-        }
-        dictReleaseIterator(di);
+        aclCatWithFlags(c, server.orig_commands, cflag, &arraylen);
         setDeferredArrayLen(c,dl,arraylen);
     } else if (!strcasecmp(sub,"genpass") && (c->argc == 2 || c->argc == 3)) {
         #define GENPASS_MAX_BITS 4096
@@ -2801,7 +2818,7 @@ setuser_cleanup:
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {
                 err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command or its subcommand", c->cmd->name);
+                    "the '%s' command", c->cmd->fullname);
             } else if (result == ACL_DENIED_KEY) {
                 err = sdscatfmt(err, "This user has no permissions to access "
                     "the '%s' key", c->argv[idx + 3]->ptr);

@@ -570,69 +570,11 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if ((fi->f_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
-        addReplyError(c, "Can not run function on cluster, 'no-cluster' flag is set.");
-        return;
-    }
-
-    if (!(fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
-        addReplyError(c, "-OOM allow-oom flag is not set on the function, "
-                         "can not run it when used memory > 'maxmemory'");
-        return;
-    }
-
-    if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 && !(fi->f_flags & SCRIPT_FLAG_ALLOW_STALE))
-    {
-        addReplyError(c, "-MASTERDOWN Link with MASTER is down, "
-                         "replica-serve-stale-data is set to 'no' "
-                         "and 'allow-stale' flag is not set on the function.");
-        return;
-    }
-
-    if (!(fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
-        /* Function may perform writes we need to verify:
-         * 1. we are not a readonly replica
-         * 2. no disk error detected
-         * 3. command is not 'fcall_ro' */
-        if (server.masterhost && server.repl_slave_ro && c->id != CLIENT_ID_AOF
-            && !(c->flags & CLIENT_MASTER))
-        {
-            addReplyError(c, "Can not run a function with write flag on readonly replica");
-            return;
-        }
-
-        int deny_write_type = writeCommandsDeniedByDiskError();
-        if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
-            if (deny_write_type == DISK_ERROR_TYPE_RDB)
-                addReplyError(c, "-MISCONF Redis is configured to save RDB snapshots, "
-                                 "but it is currently not able to persist on disk. "
-                                 "So its impossible to run functions that has 'write' flag on.");
-            else
-                addReplyErrorFormat(c, "-MISCONF Redis is configured to persist data to AOF, "
-                                       "but it is currently not able to persist on disk. "
-                                       "So its impossible to run functions that has 'write' flag on. "
-                                       "AOF error: %s", strerror(server.aof_last_write_errno));
-            return;
-        }
-
-        if (ro) {
-            addReplyError(c, "Can not execute a function with write flag using fcall_ro.");
-            return;
-        }
-    }
-
     scriptRunCtx run_ctx;
 
-    scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro || (fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
-        /* On fcall_ro or on functions that do not have the 'write'
-         * flag, we will not allow write commands. */
-        run_ctx.flags |= SCRIPT_READ_ONLY;
-    }
-    if (fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) {
-        run_ctx.flags |= SCRIPT_ALLOW_OOM;
-    }
+    if (scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name, fi->f_flags, ro) != C_OK)
+        return;
+
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,
                  c->argv + 3 + numkeys, c->argc - 3 - numkeys);
     scriptResetRun(&run_ctx);

@@ -1,5 +1,3 @@
-# source tests/support/util.tcl
-
 set testmodule [file normalize tests/modules/blockedclient.so]
 
 start_server {tags {"modules"}} {
@@ -180,5 +178,9 @@ start_server {tags {"modules"}} {
         reconnect
         set clients [r client list]
         assert_no_match "*name=myclient*" $clients
+    }
+
+    test "Unload the module - blockedclient" {
+        assert_equal {OK} [r module unload blockedclient]
     }
 }
