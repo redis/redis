@@ -584,7 +584,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
             help->org->group = sdsnew(reply->str);
         } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
-            assert(args->type == REDIS_REPLY_SET || args->type == REDIS_REPLY_ARRAY);
+            assert(args->type == REDIS_REPLY_ARRAY);
             help->org->params = cliConcatArguments(help->org->params, args, " ");
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
