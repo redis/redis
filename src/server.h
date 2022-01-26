@@ -1944,6 +1944,7 @@ typedef enum {
 
 typedef struct {
     /* Declarative data */
+    const char *description;
     uint64_t flags;
     kspec_bs_type begin_search_type;
     union {
@@ -1995,8 +1996,9 @@ typedef enum {
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
     ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY,
+    ARG_TYPE_KEY, /* A string, but represents a keyname */
     ARG_TYPE_PATTERN,
+    ARG_TYPE_KEY_PATTERN, /* A pattern, but represents keynames */
     ARG_TYPE_UNIX_TIME,
     ARG_TYPE_PURE_TOKEN,
     ARG_TYPE_ONEOF, /* Has subargs */

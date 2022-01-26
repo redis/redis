@@ -36,10 +36,10 @@
                 }
             },
             {
+                "description": "For the optional BY/GET keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
                 "flags": [
                     "RO",
-                    "ACCESS",
-                    "INCOMPLETE"
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "unknown": null
@@ -58,7 +58,8 @@
             {
                 "token": "BY",
                 "name": "pattern",
-                "type": "pattern",
+                "type": "key_pattern",
+                "key_spec_index": 1,
                 "optional": true
             },
             {
@@ -79,7 +80,8 @@
             },
             {
                 "token": "GET",
-                "name": "pattern",
+                "name": "key_pattern",
+                "key_spec_index": 1,
                 "type": "string",
                 "optional": true,
                 "multiple": true,
