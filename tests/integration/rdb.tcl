@@ -147,8 +147,8 @@ start_server {} {
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
         r flushall
-        # wait half a second max
-        wait_for_condition 5 100 {
+        # wait a second max
+        wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] == 0
         } else {
             fail "bgsave not aborted"
