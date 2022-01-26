@@ -63,7 +63,8 @@ start_server {tags {"modules"}} {
         # Make sure the Timer has not been fired
         assert_equal 0 [r get timer-incr-key]
         # Module can not be unload since the timer was ongoing 
-        assert_match {ERR*} [r module unload timer]
+        catch [r module unload timer] err
+        assert_match {ERR*} $err
 
         # Wait to be sure timer has been finished
         wait_for_condition 10 1000 {
