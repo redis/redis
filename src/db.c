@@ -2219,21 +2219,19 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
 
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* We always know the position */
-    keys[0].flags = CMD_KEY_UPDATE;
+    result->numkeys = 1;
 
-    for (int i = 1; i < argc; i++) {
+    for (int i = 3; i < argc; i++) {
         char *arg = argv[i]->ptr;
         if ((arg[0] == 'g' || arg[0] == 'G') &&
             (arg[1] == 'e' || arg[1] == 'E') &&
             (arg[2] == 't' || arg[2] == 'T') && arg[3] == '\0')
         {
-            keys[0].flags |= CMD_KEY_RW | CMD_KEY_ACCESS;
-            result->numkeys = 1;
+            keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
             return 1;
         }
     }
 
-    keys[0].flags |= CMD_KEY_OW;
-    result->numkeys = 1;
+    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
     return 1;
 }

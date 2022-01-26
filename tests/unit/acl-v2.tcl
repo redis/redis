@@ -154,6 +154,7 @@ start_server {tags {"acl external:skip"}} {
         $r2 auth set-key-permission-W password
         assert_equal PONG [$r2 PING]
         assert_equal {OK} [$r2 set writestr bar]
+        assert_equal {OK} [$r2 set writestr get]
 
         # We don't have the permission to READ key.
         assert_error {*NOPERM*keys*} {$r2 set get writestr}
