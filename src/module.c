@@ -870,7 +870,6 @@ int64_t commandKeySpecsFlagsFromString(const char *s) {
         else if (!strcasecmp(t,"delete")) flags |= CMD_KEY_DELETE;
         else if (!strcasecmp(t,"channel")) flags |= CMD_KEY_CHANNEL;
         else if (!strcasecmp(t,"incomplete")) flags |= CMD_KEY_INCOMPLETE;
-        else if (!strcasecmp(t,"variable_flags")) flags |= CMD_KEY_VARIABLE_FLAGS;
         else break;
     }
     sdsfreesplitres(tokens,count);
