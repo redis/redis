@@ -4148,6 +4148,7 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_DELETE,          "delete"},
         {CMD_KEY_CHANNEL,         "channel"},
         {CMD_KEY_INCOMPLETE,      "incomplete"},
+        {CMD_KEY_VARIABLE_FLAGS,  "variable"},
         {0,NULL}
     };
     addReplyCommandFlags(c, flags, docFlagNames);

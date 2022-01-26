@@ -1824,7 +1824,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else {
-        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_INCOMPLETE)) {
+        if (!(getAllKeySpecsFlags(cmd, 0) & (CMD_KEY_INCOMPLETE|CMD_KEY_VARIABLE_FLAGS))) {
             int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
             if (ret >= 0)
                 return ret;
@@ -2209,4 +2209,31 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     } 
     result->numkeys = num;
     return num;
+}
+
+/* Helper function to extract keys from the SET command, which may have
+ * a read flag if the GET argument is passed in. */
+int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    UNUSED(cmd);
+
+    keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1; /* We always know the position */
+    keys[0].flags = CMD_KEY_UPDATE;
+
+    for (int i = 1; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        if ((arg[0] == 'g' || arg[0] == 'G') &&
+            (arg[1] == 'e' || arg[1] == 'E') &&
+            (arg[2] == 't' || arg[2] == 'T') && arg[3] == '\0')
+        {
+            keys[0].flags |= CMD_KEY_RW | CMD_KEY_ACCESS;
+            result->numkeys = 1;
+            return 1;
+        }
+    }
+
+    keys[0].flags |= CMD_KEY_OW;
+    result->numkeys = 1;
+    return 1;
 }

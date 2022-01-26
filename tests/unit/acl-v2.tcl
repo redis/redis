@@ -104,7 +104,7 @@ start_server {tags {"acl external:skip"}} {
         r set read bar
         $r2 copy read write
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err        
+        assert_match "*NOPERM*keys*" $err
     }
 
     test {Test separate read and write permissions on different selectors are not additive} {
@@ -131,11 +131,62 @@ start_server {tags {"acl external:skip"}} {
         catch {$r2 copy read write} err
         assert_match "*NOPERM*keys*" $err
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err   
+        assert_match "*NOPERM*keys*" $err
+    }
+
+    test {Test SET with separate read permission} {
+        r del readstr
+        r ACL SETUSER set-key-permission-R on nopass %R~read* +@all
+        $r2 auth set-key-permission-R password
+        assert_equal PONG [$r2 PING]
+        assert_equal {} [$r2 get readstr]
+
+        # We don't have the permission to WRITE key.
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar get}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar ex 100}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar keepttl nx}
+    }
+
+    test {Test SET with separate write permission} {
+        r del writestr
+        r ACL SETUSER set-key-permission-W on nopass %W~write* +@all
+        $r2 auth set-key-permission-W password
+        assert_equal PONG [$r2 PING]
+        assert_equal {OK} [$r2 set writestr bar]
+
+        # We don't have the permission to READ key.
+        assert_error {*NOPERM*keys*} {$r2 set get writestr}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get ex 100}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get keepttl nx}
+
+        # todo this should be `ERR value is not an integer or out of range`
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar ex get}
+    }
+
+    test {Test SET with read and write permissions} {
+        r del readwrite_str
+        r ACL SETUSER set-key-permission-RW-selector on nopass %RW~readwrite* +@all
+        $r2 auth set-key-permission-RW-selector password
+        assert_equal PONG [$r2 PING]
+
+        assert_equal {} [$r2 get readwrite_str]
+        assert_error {ERR* not an integer *} {$r2 set readwrite_str bar ex get}
+
+        assert_equal {OK} [$r2 set readwrite_str bar]
+        assert_equal {bar} [$r2 get readwrite_str]
+
+        assert_equal {bar} [$r2 set readwrite_str bar2 get]
+        assert_equal {bar2} [$r2 get readwrite_str]
+
+        assert_equal {bar2} [$r2 set readwrite_str bar3 get ex 10]
+        assert_equal {bar3} [$r2 get readwrite_str]
+        assert_range [$r2 ttl readwrite_str] 5 10
     }
 
     test {Test ACL log correctly identifies the relevant item when selectors are used} {
-        r ACL SETUSER acl-log-test-selector on nopass 
+        r ACL SETUSER acl-log-test-selector on nopass
         r ACL SETUSER acl-log-test-selector +mget ~key (+mget ~key ~otherkey)
         $r2 auth acl-log-test-selector password
 
@@ -171,10 +222,10 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test {Test ACL GETUSER response information} {
-        r ACL setuser selector-info -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1 
+        r ACL setuser selector-info -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1
         r ACL setuser selector-info (-@all +set resetchannels &channel2 %R~foo2 %W~bar2 ~baz2)
         set user [r ACL GETUSER "selector-info"]
-    
+
         # Root selector
         assert_equal "%R~foo1 %W~bar1 ~baz1" [dict get $user keys]
         assert_equal "&channel1" [dict get $user channels]
@@ -184,7 +235,7 @@ start_server {tags {"acl external:skip"}} {
         set secondary_selector [lindex [dict get $user selectors] 0]
         assert_equal "%R~foo2 %W~bar2 ~baz2" [dict get $secondary_selector keys]
         assert_equal "&channel2" [dict get $secondary_selector channels]
-        assert_equal "-@all +set" [dict get $secondary_selector commands] 
+        assert_equal "-@all +set" [dict get $secondary_selector commands]
     }
 
     test {Test ACL list idempotency} {
