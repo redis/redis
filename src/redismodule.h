@@ -377,7 +377,7 @@ typedef struct RedisModuleCommandInfo {
 } RedisModuleCommandInfo;
 
 typedef struct RedisModuleCommandInfoVersion {
-    uint64_t version;
+    int version;
     size_t sizeof_historyentry;
     size_t sizeof_keyspec;
     size_t sizeof_arg;

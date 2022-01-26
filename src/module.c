@@ -10485,6 +10485,10 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         return C_ERR;
 
     /* Free everything except cmd->fullname and cmd itself. */
+    for (int j = 0; j < cmd->key_specs_num; j++) {
+        if (cmd->key_specs[j].begin_search_type == KSPEC_BS_KEYWORD)
+            zfree((char *)cmd->key_specs[j].bs.keyword.keyword);
+    }
     if (cmd->key_specs != cmd->key_specs_static)
         zfree(cmd->key_specs);
     for (int j = 0; cmd->tips && cmd->tips[j]; j++)
