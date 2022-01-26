@@ -140,8 +140,10 @@ start_server_and_kill_it [list "dir" $server_path] {
 start_server {} {
     test {Test FLUSHALL aborts bgsave} {
         # 1000 keys with 1ms sleep per key should take 1 second
+        r config set save ""
         r config set rdb-key-save-delay 1000
-        r debug populate 1000
+        populate 1000
+        assert_lessthan 999 [s rdb_changes_since_last_save]
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
         r flushall
