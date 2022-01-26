@@ -56,11 +56,6 @@ start_server {tags {"repl external:skip"}} {
             $master config set min-slaves-to-write 1
             assert_equal OK [$master set foo 123]
             assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
-            wait_for_condition 50 100 {
-                [string match {*min_slaves_good_slaves:1*} [$master info replication]]
-            } else {
-                fail "Slave didn't sync in time"
-            }
         }
 
         test {With min-slaves-to-write (2,3): master should not be writable} {
