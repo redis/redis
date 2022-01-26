@@ -467,8 +467,7 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
         if (!strcmp(key, "name")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             name = argMap->element[i + 1]->str;
-        }
-        else if (!strcmp(key, "token")) {
+        } else if (!strcmp(key, "token")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             char *token = argMap->element[i + 1]->str;
             tokenPart = sdscat_orempty(tokenPart, token);
