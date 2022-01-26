@@ -70,6 +70,15 @@ start_server {tags {"repl external:skip"}} {
             assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 0}
         }
 
+        test {With not enough good slaves, read in Lua script is still accepted} {
+            $master config set min-slaves-max-lag 3
+            $master config set min-slaves-to-write 1
+            $master eval "redis.call('set','foo','bar')" 0
+
+            $master config set min-slaves-to-write 2
+            $master eval "return redis.call('get','foo')" 0
+        } {bar}
+
         test {With min-slaves-to-write: master not writable with lagged slave} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
@@ -87,15 +96,6 @@ start_server {tags {"repl external:skip"}} {
             assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
             exec kill -SIGCONT [srv 0 pid]
         }
-
-        test {With not enough good slaves, read in Lua script is still accepted} {
-            $master config set min-slaves-max-lag 3
-            $master config set min-slaves-to-write 1
-            $master eval "redis.call('set','foo','bar')" 0
-
-            $master config set min-slaves-to-write 2
-            $master eval "return redis.call('get','foo')" 0
-        } {bar}
     }
 }
 
