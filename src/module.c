@@ -10368,7 +10368,7 @@ NULL
                 break;
             case EINPROGRESS:
                 errmsg = "the module holds timer that is not fired. "
-                         "Please stop the timer or wait until it fires. ";
+                         "Please stop the timer or wait until it fires.";
                 break;
             default:
                 errmsg = "operation not possible.";
