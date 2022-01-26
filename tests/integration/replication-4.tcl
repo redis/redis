@@ -108,7 +108,7 @@ start_server {tags {"repl external:skip"}} {
             # to the replica after the key is logically expired.
             exec kill -SIGCONT [srv 0 pid]
             wait_for_ofs_sync $master $slave
-            # Check that k is locigally expired but is present in the replica.
+            # Check that k is logically expired but is present in the replica.
             assert_equal 0 [$slave exists k]
             $slave debug object k ; # Raises exception if k is gone.
         }
