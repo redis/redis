@@ -26,6 +26,8 @@ start_server {tags {"modules"}} {
         assert_equal "timer-incr-key" [lindex $info 0]
         set remaining [lindex $info 1]
         assert {$remaining < 10000 && $remaining > 1}
+        # Stop the timer after get timer test
+        assert_equal 1 [r test.stoptimer $id]
     }
 
     test {RM_StopTimer: basic sanity} {
@@ -54,7 +56,14 @@ start_server {tags {"modules"}} {
         assert_equal {} [r test.gettimer $id]
     }
 
-    test "Unload the module - timer" {
+    test "Module can be unloaded only when timer was finished" {
+        r set "timer-incr-key" 0
+        set id [r test.createtimer 1000 timer-incr-key]
+
+        # Wait to be sure timer has been finished
+        after 2000
+        assert_equal 1 [r get timer-incr-key]
+        # all timers are clean, can do the unloading now.
         assert_equal {OK} [r module unload timer]
     }
 }

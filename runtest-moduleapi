@@ -45,5 +45,6 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/subcommands \
 --single unit/moduleapi/reply \
 --single unit/moduleapi/eventloop \
+--single unit/moduleapi/timer \
 "${@}"
 

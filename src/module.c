@@ -7427,6 +7427,24 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     return REDISMODULE_OK;
 }
 
+/* Query timers to see if any timer belongs to the module.
+ * Return 1 if any timer was found, otherwise 0 would be returned. */
+int moduleHoldsTimer(struct RedisModule *module) {
+    raxIterator iter;
+    int found = 0;
+    raxStart(&iter,Timers);
+    raxSeek(&iter,"^",NULL,0);
+    while(raxNext(&iter)) {
+        RedisModuleTimer *timer = iter.data;
+        if (timer->module == module) {
+            found = 1;
+            break;
+        }
+    }
+    raxStop(&iter);
+    return found;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules EventLoop API
  * --------------------------------------------------------------------------*/
@@ -10141,6 +10159,9 @@ int moduleUnload(sds name) {
     } else if (module->blocked_clients) {
         errno = EAGAIN;
         return C_ERR;
+    } else if (moduleHoldsTimer(module)) {
+        errno = EINPROGRESS;
+        return REDISMODULE_ERR;
     }
 
     /* Give module a chance to clean up. */
