@@ -10161,7 +10161,7 @@ int moduleUnload(sds name) {
         return C_ERR;
     } else if (moduleHoldsTimer(module)) {
         errno = EINPROGRESS;
-        return REDISMODULE_ERR;
+        return C_ERR;
     }
 
     /* Give module a chance to clean up. */
