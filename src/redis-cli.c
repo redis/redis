@@ -458,7 +458,7 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
     sds repeatPart = sdsempty();
 
     /* First read the fields describing the argument. */
-    if (argMap->type != (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY)) {
+    if (argMap->type != REDIS_REPLY_MAP && argMap->type != REDIS_REPLY_ARRAY) {
         return params;
     }
     for (size_t i = 0; i < argMap->elements; i += 2) {
@@ -481,7 +481,7 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
         }
         else if (!strcmp(key, "flags")) {
             redisReply *flags = argMap->element[i + 1];
-            assert(flags->type == (config.resp3 ? REDIS_REPLY_SET : REDIS_REPLY_ARRAY));
+            assert(flags->type == REDIS_REPLY_SET || flags->type == REDIS_REPLY_ARRAY);
             for (size_t j = 0; j < flags->elements; j++) {
                 assert(flags->element[j]->type == REDIS_REPLY_STATUS);
                 char *flag = flags->element[j]->str;
@@ -571,7 +571,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
     helpEntry *help = next++;
     cliCreateHelpEntry(help, cmdname, subcommandname);
 
-    assert(specs->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+    assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
     for (size_t j = 0; j < specs->elements; j += 2) {
         assert(specs->element[j]->type == REDIS_REPLY_STRING);
         char *key = specs->element[j]->str;
@@ -589,16 +589,16 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
             help->org->group = sdsnew(reply->str);
         } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
-            assert(args->type == (config.resp3 ? REDIS_REPLY_SET : REDIS_REPLY_ARRAY));
+            assert(args->type == REDIS_REPLY_SET || args->type == REDIS_REPLY_ARRAY);
             help->org->params = cliConcatArguments(help->org->params, args, " ");
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
-            assert(subcommands->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+            assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
             for (size_t i = 0; i < subcommands->elements; i += 2) {
                 assert(subcommands->element[i]->type == REDIS_REPLY_STRING);
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
-                assert(subcommand->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+                assert(subcommand->type == REDIS_REPLY_MAP || subcommand->type == REDIS_REPLY_ARRAY);
                 next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand);
             }
         }
@@ -613,14 +613,15 @@ static size_t cliCountCommands(redisReply* commandTable) {
     /* The command docs table maps command names to a map of their specs. */    
     for (size_t i = 0; i < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
-        assert(commandTable->element[i + 1]->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
+               commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *map = commandTable->element[i + 1];
         for (size_t j = 0; j < map->elements; j += 2) {
             assert(map->element[j]->type == REDIS_REPLY_STRING);
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
                 redisReply *subcommands = map->element[j + 1];
-                assert(subcommands->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+                assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
                 numCommands += subcommands->elements / 2;
             }
         }
@@ -670,7 +671,7 @@ static void cliInitHelp(void) {
         cliInitHelpFromCommand();
         return;
     };
-    if (commandTable->type != (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY)) return;
+    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
     
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
@@ -681,7 +682,8 @@ static void cliInitHelp(void) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
 
-        assert(commandTable->element[i + 1]->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
+               commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *cmdspecs = commandTable->element[i + 1];
         next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs);
     }
