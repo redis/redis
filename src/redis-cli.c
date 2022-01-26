@@ -484,11 +484,9 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
                 char *flag = flags->element[j]->str;
                 if (!strcmp(flag, "optional")) {
                     optional = 1;
-                }
-                else if (!strcmp(flag, "multiple")) {
+                } else if (!strcmp(flag, "multiple")) {
                     multiple = 1;
-                }
-                else if (!strcmp(flag, "multiple_token")) {
+                } else if (!strcmp(flag, "multiple_token")) {
                     multipleToken = 1;
                 }
             }
@@ -748,10 +746,8 @@ static void cliOutputHelp(int argc, char **argv) {
                     cliOutputCommandHelp(help,1);
                 }
             }
-        } else {
-            if (strcasecmp(group, help->group) == 0) {
-                cliOutputCommandHelp(help,0);
-            }
+        } else if (strcasecmp(group, help->group) == 0) {
+            cliOutputCommandHelp(help,0);
         }
     }
     printf("\r\n");
