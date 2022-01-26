@@ -2236,8 +2236,8 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
     return 1;
 }
 
-/* Helper function to extract keys from the BITFIELD command, which may have
- * a read flag if the BITFIELD SET subcommand is used. */
+/* Helper function to extract keys from the BITFIELD command, which may be
+ * read-only if the BITFIELD GET subcommand is used. */
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
     UNUSED(cmd);
@@ -2255,6 +2255,6 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         }
     }
 
-    keys[0].flags = CMD_KEY_RW | CMD_KEY_UPDATE;
+    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
     return 1;
 }

@@ -203,11 +203,11 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER bitfield-key-permission-W on nopass %W~write* +@all
         $r2 auth bitfield-key-permission-W password
         assert_equal PONG [$r2 PING]
-        assert_equal {0} [$r2 bitfield writestr set u4 0 1]
-        assert_equal {2} [$r2 bitfield writestr incrby u4 0 1]
 
         # We don't have the permission to READ key.
         assert_error {*NOPERM*keys*} {$r2 bitfield writestr get u4 0}
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr set u4 0 1}
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr incrby u4 0 1}
     }
 
     test {Test BITFIELD with read and write permissions} {
