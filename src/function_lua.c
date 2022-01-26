@@ -462,9 +462,6 @@ int luaEngineInitEngine() {
     lua_pushcfunction(lua_engine_ctx->lua, luaRegisterFunction);
     lua_settable(lua_engine_ctx->lua, -3);
 
-    luaRegisterLogFunction(lua_engine_ctx->lua);
-    luaRegisterVersion(lua_engine_ctx->lua);
-
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
     /* Save error handler to registry */
