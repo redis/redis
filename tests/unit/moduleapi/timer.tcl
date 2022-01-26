@@ -58,10 +58,15 @@ start_server {tags {"modules"}} {
 
     test "Module can be unloaded only when timer was finished" {
         r set "timer-incr-key" 0
-        set id [r test.createtimer 100 timer-incr-key]
+        set id [r test.createtimer 2000 timer-incr-key]
+
+        # Make sure the Timer has not been fired
+        assert_equal 0 [r get timer-incr-key]
+        # Module can not be unload since the timer was ongoing 
+        assert_match {ERR*} [r module unload timer]
 
         # Wait to be sure timer has been finished
-        wait_for_condition 10 100 {
+        wait_for_condition 10 1000 {
             [r get timer-incr-key] == 1
         } else {
             fail "Timer not fired"
