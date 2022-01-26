@@ -56,23 +56,43 @@ start_server {tags {"modules"}} {
         assert_equal {} [r test.gettimer $id]
     }
 
-    test "Module can be unloaded only when timer was finished" {
+    test "Module can be unloaded when timer was finished" {
         r set "timer-incr-key" 0
-        set id [r test.createtimer 2000 timer-incr-key]
+        r test.createtimer 2000 timer-incr-key
 
         # Make sure the Timer has not been fired
         assert_equal 0 [r get timer-incr-key]
-        # Module can not be unload since the timer was ongoing 
-        catch [r module unload timer] err
-        assert_match {ERR*} $err
+        # Module can not be unloaded since the timer was ongoing
+        catch {r module unload timer} err
+        assert_match {*the module holds timer that is not fired*} $err
 
         # Wait to be sure timer has been finished
-        wait_for_condition 10 1000 {
+        wait_for_condition 10 500 {
             [r get timer-incr-key] == 1
         } else {
             fail "Timer not fired"
         }
-        # all timers are clean, can do the unloading now.
+
+        # Timer fired, can be unloaded now.
+        assert_equal {OK} [r module unload timer]
+    }
+
+    test "Module can be unloaded when timer was stopped" {
+        r module load $testmodule
+        r set "timer-incr-key" 0
+        set id [r test.createtimer 5000 timer-incr-key]
+
+        # Module can not be unloaded since the timer was ongoing
+        catch {r module unload timer} err
+        assert_match {*the module holds timer that is not fired*} $err
+
+        # Stop the timer
+        assert_equal 1 [r test.stoptimer $id]
+
+        # Make sure the Timer has not been fired
+        assert_equal 0 [r get timer-incr-key]
+
+        # Timer has stopped, can be unloaded now.
         assert_equal {OK} [r module unload timer]
     }
 }
