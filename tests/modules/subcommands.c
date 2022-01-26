@@ -29,7 +29,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
+#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
     int spec_id;
+#endif
 
     if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
