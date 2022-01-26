@@ -471,15 +471,12 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             char *token = argMap->element[i + 1]->str;
             tokenPart = sdscat_orempty(tokenPart, token);
-        }
-        else if (!strcmp(key, "type")) {
+        } else if (!strcmp(key, "type")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
             type = argMap->element[i + 1]->str;
-        }
-        else if (!strcmp(key, "arguments")) {
+        } else if (!strcmp(key, "arguments")) {
             arguments = argMap->element[i + 1];
-        }
-        else if (!strcmp(key, "flags")) {
+        } else if (!strcmp(key, "flags")) {
             redisReply *flags = argMap->element[i + 1];
             assert(flags->type == REDIS_REPLY_SET || flags->type == REDIS_REPLY_ARRAY);
             for (size_t j = 0; j < flags->elements; j++) {
