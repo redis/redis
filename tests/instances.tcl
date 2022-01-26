@@ -99,6 +99,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         } else {
             puts $cfg "port $port"
         }
+        puts $cfg "repl-diskless-sync-delay 0"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
         # Add additional config files

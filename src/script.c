@@ -31,6 +31,14 @@
 #include "script.h"
 #include "cluster.h"
 
+scriptFlag scripts_flags_def[] = {
+    {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
+    {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
+    {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
+    {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = 0, .str = NULL}, /* flags array end */
+};
+
 /* On script invocation, holding the current run context */
 static scriptRunCtx *curr_run_ctx = NULL;
 
@@ -77,7 +85,7 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
     }
 
     long long elapsed = elapsedMs(run_ctx->start_time);
-    if (elapsed < server.script_time_limit) {
+    if (elapsed < server.busy_reply_threshold) {
         return SCRIPT_CONTINUE;
     }
 
@@ -100,10 +108,70 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 }
 
 /* Prepare the given run ctx for execution */
-void scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname) {
+int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
-    /* set the curr_run_ctx so we can use it to kill the script if needed */
-    curr_run_ctx = run_ctx;
+
+    int running_stale = server.masterhost &&
+            server.repl_state != REPL_STATE_CONNECTED &&
+            server.repl_serve_stale_data == 0;
+
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
+        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+            addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
+            return C_ERR;
+        }
+
+        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
+            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
+                                  "can not run it when used memory > 'maxmemory'");
+            return C_ERR;
+        }
+
+        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
+            addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
+                             "replica-serve-stale-data is set to 'no' "
+                             "and 'allow-stale' flag is not set on the script.");
+            return C_ERR;
+        }
+
+        if (!(script_flags & SCRIPT_FLAG_NO_WRITES)) {
+            /* Script may perform writes we need to verify:
+             * 1. we are not a readonly replica
+             * 2. no disk error detected
+             * 3. command is not `fcall_ro`/`eval[sha]_ro` */
+            if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
+                && !(caller->flags & CLIENT_MASTER))
+            {
+                addReplyError(caller, "Can not run script with write flag on readonly replica");
+                return C_ERR;
+            }
+
+            int deny_write_type = writeCommandsDeniedByDiskError();
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
+                if (deny_write_type == DISK_ERROR_TYPE_RDB)
+                    addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
+                                     "but it's currently unable to persist to disk. "
+                                     "Writable scripts are blocked. Use 'no-writes' flag for read only scripts.");
+                else
+                    addReplyErrorFormat(caller, "-MISCONF Redis is configured to persist data to AOF, "
+                                           "but it's currently unable to persist to disk. "
+                                           "Writable scripts are blocked. Use 'no-writes' flag for read only scripts. "
+                                           "AOF error: %s", strerror(server.aof_last_write_errno));
+                return C_ERR;
+            }
+
+            if (ro) {
+                addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
+                return C_ERR;
+            }
+        }
+    } else {
+        /* Special handling for backwards compatibility (no shebang eval[sha]) mode */
+        if (running_stale) {
+            addReplyErrorObject(caller, shared.masterdownerr);
+            return C_ERR;
+        }
+    }
 
     run_ctx->c = engine_client;
     run_ctx->original_client = caller;
@@ -129,6 +197,20 @@ void scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *c
 
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
+
+    if (ro || (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_NO_WRITES))) {
+        /* On fcall_ro or on functions that do not have the 'write'
+         * flag, we will not allow write commands. */
+        run_ctx->flags |= SCRIPT_READ_ONLY;
+    }
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+        run_ctx->flags |= SCRIPT_ALLOW_OOM;
+    }
+
+    /* set the curr_run_ctx so we can use it to kill the script if needed */
+    curr_run_ctx = run_ctx;
+
+    return C_OK;
 }
 
 /* Reset the given run ctx after execution */
@@ -202,7 +284,7 @@ void scriptKill(client *c, int is_eval) {
 }
 
 static int scriptVerifyCommandArity(struct redisCommand *cmd, int argc, sds *err) {
-    if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) || (argc < cmd->arity))) {
+    if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity))) {
         if (cmd)
             *err = sdsnew("Wrong number of args calling Redis command from script");
         else
@@ -271,7 +353,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
         } else {
             *err = sdsempty();
             *err = sdscatfmt(*err,
-                    "MISCONF Errors writing to the AOF file: %s\r\n",
+                    "-MISCONF Errors writing to the AOF file: %s\r\n",
                     strerror(server.aof_last_write_errno));
         }
         return C_ERR;
@@ -281,6 +363,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
+        /* Allow running any command even if OOM reached */
+        return C_OK;
+    }
+
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
@@ -348,6 +435,32 @@ int scriptSetRepl(scriptRunCtx *run_ctx, int repl) {
     return C_OK;
 }
 
+static int scriptVerifyAllowStale(client *c, sds *err) {
+    if (!server.masterhost) {
+        /* Not a replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_state == REPL_STATE_CONNECTED) {
+        /* Connected to replica, stale is irrelevant */
+        return C_OK;
+    }
+
+    if (server.repl_serve_stale_data == 1) {
+        /* Disconnected from replica but allow to serve data */
+        return C_OK;
+    }
+
+    if (c->cmd->flags & CMD_STALE) {
+        /* Command is allow while stale */
+        return C_OK;
+    }
+
+    /* On stale replica, can not run the command */
+    *err = sdsnew("Can not execute the command on a stale replica");
+    return C_ERR;
+}
+
 /* Call a Redis command.
  * The reply is written to the run_ctx client and it is
  * up to the engine to take and parse.
@@ -376,6 +489,10 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         *err = sdsnew("This Redis command is not allowed from script");
+        return;
+    }
+
+    if (scriptVerifyAllowStale(c, err) != C_OK) {
         return;
     }
 

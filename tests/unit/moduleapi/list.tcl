@@ -63,4 +63,8 @@ start_server {tags {"modules"}} {
         r list.edit k reverse rkr foo bar
         r list.getall k
     } {bar y foo}
+
+    test "Unload the module - list" {
+        assert_equal {OK} [r module unload list]
+    }
 }

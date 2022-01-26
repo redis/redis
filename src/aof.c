@@ -116,18 +116,18 @@ aofInfo *aofInfoDup(aofInfo *orig) {
 
 /* Format aofInfo as a string and it will be a line in the manifest. */
 sds aofInfoFormat(sds buf, aofInfo *ai) {
-    if (includeSpace(ai->file_name)) {
-        /* If file_name contains spaces we wrap it in quotes. */
-        return sdscatprintf(buf, "%s \"%s\" %s %lld %s %c\n", 
-            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
-            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
-            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
-    } else {
-        return sdscatprintf(buf, "%s %s %s %lld %s %c\n", 
-            AOF_MANIFEST_KEY_FILE_NAME, ai->file_name, 
-            AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq, 
-            AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
-    }
+    sds filename_repr = NULL;
+
+    if (sdsneedsrepr(ai->file_name))
+        filename_repr = sdscatrepr(sdsempty(), ai->file_name, sdslen(ai->file_name));
+
+    sds ret = sdscatprintf(buf, "%s %s %s %lld %s %c\n",
+        AOF_MANIFEST_KEY_FILE_NAME, filename_repr ? filename_repr : ai->file_name,
+        AOF_MANIFEST_KEY_FILE_SEQ, ai->file_seq,
+        AOF_MANIFEST_KEY_FILE_TYPE, ai->file_type);
+    sdsfree(filename_repr);
+
+    return ret;
 }
 
 /* Method to free AOF list elements. */
@@ -1574,7 +1574,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
     /* Here we calculate the total size of all BASE and INCR files in
      * advance, it will be set to `server.loading_total_bytes`. */
-    total_size = getBaseAndIncrAppendOnlyFilesSize(server.aof_manifest);
+    total_size = getBaseAndIncrAppendOnlyFilesSize(am);
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
 
     /* Load BASE AOF if needed. */
@@ -2102,6 +2102,35 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     return io.error ? 0 : 1;
 }
 
+static int rewriteFunctions(rio *aof) {
+    dict *functions = functionsLibGet();
+    dictIterator *iter = dictGetIterator(functions);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        functionLibInfo *li = dictGetVal(entry);
+        if (li->desc) {
+            if (rioWrite(aof, "*7\r\n", 4) == 0) goto werr;
+        } else {
+            if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
+        }
+        char fucntion_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
+        if (rioWrite(aof, fucntion_load, sizeof(fucntion_load) - 1) == 0) goto werr;
+        if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
+        if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
+        if (li->desc) {
+            if (rioWriteBulkString(aof, "description", 11) == 0) goto werr;
+            if (rioWriteBulkString(aof, li->desc, sdslen(li->desc)) == 0) goto werr;
+        }
+        if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
+    }
+    dictReleaseIterator(iter);
+    return 1;
+
+werr:
+    dictReleaseIterator(iter);
+    return 0;
+}
+
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
@@ -2115,6 +2144,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWrite(aof,ts,sdslen(ts)) == 0) { sdsfree(ts); goto werr; }
         sdsfree(ts);
     }
+
+    if (rewriteFunctions(aof) == 0) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
@@ -2297,9 +2328,7 @@ int rewriteAppendOnlyFileBackground(void) {
     }
 
     /* We set aof_selected_db to -1 in order to force the next call to the
-     * feedAppendOnlyFile() to issue a SELECT command, so the differences
-     * accumulated by the parent into server.aof_rewrite_buf will start
-     * with a SELECT statement and it will be safe to merge. */
+     * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
     if (openNewIncrAofForAppend() != C_OK) return C_ERR;

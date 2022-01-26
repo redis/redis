@@ -11,6 +11,10 @@
             [
                 "6.2.0",
                 "Added Pub/Sub channel patterns."
+            ],
+            [
+                "7.0.0",
+                "Added selectors and key based permissions."
             ]
         ],
         "command_flags": [

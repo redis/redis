@@ -9,8 +9,10 @@
         "function": "clusterCommand",
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

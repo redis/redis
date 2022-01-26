@@ -48,11 +48,7 @@ start_server {tags {"repl external:skip"}} {
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
-            wait_for_condition 50 100 {
-                [s 0 master_link_status] eq {up}
-            } else {
-                fail "Replication not started."
-            }
+            wait_replica_online $master
         }
 
         test {With min-slaves-to-write (1,3): master should be writable} {
@@ -107,12 +103,12 @@ start_server {tags {"repl external:skip"}} {
             wait_for_ofs_sync $master $slave
             exec kill -SIGSTOP [srv 0 pid]
             $master incr k
-            after 1000
+            after 1001
             # Stopping the replica for one second to makes sure the INCR arrives
             # to the replica after the key is logically expired.
             exec kill -SIGCONT [srv 0 pid]
             wait_for_ofs_sync $master $slave
-            # Check that k is locigally expired but is present in the replica.
+            # Check that k is logically expired but is present in the replica.
             assert_equal 0 [$slave exists k]
             $slave debug object k ; # Raises exception if k is gone.
         }

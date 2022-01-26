@@ -41,4 +41,8 @@ start_server {tags {"modules"}} {
         catch {r getkeys.introspect set key} e
         set _ $e
     } {*EINVAL*}
+
+    test "Unload the module - getkeys" {
+        assert_equal {OK} [r module unload getkeys]
+    }
 }
