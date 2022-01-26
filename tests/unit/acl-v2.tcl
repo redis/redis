@@ -162,7 +162,7 @@ start_server {tags {"acl external:skip"}} {
         assert_error {*NOPERM*keys*} {$r2 set writestr bar get ex 100}
         assert_error {*NOPERM*keys*} {$r2 set writestr bar get keepttl nx}
 
-        # todo this should be `ERR value is not an integer or out of range`
+        # this probably should be `ERR value is not an integer or out of range`
         assert_error {*NOPERM*keys*} {$r2 set writestr bar ex get}
     }
 
@@ -184,6 +184,42 @@ start_server {tags {"acl external:skip"}} {
         assert_equal {bar2} [$r2 set readwrite_str bar3 get ex 10]
         assert_equal {bar3} [$r2 get readwrite_str]
         assert_range [$r2 ttl readwrite_str] 5 10
+    }
+
+    test {Test BITFIELD with separate read permission} {
+        r del readstr
+        r ACL SETUSER bitfield-key-permission-R on nopass %R~read* +@all
+        $r2 auth bitfield-key-permission-R password
+        assert_equal PONG [$r2 PING]
+        assert_equal {0} [$r2 bitfield readstr get u4 0]
+
+        # We don't have the permission to WRITE key.
+        assert_error {*NOPERM*keys*} {$r2 bitfield readstr set u4 0 1}
+        assert_error {*NOPERM*keys*} {$r2 bitfield readstr incrby u4 0 1}
+    }
+
+    test {Test BITFIELD with separate write permission} {
+        r del writestr
+        r ACL SETUSER bitfield-key-permission-W on nopass %W~write* +@all
+        $r2 auth bitfield-key-permission-W password
+        assert_equal PONG [$r2 PING]
+        assert_equal {0} [$r2 bitfield writestr set u4 0 1]
+        assert_equal {2} [$r2 bitfield writestr incrby u4 0 1]
+
+        # We don't have the permission to READ key.
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr get u4 0}
+    }
+
+    test {Test BITFIELD with read and write permissions} {
+        r del readwrite_str
+        r ACL SETUSER bitfield-key-permission-RW-selector on nopass %RW~readwrite* +@all
+        $r2 auth bitfield-key-permission-RW-selector password
+        assert_equal PONG [$r2 PING]
+
+        assert_equal {0} [$r2 bitfield readwrite_str get u4 0]
+        assert_equal {0} [$r2 bitfield readwrite_str set u4 0 1]
+        assert_equal {2} [$r2 bitfield readwrite_str incrby u4 0 1]
+        assert_equal {2} [$r2 bitfield readwrite_str get u4 0]
     }
 
     test {Test ACL log correctly identifies the relevant item when selectors are used} {
