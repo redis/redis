@@ -676,7 +676,7 @@ void cliInitGroupHelpEntries(dict *groups) {
     for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
         tmp.argc = 1;
         tmp.argv = zmalloc(sizeof(sds));
-        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",entry->key);
+        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)entry->key);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
         tmp.org = NULL;
