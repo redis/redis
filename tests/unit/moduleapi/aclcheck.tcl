@@ -58,7 +58,7 @@ start_server {tags {"modules acl"}} {
         assert_error {*NOPERM*} {r aclcheck.rm_call set y 5 get}
 
         # rm call check for key permission (z: only READ)
-        assert_error {*NOPERM*} {r aclcheck.rm_call set z 5 get}
+        assert_error {*NOPERM*} {r aclcheck.rm_call set z 5}
         assert_error {*NOPERM*} {r aclcheck.rm_call set z 6 get}
 
         # verify that new log entry added
