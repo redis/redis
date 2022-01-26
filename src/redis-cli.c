@@ -579,23 +579,19 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->summary = sdsnew(reply->str);
-        }
-        else if (!strcmp(key, "since")) {
+        } else if (!strcmp(key, "since")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->since = sdsnew(reply->str);
-        }
-        else if (!strcmp(key, "group")) {
+        } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->group = sdsnew(reply->str);
-        }
-        else if (!strcmp(key, "arguments")) {
+        } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
             assert(args->type == (config.resp3 ? REDIS_REPLY_SET : REDIS_REPLY_ARRAY));
             help->org->params = cliConcatArguments(help->org->params, args, " ");
-        }
-        else if (!strcmp(key, "subcommands")) {
+        } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == (config.resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
             for (size_t i = 0; i < subcommands->elements; i += 2) {
