@@ -103,7 +103,7 @@ start_server {tags {"repl external:skip"}} {
             wait_for_ofs_sync $master $slave
             exec kill -SIGSTOP [srv 0 pid]
             $master incr k
-            after 1000
+            after 1001
             # Stopping the replica for one second to makes sure the INCR arrives
             # to the replica after the key is logically expired.
             exec kill -SIGCONT [srv 0 pid]
