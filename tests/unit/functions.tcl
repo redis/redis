@@ -245,7 +245,7 @@ start_server {tags {"scripting"}} {
         after 200
         catch {r ping} e
         assert_match {BUSY*} $e
-        assert_match {running_script {name test command {fcall test 0} duration_ms *} engines LUA} [r FUNCTION STATS]
+        assert_match {running_script {name test command {fcall test 0} duration_ms *} engines {*}} [r FUNCTION STATS]
         r function kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
@@ -1102,4 +1102,34 @@ start_server {tags {"scripting"}} {
         catch {[r fcall f1 0]} e
         assert_equal  [r fcall get_version_v1 0] [r fcall get_version_v2 0]
     }
+
+    test {FUNCTION - function stats} {
+        r FUNCTION FLUSH
+
+        r FUNCTION load lua test1 {
+            redis.register_function('f1', function() return 1 end)
+            redis.register_function('f2', function() return 1 end)
+        }
+
+        r FUNCTION load lua test2 {
+            redis.register_function('f3', function() return 1 end)
+        }
+
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}}
+
+    test {FUNCTION - function stats reloaded correctly from rdb} {
+        r debug reload
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}} {needs:debug}
+
+    test {FUNCTION - function stats delete library} {
+        r function delete test1
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 1 functions_count 1}}}
+
+    test {FUNCTION - function stats cleaned after flush} {
+        r function flush
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 0 functions_count 0}}}
 }
