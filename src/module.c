@@ -7434,7 +7434,7 @@ int moduleHoldsTimer(struct RedisModule *module) {
     int found = 0;
     raxStart(&iter,Timers);
     raxSeek(&iter,"^",NULL,0);
-    while(raxNext(&iter)) {
+    while (raxNext(&iter)) {
         RedisModuleTimer *timer = iter.data;
         if (timer->module == module) {
             found = 1;
