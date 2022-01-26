@@ -178,7 +178,6 @@ struct commandHelp {
   char *params;
   char *summary;
   char *group;
-  char *since;
 };
 
 /* Cluster Manager Command Info */
@@ -536,7 +535,8 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
     return params;
 }
 
-static void cliCreateHelpEntry(helpEntry *help, char *cmdname, char *subcommandname) {
+/* Fill in the fields of a help entry for the command/subcommand name. */
+static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subcommandname) {
     help->argc = subcommandname ? 2 : 1;
     help->argv = zmalloc(sizeof(sds) * help->argc);
     help->argv[0] = sdsnew(cmdname);
@@ -560,11 +560,17 @@ static void cliCreateHelpEntry(helpEntry *help, char *cmdname, char *subcommandn
     ch->params = sdsempty();
 }
 
-/* Initialize a command help entry for the command/subcommand described in specs.
- * Returns the index of the next available position in the help entries table. */
-static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, helpEntry *next, redisReply *specs) {
+/* Initialize a command help entry for the command/subcommand described in 'specs'.
+ * 'next' points to the next help entry to be filled in.
+ * 'groups' is a set of command group names to be filled in.
+ * Returns a pointer to the next available position in the help entries table.
+ * If the command has subcommands, this is called recursively for the subcommands.
+ */
+static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
+                                          helpEntry *next, redisReply *specs,
+                                          dict *groups) {
     helpEntry *help = next++;
-    cliCreateHelpEntry(help, cmdname, subcommandname);
+    cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
     assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
     for (size_t j = 0; j < specs->elements; j += 2) {
@@ -574,14 +580,11 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->summary = sdsnew(reply->str);
-        } else if (!strcmp(key, "since")) {
-            redisReply *reply = specs->element[j + 1];
-            assert(reply->type == REDIS_REPLY_STRING);
-            help->org->since = sdsnew(reply->str);
         } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->group = sdsnew(reply->str);
+            dictAdd(groups, sdsdup(help->org->group), NULL);
         } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
             assert(args->type == REDIS_REPLY_ARRAY);
@@ -594,7 +597,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname, h
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
                 assert(subcommand->type == REDIS_REPLY_MAP || subcommand->type == REDIS_REPLY_ARRAY);
-                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand);
+                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand, groups);
             }
         }
     }
@@ -631,7 +634,11 @@ int helpEntryCompare(const void *entry1, const void *entry2) {
     return strcmp(i1->full, i2->full);
 }
 
-static void cliInitHelpFromCommand() {
+/* Used to support old redis servers that don't implement COMMAND DOCS.
+ * Initializes the help table from the output of COMMAND, which has no
+ * information about command descriptions, groups or arguments.
+ */
+static void cliInitHelpFromCommandCommand() {
     redisReply *commandTable = redisCommand(context, "COMMAND");
     if (commandTable == NULL || commandTable->type != REDIS_REPLY_ARRAY) return;
     helpEntriesLen = commandTable->elements;
@@ -642,10 +649,9 @@ static void cliInitHelpFromCommand() {
 
         assert(cmdspecs->type == REDIS_REPLY_ARRAY);
         assert(cmdspecs->element[0]->type == REDIS_REPLY_STRING);
-        cliCreateHelpEntry(&help, cmdspecs->element[0]->str, NULL);
+        cliFillInCommandHelpEntry(&help, cmdspecs->element[0]->str, NULL);
         help.org->summary = "Help not available";
         help.org->group = "Unknown";
-        help.org->since = "Unknown";
         helpEntries[i] = help;
     }
 
@@ -653,26 +659,35 @@ static void cliInitHelpFromCommand() {
     freeReplyObject(commandTable);
 }
 
-/* cliInitHelp() sets up the helpEntries array with the command and group
- * names and command descriptions obtained using the COMMAND DOCS command. */
-static void cliInitHelp(void) {
-    helpEntry *next;
-    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
+/* Initializes command help entries for command groups.
+ * Called after the command help entries have already been filled in.
+ * Extends the help table with new entries for the command groups.
+ */
+void cliInitGroupHelpEntries(dict *groups) {
+    dictIterator *iter = dictGetIterator(groups);
+    dictEntry *entry;
+    helpEntry tmp;
 
-    redisReply *commandTable = redisCommand(context, "COMMAND DOCS");
-    if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
-        /* New COMMAND DOCS not supported - generate help from COMMAND instead. */
-        freeReplyObject(commandTable);
-        cliInitHelpFromCommand();
-        return;
-    };
-    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
-    
-    /* Scan the array reported by COMMAND DOCS and fill in the entries */
-    helpEntriesLen = cliCountCommands(commandTable);
-    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
-    next = helpEntries;
+    int numGroups = dictSize(groups);
+    int pos = helpEntriesLen;
+    helpEntriesLen += numGroups;
+    helpEntries = realloc(helpEntries, sizeof(helpEntry)*helpEntriesLen);
 
+    for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
+        tmp.argc = 1;
+        tmp.argv = zmalloc(sizeof(sds));
+        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",entry->key);
+        tmp.full = tmp.argv[0];
+        tmp.type = CLI_HELP_GROUP;
+        tmp.org = NULL;
+        helpEntries[pos++] = tmp;
+    }
+    dictReleaseIterator(iter);
+}
+
+/* Initializes help entries for all commands in the COMMAND DOCS reply. */
+void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
+    helpEntry *next = helpEntries;
     for (size_t i = 0; i < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
@@ -680,17 +695,54 @@ static void cliInitHelp(void) {
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *cmdspecs = commandTable->element[i + 1];
-        next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs);
+        next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
+}
+
+/* cliInitHelp() sets up the helpEntries array with the command and group
+ * names and command descriptions obtained using the COMMAND DOCS command.
+ */
+static void cliInitHelp(void) {
+    /* Dict type for a set of strings, used to collect names of command groups. */
+    dictType groupsdt = {
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
+    };
+    redisReply *commandTable;
+    dict *groups;
+
+    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
+    commandTable = redisCommand(context, "COMMAND DOCS");
+    if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
+        /* New COMMAND DOCS subcommand not supported - generate help from old COMMAND instead. */
+        freeReplyObject(commandTable);
+        cliInitHelpFromCommandCommand();
+        return;
+    };
+    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
+    
+    /* Scan the array reported by COMMAND DOCS and fill in the entries */
+    helpEntriesLen = cliCountCommands(commandTable);
+    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
+
+    groups = dictCreate(&groupsdt);
+    cliInitCommandHelpEntries(commandTable, groups);
+    cliInitGroupHelpEntries(groups);
+
     qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
     freeReplyObject(commandTable);
+    dictRelease(groups);
 }
 
 /* Output command help to stdout. */
 static void cliOutputCommandHelp(struct commandHelp *help, int group) {
     printf("\r\n  \x1b[1m%s\x1b[0m \x1b[90m%s\x1b[0m\r\n", help->name, help->params);
     printf("  \x1b[33msummary:\x1b[0m %s\r\n", help->summary);
-    printf("  \x1b[33msince:\x1b[0m %s\r\n", help->since);
     if (group) {
         printf("  \x1b[33mgroup:\x1b[0m %s\r\n", help->group);
     }
