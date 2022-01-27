@@ -3,13 +3,13 @@
 # The script must be run on the machine where the instance is running
 # and have access rights to the append only files.
 # The script will safely create a tar.gz file will all the files
-# required to restore the dataset from the append-only-file, 
+# required to restore the dataset from the append-only-file,
 # making sure you have a consistent set of files including the
 # manifest for redis to restore its data.
 # The script achieves this in the following way:
 # 1. Verify the server isn't performing a rewrite.
 # 2. Create hard links to files in the appnedonlydir directory.
-# 3. Verify no rewrite started or happened since 1 above. 
+# 3. Verify no rewrite started or happened since 1 above.
 #    If it did delete the hard links and go back to 1.
 # 4. tar-gzip the hard links.
 # 5. Delete the hard links.
