@@ -112,6 +112,10 @@ while true; do
     rm -r $tmp_dir
 done
 
+# note: we can ignore "file-change" warnings because tar considers ctime changes as a change
+# and our hard links ctime changes (if)when redis deletes old files after a rewrite. This can 
+# happen while we're still accessing them from tar. A ctime change isn't an mtime change, and
+# doesn't mean the file's data actually changed.
 tar -czf $filename -C $tmp_dir --warning no-file-change $appenddirname  || [[ $? -eq 1 ]]
 rm -r $tmp_dir
 echo "Done. Successfully created backup file $filename."
