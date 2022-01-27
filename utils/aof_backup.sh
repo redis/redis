@@ -114,5 +114,5 @@ done
 
 tar -czf $filename -C $tmp_dir --warning no-file-change $appenddirname  || [[ $? -eq 1 ]]
 rm -r $tmp_dir
-echo "done, succfully created backup file $filename"
+echo "Done. Successfully created backup file $filename."
 
