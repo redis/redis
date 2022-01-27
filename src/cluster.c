@@ -4842,10 +4842,10 @@ int getSlotOrReply(client *c, robj *o) {
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
  * Returns 1 for available nodes, 0 for nodes that have 
- * not finished their initial sync, in failed state, or are 
+ * not finished their initial sync, in failed pfail state, or are
  * otherwise considered not available to serve read commands. */
 static int isReplicaAvailable(clusterNode *node) {
-    if (nodeFailed(node)) {
+    if (nodeFailed(node) || nodeTimedOut(node)) {
         return 0;
     }
     long long repl_offset = node->repl_offset;
