@@ -39,11 +39,11 @@ def argument arg
   else
     name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
   end
-  if arg["token"]
-    name = [arg["token"], name].compact.join " "
-  end
   if arg["multiple"]
     name = "#{name} [#{name} ...]"
+  end
+  if arg["token"]
+    name = [arg["token"], name].compact.join " "
   end
   if arg["optional"]
     name = "[#{name}]"
