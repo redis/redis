@@ -264,6 +264,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_CHANNEL (1ULL<<8)     /* PUBSUB shard channel */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
+#define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
+                                            * different flags depending on arguments */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1892,7 +1894,7 @@ struct redisServer {
 
 typedef struct {
     int pos; /* The position of the key within the client array */
-    int flags; /* The flags associted with the key access, see
+    int flags; /* The flags associated with the key access, see
                   CMD_KEY_* for more information */
 } keyReference;
 
@@ -1914,7 +1916,7 @@ typedef struct {
  * which is limited and doesn't fit many commands.
  *
  * There are two steps:
- * 1. begin_search (BS): in which index should we start seacrhing for keys?
+ * 1. begin_search (BS): in which index should we start searching for keys?
  * 2. find_keys (FK): relative to the output of BS, how can we will which args are keys?
  *
  * There are two types of BS:
@@ -1957,7 +1959,7 @@ typedef struct {
             const char *keyword;
             /* An index in argv from which to start searching.
              * Can be negative, which means start search from the end, in reverse
-             * (Example: -2 means to start in reverse from the panultimate arg) */
+             * (Example: -2 means to start in reverse from the penultimate arg) */
             int startfrom;
         } keyword;
     } bs;
@@ -3020,6 +3022,8 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 

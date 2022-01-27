@@ -4177,7 +4177,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
 }
 
 void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_args) {
-    addReplySetLen(c, num_args);
+    addReplyArrayLen(c, num_args);
     for (int j = 0; j<num_args; j++) {
         /* Count our reply len so we don't have to use deferred reply. */
         long maplen = 2;
