@@ -1790,7 +1790,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
 
         /* Handle incomplete specs (only after we added the current spec
          * to `keys`, just in case GET_KEYSPEC_RETURN_PARTIAL was given) */
-        if (spec->find_keys_type & CMD_KEY_INCOMPLETE) {
+        if (spec->flags & CMD_KEY_INCOMPLETE) {
             goto invalid_spec;
         }
 
