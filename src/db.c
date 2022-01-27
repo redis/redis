@@ -1707,10 +1707,6 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         if ((spec->flags & CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
             continue;
         }
-        /* Handle incomplete specs */
-        if (spec->find_keys_type & CMD_KEY_INCOMPLETE) {
-            goto invalid_spec;
-        }
 
         first = 0;
         if (spec->begin_search_type == KSPEC_BS_INDEX) {
@@ -1790,6 +1786,12 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
             keys[k].pos = i;
             keys[k++].flags = spec->flags;
+        }
+
+        /* Handle incomplete specs (only after we added the current spec
+         * to `keys`, just in case GET_KEYSPEC_RETURN_PARTIAL was given) */
+        if (spec->find_keys_type & CMD_KEY_INCOMPLETE) {
+            goto invalid_spec;
         }
 
         /* Done with this spec */

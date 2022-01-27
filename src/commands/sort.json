@@ -37,7 +37,7 @@
                 }
             },
             {
-                "description": "For the optional BY/GET keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
+                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
                 "flags": [
                     "RO",
                     "ACCESS"
@@ -50,7 +50,7 @@
                 }
             },
             {
-                "description": "For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
+                "notes": "For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
                 "flags": [
                     "OW",
                     "UPDATE"
@@ -72,7 +72,7 @@
             {
                 "token": "BY",
                 "name": "pattern",
-                "type": "key_pattern",
+                "type": "pattern",
                 "key_spec_index": 1,
                 "optional": true
             },
@@ -94,7 +94,7 @@
             },
             {
                 "token": "GET",
-                "name": "key_pattern",
+                "name": "pattern",
                 "key_spec_index": 1,
                 "type": "string",
                 "optional": true,

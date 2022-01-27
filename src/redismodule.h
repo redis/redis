@@ -250,7 +250,6 @@ typedef enum {
     REDISMODULE_ARG_TYPE_DOUBLE,
     REDISMODULE_ARG_TYPE_KEY, /* A string, but represents a keyname */
     REDISMODULE_ARG_TYPE_PATTERN,
-    REDISMODULE_ARG_TYPE_KEY_PATTERN, /* A pattern, but represents keynames */
     REDISMODULE_ARG_TYPE_UNIX_TIME,
     REDISMODULE_ARG_TYPE_PURE_TOKEN,
     REDISMODULE_ARG_TYPE_ONEOF, /* Must have sub-arguments */

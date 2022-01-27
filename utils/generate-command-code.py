@@ -10,7 +10,6 @@ ARG_TYPES = {
     "double": "ARG_TYPE_DOUBLE",
     "key": "ARG_TYPE_KEY",
     "pattern": "ARG_TYPE_PATTERN",
-    "key_pattern": "ARG_TYPE_KEY_PATTERN",
     "unix-time": "ARG_TYPE_UNIX_TIME",
     "pure-token": "ARG_TYPE_PURE_TOKEN",
     "oneof": "ARG_TYPE_ONEOF",
@@ -121,7 +120,7 @@ class KeySpec(object):
                 exit(1)
 
         return "%s,%s,%s,%s" % (
-            get_optional_desc_string(self.spec, "description"),
+            get_optional_desc_string(self.spec, "notes"),
             _flags_code(),
             _begin_search_code(),
             _find_keys_code()
