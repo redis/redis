@@ -58,7 +58,7 @@ start_server {tags {"modules"}} {
 
     test "Module can be unloaded when timer was finished" {
         r set "timer-incr-key" 0
-        r test.createtimer 2000 timer-incr-key
+        r test.createtimer 500 timer-incr-key
 
         # Make sure the Timer has not been fired
         assert_equal 0 [r get timer-incr-key]
