@@ -584,7 +584,10 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org->group = sdsnew(reply->str);
-            dictAdd(groups, sdsdup(help->org->group), NULL);
+            sds group = sdsdup(help->org->group);
+            if (dictAdd(groups, group, NULL) != DICT_OK) {
+                sdsfree(group);
+            }
         } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
             assert(args->type == REDIS_REPLY_ARRAY);
