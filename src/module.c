@@ -10143,6 +10143,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * * EBUSY: The module exports a new data type and can only be reloaded. 
  * * EPERM: The module exports APIs which are used by other module. 
  * * EAGAIN: The module has blocked clients. 
+ * * EINPROGRESS: The module holds timer not fired.
  * * ECANCELED: Unload module error.  */
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
