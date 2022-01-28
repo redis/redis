@@ -11,6 +11,10 @@
             [
                 "6.2.0",
                 "Added Pub/Sub channel patterns."
+            ],
+            [
+                "7.0.0",
+                "Added selectors and changed the format of key and channel patterns from a list to their rule representation."
             ]
         ],
         "command_flags": [
