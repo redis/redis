@@ -41,13 +41,20 @@ static size_t engine_cache_memory = 0;
 
 /* Forward declaration */
 static void engineFunctionDispose(dict *d, void *obj);
+static void engineStatsDispose(dict *d, void *obj);
 static void engineLibraryDispose(dict *d, void *obj);
 static int functionsVerifyName(sds name);
 
+typedef struct functionsLibEngineStats {
+    size_t n_lib;
+    size_t n_functions;
+} functionsLibEngineStats;
+
 struct functionsLibCtx {
-    dict *libraries;    /* Function name -> Function object that can be used to run the function */
-    dict *functions;    /* Function name -> Function object that can be used to run the function */
-    size_t cache_memory /* Overhead memory (structs, dictionaries, ..) used by all the functions */;
+    dict *libraries;     /* Library name -> Library object */
+    dict *functions;     /* Function name -> Function object that can be used to run the function */
+    size_t cache_memory; /* Overhead memory (structs, dictionaries, ..) used by all the functions */
+    dict *engines_stats; /* Per engine statistics */
 };
 
 dictType engineDictType = {
@@ -67,6 +74,16 @@ dictType functionDictType = {
         dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         NULL,                 /* val destructor */
+        NULL                  /* allow to expand */
+};
+
+dictType engineStatsDictType = {
+        dictSdsCaseHash,      /* hash function */
+        dictSdsDup,           /* key dup */
+        NULL,                 /* val dup */
+        dictSdsKeyCaseCompare,/* key compare */
+        dictSdsDestructor,    /* key destructor */
+        engineStatsDispose,   /* val destructor */
         NULL                  /* allow to expand */
 };
 
@@ -111,6 +128,12 @@ static size_t libraryMallocSize(functionLibInfo *li) {
             + sdsZmallocSize(li->code);
 }
 
+static void engineStatsDispose(dict *d, void *obj) {
+    UNUSED(d);
+    functionsLibEngineStats *stats = obj;
+    zfree(stats);
+}
+
 /* Dispose function memory */
 static void engineFunctionDispose(dict *d, void *obj) {
     UNUSED(d);
@@ -147,6 +170,14 @@ static void engineLibraryDispose(dict *d, void *obj) {
 void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     dictEmpty(lib_ctx->functions, NULL);
     dictEmpty(lib_ctx->libraries, NULL);
+    dictIterator *iter = dictGetIterator(lib_ctx->engines_stats);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        functionsLibEngineStats *stats = dictGetVal(entry);
+        stats->n_functions = 0;
+        stats->n_lib = 0;
+    }
+    dictReleaseIterator(iter);
     curr_functions_lib_ctx->cache_memory = 0;
 }
 
@@ -165,6 +196,7 @@ void functionsLibCtxFree(functionsLibCtx *functions_lib_ctx) {
     functionsLibCtxClear(functions_lib_ctx);
     dictRelease(functions_lib_ctx->functions);
     dictRelease(functions_lib_ctx->libraries);
+    dictRelease(functions_lib_ctx->engines_stats);
     zfree(functions_lib_ctx);
 }
 
@@ -185,6 +217,15 @@ functionsLibCtx* functionsLibCtxCreate() {
     functionsLibCtx *ret = zmalloc(sizeof(functionsLibCtx));
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
+    ret->engines_stats = dictCreate(&engineStatsDictType);
+    dictIterator *iter = dictGetIterator(engines);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        engineInfo *ei = dictGetVal(entry);
+        functionsLibEngineStats *stats = zcalloc(sizeof(*stats));
+        dictAdd(ret->engines_stats, ei->name, stats);
+    }
+    dictReleaseIterator(iter);
     ret->cache_memory = 0;
     return ret;
 }
@@ -250,6 +291,12 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
     lib_ctx->cache_memory += libraryMallocSize(li);
+
+    /* update stats */
+    functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
+    serverAssert(stats);
+    stats->n_lib--;
+    stats->n_functions -= dictSize(li->functions);
 }
 
 static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
@@ -264,6 +311,12 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
 
     dictAdd(lib_ctx->libraries, li->name, li);
     lib_ctx->cache_memory += libraryMallocSize(li);
+
+    /* update stats */
+    functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
+    serverAssert(stats);
+    stats->n_lib++;
+    stats->n_functions += dictSize(li->functions);
 }
 
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
@@ -401,12 +454,18 @@ void functionStatsCommand(client *c) {
     }
 
     addReplyBulkCString(c, "engines");
-    addReplyArrayLen(c, dictSize(engines));
+    addReplyMapLen(c, dictSize(engines));
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         engineInfo *ei = dictGetVal(entry);
         addReplyBulkCString(c, ei->name);
+        addReplyMapLen(c, 2);
+        functionsLibEngineStats *e_stats = dictFetchValue(curr_functions_lib_ctx->engines_stats, ei->name);
+        addReplyBulkCString(c, "libraries_count");
+        addReplyLongLong(c, e_stats->n_lib);
+        addReplyBulkCString(c, "functions_count");
+        addReplyLongLong(c, e_stats->n_functions);
     }
     dictReleaseIterator(iter);
 }
@@ -570,69 +629,11 @@ static void fcallCommandGeneric(client *c, int ro) {
         return;
     }
 
-    if ((fi->f_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
-        addReplyError(c, "Can not run function on cluster, 'no-cluster' flag is set.");
-        return;
-    }
-
-    if (!(fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
-        addReplyError(c, "-OOM allow-oom flag is not set on the function, "
-                         "can not run it when used memory > 'maxmemory'");
-        return;
-    }
-
-    if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 && !(fi->f_flags & SCRIPT_FLAG_ALLOW_STALE))
-    {
-        addReplyError(c, "-MASTERDOWN Link with MASTER is down, "
-                         "replica-serve-stale-data is set to 'no' "
-                         "and 'allow-stale' flag is not set on the function.");
-        return;
-    }
-
-    if (!(fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
-        /* Function may perform writes we need to verify:
-         * 1. we are not a readonly replica
-         * 2. no disk error detected
-         * 3. command is not 'fcall_ro' */
-        if (server.masterhost && server.repl_slave_ro && c->id != CLIENT_ID_AOF
-            && !(c->flags & CLIENT_MASTER))
-        {
-            addReplyError(c, "Can not run a function with write flag on readonly replica");
-            return;
-        }
-
-        int deny_write_type = writeCommandsDeniedByDiskError();
-        if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
-            if (deny_write_type == DISK_ERROR_TYPE_RDB)
-                addReplyError(c, "-MISCONF Redis is configured to save RDB snapshots, "
-                                 "but it is currently not able to persist on disk. "
-                                 "So its impossible to run functions that has 'write' flag on.");
-            else
-                addReplyErrorFormat(c, "-MISCONF Redis is configured to persist data to AOF, "
-                                       "but it is currently not able to persist on disk. "
-                                       "So its impossible to run functions that has 'write' flag on. "
-                                       "AOF error: %s", strerror(server.aof_last_write_errno));
-            return;
-        }
-
-        if (ro) {
-            addReplyError(c, "Can not execute a function with write flag using fcall_ro.");
-            return;
-        }
-    }
-
     scriptRunCtx run_ctx;
 
-    scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro || (fi->f_flags & SCRIPT_FLAG_NO_WRITES)) {
-        /* On fcall_ro or on functions that do not have the 'write'
-         * flag, we will not allow write commands. */
-        run_ctx.flags |= SCRIPT_READ_ONLY;
-    }
-    if (fi->f_flags & SCRIPT_FLAG_ALLOW_OOM) {
-        run_ctx.flags |= SCRIPT_ALLOW_OOM;
-    }
+    if (scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name, fi->f_flags, ro) != C_OK)
+        return;
+
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,
                  c->argv + 3 + numkeys, c->argc - 3 - numkeys);
     scriptResetRun(&run_ctx);
@@ -1037,11 +1038,13 @@ size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
  * Should be called once on server initialization */
 int functionsInit() {
     engines = dictCreate(&engineDictType);
-    curr_functions_lib_ctx = functionsLibCtxCreate();
 
     if (luaEngineInitEngine() != C_OK) {
         return C_ERR;
     }
+
+    /* Must be initialized after engines initialization */
+    curr_functions_lib_ctx = functionsLibCtxCreate();
 
     return C_OK;
 }

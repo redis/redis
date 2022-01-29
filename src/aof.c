@@ -2328,9 +2328,7 @@ int rewriteAppendOnlyFileBackground(void) {
     }
 
     /* We set aof_selected_db to -1 in order to force the next call to the
-     * feedAppendOnlyFile() to issue a SELECT command, so the differences
-     * accumulated by the parent into server.aof_rewrite_buf will start
-     * with a SELECT statement and it will be safe to merge. */
+     * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
     if (openNewIncrAofForAppend() != C_OK) return C_ERR;

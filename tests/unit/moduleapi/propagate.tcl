@@ -574,6 +574,11 @@ tags "modules" {
                     assert_equal [$replica ttl k1] -1
                 }
 
+                test "Unload the module - propagate-test/testkeyspace" {
+                    assert_equal {OK} [r module unload propagate-test]
+                    assert_equal {OK} [r module unload testkeyspace]
+                }
+
                 assert_equal [s -1 unexpected_error_replies] 0
             }
         }
@@ -598,6 +603,7 @@ tags "modules aof" {
             # Load the AOF
             r debug loadaof
 
+            assert_equal {OK} [r module unload propagate-test]
             assert_equal [s 0 unexpected_error_replies] 0
         }
     }

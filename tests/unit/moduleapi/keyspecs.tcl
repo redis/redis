@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/keyspecs.so]
+if 0 { ; # Test suite disabled due to planned API changes
 
 start_server {tags {"modules"}} {
     r module load $testmodule
@@ -48,4 +49,10 @@ start_server {tags {"modules"}} {
         set reply [r command list filterby module keyspecs]
         assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.legacy}
     }
+
+    test "Unload the module - keyspecs" {
+        assert_equal {OK} [r module unload keyspecs]
+    }
 }
+
+} ; # Test suite disabled

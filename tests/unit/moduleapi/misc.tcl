@@ -1,6 +1,5 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-
 start_server {tags {"modules"}} {
     r module load $testmodule
 
@@ -132,5 +131,9 @@ start_server {tags {"modules"}} {
     test {test monotonic time} {
         set x [r test.monotonic_time]
         assert { [r test.monotonic_time] >= $x }
+    }
+
+    test "Unload the module - misc" {
+        assert_equal {OK} [r module unload misc]
     }
 }

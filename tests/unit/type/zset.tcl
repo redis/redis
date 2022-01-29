@@ -1157,9 +1157,9 @@ start_server {tags {"zset"}} {
     }
 
     test "ZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r zmpop}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1}
-        assert_error "ERR wrong number of arguments*" {r zmpop 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1}
+        assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r zmpop 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r zmpop a myzset{t} MIN}
@@ -1473,6 +1473,16 @@ start_server {tags {"zset"}} {
 
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
+    }
+
+    test "zunionInterDiffGenericCommand at least 1 input key" {
+        assert_error {*at least 1 input key * 'zunion' command} {r zunion 0 key{t}}
+        assert_error {*at least 1 input key * 'zunionstore' command} {r zunionstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zinter' command} {r zinter 0 key{t}}
+        assert_error {*at least 1 input key * 'zinterstore' command} {r zinterstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiff' command} {r zdiff 0 key{t}}
+        assert_error {*at least 1 input key * 'zdiffstore' command} {r zdiffstore dst_key{t} 0 key{t}}
+        assert_error {*at least 1 input key * 'zintercard' command} {r zintercard 0 key{t}}
     }
 
     proc stressers {encoding} {
@@ -1950,9 +1960,9 @@ start_server {tags {"zset"}} {
     }
 
     test "BZMPOP with illegal argument" {
-        assert_error "ERR wrong number of arguments*" {r bzmpop}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1}
-        assert_error "ERR wrong number of arguments*" {r bzmpop 0 1 myzset{t}}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1}
+        assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1 myzset{t}}
 
         assert_error "ERR numkeys*" {r bzmpop 1 0 myzset{t} MIN}
         assert_error "ERR numkeys*" {r bzmpop 1 a myzset{t} MIN}
