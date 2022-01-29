@@ -91,7 +91,7 @@ test "Disconnect link when send buffer limit reached" {
         [catch {incr i} e] == 0 &&
         [catch {$primary1 publish channel [prepare_value [expr 128*1024]]} e] == 0 &&
         [catch {after 500} e] == 0 &&
-        [get_info_field [$primary1 cluster info] total_cluster_links_buffer_limit_exceeded] eq 1
+        [get_info_field [$primary1 cluster info] total_cluster_links_buffer_limit_exceeded] >= 1
     } else {
         fail "Cluster link not freed as expected"
     }
