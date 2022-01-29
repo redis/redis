@@ -1240,7 +1240,7 @@ struct redisCommandArg EXPIREAT_condition_Subargs[] = {
 /* EXPIREAT argument table */
 struct redisCommandArg EXPIREAT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timestamp",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=EXPIREAT_condition_Subargs},
 {0}
 };
@@ -1494,7 +1494,7 @@ struct redisCommandArg PEXPIREAT_condition_Subargs[] = {
 /* PEXPIREAT argument table */
 struct redisCommandArg PEXPIREAT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"milliseconds-timestamp",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=PEXPIREAT_condition_Subargs},
 {0}
 };
@@ -5947,7 +5947,7 @@ struct redisCommandArg XCLAIM_Args[] = {
 {"min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {"ms",ARG_TYPE_INTEGER,-1,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"ms-unix-time",ARG_TYPE_INTEGER,-1,"TIME",NULL,NULL,CMD_ARG_OPTIONAL},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"TIME",NULL,NULL,CMD_ARG_OPTIONAL},
 {"count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL},
 {"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL},
 {"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -6452,8 +6452,8 @@ struct redisCommandArg GETDEL_Args[] = {
 struct redisCommandArg GETEX_expiration_Subargs[] = {
 {"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE},
 {"milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE},
-{"unix-time",ARG_TYPE_INTEGER,-1,"EXAT",NULL,NULL,CMD_ARG_NONE},
-{"unix-time",ARG_TYPE_INTEGER,-1,"PXAT",NULL,NULL,CMD_ARG_NONE},
+{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE},
 {"persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
