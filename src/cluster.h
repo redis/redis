@@ -332,10 +332,15 @@ typedef struct {
 
 /* clusterMsg defines the gossip wire protocol exchanged among Redis cluster
  * members, which can be running different versions of redis-server bits,
- * espeically during cluster rolling upgrades. Therefore, fields in this
- * struct should remain at the same offset from release to release. The
- * static asserts below ensures that incomaptibe changes in clusterMsg be
- * caught at compile time. */
+ * especially during cluster rolling upgrades.
+ *
+ * Therefore, fields in this struct should remain at the same offset from
+ * release to release. The static asserts below ensures that incompatible
+ * changes in clusterMsg be caught at compile time.
+ */
+
+/* Avoid static_assert on non-C11 compilers. */
+#if __STDC_VERSION__ >= 201112L
 static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");
 static_assert(offsetof(clusterMsg, totlen) == 4, "unexpected field offset");
 static_assert(offsetof(clusterMsg, ver) == 8, "unexpected field offset");
@@ -357,6 +362,7 @@ static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
 static_assert(offsetof(clusterMsg, state) == 2252, "unexpected field offset");
 static_assert(offsetof(clusterMsg, mflags) == 2253, "unexpected field offset");
 static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
+#endif
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 
