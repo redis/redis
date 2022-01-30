@@ -20,12 +20,12 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*keys*" $err
     }
 
-    test {Test ACL selectors by default have no permissions (except channels)} {
+    test {Test ACL selectors by default have no permissions} {
         r ACL SETUSER selector-default reset ()
         set user [r ACL GETUSER "selector-default"]
         assert_equal 1 [llength [dict get $user selectors]]
         assert_equal "" [dict get [lindex [dict get $user selectors] 0] keys]
-        assert_equal "&*" [dict get [lindex [dict get $user selectors] 0] channels]
+        assert_equal "" [dict get [lindex [dict get $user selectors] 0] channels]
         assert_equal "-@all" [dict get [lindex [dict get $user selectors] 0] commands]
     }
 
@@ -44,7 +44,7 @@ start_server {tags {"acl external:skip"}} {
         catch {r ACL SETUSER selector-syntax on (this-is-invalid)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Syntax*" $e
 
-        catch {r ACL SETUSER selector-syntax on (&fail)} e
+        catch {r ACL SETUSER selector-syntax on (&* &fail)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Adding a pattern after the*" $e
 
         assert_equal "" [r ACL GETUSER selector-syntax]
