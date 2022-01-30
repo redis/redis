@@ -2023,7 +2023,10 @@ struct redisCommandArg GEORADIUSBYMEMBER_RO_Args[] = {
 /********** GEORADIUS_RO ********************/
 
 /* GEORADIUS_RO history */
-#define GEORADIUS_RO_History NULL
+commandHistory GEORADIUS_RO_History[] = {
+{"6.2.0","Added the `ANY` option for `COUNT`."},
+{0}
+};
 
 /* GEORADIUS_RO tips */
 #define GEORADIUS_RO_tips NULL
@@ -2040,7 +2043,7 @@ struct redisCommandArg GEORADIUS_RO_unit_Subargs[] = {
 /* GEORADIUS_RO count argument table */
 struct redisCommandArg GEORADIUS_RO_count_Subargs[] = {
 {"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3847,6 +3850,7 @@ struct redisCommandArg ACL_GENPASS_Args[] = {
 /* ACL GETUSER history */
 commandHistory ACL_GETUSER_History[] = {
 {"6.2.0","Added Pub/Sub channel patterns."},
+{"7.0.0","Added selectors and changed the format of key and channel patterns from a list to their rule representation."},
 {0}
 };
 
@@ -4660,7 +4664,7 @@ struct redisCommandArg REPLICAOF_Args[] = {
 
 /* SHUTDOWN history */
 commandHistory SHUTDOWN_History[] = {
-{"7.0","Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."},
+{"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."},
 {0}
 };
 
@@ -4677,9 +4681,9 @@ struct redisCommandArg SHUTDOWN_nosave_save_Subargs[] = {
 /* SHUTDOWN argument table */
 struct redisCommandArg SHUTDOWN_Args[] = {
 {"nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SHUTDOWN_nosave_save_Subargs},
-{"now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,NULL,CMD_ARG_OPTIONAL},
-{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL},
+{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL},
+{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5188,8 +5192,8 @@ struct redisCommandArg ZADD_score_member_Subargs[] = {
 /* ZADD argument table */
 struct redisCommandArg ZADD_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=ZADD_condition_Subargs},
-{"comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",CMD_ARG_OPTIONAL,.subargs=ZADD_comparison_Subargs},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",CMD_ARG_OPTIONAL,.subargs=ZADD_condition_Subargs},
+{"comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=ZADD_comparison_Subargs},
 {"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL},
 {"increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL},
 {"score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=ZADD_score_member_Subargs},
