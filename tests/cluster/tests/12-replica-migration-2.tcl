@@ -6,7 +6,6 @@
 
 source "../tests/includes/init-tests.tcl"
 source "../../../tests/support/cli.tcl"
-source "../tests/includes/utils.tcl"
 
 # Create a cluster with 5 master and 15 slaves, to make sure there are no
 # empty masters and make rebalancing simpler to handle during the test.
@@ -28,10 +27,6 @@ test "Each master should have at least two replicas attached" {
             }
         }
     }
-}
-
-test "Wait cluster to be stable" {
-    wait_cluster_stable
 }
 
 test "Set allow-replica-migration yes" {
@@ -58,23 +53,16 @@ test "Master #0 should lose its replicas" {
     }
 }
 
-# Wait for the cluster config to propagate before attempting a
-# new resharding.
-test "Wait cluster to be stable" {
-    wait_cluster_stable
-}
-
 test "Resharding back some slot to master #0" {
+    # Wait for the cluster config to propagate before attempting a
+    # new resharding.
+    after 10000
     set output [exec \
         ../../../src/redis-cli --cluster rebalance \
         127.0.0.1:[get_instance_attrib redis 0 port] \
         {*}[rediscli_tls_config "../../../tests"] \
         --cluster-weight ${master0_id}=.01 \
         --cluster-use-empty-masters  >@ stdout]
-}
-
-test "Wait cluster to be stable" {
-    wait_cluster_stable
 }
 
 test "Master #0 should re-acquire one or more replicas" {
