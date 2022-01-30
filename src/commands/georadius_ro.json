@@ -6,6 +6,12 @@
         "since": "3.2.10",
         "arity": -6,
         "function": "georadiusroCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ANY` option for `COUNT`."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
         "doc_flags": [
@@ -113,7 +119,8 @@
                         "name": "any",
                         "token": "ANY",
                         "type": "pure-token",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             },

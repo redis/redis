@@ -8,7 +8,7 @@
         "function": "shutdownCommand",
         "history": [
             [
-                "7.0",
+                "7.0.0",
                 "Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."
             ]
         ],
@@ -17,9 +17,9 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
-	    "NO_MULTI",
+            "NO_MULTI",
             "SENTINEL",
-	    "ALLOW_BUSY"
+            "ALLOW_BUSY"
         ],
         "arguments": [
             {
@@ -43,19 +43,22 @@
                 "name": "now",
                 "type": "pure-token",
                 "token": "NOW",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             },
             {
                 "name": "force",
                 "type": "pure-token",
                 "token": "FORCE",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             },
             {
                 "name": "abort",
                 "type": "pure-token",
                 "token": "ABORT",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             }
         ]
     }
