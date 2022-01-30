@@ -4181,7 +4181,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     for (int j = 0; j<num_args; j++) {
         /* Count our reply len so we don't have to use deferred reply. */
         long maplen = 2;
-        if (args[j].type == ARG_TYPE_KEY) maplen++;
+        if (args[j].key_spec_index != -1) maplen++;
         if (args[j].token) maplen++;
         if (args[j].summary) maplen++;
         if (args[j].since) maplen++;
@@ -4196,7 +4196,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         addReplyBulkCString(c, "type");
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
 
-        if (args[j].type == ARG_TYPE_KEY) {
+        if (args[j].key_spec_index != -1) {
             addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
         }
@@ -4267,7 +4267,15 @@ void addReplyCommandTips(client *c, struct redisCommand *cmd) {
 void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
-        addReplyMapLen(c, 3);
+        int maplen = 3;
+        if (cmd->key_specs[i].notes) maplen++;
+
+        addReplyMapLen(c, maplen);
+
+        if (cmd->key_specs[i].notes) {
+            addReplyBulkCString(c, "notes");
+            addReplyBulkCString(c,cmd->key_specs[i].notes);
+        }
 
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);

@@ -1704,7 +1704,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
         /* Skip specs that represent channels instead of keys */
-        if (spec->flags & (CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
+        if ((spec->flags & CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
             continue;
         }
 
@@ -1788,6 +1788,12 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             keys[k++].flags = spec->flags;
         }
 
+        /* Handle incomplete specs (only after we added the current spec
+         * to `keys`, just in case GET_KEYSPEC_RETURN_PARTIAL was given) */
+        if (spec->flags & CMD_KEY_INCOMPLETE) {
+            goto invalid_spec;
+        }
+
         /* Done with this spec */
         continue;
 
@@ -1824,7 +1830,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else {
-        if (!(getAllKeySpecsFlags(cmd, 0) & (CMD_KEY_INCOMPLETE|CMD_KEY_VARIABLE_FLAGS))) {
+        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS)) {
             int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
             if (ret >= 0)
                 return ret;
