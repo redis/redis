@@ -336,27 +336,27 @@ typedef struct {
  * struct should remain at the same offset from release to release. The
  * static asserts below ensures that incomaptibe changes in clusterMsg be
  * caught at compile time. */
-static_assert(offsetof(clusterMsg, sig) == 0);
-static_assert(offsetof(clusterMsg, totlen) == 4);
-static_assert(offsetof(clusterMsg, ver) == 8);
-static_assert(offsetof(clusterMsg, port) == 10);
-static_assert(offsetof(clusterMsg, type) == 12);
-static_assert(offsetof(clusterMsg, count) == 14);
-static_assert(offsetof(clusterMsg, currentEpoch) == 16);
-static_assert(offsetof(clusterMsg, configEpoch) == 24);
-static_assert(offsetof(clusterMsg, offset) == 32);
-static_assert(offsetof(clusterMsg, sender) == 40);
-static_assert(offsetof(clusterMsg, myslots) == 80);
-static_assert(offsetof(clusterMsg, slaveof) == 2128);
-static_assert(offsetof(clusterMsg, myip) == 2168);
-static_assert(offsetof(clusterMsg, extensions) == 2214);
-static_assert(offsetof(clusterMsg, notused1) == 2216);
-static_assert(offsetof(clusterMsg, pport) == 2246);
-static_assert(offsetof(clusterMsg, cport) == 2248);
-static_assert(offsetof(clusterMsg, flags) == 2250);
-static_assert(offsetof(clusterMsg, state) == 2252);
-static_assert(offsetof(clusterMsg, mflags) == 2253);
-static_assert(offsetof(clusterMsg, data) == 2256);
+static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");
+static_assert(offsetof(clusterMsg, totlen) == 4, "unexpected field offset");
+static_assert(offsetof(clusterMsg, ver) == 8, "unexpected field offset");
+static_assert(offsetof(clusterMsg, port) == 10, "unexpected field offset");
+static_assert(offsetof(clusterMsg, type) == 12, "unexpected field offset");
+static_assert(offsetof(clusterMsg, count) == 14, "unexpected field offset");
+static_assert(offsetof(clusterMsg, currentEpoch) == 16, "unexpected field offset");
+static_assert(offsetof(clusterMsg, configEpoch) == 24, "unexpected field offset");
+static_assert(offsetof(clusterMsg, offset) == 32, "unexpected field offset");
+static_assert(offsetof(clusterMsg, sender) == 40, "unexpected field offset");
+static_assert(offsetof(clusterMsg, myslots) == 80, "unexpected field offset");
+static_assert(offsetof(clusterMsg, slaveof) == 2128, "unexpected field offset");
+static_assert(offsetof(clusterMsg, myip) == 2168, "unexpected field offset");
+static_assert(offsetof(clusterMsg, extensions) == 2214, "unexpected field offset");
+static_assert(offsetof(clusterMsg, notused1) == 2216, "unexpected field offset");
+static_assert(offsetof(clusterMsg, pport) == 2246, "unexpected field offset");
+static_assert(offsetof(clusterMsg, cport) == 2248, "unexpected field offset");
+static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
+static_assert(offsetof(clusterMsg, state) == 2252, "unexpected field offset");
+static_assert(offsetof(clusterMsg, mflags) == 2253, "unexpected field offset");
+static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 
