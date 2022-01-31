@@ -335,6 +335,7 @@ typedef struct {
 
 /* clusterMsg defines the gossip wire protocol exchanged among Redis cluster
  * members, which can be running different versions of redis-server bits,
+<<<<<<< HEAD
  * espeically during cluster rolling upgrades. Therefore, fields in this
  * struct should remain at the same offset from release to release. The
  * static asserts below ensures that incomaptibe changes in clusterMsg be
@@ -360,6 +361,39 @@ static_assert(offsetof(clusterMsg, flags) == 2250);
 static_assert(offsetof(clusterMsg, state) == 2252);
 static_assert(offsetof(clusterMsg, mflags) == 2253);
 static_assert(offsetof(clusterMsg, data) == 2256);
+=======
+ * especially during cluster rolling upgrades.
+ *
+ * Therefore, fields in this struct should remain at the same offset from
+ * release to release. The static asserts below ensures that incompatible
+ * changes in clusterMsg be caught at compile time.
+ */
+
+/* Avoid static_assert on non-C11 compilers. */
+#if __STDC_VERSION__ >= 201112L
+static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");
+static_assert(offsetof(clusterMsg, totlen) == 4, "unexpected field offset");
+static_assert(offsetof(clusterMsg, ver) == 8, "unexpected field offset");
+static_assert(offsetof(clusterMsg, port) == 10, "unexpected field offset");
+static_assert(offsetof(clusterMsg, type) == 12, "unexpected field offset");
+static_assert(offsetof(clusterMsg, count) == 14, "unexpected field offset");
+static_assert(offsetof(clusterMsg, currentEpoch) == 16, "unexpected field offset");
+static_assert(offsetof(clusterMsg, configEpoch) == 24, "unexpected field offset");
+static_assert(offsetof(clusterMsg, offset) == 32, "unexpected field offset");
+static_assert(offsetof(clusterMsg, sender) == 40, "unexpected field offset");
+static_assert(offsetof(clusterMsg, myslots) == 80, "unexpected field offset");
+static_assert(offsetof(clusterMsg, slaveof) == 2128, "unexpected field offset");
+static_assert(offsetof(clusterMsg, myip) == 2168, "unexpected field offset");
+static_assert(offsetof(clusterMsg, extensions) == 2214, "unexpected field offset");
+static_assert(offsetof(clusterMsg, notused1) == 2216, "unexpected field offset");
+static_assert(offsetof(clusterMsg, pport) == 2246, "unexpected field offset");
+static_assert(offsetof(clusterMsg, cport) == 2248, "unexpected field offset");
+static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
+static_assert(offsetof(clusterMsg, state) == 2252, "unexpected field offset");
+static_assert(offsetof(clusterMsg, mflags) == 2253, "unexpected field offset");
+static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
+#endif
+>>>>>>> ef93125988f90ae1c5cc22aa214f63622dbfa911
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 

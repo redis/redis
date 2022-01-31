@@ -19,6 +19,7 @@
         ],
         "key_specs": [
             {
+                "notes": "We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",
                 "flags": [
                     "RW",
                     "ACCESS",

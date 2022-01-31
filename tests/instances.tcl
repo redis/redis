@@ -446,7 +446,12 @@ proc run_tests {} {
         }
         if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
-        source $test
+        if {[catch { source $test } err]} {
+            puts "FAILED: caught an error in the test $err"
+            puts $::errorInfo
+            incr ::failed
+            # letting the tests resume, so we'll eventually reach the cleanup and report crashes
+        }
         check_leaks {redis sentinel}
 
         # Check if a leaked fds file was created and abort the test.
