@@ -2702,14 +2702,16 @@ void stopLoading(int success) {
                           success?
                             REDISMODULE_SUBEVENT_LOADING_ENDED:
                             REDISMODULE_SUBEVENT_LOADING_FAILED,
-                          NULL);
+                           NULL);
 }
 
 void startSaving(int rdbflags) {
     /* Fire the persistence modules end event. */
     int subevent;
-    if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
+    if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
+    else if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
+        subevent = REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START;
     else if (getpid()!=server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START;
     else
@@ -2745,7 +2747,10 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 /* Save the given functions_ctx to the rdb.
  * The err output parameter is optional and will be set with relevant error
  * message on failure, it is the caller responsibility to free the error
- * message on failure. */
+ * message on failure.
+ *
+ * The lib_ctx argument is also optional. If NULL is given, only verify rdb
+ * structure with out performing the actual functions loading. */
 int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds name = NULL;
@@ -2780,11 +2785,13 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, s
         goto error;
     }
 
-    if (functionsCreateWithLibraryCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
-        if (!error) {
-            error = sdsnew("Failed creating the library");
+    if (lib_ctx) {
+        if (functionsCreateWithLibraryCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
+            if (!error) {
+                error = sdsnew("Failed creating the library");
+            }
+            goto error;
         }
-        goto error;
     }
 
     res = C_OK;

@@ -492,8 +492,7 @@ void popGenericCommand(client *c, int where) {
     robj *value;
 
     if (c->argc > 3) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     } else if (hascount) {
         /* Parse the optional count argument. */
@@ -501,7 +500,7 @@ void popGenericCommand(client *c, int where) {
             return;
     }
 
-    robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
+    robj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp]: shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 

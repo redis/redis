@@ -40,6 +40,12 @@ proc assert_failed {expected_err detail} {
      error "assertion:$expected_err $detail"
 }
 
+proc assert_not_equal {value expected {detail ""}} {
+    if {!($expected ne $value)} {
+        assert_failed "Expected '$value' not equal to '$expected'" $detail
+    }
+}
+
 proc assert_equal {value expected {detail ""}} {
     if {$expected ne $value} {
         assert_failed "Expected '$value' to be equal to '$expected'" $detail
@@ -120,10 +126,11 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc search_pattern_list {value pattern_list} {
+# try to match a value to a list of patterns that is either regex, or plain sub-string
+proc search_pattern_list {value pattern_list {substr false}} {
     set n 0
     foreach el $pattern_list {
-        if {[string length $el] > 0 && [regexp -- $el $value]} {
+        if {[string length $el] > 0 && ((!$substr && [regexp -- $el $value]) || ($substr && [string match $el $value]))} {
             return $n
         }
         incr n

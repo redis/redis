@@ -8,7 +8,6 @@
         "function": "expiretimeCommand",
         "command_flags": [
             "READONLY",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
@@ -17,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {

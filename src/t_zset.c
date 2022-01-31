@@ -2538,7 +2538,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     if (setnum < 1) {
         addReplyErrorFormat(c,
-            "at least 1 input key is needed for %s", c->cmd->name);
+            "at least 1 input key is needed for '%s' command", c->cmd->fullname);
         return;
     }
 

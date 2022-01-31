@@ -52,6 +52,12 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    test "XADD wrong number of args" {
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream * field}
+    }
+
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
@@ -208,6 +214,15 @@ start_server {
         r XADD mystream 5-0 f v
         r XTRIM mystream MINID = 3-0
         assert_equal [r XRANGE mystream - +] {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}}}
+    }
+
+    test {XTRIM with MINID option, big delta from master record} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 1641544570597-0 f v
+        r XADD mystream 1641544570597-1 f v
+        r XTRIM mystream MINID 1641544570597-0
+        assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
     }
 
     proc insert_into_stream_key {key {count 10000}} {
@@ -788,11 +803,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xgroup|help' command" $e
     }
 
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xinfo|help' command" $e
     }
 }

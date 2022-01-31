@@ -53,5 +53,9 @@ start_server {tags {"modules"}} {
         # verify id does not exist
         assert_equal {} [r test.gettimer $id]
     }
+
+    test "Unload the module - timer" {
+        assert_equal {OK} [r module unload timer]
+    }
 }
 

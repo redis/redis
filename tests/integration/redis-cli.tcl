@@ -338,7 +338,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal "OK" [r function load lua should_not_exist_func "redis.register_function('should_not_exist_func', function() return 456 end)"]
         assert_equal "OK" [r debug reload nosave]
         assert_equal {} [r get should-not-exist]
-        assert_equal {{library_name lib1 engine LUA description {} functions {{name func1 description {}}}}} [r function list]
+        assert_equal {{library_name lib1 engine LUA description {} functions {{name func1 description {} flags {}}}}} [r function list]
         if {$functions_only} {
             assert_equal 0 [r dbsize]
         } else {

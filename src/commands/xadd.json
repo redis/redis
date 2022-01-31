@@ -19,16 +19,20 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
             "STREAM"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
+                "notes": "UPDATE instead of INSERT because of the optional trimming feature",
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

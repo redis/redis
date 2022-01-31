@@ -101,13 +101,63 @@ start_server {tags {"introspection"}} {
         assert_equal {key1 key2} [r command getkeys lcs key1 key2]
     }
 
-    test "COMMAND LIST FILTERBY ACLCAT" {
-        set reply [r command list filterby aclcat hyperloglog]
-        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
+    test "COMMAND LIST syntax error" {
+        assert_error "ERR syntax error*" {r command list bad_arg}
+        assert_error "ERR syntax error*" {r command list filterby bad_arg}
+        assert_error "ERR syntax error*" {r command list filterby bad_arg bad_arg2}
     }
 
-    test "COMMAND LIST FILTERBY PATTERN" {
-        set reply [r command list filterby pattern pf*]
-        assert_equal [lsort $reply] {pfadd pfcount pfdebug pfmerge pfselftest}
+    test "COMMAND LIST WITHOUT FILTERBY" {
+        set commands [r command list]
+        assert_not_equal [lsearch $commands "set"] -1
+        assert_not_equal [lsearch $commands "client|list"] -1
+    }
+
+    test "COMMAND LIST FILTERBY ACLCAT against non existing category" {
+        assert_equal {} [r command list filterby aclcat non_existing_category]
+    }
+
+    test "COMMAND LIST FILTERBY ACLCAT - list all commands/subcommands" {
+        set commands [r command list filterby aclcat scripting]
+        assert_not_equal [lsearch $commands "eval"] -1
+        assert_not_equal [lsearch $commands "script|kill"] -1
+
+        # Negative check, a command that should not be here
+        assert_equal [lsearch $commands "set"] -1
+    }
+
+    test "COMMAND LIST FILTERBY PATTERN - list all commands/subcommands" {
+        # Exact command match.
+        assert_equal {set} [r command list filterby pattern set]
+        assert_equal {get} [r command list filterby pattern get]
+
+        # Return the parent command and all the subcommands below it.
+        set commands [r command list filterby pattern config*]
+        assert_not_equal [lsearch $commands "config"] -1
+        assert_not_equal [lsearch $commands "config|get"] -1
+
+        # We can filter subcommands under a parent command.
+        set commands [r command list filterby pattern config|*re*]
+        assert_not_equal [lsearch $commands "config|resetstat"] -1
+        assert_not_equal [lsearch $commands "config|rewrite"] -1
+
+        # We can filter subcommands across parent commands.
+        set commands [r command list filterby pattern cl*help]
+        assert_not_equal [lsearch $commands "client|help"] -1
+        assert_not_equal [lsearch $commands "cluster|help"] -1
+
+        # Negative check, command that doesn't exist.
+        assert_equal {} [r command list filterby pattern non_exists]
+        assert_equal {} [r command list filterby pattern non_exists*]
+    }
+
+    test "COMMAND LIST FILTERBY MODULE against non existing module" {
+        # This should be empty, the real one is in subcommands.tcl
+        assert_equal {} [r command list filterby module non_existing_module]
+    }
+
+    test {COMMAND INFO of invalid subcommands} {
+        assert_equal {{}} [r command info get|key]
+        assert_equal {{}} [r command info config|get|key]
     }
 }

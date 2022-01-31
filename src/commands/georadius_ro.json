@@ -3,9 +3,15 @@
         "summary": "A read-only variant for GEORADIUS",
         "complexity": "O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.",
         "group": "geo",
-        "since": "5.0.0",
+        "since": "3.2.10",
         "arity": -6,
         "function": "georadiusroCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ANY` option for `COUNT`."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` argument",
         "doc_flags": [
@@ -20,7 +26,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -112,7 +119,8 @@
                         "name": "any",
                         "token": "ANY",
                         "type": "pure-token",
-                        "optional": true
+                        "optional": true,
+                        "since": "6.2.0"
                     }
                 ]
             },

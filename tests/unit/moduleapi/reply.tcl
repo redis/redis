@@ -94,4 +94,8 @@ start_server {tags {"modules"}} {
             assert_match "An error" $e
         }
     }
+
+    test "Unload the module - replywith" {
+        assert_equal {OK} [r module unload replywith]
+    }
 }

@@ -21,7 +21,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -30,7 +32,26 @@
                 },
                 "find_keys": {
                     "range": {
-                        "lastkey": 1,
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
                         "step": 1,
                         "limit": 0
                     }

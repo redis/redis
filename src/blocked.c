@@ -90,16 +90,16 @@ void blockClient(client *c, int btype) {
     /* Master client should never be blocked unless pause or module */
     serverAssert(!(c->flags & CLIENT_MASTER &&
                    btype != BLOCKED_MODULE &&
-                   btype != BLOCKED_PAUSE));
+                   btype != BLOCKED_POSTPONE));
 
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
-    if (btype == BLOCKED_PAUSE) {
-        listAddNodeTail(server.paused_clients, c);
-        c->paused_list_node = listLast(server.paused_clients);
+    if (btype == BLOCKED_POSTPONE) {
+        listAddNodeTail(server.postponed_clients, c);
+        c->postponed_list_node = listLast(server.postponed_clients);
         /* Mark this client to execute its command */
         c->flags |= CLIENT_PENDING_COMMAND;
     }
@@ -189,9 +189,9 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
-    } else if (c->btype == BLOCKED_PAUSE) {
-        listDelNode(server.paused_clients,c->paused_list_node);
-        c->paused_list_node = NULL;
+    } else if (c->btype == BLOCKED_POSTPONE) {
+        listDelNode(server.postponed_clients,c->postponed_list_node);
+        c->postponed_list_node = NULL;
     } else if (c->btype == BLOCKED_SHUTDOWN) {
         /* No special cleanup. */
     } else {
@@ -202,7 +202,7 @@ void unblockClient(client *c) {
      * we do not do it immediately after the command returns (when the
      * client got blocked) in order to be still able to access the argument
      * vector from module callbacks and updateStatsOnUnblock. */
-    if (c->btype != BLOCKED_PAUSE) {
+    if (c->btype != BLOCKED_POSTPONE) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -266,11 +266,11 @@ void disconnectAllBlockedClients(void) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
-            /* PAUSED clients are an exception, when they'll be unblocked, the
+            /* POSTPONEd clients are an exception, when they'll be unblocked, the
              * command processing will start from scratch, and the command will
              * be either executed or rejected. (unlike LIST blocked clients for
              * which the command is already in progress in a way. */
-            if (c->btype == BLOCKED_PAUSE)
+            if (c->btype == BLOCKED_POSTPONE)
                 continue;
 
             addReplyError(c,

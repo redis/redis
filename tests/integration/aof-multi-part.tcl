@@ -186,7 +186,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 1 [count_message_lines $server_path/stdout "Mismatched manifest key"]
+            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -213,7 +213,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 2 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -267,7 +267,7 @@ tags {"external:skip"} {
                 fail "AOF loading didn't fail"
             }
 
-            assert_equal 3 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
+            assert_equal 4 [count_message_lines $server_path/stdout "The AOF manifest file is invalid format"]
         }
 
         clean_aof_persistence $aof_dirpath
@@ -675,6 +675,77 @@ tags {"external:skip"} {
         }
     }
 
+    test {Multi Part AOF can handle appendfilename contains whitespaces} {
+        start_server [list overrides [list appendonly yes appendfilename "\" file seq \\n\\n.aof \""]] {
+            set dir [get_redis_dir]
+            set aof_manifest_name [format "%s/%s/%s%s" $dir "appendonlydir" " file seq \n\n.aof " $::manifest_suffix]
+            set redis [redis [srv host] [srv port] 0 $::tls]
+
+            assert_equal OK [$redis set k1 v1]
+
+            $redis bgrewriteaof
+            waitForBgrewriteaof $redis
+
+            assert_aof_manifest_content $aof_manifest_name {
+                {file " file seq \n\n.aof .2.base.rdb" seq 2 type b}
+                {file " file seq \n\n.aof .2.incr.aof" seq 2 type i}
+            }
+
+            set d1 [$redis debug digest]
+            $redis debug loadaof
+            set d2 [$redis debug digest]
+            assert {$d1 eq $d2}
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    test {Multi Part AOF can create BASE (RDB format) when redis starts from empty} {
+        start_server_aof [list dir $server_path] {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
+
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.base.rdb seq 1 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            $client set foo behavior
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2} 
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
+    test {Multi Part AOF can create BASE (AOF format) when redis starts from empty} {
+        start_server_aof [list dir $server_path aof-use-rdb-preamble no] {
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            wait_done_loading $client
+
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::aof_format_suffix}"]
+
+            assert_aof_manifest_content $aof_manifest_file {
+                {file appendonly.aof.1.base.aof seq 1 type b}
+                {file appendonly.aof.1.incr.aof seq 1 type i}
+            }
+
+            $client set foo behavior
+
+            set d1 [$client debug digest]
+            $client debug loadaof
+            set d2 [$client debug digest]
+            assert {$d1 eq $d2} 
+        }
+
+        clean_aof_persistence $aof_dirpath
+    }
+
     # Test Part 2
     #
     # To test whether the AOFRW behaves as expected during the redis run.
@@ -1019,10 +1090,19 @@ tags {"external:skip"} {
         }
 
         test "AOF will trigger limit when AOFRW fails many times" {
+            # Clear all data and trigger a successful AOFRW, so we can let 
+            # server.aof_current_size equal to 0
+            r flushall
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
             r config set rdb-key-save-delay 10000000
             # Let us trigger AOFRW easily
             r config set auto-aof-rewrite-percentage 1
-            r config set auto-aof-rewrite-min-size 1mb
+            r config set auto-aof-rewrite-min-size 1kb
+
+            # Set a key so that AOFRW can be delayed
+            r set k v
 
             # Let AOFRW fail two times, this will trigger AOFRW limit
             r bgrewriteaof
@@ -1034,35 +1114,29 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.9.base.rdb seq 9 type b}
-                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.10.base.rdb seq 10 type b}
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
+                {file appendonly.aof.8.incr.aof seq 8 type i}
             }
-
-            set orig_size [r dbsize]
-            set load_handle0 [start_write_load $master_host $master_port 10]
-
-            wait_for_condition 50 100 {
-                [r dbsize] > $orig_size
-            } else {
-                fail "No write load detected."
-            }
+            
+            # Write 1KB data to trigger AOFRW
+            r set x [string repeat x 1024]
 
             # Make sure we have limit log
-            wait_for_condition 1000 10 {
+            wait_for_condition 1000 50 {
                 [count_log_message 0 "triggered the limit"] == 1
             } else {
-                fail "aof rewrite did trigger limit"
+                fail "aof rewrite did not trigger limit"
             }
             assert_equal [status r aof_rewrite_in_progress] 0
 
             # No new INCR AOF be created
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.9.base.rdb seq 9 type b}
-                {file appendonly.aof.5.incr.aof seq 5 type i}
+                {file appendonly.aof.10.base.rdb seq 10 type b}
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
+                {file appendonly.aof.8.incr.aof seq 8 type i}
             }
 
             # Turn off auto rewrite
@@ -1080,15 +1154,12 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.8${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.9${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.10.base.rdb seq 10 type b}
-                {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.11.base.rdb seq 11 type b}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
-
-            stop_write_load $load_handle0
-            wait_load_handlers_disconnected
 
             set d1 [r debug digest]
             r debug loadaof

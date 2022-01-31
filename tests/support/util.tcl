@@ -118,6 +118,14 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_replica_online r {
+    wait_for_condition 50 100 {
+        [string match "*slave0:*,state=online*" [$r info replication]]
+    } else {
+        fail "replica didn't sync in time"
+    }
+}
+
 proc wait_for_ofs_sync {r1 r2} {
     wait_for_condition 50 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]

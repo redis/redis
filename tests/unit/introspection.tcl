@@ -1,20 +1,26 @@
 start_server {tags {"introspection"}} {
+    test "PING" {
+        assert_equal {PONG} [r ping]
+        assert_equal {redis} [r ping redis]
+        assert_error {*wrong number of arguments for 'ping' command} {r ping hello redis}
+    }
+
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
         set cl [split [r client list id $myid] "\r\n"]
-        assert_match "id=$myid*" [lindex $cl 0]
+        assert_match "id=$myid * cmd=client|list *" [lindex $cl 0]
     }
 
     test {CLIENT INFO} {
         r client info
-    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
 
     test {CLIENT KILL with illegal arguments} {
-        assert_error "ERR wrong number*" {r client kill}
+        assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
         assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
 
         assert_error "ERR*greater than 0*" {r client kill id str}

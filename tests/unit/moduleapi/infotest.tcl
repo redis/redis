@@ -136,5 +136,9 @@ start_server {tags {"modules"}} {
         field $info infotest_dos
     } {2}
 
+    test "Unload the module - infotest" {
+        assert_equal {OK} [r module unload infotest]
+    }
+
     # TODO: test crash report.
 } 

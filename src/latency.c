@@ -522,22 +522,24 @@ void fillCommandCDF(client *c, struct hdr_histogram* histogram) {
 
 /* latencyCommand() helper to produce for all commands,
  * a per command cumulative distribution of latencies. */
-void latencyAllCommandsFillCDF(client *c) {
-    dictIterator *di = dictGetSafeIterator(server.commands);
+void latencyAllCommandsFillCDF(client *c, dict *commands, int *command_with_data) {
+    dictIterator *di = dictGetSafeIterator(commands);
     dictEntry *de;
     struct redisCommand *cmd;
-    void *replylen = addReplyDeferredLen(c);
-    int command_with_data = 0;
+
     while((de = dictNext(di)) != NULL) {
         cmd = (struct redisCommand *) dictGetVal(de);
-        if (!cmd->latency_histogram)
-            continue;
-        addReplyBulkCString(c,cmd->name);
-        fillCommandCDF(c, cmd->latency_histogram);
-        command_with_data++;
+        if (cmd->latency_histogram) {
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            fillCommandCDF(c, cmd->latency_histogram);
+            (*command_with_data)++;
+        }
+
+        if (cmd->subcommands) {
+            latencyAllCommandsFillCDF(c, cmd->subcommands_dict, command_with_data);
+        }
     }
     dictReleaseIterator(di);
-    setDeferredMapLen(c,replylen,command_with_data);
 }
 
 /* latencyCommand() helper to produce for a specific command set,
@@ -546,18 +548,32 @@ void latencySpecificCommandsFillCDF(client *c) {
     void *replylen = addReplyDeferredLen(c);
     int command_with_data = 0;
     for (int j = 2; j < c->argc; j++){
-        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[j]->ptr);
+        struct redisCommand *cmd = lookupCommandBySds(c->argv[j]->ptr);
         /* If the command does not exist we skip the reply */
         if (cmd == NULL) {
             continue;
         }
-        /* If no latency info we reply with the same format as non empty histograms */
-        if (!cmd->latency_histogram) {
-            continue;
+
+        if (cmd->latency_histogram) {
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            fillCommandCDF(c, cmd->latency_histogram);
+            command_with_data++;
         }
-        addReplyBulkCString(c,c->argv[j]->ptr);
-        fillCommandCDF(c, cmd->latency_histogram);
-        command_with_data++;
+
+        if (cmd->subcommands_dict) {
+            dictEntry *de;
+            dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
+
+            while ((de = dictNext(di)) != NULL) {
+                struct redisCommand *sub = dictGetVal(de);
+                if (sub->latency_histogram) {
+                    addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
+                    fillCommandCDF(c, sub->latency_histogram);
+                    command_with_data++;
+                }
+            }
+            dictReleaseIterator(di);
+        }
     }
     setDeferredMapLen(c,replylen,command_with_data);
 }
@@ -704,7 +720,10 @@ void latencyCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"histogram") && c->argc >= 2) {
         /* LATENCY HISTOGRAM*/
         if (c->argc == 2) {
-            latencyAllCommandsFillCDF(c);
+            int command_with_data = 0;
+            void *replylen = addReplyDeferredLen(c);
+            latencyAllCommandsFillCDF(c, server.commands, &command_with_data);
+            setDeferredMapLen(c, replylen, command_with_data);
         } else {
             latencySpecificCommandsFillCDF(c);
         }

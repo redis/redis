@@ -35,6 +35,7 @@
 #include "cluster.h"
 #include "monotonic.h"
 #include "resp_parser.h"
+#include "version.h"
 #include <lauxlib.h>
 #include <lualib.h>
 #include <ctype.h>
@@ -1039,6 +1040,19 @@ static void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_setglobal(lua,"dofile");
 }
 
+/* Return sds of the string value located on stack at the given index.
+ * Return NULL if the value is not a string. */
+sds luaGetStringSds(lua_State *lua, int index) {
+    if (!lua_isstring(lua, index)) {
+        return NULL;
+    }
+
+    size_t len;
+    const char *str = lua_tolstring(lua, index, &len);
+    sds str_sds = sdsnewlen(str, len);
+    return str_sds;
+}
+
 /* This function installs metamethods in the global table _G that prevent
  * the creation of globals accidentally.
  *
@@ -1142,6 +1156,16 @@ void luaSetGlobalProtection(lua_State *lua) {
     serverAssert(res == 0);
 }
 
+void luaRegisterVersion(lua_State* lua) {
+    lua_pushstring(lua,"REDIS_VERSION_NUM");
+    lua_pushnumber(lua,REDIS_VERSION_NUM);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"REDIS_VERSION");
+    lua_pushstring(lua,REDIS_VERSION);
+    lua_settable(lua,-3);
+}
+
 void luaRegisterLogFunction(lua_State* lua) {
     /* redis.log and log levels. */
     lua_pushstring(lua,"log");
@@ -1183,6 +1207,8 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_settable(lua,-3);
 
     luaRegisterLogFunction(lua);
+
+    luaRegisterVersion(lua);
 
     /* redis.setresp */
     lua_pushstring(lua,"setresp");
@@ -1337,7 +1363,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
      * each time the Lua hook is invoked. */
     luaSaveOnRegistry(lua, REGISTRY_RUN_CTX_NAME, run_ctx);
 
-    if (server.script_time_limit > 0 && !debug_enabled) {
+    if (server.busy_reply_threshold > 0 && !debug_enabled) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
     } else if (debug_enabled) {
