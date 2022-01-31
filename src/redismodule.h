@@ -294,6 +294,7 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_DELETE (1ULL<<7)
 #define REDISMODULE_CMD_KEY_CHANNEL (1ULL<<8)
 #define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<9)
+#define REDISMODULE_CMD_KEY_VARIABLE_FLAGS (1ULL<<10)
 
 typedef struct RedisModuleCommandArg {
     const char *name;
@@ -314,6 +315,7 @@ typedef struct RedisModuleCommandHistoryEntry {
 } RedisModuleCommandHistoryEntry;
 
 typedef struct RedisModuleCommandKeySpec {
+    const char *notes;
     uint64_t flags; /* REDISMODULE_CMD_KEY_* macros. */
     RedisModuleKeySpecBeginSearchType begin_search_type;
     union {

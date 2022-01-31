@@ -1174,6 +1174,7 @@ static int moduleConvertArgFlags(int flags);
  *     A key-spec has the following structure:
  *
  *         typedef struct RedisModuleCommandKeySpec {
+ *             const char *notes;
  *             uint64_t flags;
  *             RedisModuleKeySpecBeginSearchType begin_search_type;
  *             union {
@@ -1201,6 +1202,8 @@ static int moduleConvertArgFlags(int flags);
  *         } RedisModuleCommandKeySpec;
  *
  *     Explanation of the fields of RedisModuleCommandKeySpec:
+ *
+ *     * `notes`: Optional notes or clarifications about this key spec.
  *
  *     * `flags`: A bitwise or of key-spec flags described below.
  *
@@ -1319,6 +1322,9 @@ static int moduleConvertArgFlags(int flags);
  *     * `REDISMODULE_CMD_KEY_INCOMPLETE`: The keyspec might not point out all
  *       the keys it should cover.
  *
+ *     * `REDISMODULE_CMD_KEY_VARIABLE_FLAGS`: Some keys might have different
+ *       flags depending on arguments.
+ *
  * - `args`: An array of RedisModuleCommandArg, terminated by an element memset
  *   to zero. RedisModuleCommandArg is a structure with at the fields described
  *   below.
@@ -1376,9 +1382,9 @@ static int moduleConvertArgFlags(int flags);
  *       a few sub-arguments. Requires `subargs`. Example: the `NX` and `XX`
  *       options of `SET`.
  *     * `REDISMODULE_ARG_TYPE_BLOCK`: Used when one wants to group together
- *       several sub-arguments, usually to apply something on all of them (like
- *       making the entire group "optional"). Requires `subargs`. Example: the
- *       field-value pair in `HSET`.
+ *       several sub-arguments, usually to apply something on all of them, like
+ *       making the entire group "optional". Requires `subargs`. Example: the
+ *       `LIMIT offset count` parameters in `ZRANGE`.
  *
  *     Explanation of the command argument flags:
  *
@@ -1456,10 +1462,9 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
     if (info->since) cmd->since = zstrdup(info->since);
 
     if (info->history) {
-        size_t count;
-        for (count = 0;
-             moduleCmdHistoryEntryAt(version, info->history, count)->since;
-             count++);
+        size_t count = 0;
+        while (moduleCmdHistoryEntryAt(version, info->history, count)->since)
+            count++;
         serverAssert(count < SIZE_MAX / sizeof(commandHistory));
         cmd->history = zmalloc(sizeof(commandHistory) * (count + 1));
         for (size_t j = 0; j < count; j++) {
@@ -1491,10 +1496,9 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
 
     if (info->key_specs) {
         /* Count and allocate the key specs. */
-        size_t count;
-        for (count = 0;
-             moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type;
-             count++);
+        size_t count = 0;
+        while (moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type)
+            count++;
         serverAssert(count < INT_MAX);
         if (count <= STATIC_KEY_SPECS_NUM) {
             cmd->key_specs_max = STATIC_KEY_SPECS_NUM;
@@ -1509,6 +1513,7 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
         for (size_t j = 0; j < count; j++) {
             RedisModuleCommandKeySpec *spec =
                 moduleCmdKeySpecAt(version, info->key_specs, j);
+            if (spec->notes) cmd->key_specs[j].notes = zstrdup(spec->notes);
             cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(spec->flags);
             switch (spec->begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN:
@@ -1682,6 +1687,7 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags) {
     if (flags & REDISMODULE_CMD_KEY_DELETE) realflags |= CMD_KEY_DELETE;
     if (flags & REDISMODULE_CMD_KEY_CHANNEL) realflags |= CMD_KEY_CHANNEL;
     if (flags & REDISMODULE_CMD_KEY_INCOMPLETE) realflags |= CMD_KEY_INCOMPLETE;
+    if (flags & REDISMODULE_CMD_KEY_VARIABLE_FLAGS) realflags |= CMD_KEY_VARIABLE_FLAGS;
     return realflags;
 }
 
@@ -10486,6 +10492,8 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
 
     /* Free everything except cmd->fullname and cmd itself. */
     for (int j = 0; j < cmd->key_specs_num; j++) {
+        if (cmd->key_specs[j].notes)
+            zfree((char *)cmd->key_specs[j].notes);
         if (cmd->key_specs[j].begin_search_type == KSPEC_BS_KEYWORD)
             zfree((char *)cmd->key_specs[j].bs.keyword.keyword);
     }

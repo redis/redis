@@ -37,6 +37,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         },
         .key_specs = (RedisModuleCommandKeySpec[]){
             {
+                .notes = "UPDATE instead of INSERT because of the optional trimming feature",
                 .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
                 .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
                 .bs.index.pos = 1,
