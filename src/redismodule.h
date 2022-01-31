@@ -1122,7 +1122,7 @@ REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEve
 REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
 
-/* This is the real definition of SetCommandInfo. It sets the version fields to
+/* This is the real definition of RM_SetCommandInfo. It sets the version fields to
  * match the structs defined in this file and then calls the actual
  * implementation. This function is defined in this header file to enable
  * backward and forward compatible changes to the structs involved. */

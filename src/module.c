@@ -1169,7 +1169,7 @@ static int moduleConvertArgFlags(int flags);
  *
  *   Note that key-specs don't fully replace the "getkeys-api" (see
  *   RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be a
- *   good idea to both supply key-specs and a implement the getkeys-api.
+ *   good idea to supply both key-specs and a implement the getkeys-api.
  *
  *     A key-spec has the following structure:
  *
