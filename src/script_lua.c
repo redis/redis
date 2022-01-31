@@ -432,7 +432,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
  * table is never a valid reply by proper commands, since the returned
  * tables are otherwise always indexed by integers, never by strings. */
 void luaPushError(lua_State *lua, char *error) {
-    lua_Debug dbg;
+    sds msg;
 
     /* If debugging is active and in step mode, log errors resulting from
      * Redis commands. */
@@ -443,15 +443,18 @@ void luaPushError(lua_State *lua, char *error) {
     lua_newtable(lua);
     lua_pushstring(lua,"err");
 
-    /* Attempt to figure out where this function was called, if possible */
-    if(lua_getstack(lua, 1, &dbg) && lua_getinfo(lua, "nSl", &dbg)) {
-        sds msg = sdscatprintf(sdsempty(), "%s: %d: %s",
-            dbg.source, dbg.currentline, error);
-        lua_pushstring(lua, msg);
-        sdsfree(msg);
-    } else {
-        lua_pushstring(lua, error);
-    }
+    /* There are two possible formats for the received `error` string:
+     * 1) "-CODE msg": in this case we remove the leasing '-' since we don't store it as part of the lua error format.
+     * 2) "msg": in this case we prepend a generic 'ERR' code since all error statuses need a some error code.
+     * We support format (1) so this function can reuse the error messages used in other places in redis.
+     * We support format (2) so it'll be easy to pass descriptive errors to this function without worrying about format.
+     */
+    if (error[0] == '-')
+        msg = sdsnew(error+1);
+    else
+        msg = sdscatprintf(sdsempty(), "ERR %s", error);
+    lua_pushstring(lua, msg);
+    sdsfree(msg);
     lua_settable(lua,-3);
 }
 
