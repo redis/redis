@@ -4069,17 +4069,13 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
                                                     slot, "node",
                                                     target->name);
             success = (r != NULL);
-            if (!success) {
-                if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
-                return 0;
-            }
+            if (!success) return 0;
             if (r->type == REDIS_REPLY_ERROR) {
                 success = 0;
                 if (err != NULL) {
                     *err = zmalloc((r->len + 1) * sizeof(char));
                     strcpy(*err, r->str);
-                } else {
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str);
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, *err);
                 }
             }
             freeReplyObject(r);
@@ -6406,7 +6402,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
                                         opts, &err);
         if (!result) {
             if (err != NULL) {
-                clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
+                //clusterManagerLogErr("\n%s\n", err);
                 zfree(err);
             }
             goto cleanup;
@@ -6435,7 +6431,6 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
             char *name = config.cluster_manager_command.weight[i];
             char *p = strchr(name, '=');
             if (p == NULL) {
-                clusterManagerLogErr("*** invalid input %s\n", name);
                 result = 0;
                 goto cleanup;
             }
@@ -6581,16 +6576,11 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                 listRewind(table, &li);
                 while ((ln = listNext(&li)) != NULL) {
                     clusterManagerReshardTableItem *item = ln->value;
-                    char *err;
                     result = clusterManagerMoveSlot(item->source,
                                                     dst,
                                                     item->slot,
-                                                    opts, &err);
-                    if (!result) {
-                        clusterManagerLogErr("*** clusterManagerMoveSlot: %s\n", err);
-                        zfree(err);
-                        goto end_move;
-                    }
+                                                    opts, NULL);
+                    if (!result) goto end_move;
                     printf("#");
                     fflush(stdout);
                 }

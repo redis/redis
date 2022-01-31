@@ -15,7 +15,6 @@
         ],
         "key_specs": [
             {
-                "notes": "RW and UPDATE because it changes the TTL",
                 "flags": [
                     "RW",
                     "ACCESS",

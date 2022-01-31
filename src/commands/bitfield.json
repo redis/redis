@@ -16,7 +16,6 @@
         ],
         "key_specs": [
             {
-                "notes": "This command allows both access and modification of the key",
                 "flags": [
                     "RW",
                     "UPDATE",

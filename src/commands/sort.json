@@ -37,10 +37,10 @@
                 }
             },
             {
-                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
                 "flags": [
                     "RO",
-                    "ACCESS"
+                    "ACCESS",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "unknown": null
@@ -50,10 +50,10 @@
                 }
             },
             {
-                "notes": "For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",
                 "flags": [
                     "OW",
-                    "UPDATE"
+                    "UPDATE",
+                    "INCOMPLETE"
                 ],
                 "begin_search": {
                     "unknown": null
@@ -73,7 +73,6 @@
                 "token": "BY",
                 "name": "pattern",
                 "type": "pattern",
-                "key_spec_index": 1,
                 "optional": true
             },
             {
@@ -95,7 +94,6 @@
             {
                 "token": "GET",
                 "name": "pattern",
-                "key_spec_index": 1,
                 "type": "string",
                 "optional": true,
                 "multiple": true,
@@ -128,7 +126,7 @@
                 "token": "STORE",
                 "name": "destination",
                 "type": "key",
-                "key_spec_index": 2,
+                "key_spec_index": 1,
                 "optional": true
             }
         ]

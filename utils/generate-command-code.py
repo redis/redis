@@ -119,8 +119,7 @@ class KeySpec(object):
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
                 exit(1)
 
-        return "%s,%s,%s,%s" % (
-            get_optional_desc_string(self.spec, "notes"),
+        return "%s,%s,%s" % (
             _flags_code(),
             _begin_search_code(),
             _find_keys_code()
