@@ -67,8 +67,8 @@
             },
             {
                 "token": "TIME",
-                "name": "ms-unix-time",
-                "type": "integer",
+                "name": "unix-time-milliseconds",
+                "type": "unix-time",
                 "optional": true
             },
             {

@@ -2113,8 +2113,8 @@ static int rewriteFunctions(rio *aof) {
         } else {
             if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
         }
-        char fucntion_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
-        if (rioWrite(aof, fucntion_load, sizeof(fucntion_load) - 1) == 0) goto werr;
+        char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
+        if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
         if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
         if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
         if (li->desc) {
@@ -2328,9 +2328,7 @@ int rewriteAppendOnlyFileBackground(void) {
     }
 
     /* We set aof_selected_db to -1 in order to force the next call to the
-     * feedAppendOnlyFile() to issue a SELECT command, so the differences
-     * accumulated by the parent into server.aof_rewrite_buf will start
-     * with a SELECT statement and it will be safe to merge. */
+     * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
     if (openNewIncrAofForAppend() != C_OK) return C_ERR;

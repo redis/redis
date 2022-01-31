@@ -58,7 +58,7 @@
                 "name": "condition",
                 "type": "oneof",
                 "optional": true,
-                "since": "6.2.0",
+                "since": "3.0.2",
                 "arguments": [
                     {
                         "name": "nx",
@@ -76,7 +76,7 @@
                 "name": "comparison",
                 "type": "oneof",
                 "optional": true,
-                "since": "3.0.2",
+                "since": "6.2.0",
                 "arguments": [
                     {
                         "name": "gt",

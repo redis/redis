@@ -139,19 +139,21 @@ start_server_and_kill_it [list "dir" $server_path] {
 
 start_server {} {
     test {Test FLUSHALL aborts bgsave} {
-        # 1000 keys with 1ms sleep per key should take 1 second
+        r config set save ""
+        # 5000 keys with 1ms sleep per key should take 5 second
         r config set rdb-key-save-delay 1000
-        r debug populate 1000
+        populate 5000
+        assert_lessthan 999 [s rdb_changes_since_last_save]
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
         r flushall
-        # wait half a second max
-        wait_for_condition 5 100 {
+        # wait a second max (bgsave should take 5)
+        wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] == 0
         } else {
             fail "bgsave not aborted"
         }
-        # veirfy that bgsave failed, by checking that the change counter is still high
+        # verify that bgsave failed, by checking that the change counter is still high
         assert_lessthan 999 [s rdb_changes_since_last_save]
         # make sure the server is still writable
         r set x xx

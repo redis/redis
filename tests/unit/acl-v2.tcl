@@ -20,12 +20,12 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*keys*" $err
     }
 
-    test {Test ACL selectors by default have no permissions (except channels)} {
+    test {Test ACL selectors by default have no permissions} {
         r ACL SETUSER selector-default reset ()
         set user [r ACL GETUSER "selector-default"]
         assert_equal 1 [llength [dict get $user selectors]]
         assert_equal "" [dict get [lindex [dict get $user selectors] 0] keys]
-        assert_equal "&*" [dict get [lindex [dict get $user selectors] 0] channels]
+        assert_equal "" [dict get [lindex [dict get $user selectors] 0] channels]
         assert_equal "-@all" [dict get [lindex [dict get $user selectors] 0] commands]
     }
 
@@ -44,7 +44,7 @@ start_server {tags {"acl external:skip"}} {
         catch {r ACL SETUSER selector-syntax on (this-is-invalid)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Syntax*" $e
 
-        catch {r ACL SETUSER selector-syntax on (&fail)} e
+        catch {r ACL SETUSER selector-syntax on (&* &fail)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Adding a pattern after the*" $e
 
         assert_equal "" [r ACL GETUSER selector-syntax]
@@ -104,7 +104,7 @@ start_server {tags {"acl external:skip"}} {
         r set read bar
         $r2 copy read write
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err        
+        assert_match "*NOPERM*keys*" $err
     }
 
     test {Test separate read and write permissions on different selectors are not additive} {
@@ -131,11 +131,99 @@ start_server {tags {"acl external:skip"}} {
         catch {$r2 copy read write} err
         assert_match "*NOPERM*keys*" $err
         catch {$r2 copy write read} err
-        assert_match "*NOPERM*keys*" $err   
+        assert_match "*NOPERM*keys*" $err
+    }
+
+    test {Test SET with separate read permission} {
+        r del readstr
+        r ACL SETUSER set-key-permission-R on nopass %R~read* +@all
+        $r2 auth set-key-permission-R password
+        assert_equal PONG [$r2 PING]
+        assert_equal {} [$r2 get readstr]
+
+        # We don't have the permission to WRITE key.
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar get}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar ex 100}
+        assert_error {*NOPERM*keys*} {$r2 set readstr bar keepttl nx}
+    }
+
+    test {Test SET with separate write permission} {
+        r del writestr
+        r ACL SETUSER set-key-permission-W on nopass %W~write* +@all
+        $r2 auth set-key-permission-W password
+        assert_equal PONG [$r2 PING]
+        assert_equal {OK} [$r2 set writestr bar]
+        assert_equal {OK} [$r2 set writestr get]
+
+        # We don't have the permission to READ key.
+        assert_error {*NOPERM*keys*} {$r2 set get writestr}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get ex 100}
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar get keepttl nx}
+
+        # this probably should be `ERR value is not an integer or out of range`
+        assert_error {*NOPERM*keys*} {$r2 set writestr bar ex get}
+    }
+
+    test {Test SET with read and write permissions} {
+        r del readwrite_str
+        r ACL SETUSER set-key-permission-RW-selector on nopass %RW~readwrite* +@all
+        $r2 auth set-key-permission-RW-selector password
+        assert_equal PONG [$r2 PING]
+
+        assert_equal {} [$r2 get readwrite_str]
+        assert_error {ERR* not an integer *} {$r2 set readwrite_str bar ex get}
+
+        assert_equal {OK} [$r2 set readwrite_str bar]
+        assert_equal {bar} [$r2 get readwrite_str]
+
+        assert_equal {bar} [$r2 set readwrite_str bar2 get]
+        assert_equal {bar2} [$r2 get readwrite_str]
+
+        assert_equal {bar2} [$r2 set readwrite_str bar3 get ex 10]
+        assert_equal {bar3} [$r2 get readwrite_str]
+        assert_range [$r2 ttl readwrite_str] 5 10
+    }
+
+    test {Test BITFIELD with separate read permission} {
+        r del readstr
+        r ACL SETUSER bitfield-key-permission-R on nopass %R~read* +@all
+        $r2 auth bitfield-key-permission-R password
+        assert_equal PONG [$r2 PING]
+        assert_equal {0} [$r2 bitfield readstr get u4 0]
+
+        # We don't have the permission to WRITE key.
+        assert_error {*NOPERM*keys*} {$r2 bitfield readstr set u4 0 1}
+        assert_error {*NOPERM*keys*} {$r2 bitfield readstr incrby u4 0 1}
+    }
+
+    test {Test BITFIELD with separate write permission} {
+        r del writestr
+        r ACL SETUSER bitfield-key-permission-W on nopass %W~write* +@all
+        $r2 auth bitfield-key-permission-W password
+        assert_equal PONG [$r2 PING]
+
+        # We don't have the permission to READ key.
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr get u4 0}
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr set u4 0 1}
+        assert_error {*NOPERM*keys*} {$r2 bitfield writestr incrby u4 0 1}
+    }
+
+    test {Test BITFIELD with read and write permissions} {
+        r del readwrite_str
+        r ACL SETUSER bitfield-key-permission-RW-selector on nopass %RW~readwrite* +@all
+        $r2 auth bitfield-key-permission-RW-selector password
+        assert_equal PONG [$r2 PING]
+
+        assert_equal {0} [$r2 bitfield readwrite_str get u4 0]
+        assert_equal {0} [$r2 bitfield readwrite_str set u4 0 1]
+        assert_equal {2} [$r2 bitfield readwrite_str incrby u4 0 1]
+        assert_equal {2} [$r2 bitfield readwrite_str get u4 0]
     }
 
     test {Test ACL log correctly identifies the relevant item when selectors are used} {
-        r ACL SETUSER acl-log-test-selector on nopass 
+        r ACL SETUSER acl-log-test-selector on nopass
         r ACL SETUSER acl-log-test-selector +mget ~key (+mget ~key ~otherkey)
         $r2 auth acl-log-test-selector password
 
@@ -171,10 +259,10 @@ start_server {tags {"acl external:skip"}} {
     }
 
     test {Test ACL GETUSER response information} {
-        r ACL setuser selector-info -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1 
+        r ACL setuser selector-info -@all +get resetchannels &channel1 %R~foo1 %W~bar1 ~baz1
         r ACL setuser selector-info (-@all +set resetchannels &channel2 %R~foo2 %W~bar2 ~baz2)
         set user [r ACL GETUSER "selector-info"]
-    
+
         # Root selector
         assert_equal "%R~foo1 %W~bar1 ~baz1" [dict get $user keys]
         assert_equal "&channel1" [dict get $user channels]
@@ -184,7 +272,7 @@ start_server {tags {"acl external:skip"}} {
         set secondary_selector [lindex [dict get $user selectors] 0]
         assert_equal "%R~foo2 %W~bar2 ~baz2" [dict get $secondary_selector keys]
         assert_equal "&channel2" [dict get $secondary_selector channels]
-        assert_equal "-@all +set" [dict get $secondary_selector commands] 
+        assert_equal "-@all +set" [dict get $secondary_selector commands]
     }
 
     test {Test ACL list idempotency} {
@@ -256,6 +344,76 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN command-test GEORADIUS read longitude latitude radius M]
         assert_equal "This user has no permissions to access the 'read2' key" [r ACL DRYRUN command-test GEORADIUS read1 longitude latitude radius M STORE read2]
         assert_equal "This user has no permissions to access the 'write1' key" [r ACL DRYRUN command-test GEORADIUS write1 longitude latitude radius M STORE write2]
+    }
+
+    # Existence test commands are not marked as access since they are the result
+    # of a lot of write commands. We therefore make the claim they can be executed
+    # when either READ or WRITE flags are provided.
+    test {Existence test commands are not marked as access} {
+        assert_equal "OK" [r ACL DRYRUN command-test HEXISTS read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test HEXISTS write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HEXISTS nothing foo]
+
+        assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test HSTRLEN write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test HSTRLEN nothing foo]
+
+        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER read foo]
+        assert_equal "OK" [r ACL DRYRUN command-test SISMEMBER write foo]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SISMEMBER nothing foo]
+    }
+
+    # Unlike existence test commands, intersection cardinality commands process the data
+    # between keys and return an aggregated cardinality. therefore they have the access
+    # requirement.
+    test {Intersection cardinaltiy commands are access commands} {
+        assert_equal "OK" [r ACL DRYRUN command-test SINTERCARD 2 read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test SINTERCARD 2 write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test SINTERCARD 2 nothing read]
+
+        assert_equal "OK" [r ACL DRYRUN command-test ZCOUNT read 0 1]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZCOUNT write 0 1]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZCOUNT nothing 0 1]
+
+        assert_equal "OK" [r ACL DRYRUN command-test PFCOUNT read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test PFCOUNT write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test PFCOUNT nothing read]
+
+        assert_equal "OK" [r ACL DRYRUN command-test ZINTERCARD 2 read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN command-test ZINTERCARD 2 write read]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test ZINTERCARD 2 nothing read]
+    }
+
+    test {Test general keyspace commands require some type of permission to execute} {
+        assert_equal "OK" [r ACL DRYRUN command-test touch read]
+        assert_equal "OK" [r ACL DRYRUN command-test touch write]
+        assert_equal "OK" [r ACL DRYRUN command-test touch rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test touch nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test exists read]
+        assert_equal "OK" [r ACL DRYRUN command-test exists write]
+        assert_equal "OK" [r ACL DRYRUN command-test exists rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test exists nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE read]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE write]
+        assert_equal "OK" [r ACL DRYRUN command-test MEMORY USAGE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test MEMORY USAGE nothing]
+
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE read]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE write]
+        assert_equal "OK" [r ACL DRYRUN command-test TYPE rw]
+        assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test TYPE nothing]
+    }
+
+    test {Cardinality commands require some type of permission to execute} {
+        set commands {STRLEN HLEN LLEN SCARD ZCARD XLEN}
+        foreach command $commands {
+            assert_equal "OK" [r ACL DRYRUN command-test $command read]
+            assert_equal "OK" [r ACL DRYRUN command-test $command write]
+            assert_equal "OK" [r ACL DRYRUN command-test $command rw]
+            assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test $command nothing]
+        }
     }
 
     test {Test sharded channel permissions} {

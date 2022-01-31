@@ -2533,7 +2533,7 @@ void aclCommand(client *c) {
         }
 
         int merged_argc = 0, invalid_idx = 0;
-        sds *temp_argv = zmalloc(c->argc * sizeof(sds *));
+        sds *temp_argv = zmalloc(c->argc * sizeof(sds));
         for (int i = 3; i < c->argc; i++) temp_argv[i-3] = c->argv[i]->ptr;
         sds *acl_args = ACLMergeSelectorArguments(temp_argv, c->argc - 3, &merged_argc, &invalid_idx);
         zfree(temp_argv);

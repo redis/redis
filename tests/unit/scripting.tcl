@@ -598,6 +598,11 @@ start_server {tags {"scripting"}} {
         set e
     } {ERR Number of keys can't be negative}
 
+    test {Scripts can handle commands with incorrect arity} {
+        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('set','invalid')" 0}
+        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('incr')" 0}
+    }
+
     test {Correct handling of reused argv (issue #1939)} {
         run_script {
               for i = 0, 10 do

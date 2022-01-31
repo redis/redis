@@ -6,6 +6,7 @@
         "since": "3.2.0",
         "arity": -2,
         "function": "bitfieldCommand",
+        "get_keys_function": "bitfieldGetKeys",
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -15,10 +16,12 @@
         ],
         "key_specs": [
             {
+                "notes": "This command allows both access and modification of the key",
                 "flags": [
                     "RW",
                     "UPDATE",
-                    "ACCESS"
+                    "ACCESS",
+                    "VARIABLE_FLAGS"
                 ],
                 "begin_search": {
                     "index": {

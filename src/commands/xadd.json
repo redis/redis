@@ -29,6 +29,7 @@
         ],
         "key_specs": [
             {
+                "notes": "UPDATE instead of INSERT because of the optional trimming feature",
                 "flags": [
                     "RW",
                     "UPDATE"
