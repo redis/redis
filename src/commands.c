@@ -624,6 +624,7 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 /* CLUSTER SLOTS history */
 commandHistory CLUSTER_SLOTS_History[] = {
 {"4.0.0","Added node IDs."},
+{"7.0.0","Added additional networking metadata and added support for hostnames and unknown endpoints."},
 {0}
 };
 
