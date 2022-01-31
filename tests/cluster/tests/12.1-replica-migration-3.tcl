@@ -34,10 +34,6 @@ test "Set allow-replica-migration no" {
     }
 }
 
-test "Wait cluster to be stable" {
-    wait_cluster_stable
-}
-
 set master0_id [dict get [get_myself 0] id]
 test "Resharding all the master #0 slots away from it" {
     set output [exec \
