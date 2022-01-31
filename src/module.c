@@ -8071,12 +8071,11 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     struct RedisModuleServerInfoData *d = zmalloc(sizeof(*d));
     d->rax = raxNew();
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
-    int out_all = 0;
-    int out_everything = 0;
+    int all = 0, everything = 0;
     robj *argv[1];
     argv[0] = createStringObject(section, strlen(section));
-    dict *section_dict = genInfoSectionDict(argv, 1, &out_all, &out_everything);
-    sds info = genRedisInfoString(section_dict, out_all, out_everything);
+    dict *section_dict = genInfoSectionDict(argv, 1, &all, &everything, NULL);
+    sds info = genRedisInfoString(section_dict, all, everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
     for(i=0; i<totlines; i++) {
@@ -8093,7 +8092,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
     dictRelease(section_dict);
-    zfree(argv[0]);
+    decrRefCount(argv[0]);
     return d;
 }
 

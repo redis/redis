@@ -4060,16 +4060,36 @@ numargserr:
                           (char*)c->argv[1]->ptr);
 }
 
-
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
-    int out_all = 0;
-    int out_everything = 0;
-    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &out_all, &out_everything);
+    int sec_all = 0, sec_everything = 0, sec_default = 0;
+
+    /* Get requested section list. */
+    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &sec_all, &sec_everything, &sec_default);
+
+    /* Purge unsupported sections from the requested ones. */
+    char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel"};
+    int sentinel_sections_len = sizeof(sentinel_sections)/sizeof(*sentinel_sections);
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(sections_dict);
+    while((de = dictNext(di)) != NULL) {
+        int i;
+        sds sec = dictGetVal(de);
+        for (i=0; i<sentinel_sections_len; i++)
+            if (!strcasecmp(sentinel_sections[i], sec))
+                break;
+        /* section not found? remove it */
+        if (i == sentinel_sections_len)
+            dictDelete(sections_dict, sec);
+    }
+    dictReleaseIterator(di);
+    if (sec_all || sec_everything || sec_default) {
+        dictAdd(sections_dict, sdsnew("sentinel"), NULL);
+    }
 
     sds info = sdsempty();
-    info = genRedisInfoString(sections_dict, out_all, out_everything);
-    if (c->argc == 1 || out_all || (dictFind(sections_dict, "sentinel") != NULL)) {
+    info = genRedisInfoString(sections_dict, sec_all, sec_everything);
+    if (sec_all || (dictFind(sections_dict, "sentinel") != NULL)) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;

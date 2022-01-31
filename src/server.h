@@ -3354,7 +3354,7 @@ void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 sds getFullCommandName(struct redisCommand *cmd);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
-dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything);
+dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything, int *out_default);
 sds genRedisInfoString(dict *section_dict, int all_sections, int everything);
 sds genModulesInfoString(sds info);
 void applyWatchdogPeriod();
