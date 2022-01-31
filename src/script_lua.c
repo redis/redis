@@ -939,6 +939,84 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     return 0;
 }
 
+/* redis.acl_check_cmd_permissions()
+ *
+ * Checks ACL permissions for given command for the current user. */
+static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
+    int j, argc = lua_gettop(lua);
+    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
+    if (!rctx) {
+        lua_pushstring(lua, "redis.acl_check_cmd_permissions can only be called inside a script invocation");
+        return lua_error(lua);
+    }
+    client* c = rctx->original_client;
+    int err = 1;
+
+    robj **argv = NULL;
+
+    /* Require at least one argument */
+    if (argc == 0) {
+        lua_pushstring(lua, "Please specify at least one argument for redis.acl_check_cmd_permissions()");
+        return lua_error(lua);
+    }
+
+    argv = zcalloc(sizeof(robj*)*argc);
+
+    for (j = 0; j < argc; j++) {
+        char *obj_s;
+        size_t obj_len;
+        char dbuf[64];
+
+        if (lua_type(lua,j+1) == LUA_TNUMBER) {
+            /* We can't use lua_tolstring() for number -> string conversion
+             * since Lua uses a format specifier that loses precision. */
+            lua_Number num = lua_tonumber(lua,j+1);
+
+            obj_len = snprintf(dbuf,sizeof(dbuf),"%.17g",(double)num);
+            obj_s = dbuf;
+        } else {
+            obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
+            if (obj_s == NULL) break; /* Not a string. */
+        }
+
+        argv[j] = createStringObject(obj_s, obj_len);
+    }
+
+    /* Check if one of the arguments passed by the Lua script
+     * is not a string or an integer (lua_isstring() return true for
+     * integers as well). */
+    if (j != argc) {
+        lua_pushstring(lua, "Lua redis() command arguments must be strings or integers");
+        goto cleanup;
+    }
+
+    err = 0;
+    /* Find command */
+    struct redisCommand *cmd;
+    if ((cmd = lookupCommand(argv, argc)) == NULL) {
+        lua_pushstring(lua, "Not found!!!");
+    } else {
+        int keyidxptr;
+        if (ACLCheckAllUserCommandPerm(c->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+            lua_pushstring(lua, "No access!!!");
+        } else {
+            lua_pushstring(lua, "You got it!");
+        }
+    }
+
+cleanup:
+    for (j = 0; j < argc; j++) {
+        if (argv[j])
+            decrRefCount(argv[j]);
+    }
+    zfree(argv);
+    if (err)
+        return lua_error(lua);
+    else
+        return 1;
+}
+
+
 /* redis.log() */
 static int luaLogCommand(lua_State *lua) {
     int j, argc = lua_gettop(lua);
@@ -1251,8 +1329,13 @@ void luaRegisterRedisAPI(lua_State* lua) {
 
     lua_pushstring(lua,"REPL_ALL");
     lua_pushnumber(lua,PROPAGATE_AOF|PROPAGATE_REPL);
-
     lua_settable(lua,-3);
+
+    /* redis.acl_check_cmd_permissions */
+    lua_pushstring(lua,"acl_check_cmd_permissions");
+    lua_pushcfunction(lua,luaRedisAclCheckCmdPermissionsCommand);
+    lua_settable(lua,-3);
+
     /* Finally set the table as 'redis' global var. */
     lua_setglobal(lua,REDIS_API_NAME);
 
