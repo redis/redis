@@ -40,6 +40,7 @@
 
 #include "rax.h"
 #include "mt19937-64.h"
+#include "zmalloc.h"
 
 uint16_t crc16(const char *buf, int len); /* From crc16.c */
 
@@ -64,7 +65,7 @@ typedef struct ht {
 
 /* Create a new hash table. */
 hashtable *htNew(void) {
-    hashtable *ht = calloc(1,sizeof(*ht));
+    hashtable *ht = zcalloc(sizeof(*ht));
     ht->numele = 0;
     return ht;
 }
@@ -98,8 +99,8 @@ int htAdd(hashtable *t, unsigned char *s, size_t len, void *data) {
     htNode *n = htRawLookup(t,s,len,&hash,NULL);
 
     if (!n) {
-        n = malloc(sizeof(*n));
-        n->key = malloc(len);
+        n = zmalloc(sizeof(*n));
+        n->key = zmalloc(len);
         memcpy(n->key,s,len);
         n->keylen = len;
         n->data = data;
@@ -121,8 +122,8 @@ int htRem(hashtable *t, unsigned char *s, size_t len) {
 
     if (!n) return 0;
     *parentlink = n->next;
-    free(n->key);
-    free(n);
+    zfree(n->key);
+    zfree(n);
     t->numele--;
     return 1;
 }
@@ -144,11 +145,11 @@ void htFree(hashtable *ht) {
         while(next) {
             htNode *this = next;
             next = this->next;
-            free(this->key);
-            free(this);
+            zfree(this->key);
+            zfree(this);
         }
     }
-    free(ht);
+    zfree(ht);
 }
 
 /* --------------------------------------------------------------------------
@@ -448,7 +449,7 @@ int arraySeek(arrayItem *array, int count, unsigned char *key, size_t len, char 
 int iteratorFuzzTest(int keymode, size_t count) {
     count = genrand64_int64()%count;
     rax *rax = raxNew();
-    arrayItem *array = malloc(sizeof(arrayItem)*count);
+    arrayItem *array = zmalloc(sizeof(arrayItem)*count);
 
     /* Fill a radix tree and a linear array with some data. */
     unsigned char key[1024];
@@ -458,7 +459,7 @@ int iteratorFuzzTest(int keymode, size_t count) {
         void *val = (void*)(unsigned long)htHash(key,keylen);
 
         if (raxInsert(rax,key,keylen,val,NULL)) {
-            array[j].key = malloc(keylen);
+            array[j].key = zmalloc(keylen);
             array[j].key_len = keylen;
             memcpy(array[j].key,key,keylen);
             j++;
@@ -544,8 +545,8 @@ int iteratorFuzzTest(int keymode, size_t count) {
         iteration++;
     }
 
-    for (unsigned int i = 0; i < count; i++) free(array[i].key);
-    free(array);
+    for (unsigned int i = 0; i < count; i++) zfree(array[i].key);
+    zfree(array);
     raxStop(&iter);
     raxFree(rax);
     return 0;
@@ -909,7 +910,7 @@ void benchmark(void) {
  * This test is disabled by default because it uses a lot of memory. */
 int testHugeKey(void) {
     size_t max_keylen = ((1<<29)-1) + 100;
-    unsigned char *key = malloc(max_keylen);
+    unsigned char *key = zmalloc(max_keylen);
     if (key == NULL) goto oom;
 
     memset(key,'a',max_keylen);
