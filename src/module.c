@@ -1513,7 +1513,7 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
         for (size_t j = 0; j < count; j++) {
             RedisModuleCommandKeySpec *spec =
                 moduleCmdKeySpecAt(version, info->key_specs, j);
-            if (spec->notes) cmd->key_specs[j].notes = zstrdup(spec->notes);
+            cmd->key_specs[j].notes = spec->notes ? zstrdup(spec->notes) : NULL;
             cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(spec->flags);
             switch (spec->begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN:
@@ -1766,8 +1766,8 @@ static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
  * struct redisCommandArg. */
 static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args,
                                                      const RedisModuleCommandInfoVersion *version) {
-    size_t count;
-    for (count = 0; moduleCmdArgAt(version, args, count)->name; count++);
+    size_t count = 0;
+    while (moduleCmdArgAt(version, args, count)->name) count++;
     serverAssert(count < SIZE_MAX / sizeof(struct redisCommandArg));
     struct redisCommandArg *realargs = zcalloc((count+1) * sizeof(redisCommandArg));
 
