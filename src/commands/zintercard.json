@@ -16,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "RO"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {

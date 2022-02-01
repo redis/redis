@@ -13,4 +13,8 @@ start_server {tags {"modules"}} {
         assert_equal 1 [r zset.rem k world]
         assert_equal 0 [r exists k]
     }
+
+    test "Unload the module - zset" {
+        assert_equal {OK} [r module unload zset]
+    }
 }

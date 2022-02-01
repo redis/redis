@@ -310,10 +310,10 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
-    test {HMSET wrong number of args} {
-        catch {r hmset smallhash key1 val1 key2} err
-        format $err
-    } {*wrong number*}
+    test {HSET/HMSET wrong number of args} {
+        assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
+    }
 
     test {HMSET - small hash} {
         set args {}

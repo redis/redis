@@ -21,4 +21,8 @@ start_server {tags {"modules"}} {
     test "Module eventloop oneshot" {
         r test.oneshot
     }
+
+    test "Unload the module - eventloop" {
+        assert_equal {OK} [r module unload eventloop]
+    }
 }

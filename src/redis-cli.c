@@ -878,6 +878,24 @@ static sds cliFormatInvalidateTTY(redisReply *r) {
     return sdscatlen(out, "\n", 1);
 }
 
+/* Returns non-zero if cliFormatReplyTTY renders the reply in multiple lines. */
+static int cliIsMultilineValueTTY(redisReply *r) {
+    switch (r->type) {
+    case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
+    case REDIS_REPLY_PUSH:
+        if (r->elements == 0) return 0;
+        if (r->elements > 1) return 1;
+        return cliIsMultilineValueTTY(r->element[0]);
+    case REDIS_REPLY_MAP:
+        if (r->elements == 0) return 0;
+        if (r->elements > 2) return 1;
+        return cliIsMultilineValueTTY(r->element[1]);
+    default:
+        return 0;
+    }
+}
+
 static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
@@ -974,6 +992,11 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
                     i++;
                     sdsrange(out,0,-2);
                     out = sdscat(out," => ");
+                    if (cliIsMultilineValueTTY(r->element[i])) {
+                        /* linebreak before multiline value to fix alignment */
+                        out = sdscat(out, "\n");
+                        out = sdscat(out, _prefix);
+                    }
                     tmp = cliFormatReplyTTY(r->element[i],_prefix);
                     out = sdscatlen(out,tmp,sdslen(tmp));
                     sdsfree(tmp);
@@ -4046,13 +4069,17 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
                                                     slot, "node",
                                                     target->name);
             success = (r != NULL);
-            if (!success) return 0;
+            if (!success) {
+                if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
+                return 0;
+            }
             if (r->type == REDIS_REPLY_ERROR) {
                 success = 0;
                 if (err != NULL) {
                     *err = zmalloc((r->len + 1) * sizeof(char));
                     strcpy(*err, r->str);
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, *err);
+                } else {
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str);
                 }
             }
             freeReplyObject(r);
@@ -6379,7 +6406,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
                                         opts, &err);
         if (!result) {
             if (err != NULL) {
-                //clusterManagerLogErr("\n%s\n", err);
+                clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
                 zfree(err);
             }
             goto cleanup;
@@ -6408,6 +6435,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
             char *name = config.cluster_manager_command.weight[i];
             char *p = strchr(name, '=');
             if (p == NULL) {
+                clusterManagerLogErr("*** invalid input %s\n", name);
                 result = 0;
                 goto cleanup;
             }
@@ -6553,11 +6581,16 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                 listRewind(table, &li);
                 while ((ln = listNext(&li)) != NULL) {
                     clusterManagerReshardTableItem *item = ln->value;
+                    char *err;
                     result = clusterManagerMoveSlot(item->source,
                                                     dst,
                                                     item->slot,
-                                                    opts, NULL);
-                    if (!result) goto end_move;
+                                                    opts, &err);
+                    if (!result) {
+                        clusterManagerLogErr("*** clusterManagerMoveSlot: %s\n", err);
+                        zfree(err);
+                        goto end_move;
+                    }
                     printf("#");
                     fflush(stdout);
                 }

@@ -46,7 +46,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "milliseconds-timestamp",
+                "name": "unix-time-milliseconds",
                 "type": "unix-time"
             },
             {

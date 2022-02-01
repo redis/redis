@@ -39,4 +39,7 @@ start_server {tags {"modules"}} {
         assert {[count_log_message "Can't fork for module: File exists"] eq "1"}
     }
 
+    test "Unload the module - fork" {
+        assert_equal {OK} [r module unload fork]
+    }
 }

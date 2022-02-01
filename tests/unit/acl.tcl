@@ -81,42 +81,70 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*key*}
 
-    test {By default users are able to publish to any channel} {
+    test {By default, only default user is able to publish to any channel} {
+        r AUTH default pwd
+        r PUBLISH foo bar
         r ACL setuser psuser on >pspass +acl +client +@pubsub
         r AUTH psuser pspass
-        r PUBLISH foo bar
-    } {0}
+        catch {r PUBLISH foo bar} e
+        set e
+    } {*NOPERM*channels*}
 
-    test {By default users are able to publish to any shard channel} {
+    test {By default, only default user is not able to publish to any shard channel} {
+        r AUTH default pwd
         r SPUBLISH foo bar
-    } {0}
+        r AUTH psuser pspass
+        catch {r SPUBLISH foo bar} e
+        set e
+    } {*NOPERM*channels*}
 
-    test {By default users are able to subscribe to any channel} {
+    test {By default, only default user is able to subscribe to any channel} {
         set rd [redis_deferring_client]
-        $rd AUTH psuser pspass
+        $rd AUTH default pwd
         $rd read
         $rd SUBSCRIBE foo
         assert_match {subscribe foo 1} [$rd read]
-        $rd close
-    } {0}
-
-    test {By default users are able to subscribe to any shard channel} {
-        set rd [redis_deferring_client]
+        $rd UNSUBSCRIBE
+        $rd read
         $rd AUTH psuser pspass
+        $rd read
+        $rd SUBSCRIBE foo
+        catch {$rd read} e
+        $rd close
+        set e
+    } {*NOPERM*channels*}
+
+    test {By default, only default user is able to subscribe to any shard channel} {
+        set rd [redis_deferring_client]
+        $rd AUTH default pwd
         $rd read
         $rd SSUBSCRIBE foo
         assert_match {ssubscribe foo 1} [$rd read]
-        $rd close
-    } {0}
-
-    test {By default users are able to subscribe to any pattern} {
-        set rd [redis_deferring_client]
+        $rd SUNSUBSCRIBE
+        $rd read
         $rd AUTH psuser pspass
+        $rd read
+        $rd SSUBSCRIBE foo
+        catch {$rd read} e
+        $rd close
+        set e
+    } {*NOPERM*channels*}
+
+    test {By default, only default user is able to subscribe to any pattern} {
+        set rd [redis_deferring_client]
+        $rd AUTH default pwd
         $rd read
         $rd PSUBSCRIBE bar*
         assert_match {psubscribe bar\* 1} [$rd read]
+        $rd PUNSUBSCRIBE
+        $rd read
+        $rd AUTH psuser pspass
+        $rd read
+        $rd PSUBSCRIBE bar*
+        catch {$rd read} e
         $rd close
-    } {0}
+        set e
+    } {*NOPERM*channels*}
 
     test {It's possible to allow publishing to a subset of channels} {
         r ACL setuser psuser resetchannels &foo:1 &bar:*
@@ -327,16 +355,27 @@ start_server {tags {"acl external:skip"}} {
         set e
     } {*NOPERM*config|set*}
 
-    test {ACLs can include a subcommand with a specific arg} {
+    test {ACLs cannot include a subcommand with a specific arg} {
         r ACL setuser newuser +@all -config|get
-        r ACL setuser newuser +config|get|appendonly
-        set cmdstr [dict get [r ACL getuser newuser] commands]
-        assert_match {*-config|get*} $cmdstr
-        assert_match {*+config|get|appendonly*} $cmdstr
-        r CONFIG GET appendonly; # Should not fail
-        catch {r CONFIG GET loglevel} e
+        catch { r ACL setuser newuser +config|get|appendonly} e
         set e
-    } {*NOPERM*config|get*}
+    } {*Allowing first-arg of a subcommand is not supported*}
+
+    test {ACLs cannot exclude or include a container commands with a specific arg} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -config|asdf} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
+
+    test {ACLs cannot exclude or include a container command with two args} {
+        r ACL setuser newuser +@all +config|get
+        catch { r ACL setuser newuser +@all +get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+        catch { r ACL setuser newuser +@all -get|key1|key2} e
+        assert_match "*Unknown command or category name in ACL*" $e
+    } {}
 
     test {ACLs including of a type includes also subcommands} {
         r ACL setuser newuser -@all +acl +@stream
@@ -463,6 +502,26 @@ start_server {tags {"acl external:skip"}} {
             set cmdstr [dict get [r ACL getuser restrictive] commands]
             assert_equal "-@all +@$category" $cmdstr
         }
+    }
+
+    test "ACL CAT with illegal arguments" {
+        assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
+        assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+    }
+
+    test "ACL CAT without category - list all categories" {
+        set categories [r acl cat]
+        assert_not_equal [lsearch $categories "keyspace"] -1
+        assert_not_equal [lsearch $categories "connection"] -1
+    }
+
+    test "ACL CAT category - list all commands/subcommands that belong to category" {
+        assert_not_equal [lsearch [r acl cat transaction] "multi"] -1
+        assert_not_equal [lsearch [r acl cat scripting] "function|list"] -1
+
+        # Negative check to make sure it doesn't actually return all commands.
+        assert_equal [lsearch [r acl cat keyspace] "set"] -1
+        assert_equal [lsearch [r acl cat stream] "get"] -1
     }
 
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
@@ -621,7 +680,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {ACL HELP should not have unexpected options} {
         catch {r ACL help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'acl|help' command" $e
     }
 
     test {Delete a user that the client doesn't use} {
@@ -644,10 +703,10 @@ start_server {tags {"acl external:skip"}} {
 
 set server_path [tmpdir "server.acl"]
 exec cp -f tests/assets/user.acl $server_path
-start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "external:skip"]] {
-    # user alice on allcommands allkeys >alice
-    # user bob on -@all +@set +acl ~set* >bob
-    # user default on nopass ~* +@all
+start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allchannels" "aclfile" "user.acl"] tags [list "external:skip"]] {
+    # user alice on allcommands allkeys &* >alice
+    # user bob on -@all +@set +acl ~set* &* >bob
+    # user default on nopass ~* &* +@all
 
     test {default: load from include file, can access any channels} {
         r SUBSCRIBE foo
@@ -729,7 +788,7 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
 set server_path [tmpdir "resetchannels.acl"]
 exec cp -f tests/assets/nodefaultuser.acl $server_path
 exec cp -f tests/assets/default.conf $server_path
-start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "resetchannels" "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
+start_server [list overrides [list "dir" $server_path "aclfile" "nodefaultuser.acl"] tags [list "external:skip"]] {
 
     test {Default user has access to all channels irrespective of flag} {
         set channelinfo [dict get [r ACL getuser default] channels]
@@ -780,7 +839,14 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "rese
 
 
 start_server {overrides {user "default on nopass ~* +@all"} tags {"external:skip"}} {
-    test {default: load from config file, can access any channels} {
+    test {default: load from config file, without channel permission default user can't access any channels} {
+        catch {r SUBSCRIBE foo} e
+        set e
+    } {*NOPERM*channel*}
+}
+
+start_server {overrides {user "default on nopass ~* &* +@all"} tags {"external:skip"}} {
+    test {default: load from config file with all channels permissions} {
         r SUBSCRIBE foo
         r PSUBSCRIBE bar*
         r UNSUBSCRIBE

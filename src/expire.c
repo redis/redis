@@ -571,14 +571,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      * overflow by either unit conversion or basetime addition. */
     if (unit == UNIT_SECONDS) {
         if (when > LLONG_MAX / 1000 || when < LLONG_MIN / 1000) {
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+            addReplyErrorExpireTime(c);
             return;
         }
         when *= 1000;
     }
 
     if (when > LLONG_MAX - basetime) {
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return;
     }
     when += basetime;

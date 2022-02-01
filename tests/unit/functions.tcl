@@ -209,7 +209,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
         set _ $e
-    } {*wrong number of arguments*}
+    } {*Unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load lua test REPLACE [get_no_writes_function_code test {return redis.call('set', 'x', '1')}]
@@ -245,7 +245,7 @@ start_server {tags {"scripting"}} {
         after 200
         catch {r ping} e
         assert_match {BUSY*} $e
-        assert_match {running_script {name test command {fcall test 0} duration_ms *} engines LUA} [r FUNCTION STATS]
+        assert_match {running_script {name test command {fcall test 0} duration_ms *} engines {*}} [r FUNCTION STATS]
         r function kill
         after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
@@ -302,7 +302,7 @@ start_server {tags {"scripting"}} {
         assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
-        assert_match {*wrong number of arguments*} $e
+        assert_match {*Unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
     }
 }
 
@@ -428,7 +428,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 r -1 fcall test 0
             } e
             set _ $e
-        } {*Can not run a function with write flag on readonly replica*}
+        } {*Can not run script with write flag on readonly replica*}
     }
 }
 
@@ -1023,7 +1023,7 @@ start_server {tags {"scripting"}} {
         }}
         catch {r fcall_ro f1 0} e
         set _ $e
-    } {*Can not execute a function with write flag using fcall_ro*}
+    } {*Can not execute a script with write flag using \*_ro command*}
 
     test {FUNCTION - write script with no-writes flag} {
         r function load lua test replace {redis.register_function{
@@ -1072,7 +1072,7 @@ start_server {tags {"scripting"}} {
         r replicaof 127.0.0.1 1
 
         catch {[r fcall f1 0]} e
-        assert_match {*'allow-stale' flag is not set on the function*} $e
+        assert_match {*'allow-stale' flag is not set on the script*} $e
 
         assert_equal {hello} [r fcall f2 0]
 
@@ -1092,8 +1092,8 @@ start_server {tags {"scripting"}} {
 
             redis.register_function{function_name='get_version_v1', callback=function()
               return string.format('%s.%s.%s',
-                                    bit.band(bit.rshift(version, 4), 0x000000ff),
-                                    bit.band(bit.rshift(version, 2), 0x000000ff),
+                                    bit.band(bit.rshift(version, 16), 0x000000ff),
+                                    bit.band(bit.rshift(version, 8), 0x000000ff),
                                     bit.band(version, 0x000000ff))
             end}
             redis.register_function{function_name='get_version_v2', callback=function() return redis.REDIS_VERSION end}
@@ -1102,4 +1102,34 @@ start_server {tags {"scripting"}} {
         catch {[r fcall f1 0]} e
         assert_equal  [r fcall get_version_v1 0] [r fcall get_version_v2 0]
     }
+
+    test {FUNCTION - function stats} {
+        r FUNCTION FLUSH
+
+        r FUNCTION load lua test1 {
+            redis.register_function('f1', function() return 1 end)
+            redis.register_function('f2', function() return 1 end)
+        }
+
+        r FUNCTION load lua test2 {
+            redis.register_function('f3', function() return 1 end)
+        }
+
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}}
+
+    test {FUNCTION - function stats reloaded correctly from rdb} {
+        r debug reload
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 2 functions_count 3}}} {needs:debug}
+
+    test {FUNCTION - function stats delete library} {
+        r function delete test1
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 1 functions_count 1}}}
+
+    test {FUNCTION - function stats cleaned after flush} {
+        r function flush
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 0 functions_count 0}}}
 }

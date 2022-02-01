@@ -77,10 +77,11 @@ struct scriptRunCtx {
 };
 
 /* Scripts flags */
-#define SCRIPT_FLAG_NO_WRITES (1ULL<<0)
-#define SCRIPT_FLAG_ALLOW_OOM (1ULL<<1)
-#define SCRIPT_FLAG_ALLOW_STALE (1ULL<<3)
-#define SCRIPT_FLAG_NO_CLUSTER (1ULL<<4)
+#define SCRIPT_FLAG_NO_WRITES        (1ULL<<0)
+#define SCRIPT_FLAG_ALLOW_OOM        (1ULL<<1)
+#define SCRIPT_FLAG_ALLOW_STALE      (1ULL<<2)
+#define SCRIPT_FLAG_NO_CLUSTER       (1ULL<<3)
+#define SCRIPT_FLAG_EVAL_COMPAT_MODE (1ULL<<4) /* EVAL Script backwards compatible behavior, no shebang provided */
 
 /* Defines a script flags */
 typedef struct scriptFlag {
@@ -90,7 +91,7 @@ typedef struct scriptFlag {
 
 extern scriptFlag scripts_flags_def[];
 
-void scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname);
+int scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro);
 void scriptResetRun(scriptRunCtx *r_ctx);
 int scriptSetResp(scriptRunCtx *r_ctx, int resp);
 int scriptSetRepl(scriptRunCtx *r_ctx, int repl);

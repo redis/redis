@@ -1,5 +1,7 @@
 #include "redismodule.h"
 
+#define UNUSED(V) ((void) V)
+
 // A simple global user
 static RedisModuleUser *global = NULL;
 static long long client_change_delta = 0;
@@ -84,6 +86,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"auth.changecount",
         Auth_ChangeCount,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+
+    if (global)
+        RedisModule_FreeModuleUser(global);
 
     return REDISMODULE_OK;
 }
