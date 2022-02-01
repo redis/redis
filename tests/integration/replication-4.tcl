@@ -46,6 +46,12 @@ start_server {tags {"repl external:skip"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
+        # Load some functions to be used later
+        $master FUNCTION load lua test replace {
+            redis.register_function{function_name='f_default_flags', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={}}
+            redis.register_function{function_name='f_no_writes', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={'no-writes'}}
+        }
+
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
             wait_replica_online $master
@@ -63,6 +69,11 @@ start_server {tags {"repl external:skip"}} {
             $master config set min-slaves-to-write 2
             assert_error "*NOREPLICAS*" {$master set foo bar}
             assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 0}
+        }
+
+        test {With min-slaves-to-write function without no-write flag} {
+            assert_error "*NOREPLICAS*" {$master fcall f_default_flags 1 foo}
+            assert_equal "12345" [$master fcall f_no_writes 1 foo]
         }
 
         test {With not enough good slaves, read in Lua script is still accepted} {
