@@ -516,6 +516,7 @@ dictType replScriptCacheDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Dict for null terminated C strings */
 dictType stringSetDictType = {
     distCStrHash,               /* hash function */
     NULL,                       /* key dup */
@@ -4893,7 +4894,7 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     return info;
 }
 
-void addSectionsToDict(dict *section_dict, char **sections, int len) {
+static void addInfoSectionsToDict(dict *section_dict, char **sections, int len) {
     for (int i = 0; i < len; i++){
         sds section = sdsnew(sections[i]);
         dictAdd(section_dict, section, NULL);
@@ -4911,12 +4912,12 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
     dict *section_dict = dictCreate(&stringSetDictType);
     if (argc == 0) {
         if (out_default) *out_default = 1;
-        addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
+        addInfoSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
     } else {
         for (int i = 0; i < argc; i++) {
             if (!strcasecmp(argv[i]->ptr,"default")) {
                 if (out_default) *out_default = 1;
-                addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
+                addInfoSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
             } else if (!strcasecmp(argv[i]->ptr,"all")) {
                 if (out_all) *out_all = 1;
             } else if (!strcasecmp(argv[i]->ptr,"everything")) {
