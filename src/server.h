@@ -820,8 +820,9 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
-#define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
+#define REFCOUNT_MAX 0x7fffffff              /* 31 bits unsigned int. */
+#define OBJ_SHARED_REFCOUNT REFCOUNT_MAX     /* Global object never destroyed. */
+#define OBJ_STATIC_REFCOUNT (REFCOUNT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 typedef struct redisObject {
     unsigned type:4;
@@ -829,7 +830,9 @@ typedef struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
+    unsigned hasexpire:1;  /* Redundant flag indicating that the key exists
+                            * in the expire dict. */
+    unsigned refcount:31;
     void *ptr;
 } robj;
 

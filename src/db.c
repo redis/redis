@@ -80,9 +80,8 @@ void updateLFU(robj *val) {
  * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
-    robj *val = NULL;
-    if (de) {
-        val = dictGetVal(de);
+    robj *val = de ? dictGetVal(de) : NULL;
+    if (val && val->hasexpire) {
         int force_delete_expired = flags & LOOKUP_WRITE;
         if (force_delete_expired) {
             /* Forcing deletion of expired keys on a replica makes the replica
@@ -214,6 +213,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL,key,de != NULL);
     dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
+    val->hasexpire = old->hasexpire;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
@@ -258,7 +258,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
         dbOverwrite(db,key,val);
     }
     incrRefCount(val);
-    if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
+    if (!(flags & SETKEY_KEEPTTL) && val->hasexpire) removeExpire(db,key);
     if (!(flags & SETKEY_NO_SIGNAL)) signalModifiedKey(c,db,key);
 }
 
@@ -280,7 +280,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (dictFind(db->expires,key)) {
+        if (((robj*)dictGetVal(de))->hasexpire && dictFind(db->expires,key)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -303,12 +303,12 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Helper for sync and async delete. */
 static int dbGenericDelete(redisDb *db, robj *key, int async) {
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
+        /* Deleting an entry from the expires dict will not free the sds of
+         * the key, because it is shared with the main dictionary. */
+        if (val->hasexpire) dictDelete(db->expires,key->ptr);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
         if (async) {
@@ -645,7 +645,7 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This function implements the DEL and UNLINK commands. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
@@ -940,15 +940,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
         }
 
-        /* Filter an element if it isn't the type we want. */
+        /* Filter an element if it isn't the type we want or if it's expired. */
         if (!filter && o == NULL && typename){
-            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
+            robj* object = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
+            char* type = getObjectTypeName(object);
             if (strcasecmp((char*) typename, type)) filter = 1;
+        } else if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) {
+            filter = 1;
         }
-
-        /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
@@ -1458,7 +1457,11 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    dictEntry *de = dictFind(db->dict, key->ptr);
+    serverAssertWithInfo(NULL, key, de != NULL);
+    robj *val = dictGetVal(de);
+    if (!val->hasexpire) return 1;
+    val->hasexpire = 0;
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -1472,6 +1475,8 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
+    robj *val = dictGetVal(kde);
+    val->hasexpire = 1;
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 
@@ -1483,15 +1488,14 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
 long long getExpire(redisDb *db, robj *key) {
-    dictEntry *de;
+    dictEntry *de, *kde;
 
-    /* No expire? return ASAP */
+    /* No expire? Return ASAP, preferably without accessing the expires dict. */
+    if ((kde = dictFind(db->dict, key->ptr)) == NULL) return -1;
+    if (!((robj*)dictGetVal(kde))->hasexpire) return -1;
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
-    /* The entry was found in the expire dict, this means it should also
-     * be present in the main dict (safety check). */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
 

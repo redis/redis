@@ -41,6 +41,7 @@
 
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
+    o->hasexpire = 0;
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -86,6 +87,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
+    o->hasexpire = 0;
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
