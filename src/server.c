@@ -4909,11 +4909,11 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
         "cpu", "module_list", "errorstats", "cluster", "keyspace", "latencystats"};
 
     dict *section_dict = dictCreate(&stringSetDictType);
-    if (argc == 1) {
+    if (argc == 0) {
         if (out_default) *out_default = 1;
         addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
     } else {
-        for (int i = 1; i < argc; i++) {
+        for (int i = 0; i < argc; i++) {
             if (!strcasecmp(argv[i]->ptr,"default")) {
                 if (out_default) *out_default = 1;
                 addSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
@@ -4924,7 +4924,8 @@ dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everythin
             } else {
                 sds section = sdsnew(argv[i]->ptr);
                 sdstolower(section);
-                dictAdd(section_dict,section,NULL);
+                if (dictAdd(section_dict, section, NULL) != DICT_OK)
+                    sdsfree(section);
             }
         }
     }
@@ -5685,7 +5686,7 @@ void infoCommand(client *c) {
     }
     int all_sections = 0;
     int everything = 0;
-    dict *sections_dict = genInfoSectionDict(c->argv, c->argc, &all_sections, &everything, NULL);
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, &all_sections, &everything, NULL);
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);

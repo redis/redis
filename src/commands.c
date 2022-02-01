@@ -4300,7 +4300,10 @@ struct redisCommandArg FLUSHDB_Args[] = {
 /********** INFO ********************/
 
 /* INFO history */
-#define INFO_History NULL
+commandHistory INFO_History[] = {
+{"7.0.0","Added support for taking multiple section arguments."},
+{0}
+};
 
 /* INFO tips */
 const char *INFO_tips[] = {
@@ -4312,7 +4315,7 @@ NULL
 
 /* INFO argument table */
 struct redisCommandArg INFO_Args[] = {
-{"section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 

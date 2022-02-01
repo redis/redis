@@ -6,6 +6,12 @@
         "since": "1.0.0",
         "arity": -1,
         "function": "infoCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for taking multiple section arguments."
+            ]
+        ],
         "command_flags": [
             "LOADING",
             "STALE",
@@ -23,6 +29,7 @@
             {
                 "name": "section",
                 "type": "string",
+                "multiple": true,
                 "optional": true
             }
         ]

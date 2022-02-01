@@ -8242,33 +8242,42 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
  * NULL or empty string indicates the default section (only `<modulename>`) is used.
  * When return value is REDISMODULE_ERR, the section should and will be skipped. */
 int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
-    sds full_name = sdsdup(ctx->module->name);
+    int ret = REDISMODULE_OK;
+    sds module_name = sdsdup(ctx->module->name);
+    sds full_name = NULL;
     if (name != NULL && strlen(name) > 0)
-        full_name = sdscatfmt(full_name, "_%s", name);
+        full_name = sdscatfmt(sdsdup(module_name), "_%s", name);
+    sds module_name_lower = sdsdup(module_name);
+    sds full_name_lower = full_name ? sdsdup(full_name) : NULL;
+    sdstolower(module_name_lower);
+    if (full_name_lower) sdstolower(full_name_lower);
+
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
         RM_InfoEndDictField(ctx);
-    sdstolower(full_name);
+
     /* proceed only if:
      * 1) no section was requested (emit all)
      * 2) the module name was requested (emit all)
      * 3) this specific section was requested. */
     if (ctx->requested_sections) {
-        if ((dictFind(ctx->requested_sections,full_name) == NULL) &&
-            (dictFind(ctx->requested_sections,ctx->module->name) == NULL)) {
-            sdsfree(full_name);
+        if ((!full_name_lower || !dictFind(ctx->requested_sections, full_name_lower)) &&
+            (!dictFind(ctx->requested_sections, module_name_lower)))
+        {
             ctx->in_section = 0;
-            return REDISMODULE_ERR;
+            ret = REDISMODULE_ERR;
+            goto end;
         }
     }
     if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
-    if (name != NULL && strlen(name) > 0)
-        ctx->info = sdscatfmt(ctx->info, "# %S_%s\r\n", ctx->module->name, name);
-    else
-        ctx->info = sdscatfmt(ctx->info, "# %S\r\n", ctx->module->name);
+    ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name ? full_name : module_name);
     ctx->in_section = 1;
+end:
+    sdsfree(module_name);
     sdsfree(full_name);
-    return REDISMODULE_OK;
+    sdsfree(module_name_lower);
+    sdsfree(full_name_lower);
+    return ret;
 }
 
 /* Starts a dict field, similar to the ones in INFO KEYSPACE. Use normal
@@ -8439,8 +8448,8 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
     int all = 0, everything = 0;
     robj *argv[1];
-    argv[0] = createStringObject(section, strlen(section));
-    dict *section_dict = genInfoSectionDict(argv, 1, &all, &everything, NULL);
+    argv[0] = section ? createStringObject(section, strlen(section)) : NULL;
+    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, &all, &everything, NULL);
     sds info = genRedisInfoString(section_dict, all, everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
@@ -8458,7 +8467,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
     dictRelease(section_dict);
-    decrRefCount(argv[0]);
+    if(argv[0]) decrRefCount(argv[0]);
     return d;
 }
 
