@@ -39,7 +39,7 @@
 #include <errno.h>
 
 #include "rax.h"
-#include "rc4rand.h"
+#include "mt19937-64.h"
 
 uint16_t crc16(const char *buf, int len); /* From crc16.c */
 
@@ -227,18 +227,18 @@ static size_t int2key(char *s, size_t maxlen, uint32_t i, int mode) {
         return int2alphakey(s,maxlen,i);
     } else if (mode == KEY_RANDOM) {
         if (maxlen > 16) maxlen = 16;
-        int r = rc4rand() % maxlen;
-        for (int i = 0; i < r; i++) s[i] = rc4rand()&0xff;
+        int r = genrand64_int64() % maxlen;
+        for (int i = 0; i < r; i++) s[i] = genrand64_int64()&0xff;
         return r;
     } else if (mode == KEY_RANDOM_ALPHA) {
         if (maxlen > 16) maxlen = 16;
-        int r = rc4rand() % maxlen;
-        for (int i = 0; i < r; i++) s[i] = 'A'+rc4rand()%('z'-'A'+1);
+        int r = genrand64_int64() % maxlen;
+        for (int i = 0; i < r; i++) s[i] = 'A'+genrand64_int64()%('z'-'A'+1);
         return r;
     } else if (mode == KEY_RANDOM_SMALL_CSET) {
         if (maxlen > 16) maxlen = 16;
-        int r = rc4rand() % maxlen;
-        for (int i = 0; i < r; i++) s[i] = 'A'+rc4rand()%4;
+        int r = genrand64_int64() % maxlen;
+        for (int i = 0; i < r; i++) s[i] = 'A'+genrand64_int64()%4;
         return r;
     } else if (mode == KEY_CHAIN) {
         if (i > maxlen) i = maxlen;
@@ -265,11 +265,11 @@ int fuzzTest(int keymode, size_t count, double addprob, double remprob) {
         uint32_t keylen;
 
         /* Insert element. */
-        if ((double)rc4rand()/RAND_MAX < addprob) {
+        if ((double)genrand64_int64()/RAND_MAX < addprob) {
             keylen = int2key((char*)key,sizeof(key),i,keymode);
-            void *val = (void*)(unsigned long)rc4rand();
+            void *val = (void*)(unsigned long)genrand64_int64();
             /* Stress NULL values more often, they use a special encoding. */
-            if (!(rc4rand() % 100)) val = NULL;
+            if (!(genrand64_int64() % 100)) val = NULL;
             int retval1 = htAdd(ht,key,keylen,val);
             int retval2 = raxInsert(rax,key,keylen,val,NULL);
             if (retval1 != retval2) {
@@ -279,7 +279,7 @@ int fuzzTest(int keymode, size_t count, double addprob, double remprob) {
         }
 
         /* Remove element. */
-        if ((double)rc4rand()/RAND_MAX < remprob) {
+        if ((double)genrand64_int64()/RAND_MAX < remprob) {
             keylen = int2key((char*)key,sizeof(key),i,keymode);
             int retval1 = htRem(ht,key,keylen);
             int retval2 = raxRemove(rax,key,keylen,NULL);
@@ -364,12 +364,12 @@ int fuzzTestCluster(size_t count, double addprob, double remprob) {
         /* With a given probability, let's use a common prefix so that there
          * is a subset of keys that have an higher percentage of probability
          * of being hit again and again. */
-        size_t commonprefix = rc4rand() & 0xf;
+        size_t commonprefix = genrand64_int64() & 0xf;
         if (commonprefix == 0) memcpy(key+10,"2e68e5",6);
 
         /* Alter a random char in the key. */
-        int pos = 10+rc4rand()%12;
-        key[pos] = cset[rc4rand()%16];
+        int pos = 10+genrand64_int64()%12;
+        key[pos] = cset[genrand64_int64()%16];
 
         /* Compute the Redis Cluster hash slot to set the first two
          * binary bytes of the key. */
@@ -378,12 +378,12 @@ int fuzzTestCluster(size_t count, double addprob, double remprob) {
         key[1] = hashslot & 0xff;
 
         /* Insert element. */
-        if ((double)rc4rand()/RAND_MAX < addprob) {
+        if ((double)genrand64_int64()/RAND_MAX < addprob) {
             raxInsert(rax,key,keylen,NULL,NULL);
         }
 
         /* Remove element. */
-        if ((double)rc4rand()/RAND_MAX < remprob) {
+        if ((double)genrand64_int64()/RAND_MAX < remprob) {
             raxRemove(rax,key,keylen,NULL);
         }
     }
@@ -446,7 +446,7 @@ int arraySeek(arrayItem *array, int count, unsigned char *key, size_t len, char 
 }
 
 int iteratorFuzzTest(int keymode, size_t count) {
-    count = rc4rand()%count;
+    count = genrand64_int64()%count;
     rax *rax = raxNew();
     arrayItem *array = malloc(sizeof(arrayItem)*count);
 
@@ -471,15 +471,15 @@ int iteratorFuzzTest(int keymode, size_t count) {
 
     /* Perform a random seek operation. */
     uint32_t keylen = int2key((char*)key,sizeof(key),
-        rc4rand()%(count ? count : 1),keymode);
+        genrand64_int64()%(count ? count : 1),keymode);
     raxIterator iter;
     raxStart(&iter,rax);
     char *seekops[] = {"==",">=","<=",">","<","^","$"};
-    char *seekop = seekops[rc4rand() % 7];
+    char *seekop = seekops[genrand64_int64() % 7];
     raxSeek(&iter,seekop,key,keylen);
     int seekidx = arraySeek(array,count,key,keylen,seekop);
 
-    int next = rc4rand() % 2;
+    int next = genrand64_int64() % 2;
     int iteration = 0;
     while(1) {
         int rax_res;
@@ -596,7 +596,7 @@ int iteratorUnitTests(void) {
     rax *t = raxNew();
     char *toadd[] = {"alligator","alien","baloon","chromodynamic","romane","romanus","romulus","rubens","ruber","rubicon","rubicundus","all","rub","ba",NULL};
 
-    for (int x = 0; x < 10000; x++) rc4rand();
+    for (int x = 0; x < 10000; x++) genrand64_int64();
 
     long items = 0;
     while(toadd[items] != NULL) items++;
@@ -855,7 +855,7 @@ void benchmark(void) {
         start = ustime();
         for (int i = 0; i < 5000000; i++) {
             char buf[64];
-            int r = rc4rand() % 5000000;
+            int r = genrand64_int64() % 5000000;
             int len = int2key(buf,sizeof(buf),r,mode);
             void *data = raxFind(t,(unsigned char*)buf,len);
             if (data != (void*)(long)r) {
@@ -935,7 +935,7 @@ oom:
 }
 
 int raxTest(int argc, char **argv) {
-    rc4srand(1234);
+    init_genrand64(1234);
 
     /* Tests to run by default are set here. */
     int do_benchmark = 0;
@@ -1009,21 +1009,21 @@ int raxTest(int argc, char **argv) {
 
     if (do_fuzz_cluster) {
         for (int i = 0; i < 10; i++) {
-            double alpha = (double)rc4rand() / RAND_MAX;
+            double alpha = (double)genrand64_int64() / RAND_MAX;
             double beta = 1-alpha;
-            if (fuzzTestCluster(rc4rand()%100000000,alpha,beta)) errors++;
+            if (fuzzTestCluster(genrand64_int64()%100000000,alpha,beta)) errors++;
         }
     }
 
     if (do_fuzz) {
         for (int i = 0; i < 10; i++) {
-            double alpha = (double)rc4rand() / RAND_MAX;
+            double alpha = (double)genrand64_int64() / RAND_MAX;
             double beta = 1-alpha;
-            if (fuzzTest(KEY_INT,rc4rand()%10000,alpha,beta)) errors++;
-            if (fuzzTest(KEY_UNIQUE_ALPHA,rc4rand()%10000,alpha,beta)) errors++;
-            if (fuzzTest(KEY_RANDOM,rc4rand()%10000,alpha,beta)) errors++;
-            if (fuzzTest(KEY_RANDOM_ALPHA,rc4rand()%10000,alpha,beta)) errors++;
-            if (fuzzTest(KEY_RANDOM_SMALL_CSET,rc4rand()%10000,alpha,beta)) errors++;
+            if (fuzzTest(KEY_INT,genrand64_int64()%10000,alpha,beta)) errors++;
+            if (fuzzTest(KEY_UNIQUE_ALPHA,genrand64_int64()%10000,alpha,beta)) errors++;
+            if (fuzzTest(KEY_RANDOM,genrand64_int64()%10000,alpha,beta)) errors++;
+            if (fuzzTest(KEY_RANDOM_ALPHA,genrand64_int64()%10000,alpha,beta)) errors++;
+            if (fuzzTest(KEY_RANDOM_SMALL_CSET,genrand64_int64()%10000,alpha,beta)) errors++;
         }
 
         size_t numops = 100000, cycles = 3;
