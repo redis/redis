@@ -55,7 +55,6 @@ test "Sentinel Set with other error situations" {
 
    catch {[S 0 SENTINEL SET mymaster quorum $update_quorum]} err
    exec chmod 644 $configfilename
-   assert_equal "ERR Failed to save Sentinel new configuration on disk" $err
-   
+   assert_equal "ERR failed to save config file" $err
 }
 
