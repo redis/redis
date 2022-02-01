@@ -6496,6 +6496,7 @@ int iAmMaster(void) {
 
 #ifdef REDIS_TEST
 #include "testhelp.h"
+#include "rax-test.c"
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -6520,7 +6521,8 @@ struct redisTest {
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
     {"dict", dictTest},
-    {"listpack", listpackTest}
+    {"listpack", listpackTest},
+    {"rax", raxTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
