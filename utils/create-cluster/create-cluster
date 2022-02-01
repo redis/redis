@@ -96,9 +96,9 @@ fi
 if [ "$1" == "clean" ]
 then
     rm -rf *.log
-    rm -rf appendonly*.aof
     rm -rf dump*.rdb
     rm -rf nodes*.conf
+    rm -rf appendonlydir
     exit 0
 fi
 
