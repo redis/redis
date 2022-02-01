@@ -4097,7 +4097,7 @@ void sentinelInfoCommand(client *c) {
     int sec_all = 0, sec_everything = 0, sec_default = 0;
 
     /* Get requested section list. */
-    dict *sections_dict = genInfoSectionDict(c->argv+2, c->argc-2, &sec_all, &sec_everything, &sec_default);
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, &sec_all, &sec_everything, &sec_default);
 
     /* Purge unsupported sections from the requested ones. */
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel"};
