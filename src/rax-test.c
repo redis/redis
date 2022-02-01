@@ -92,7 +92,7 @@ htNode *htRawLookup(hashtable *t, unsigned char *s, size_t len, uint32_t *hash, 
     return NULL;
 }
 
-/* Add an elmenet to the hash table, return 1 if the element is new,
+/* Add an element to the hash table, return 1 if the element is new,
  * 0 if it existed and the value was updated to the new one. */
 int htAdd(hashtable *t, unsigned char *s, size_t len, void *data) {
     uint32_t hash;
@@ -668,14 +668,14 @@ int tryInsertUnitTests(void) {
 
     val = raxFind(t,(unsigned char*)"FOO",3);
     if (val != (void*)(long)1) {
-        printf("FOO value mismatch: is %p intead of 1", val);
+        printf("FOO value mismatch: is %p instead of 1", val);
         return 1;
     }
 
     raxInsert(t,(unsigned char*)"FOO",3,(void*)(long)2,NULL);
     val = raxFind(t,(unsigned char*)"FOO",3);
     if (val != (void*)(long)2) {
-        printf("FOO value mismatch: is %p intead of 2", val);
+        printf("FOO value mismatch: is %p instead of 2", val);
         return 1;
     }
 
