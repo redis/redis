@@ -24,7 +24,8 @@ int kspec_complex2(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int createKspecLegacy(RedisModuleCtx *ctx) {
-    /* Test legacy range "gluing" */
+    /* Test that two range-based key specs are combined to produce the legacy
+     * (first,last,step) values representing both keys. */
     if (RedisModule_CreateCommand(ctx,"kspec.legacy",kspec_legacy,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

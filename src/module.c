@@ -1167,9 +1167,14 @@ static int moduleConvertArgFlags(int flags);
  *   *find keys* (FK) which, relative to the output of BS, describes how can we
  *   will which arguments are keys. Additionally, there are key specific flags.
  *
- *   Note that key-specs don't fully replace the "getkeys-api" (see
- *   RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be a
- *   good idea to supply both key-specs and a implement the getkeys-api.
+ *     Key-specs cause the triplet (firstkey, lastkey, keystep) given in
+ *     RM_CreateCommand to be recomputed, but it is still useful to provide
+ *     these three parameters in RM_CreateCommand, to better support old Redis
+ *     versions where RM_SetCommandInfo is not available.
+ *
+ *     Note that key-specs don't fully replace the "getkeys-api" (see
+ *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be
+ *     a good idea to supply both key-specs and a implement the getkeys-api.
  *
  *     A key-spec has the following structure:
  *
@@ -1561,6 +1566,9 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
                 serverPanic("Unknown find_keys_type");
             }
         }
+
+        /* Update the legacy (first,last,step) spec used by the COMMAND command,
+         * by tring to "glue" consecutive range key specs. */
         populateCommandLegacyRangeSpec(cmd);
         populateCommandMovableKeys(cmd);
     }
