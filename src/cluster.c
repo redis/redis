@@ -4690,6 +4690,20 @@ void clusterGenNodesSlotsInfo(int filter) {
     }
 }
 
+static sds clusterCatNodesDescription(clusterNode *node, sds ci, int use_pport) {
+    sds ni = clusterGenNodeDescription(node, use_pport);
+    ci = sdscatsds(ci,ni);
+    sdsfree(ni);
+    ci = sdscatlen(ci,"\n",1);
+
+    /* Release slots info. */
+    if (node->slots_info) {
+        sdsfree(node->slots_info);
+        node->slots_info = NULL;
+    }
+    return ci;
+}
+
 /* Generate a csv-alike representation of the nodes we are aware of,
  * including the "myself" node, and return an SDS string containing the
  * representation (it is up to the caller to free it).
@@ -4706,7 +4720,7 @@ void clusterGenNodesSlotsInfo(int filter) {
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
 sds clusterGenNodesDescription(int filter, int use_pport) {
-    sds ci = sdsempty(), ni;
+    sds ci = sdsempty();
     dictIterator *di;
     dictEntry *de;
 
@@ -4717,19 +4731,29 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
-        if (node->flags & filter) continue;
-        ni = clusterGenNodeDescription(node, use_pport);
-        ci = sdscatsds(ci,ni);
-        sdsfree(ni);
-        ci = sdscatlen(ci,"\n",1);
+        if (!nodeIsMaster(node)) continue;
+        if (!(node->flags & filter))
+            ci = clusterCatNodesDescription(node, ci, use_pport);
 
-        /* Release slots info. */
-        if (node->slots_info) {
-            sdsfree(node->slots_info);
-            node->slots_info = NULL;
+        for (int j = 0; j < node->numslaves; j++) {
+            if (node->slaves[j]->flags & filter) continue;
+            ci = clusterCatNodesDescription(node->slaves[j], ci, use_pport);
         }
     }
     dictReleaseIterator(di);
+
+    /* We may have non associated replica nodes, we know about the replica
+     * but not about its master, we need to print those nodes. */
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (node->flags & filter) continue;
+        if (nodeIsMaster(node) || node->slaveof) continue;
+        ci = clusterCatNodesDescription(node, ci, use_pport);
+    }
+    dictReleaseIterator(di);
+
     return ci;
 }
 
