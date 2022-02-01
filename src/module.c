@@ -1568,7 +1568,7 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
         }
 
         /* Update the legacy (first,last,step) spec used by the COMMAND command,
-         * by tring to "glue" consecutive range key specs. */
+         * by trying to "glue" consecutive range key specs. */
         populateCommandLegacyRangeSpec(cmd);
         populateCommandMovableKeys(cmd);
     }
