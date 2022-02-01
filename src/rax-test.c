@@ -193,16 +193,6 @@ static size_t int2alphakey(char *s, size_t maxlen, uint32_t i) {
     return len;
 }
 
-/* Return the UNIX time in microseconds */
-long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
 
 /* Turn the integer 'i' into a key according to 'mode'.
  * KEY_INT: Just represents the integer as a string.
@@ -935,8 +925,13 @@ oom:
     exit(1);
 }
 
-int raxTest(int argc, char **argv) {
-    init_genrand64(1234);
+int raxTest(int argc, char **argv, int flags) {
+    /* If an argument is given, use it as the random seed. */
+    if (argc >= 4) {
+        init_genrand64(atoi(argv[3]));
+    } else {
+        init_genrand64(1234);
+    }
 
     /* Tests to run by default are set here. */
     int do_benchmark = 0;
@@ -946,41 +941,6 @@ int raxTest(int argc, char **argv) {
     int do_regression = 1;
     int do_hugekey = 0;
 
-    /* If the user passed arguments, override the tests to run. */
-    if (argc > 1) {
-        do_benchmark = 0;
-        do_units = 0;
-        do_fuzz = 0;
-        do_regression = 0;
-
-        for (int i = 1; i < argc; i++) {
-            if (!strcmp(argv[i],"--bench")) {
-                do_benchmark = 1;
-            } else if (!strcmp(argv[i],"--fuzz-cluster")) {
-                do_fuzz_cluster = 1;
-            } else if (!strcmp(argv[i],"--fuzz")) {
-                do_fuzz = 1;
-            } else if (!strcmp(argv[i],"--units")) {
-                do_units = 1;
-            } else if (!strcmp(argv[i],"--regression")) {
-                do_regression = 1;
-            } else if (!strcmp(argv[i],"--hugekey")) {
-                do_hugekey = 1;
-            } else {
-                fprintf(stderr, "Usage: %s <options>:\n"
-                                "          [--bench         (default off)]\n"
-                                "          [--fuzz-cluster] (default off)\n"
-                                "          [--fuzz]         (default on)\n"
-                                "          [--units]        (default on)\n"
-                                "          [--regression]   (default on)\n"
-                                "          [--hugekey       (default off)]\n"
-                                "Without options all the default tests will\n"
-                                "be executed.\n",
-                                argv[0]);
-                exit(1);
-            }
-        }
-    }
 
     int errors = 0;
 
