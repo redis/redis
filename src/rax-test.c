@@ -941,6 +941,10 @@ int raxTest(int argc, char **argv, int flags) {
     int do_regression = 1;
     int do_hugekey = 0;
 
+    if (flags & REDIS_TEST_BENCHMARK) do_benchmark = 1;
+    if (flags & REDIS_TEST_FUZZ_CLUSTER) do_fuzz_cluster = 1;
+    if (flags & REDIS_TEST_HUGE_KEY) do_hugekey = 1;
+
 
     int errors = 0;
 

@@ -6547,6 +6547,9 @@ int main(int argc, char **argv) {
             char *arg = argv[j];
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
+            else if (!strcasecmp(arg, "--benchmark")) flags |= REDIS_TEST_BENCHMARK;
+            else if (!strcasecmp(arg, "--fuzz-cluster")) flags |= REDIS_TEST_FUZZ_CLUSTER;
+            else if (!strcasecmp(arg, "--huge-key")) flags |= REDIS_TEST_HUGE_KEY;
         }
 
         if (!strcasecmp(argv[2], "all")) {
