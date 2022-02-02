@@ -355,24 +355,22 @@ start_server {
 
         # Delete item 2 from the stream. Now consumer 1 has PEL that contains
         # only item 3. Try to use consumer 2 to claim the deleted item 2
-        # from the PEL of consumer 1, this should return nil
+        # from the PEL of consumer 1, this should be NOP
         r XDEL mystream $id2
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id2
         ]
-        assert {[llength $reply] == 1}
-        assert_equal "" [lindex $reply 0]
+        assert {[llength $reply] == 0}
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
-        # of consumer 1, this should return nil
+        # of consumer 1, this should be NOP
         after 200
         r XDEL mystream $id3
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id3
         ]
-        assert {[llength $reply] == 1}
-        assert_equal "" [lindex $reply 0]
+        assert {[llength $reply] == 0}
     }
 
     test {XCLAIM without JUSTID increments delivery count} {
@@ -445,6 +443,7 @@ start_server {
         set id1 [r XADD mystream * a 1]
         set id2 [r XADD mystream * b 2]
         set id3 [r XADD mystream * c 3]
+        set id4 [r XADD mystream * d 4]
         r XGROUP CREATE mystream mygroup 0
 
         # Consumer 1 reads item 1 from the stream without acknowledgements.
@@ -462,7 +461,7 @@ start_server {
         assert_equal [lindex $reply 1 0 1] {a 1}
 
         # Consumer 1 reads another 2 items from stream
-        r XREADGROUP GROUP mygroup consumer1 count 2 STREAMS mystream >
+        r XREADGROUP GROUP mygroup consumer1 count 3 STREAMS mystream >
 
         # For min-idle-time
         after 200
@@ -471,33 +470,37 @@ start_server {
         # only item 3. Try to use consumer 2 to claim the deleted item 2
         # from the PEL of consumer 1, this should return nil
         r XDEL mystream $id2
+
+        # id1 and id3 are self-claimed here but not id2 ('count' was set to 2)
+        # we make sure id2 is indeed skipped (the cursor points to id4)
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
-        # id1 is self-claimed here but not id2 ('count' was set to 2)
+
         assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] $id3
+        assert_equal [lindex $reply 0] $id4
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {a 1}
-        assert_equal [lindex $reply 1 1] ""
+        assert_equal [lindex $reply 1 1 1] {c 3}
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
         # of consumer 1, this should return nil
         after 200
-        r XDEL mystream $id3
+
+        r XDEL mystream $id4
+
+        # id1 and id3 are self-claimed here but not id2 and id4 ('count' is default 100)
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - JUSTID]
-        # id1 is self-claimed here but not id2 and id3 ('count' is default 100)
 
         # we also test the JUSTID modifier here. note that, when using JUSTID,
         # deleted entries are returned in reply (consistent with XCLAIM).
 
         assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] "0-0"
-        assert_equal [llength [lindex $reply 1]] 3
+        assert_equal [lindex $reply 0] {0-0}
+        assert_equal [llength [lindex $reply 1]] 2
         assert_equal [lindex $reply 1 0] $id1
-        assert_equal [lindex $reply 1 1] $id2
-        assert_equal [lindex $reply 1 2] $id3
+        assert_equal [lindex $reply 1 1] $id3
     }
 
     test {XAUTOCLAIM as an iterator} {
@@ -546,6 +549,52 @@ start_server {
 
     test {XAUTOCLAIM COUNT must be > 0} {
        assert_error "ERR COUNT must be > 0" {r XAUTOCLAIM key group consumer 1 1 COUNT 0}
+    }
+
+    test {XCLAIM with XDEL} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 2-0
+        assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{1-0 {f v}} {3-0 {f v}}}
+    }
+
+    test {XCLAIM with trimming} {
+        r DEL x
+        r config set stream-node-max-entries 2
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XTRIM x MAXLEN 1
+        assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{3-0 {f v}}}
+    }
+
+    test {XAUTOCLAIM with XDEL} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 2-0
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}}}
+    }
+
+    test {XCLAIM with trimming} {
+        r DEL x
+        r config set stream-node-max-entries 2
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XTRIM x MAXLEN 1
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{3-0 {f v}}}}
     }
 
     test {XINFO FULL output} {

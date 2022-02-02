@@ -1325,6 +1325,20 @@ void streamIteratorStop(streamIterator *si) {
     raxStop(&si->ri);
 }
 
+/* Return 1 if `id` exists in `s` (and not marked as deleted) */
+int streamEntryExists(stream *s, streamID *id) {
+    streamIterator si;
+    streamIteratorStart(&si,s,id,id,0);
+    streamID myid;
+    int64_t numfields;
+    int found = streamIteratorGetID(&si,&myid,&numfields);
+    streamIteratorStop(&si);
+    if (!found)
+        return 0;
+    serverAssert(streamCompareID(id,&myid) == 0);
+    return 1;
+}
+
 /* Delete the specified item ID from the stream, returning 1 if the item
  * was deleted 0 otherwise (if it does not exist). */
 int streamDeleteItem(stream *s, streamID *id) {
@@ -2977,6 +2991,10 @@ void xclaimCommand(client *c) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&id);
 
+        /* Item must exist for us to transfer it to another consumer. */
+        if (!streamEntryExists(o->ptr,&id))
+            continue;
+
         /* Lookup the ID in the group PEL. */
         streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
 
@@ -2986,17 +3004,6 @@ void xclaimCommand(client *c) {
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
         if (force && nack == raxNotFound) {
-            streamIterator myiterator;
-            streamIteratorStart(&myiterator,o->ptr,&id,&id,0);
-            int64_t numfields;
-            int found = 0;
-            streamID item_id;
-            if (streamIteratorGetID(&myiterator,&item_id,&numfields)) found = 1;
-            streamIteratorStop(&myiterator);
-
-            /* Item must exist for us to create a NACK for it. */
-            if (!found) continue;
-
             /* Create the NACK. */
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
@@ -3013,6 +3020,7 @@ void xclaimCommand(client *c) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
+
             if (consumer == NULL &&
                 (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
             {
@@ -3042,9 +3050,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,
-                                    NULL,NULL,STREAM_RWR_RAWENTRIES,NULL);
-                if (!emitted) addReplyNull(c);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
             }
             arraylen++;
 
@@ -3162,6 +3168,10 @@ void xautoclaimCommand(client *c) {
         streamID id;
         streamDecodeID(ri.key, &id);
 
+        /* Item must exist for us to transfer it to another consumer. */
+        if (!streamEntryExists(o->ptr,&id))
+            continue;
+
         if (consumer == NULL &&
             (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
         {
@@ -3191,11 +3201,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            size_t emitted =
-                streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
-            if (!emitted)
-                addReplyNull(c);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
         }
         arraylen++;
         count--;
