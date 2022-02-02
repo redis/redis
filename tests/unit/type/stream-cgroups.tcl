@@ -453,7 +453,7 @@ start_server {
         assert_equal [lindex $reply 0 1 0 1] {a 1}
         after 200
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 1]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] "0-0"
         assert_equal [llength [lindex $reply 1]] 1
         assert_equal [llength [lindex $reply 1 0]] 2
@@ -475,7 +475,7 @@ start_server {
         # we make sure id2 is indeed skipped (the cursor points to id4)
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
 
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] $id4
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0]] 2
@@ -496,7 +496,7 @@ start_server {
         # we also test the JUSTID modifier here. note that, when using JUSTID,
         # deleted entries are returned in reply (consistent with XCLAIM).
 
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] {0-0}
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [lindex $reply 1 0] $id1
@@ -521,7 +521,7 @@ start_server {
 
         # Claim 2 entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor $id3
         assert_equal [llength [lindex $reply 1]] 2
@@ -530,7 +530,7 @@ start_server {
 
         # Claim 2 more entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 2]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor $id5
         assert_equal [llength [lindex $reply 1]] 2
@@ -539,7 +539,7 @@ start_server {
 
         # Claim last entry
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 1]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor {0-0}
         assert_equal [llength [lindex $reply 1]] 1
@@ -560,6 +560,7 @@ start_server {
         assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
         r XDEL x 2-0
         assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{1-0 {f v}} {3-0 {f v}}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
     test {XCLAIM with trimming} {
@@ -572,6 +573,7 @@ start_server {
         assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
         r XTRIM x MAXLEN 1
         assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{3-0 {f v}}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
     test {XAUTOCLAIM with XDEL} {
@@ -582,7 +584,8 @@ start_server {
         r XGROUP CREATE x grp 0
         assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
         r XDEL x 2-0
-        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}}}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}} 2-0}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
     test {XCLAIM with trimming} {
@@ -594,7 +597,8 @@ start_server {
         r XGROUP CREATE x grp 0
         assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
         r XTRIM x MAXLEN 1
-        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{3-0 {f v}}}}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{3-0 {f v}}} {1-0 2-0}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
     test {XINFO FULL output} {
