@@ -786,6 +786,41 @@ start_server {
         }
     }
 
+    start_server {tags {"external:skip"}} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        foreach autoclaim {0 1} {
+            test "Replication tests of XCLAIM with deleted entries (autclaim=$autoclaim)" {
+                $slave slaveof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [s 0 master_link_status] eq {up}
+                } else {
+                    fail "Replication not started."
+                }
+
+                $master DEL x
+                $master XADD x 1-0 f v
+                $master XADD x 2-0 f v
+                $master XADD x 3-0 f v
+                $master XADD x 4-0 f v
+                $master XGROUP CREATE x grp 0
+                assert_equal [$master XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}} {4-0 {f v}}}}}
+                $master XDEL x 2-0
+                $master XDEL x 4-0
+                if {$autoclaim} {
+                    assert_equal [$master XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}} {2-0 4-0}}
+                } else {
+                    assert_equal [$master XCLAIM x grp Bob 0 1-0 2-0 3-0 4-0] {{1-0 {f v}} {3-0 {f v}}}
+                }
+                wait_for_ofs_sync $master $slave
+                assert_equal [$slave XPENDING x grp - + 10 Alice] {}
+            }
+        }
+    }
+
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
         test {Empty stream with no lastid can be rewrite into AOF correctly} {
             r XGROUP CREATE mystream group-name $ MKSTREAM
