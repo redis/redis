@@ -257,7 +257,7 @@ proc parse_options {} {
         set val [lindex $::argv [expr $j+1]]
         if {$opt eq "--single"} {
             incr j
-            set ::run_matching "*${val}*"
+            lappend ::run_matching "*${val}*"
         } elseif {$opt eq "--pause-on-error"} {
             set ::pause_on_error 1
         } elseif {$opt eq {--dont-clean}} {
@@ -441,12 +441,17 @@ proc run_tests {} {
             file delete $::leaked_fds_file
         }
 
-        if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
+        if {[llength $::run_matching] != 0 && [search_pattern_list $test $::run_matching true] == -1} {
             continue
         }
         if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
-        source $test
+        if {[catch { source $test } err]} {
+            puts "FAILED: caught an error in the test $err"
+            puts $::errorInfo
+            incr ::failed
+            # letting the tests resume, so we'll eventually reach the cleanup and report crashes
+        }
         check_leaks {redis sentinel}
 
         # Check if a leaked fds file was created and abort the test.

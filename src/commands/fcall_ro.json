@@ -18,6 +18,7 @@
         ],
         "key_specs": [
             {
+                "notes": "We cannot tell how the keys will be used so we assume the worst, RO and ACCESS",
                 "flags": [
                     "RO",
                     "ACCESS"
