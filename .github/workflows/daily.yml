@@ -525,6 +525,7 @@ jobs:
       with:
         usesh: true
         sync: rsync
+        copyback: false
         prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
         run: >
           gmake || exit 1 ;
