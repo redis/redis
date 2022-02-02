@@ -950,7 +950,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         return lua_error(lua);
     }
     client* c = rctx->original_client;
-    int err = 1;
+    int raise_error = 0;
 
     robj **argv = NULL;
 
@@ -990,17 +990,17 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         goto cleanup;
     }
 
-    err = 0;
     /* Find command */
     struct redisCommand *cmd;
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
-        lua_pushstring(lua, "Not found!!!");
+        lua_pushstring(lua, "Invalid command passed to redis.acl_check_cmd_permissions()");
+        raise_error = 1;
     } else {
         int keyidxptr;
         if (ACLCheckAllUserCommandPerm(c->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
-            lua_pushstring(lua, "No access!!!");
+            lua_pushboolean(lua, 0);
         } else {
-            lua_pushstring(lua, "You got it!");
+            lua_pushboolean(lua, 1);
         }
     }
 
@@ -1010,7 +1010,7 @@ cleanup:
             decrRefCount(argv[j]);
     }
     zfree(argv);
-    if (err)
+    if (raise_error)
         return lua_error(lua);
     else
         return 1;
