@@ -11,6 +11,10 @@
             [
                 "4.0.0",
                 "Added node IDs."
+            ],
+            [
+                "7.0.0",
+                "Added additional networking metadata and added support for hostnames and unknown endpoints."
             ]
         ],
         "command_flags": [

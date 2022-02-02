@@ -36,6 +36,7 @@
 #include "rio.h"
 #include "atomicvar.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1946,6 +1947,7 @@ typedef enum {
 
 typedef struct {
     /* Declarative data */
+    const char *notes;
     uint64_t flags;
     kspec_bs_type begin_search_type;
     union {
@@ -1997,7 +1999,7 @@ typedef enum {
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
     ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY,
+    ARG_TYPE_KEY, /* A string, but represents a keyname */
     ARG_TYPE_PATTERN,
     ARG_TYPE_UNIX_TIME,
     ARG_TYPE_PURE_TOKEN,

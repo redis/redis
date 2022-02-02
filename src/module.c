@@ -7427,6 +7427,24 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     return REDISMODULE_OK;
 }
 
+/* Query timers to see if any timer belongs to the module.
+ * Return 1 if any timer was found, otherwise 0 would be returned. */
+int moduleHoldsTimer(struct RedisModule *module) {
+    raxIterator iter;
+    int found = 0;
+    raxStart(&iter,Timers);
+    raxSeek(&iter,"^",NULL,0);
+    while (raxNext(&iter)) {
+        RedisModuleTimer *timer = iter.data;
+        if (timer->module == module) {
+            found = 1;
+            break;
+        }
+    }
+    raxStop(&iter);
+    return found;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules EventLoop API
  * --------------------------------------------------------------------------*/
@@ -10125,6 +10143,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * * EBUSY: The module exports a new data type and can only be reloaded. 
  * * EPERM: The module exports APIs which are used by other module. 
  * * EAGAIN: The module has blocked clients. 
+ * * EINPROGRESS: The module holds timer not fired.
  * * ECANCELED: Unload module error.  */
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
@@ -10140,6 +10159,9 @@ int moduleUnload(sds name) {
         return C_ERR;
     } else if (module->blocked_clients) {
         errno = EAGAIN;
+        return C_ERR;
+    } else if (moduleHoldsTimer(module)) {
+        errno = EINPROGRESS;
         return C_ERR;
     }
 
@@ -10344,6 +10366,10 @@ NULL
             case EAGAIN:
                 errmsg = "the module has blocked clients. "
                          "Please wait them unblocked and try again";
+                break;
+            case EINPROGRESS:
+                errmsg = "the module holds timer that is not fired. "
+                         "Please stop the timer or wait until it fires.";
                 break;
             default:
                 errmsg = "operation not possible.";
