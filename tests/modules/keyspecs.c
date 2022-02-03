@@ -52,7 +52,7 @@ int createKspecTwoRanges(RedisModuleCtx *ctx) {
 }
 
 int createKspecKeyword(RedisModuleCtx *ctx) {
-    /* Only keyword-based specs. The legacy triple isn't overridden. */
+    /* Only keyword-based specs. The legacy triple is wiped and set to (0,0,0). */
     if (RedisModule_CreateCommand(ctx,"kspec.keyword",kspec_impl,"",3,-1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
