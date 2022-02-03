@@ -791,7 +791,20 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
     if (iovcnt == 1) return connTLSWrite(conn_, iov[0].iov_base, iov[0].iov_len);
 
     size_t cum = 0;
-    for (int i = 0; i < iovcnt; i++) cum += iov[i].iov_len;
+    for (int i = 0; i < iovcnt; i++) {
+        cum += iov[i].iov_len;
+        if (cum > NET_MAX_WRITES_PER_EVENT) break;
+    }
+    if (cum > NET_MAX_WRITES_PER_EVENT) {
+        cum = 0;
+        for (int i = 0; i < iovcnt; i++) {
+            size_t sent = connTLSWrite(conn_, iov[i].iov_base, iov[i].iov_len);
+            if (sent <= 0) return cum > 0 ? cum : sent;
+            cum += sent;
+            if (sent != iov[i].iov_len) break;
+        }
+        return cum;
+    }
 
     char buf[cum];
     size_t offset = 0;
