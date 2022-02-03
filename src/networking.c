@@ -1638,7 +1638,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
 
             /* If the buffer was sent, set bufpos to zero to continue with
              * the remainder of the reply. */
-            if ((int)(c->sentlen + remaining) >= c->bufpos) {
+            if (remaining >= buf_len) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
