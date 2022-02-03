@@ -2,7 +2,7 @@
 # Script for safely backing up the AOF files in a redis instance
 # The script must be run on the machine where the instance is running
 # and have access rights to the append only files.
-# The script will safely create a tar.gz file will all the files
+# The script will safely create a tar.gz file with all the files
 # required to restore the dataset from the append-only-file,
 # making sure you have a consistent set of files including the
 # manifest for redis to restore its data.
