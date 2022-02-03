@@ -137,7 +137,7 @@ end
 
 puts "# Modules API reference\n\n"
 puts "<!-- This file is generated from module.c using\n"
-puts "     utils/generate-api-doc.rb -->\n\n"
+puts "     utils/generate-module-api-doc.rb -->\n\n"
 src = File.open(File.dirname(__FILE__) ++ "/../src/module.c").to_a
 
 # Build function index
