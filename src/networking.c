@@ -1631,7 +1631,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             /* Locate the new node which has leftover data and
             * release all nodes in front of it. */
             ssize_t remaining = *nwritten;
-            if (c->bufpos > 0) { /* deal with successive buffer of responses first. */
+            if (c->bufpos > 0) { /* deal with static response buffer first. */
                 c->sentlen += remaining;
 
                 /* If the buffer was sent, set bufpos to zero to continue with
