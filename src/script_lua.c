@@ -798,6 +798,7 @@ cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
     freeClientArgv(c);
+    c->user = NULL;
     inuse--;
 
     if (raise_error) {
@@ -905,7 +906,6 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         lua_pushstring(lua, "redis.acl_check_cmd can only be called inside a script invocation");
         return lua_error(lua);
     }
-    client* c = rctx->original_client;
     int raise_error = 0;
 
     int argc;
@@ -921,7 +921,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         raise_error = 1;
     } else {
         int keyidxptr;
-        if (ACLCheckAllUserCommandPerm(c->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
             lua_pushboolean(lua, 0);
         } else {
             lua_pushboolean(lua, 1);
