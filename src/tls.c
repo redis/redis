@@ -798,7 +798,8 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
     }
 
     /* The amount of all buffers is greater than NET_MAX_WRITES_PER_EVENT, 
-     * invoke connTLSWrite() multiple times to avoid memory copies. */
+     * which is not worth doing so much memory copying to reduce system calls,
+     * therefore, invoke connTLSWrite() multiple times to avoid memory copies. */
     if (cum > NET_MAX_WRITES_PER_EVENT) {
         cum = 0;
         for (int i = 0; i < iovcnt; i++) {
@@ -811,7 +812,8 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
     }
 
     /* The amount of all buffers is less than NET_MAX_WRITES_PER_EVENT, 
-     * concatenate these scattered buffers into a contiguous piece of memory 
+     * which is worth doing more memory copies in exchange for fewer system calls, 
+     * so concatenate these scattered buffers into a contiguous piece of memory 
      * and send it away by one call to connTLSWrite(). */
     char buf[cum];
     size_t offset = 0;
