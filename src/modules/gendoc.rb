@@ -137,8 +137,7 @@ end
 
 puts "# Modules API reference\n\n"
 puts "<!-- This file is generated from module.c using gendoc.rb -->\n\n"
-module_c = File.dirname(__FILE__) ++ "/../module.c"
-src = File.open(module_c).to_a
+src = File.open(File.dirname(__FILE__) ++ "/../module.c").to_a
 
 # Build function index
 $index = {}
@@ -157,7 +156,7 @@ if File.directory?(git_dir) && `which git` != ""
     `git --git-dir="#{git_dir}" tag --sort=v:refname`.each_line do |version|
         next if version !~ /^(\d+)\.\d+\.\d+?$/ || $1.to_i < 4
         version.chomp!
-        `git --git-dir="#{git_dir}" cat-file blob "#{version}:#{module_c}"`.each_line do |line|
+        `git --git-dir="#{git_dir}" cat-file blob "#{version}:src/module.c"`.each_line do |line|
             if line =~ /^\w.*[ \*]RM_([A-z0-9]+)/
                 name = "RedisModule_#{$1}"
                 if ! $since[name]
