@@ -2270,7 +2270,7 @@ werr:
  */
 static void sentinelFlushConfigAndReply(client *c) {
     if (sentinelFlushConfig() == C_ERR)
-        addReplyErrorFormat(c,"failed to save config file");
+        addReplyErrorFormat(c,"Failed to save config file");
     else
         addReply(c, shared.ok);
 }
