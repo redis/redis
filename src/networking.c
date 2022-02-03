@@ -1591,90 +1591,71 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     }
 
     int nbuf = listLength(c->reply);
+    /* When the reply list is not empty, it's better to use writev to save us some
+     * system calls and TCP packets. */
     if (nbuf > 0) {
-        if (c->bufpos > 0) ++nbuf; 
-        if (nbuf > 1) {
-            struct iovec iov[nbuf > IOV_MAX ? IOV_MAX : nbuf];
-            int iovcnt = 0;
-            size_t cum_bytes = 0;
-            /* If the successive buffer of responses is not empty, 
-             * add it to the buffer queue of writev() as well. */
-            if (c->bufpos > 0) {
-                iov[iovcnt].iov_base = c->buf + c->sentlen;
-                iov[iovcnt].iov_len = c->bufpos - c->sentlen;
-                cum_bytes += iov[iovcnt++].iov_len;
-            }
-            /* The first node of reply list might be incomplete from the last call,
-             * thus it needs to be calibrated to get the actual data address and length. */
-            size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
-            listIter iter;
-            listNode *next;
-            clientReplyBlock *o;
-            listRewind(c->reply, &iter);
-            while ((next = listNext(&iter)) && iovcnt < IOV_MAX && cum_bytes < NET_MAX_WRITES_PER_EVENT) {
-                o = listNodeValue(next);
-                if (o->used == 0) { /* empty node, just release it and skip. */
-                    c->reply_bytes -= o->size;
-                    listDelNode(c->reply, next);
-                    continue;
-                }
-
-                iov[iovcnt].iov_base = o->buf + offset;
-                iov[iovcnt].iov_len = o->used - offset;
-                cum_bytes += iov[iovcnt++].iov_len;
-                offset = 0;
-            }
-            if (iovcnt == 0) return C_OK;
-            *nwritten = connWritev(c->conn, iov, iovcnt);
-            if (*nwritten <= 0) return C_ERR;
-
-            /* Locate the new node which has leftover data and
-            * release all nodes in front of it. */
-            ssize_t remaining = *nwritten;
-            if (c->bufpos > 0) { /* deal with static response buffer first. */
-                c->sentlen += remaining;
-
-                /* If the buffer was sent, set bufpos to zero to continue with
-                * the remainder of the reply. */
-                if ((int)c->sentlen >= c->bufpos) {
-                    c->bufpos = 0;
-                    c->sentlen = 0;
-                }
-                remaining -= iov[0].iov_len;
-            }
-            listRewind(c->reply, &iter);
-            while (remaining > 0) {
-                next = listNext(&iter);
-                o = listNodeValue(next);
-                if (remaining < (ssize_t)(o->used - c->sentlen)) {
-                    c->sentlen += remaining;
-                    break;
-                }
-                remaining -= (ssize_t)(o->used - c->sentlen);
+        if (c->bufpos > 0) ++nbuf; /* include the static reply buffer. */
+        struct iovec iov[nbuf > IOV_MAX ? IOV_MAX : nbuf];
+        int iovcnt = 0;
+        size_t cum_bytes = 0;
+        /* If the static reply buffer is not empty, 
+         * add it to the buffer queue of writev() as well. */
+        if (c->bufpos > 0) {
+            iov[iovcnt].iov_base = c->buf + c->sentlen;
+            iov[iovcnt].iov_len = c->bufpos - c->sentlen;
+            cum_bytes += iov[iovcnt++].iov_len;
+        }
+        /* The first node of reply list might be incomplete from the last call,
+         * thus it needs to be calibrated to get the actual data address and length. */
+        size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
+        listIter iter;
+        listNode *next;
+        clientReplyBlock *o;
+        listRewind(c->reply, &iter);
+        while ((next = listNext(&iter)) && iovcnt < IOV_MAX && cum_bytes < NET_MAX_WRITES_PER_EVENT) {
+            o = listNodeValue(next);
+            if (o->used == 0) { /* empty node, just release it and skip. */
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
+                offset = 0;
+                continue;
+            }
+
+            iov[iovcnt].iov_base = o->buf + offset;
+            iov[iovcnt].iov_len = o->used - offset;
+            cum_bytes += iov[iovcnt++].iov_len;
+            offset = 0;
+        }
+        if (iovcnt == 0) return C_OK;
+        *nwritten = connWritev(c->conn, iov, iovcnt);
+        if (*nwritten <= 0) return C_ERR;
+
+        /* Locate the new node which has leftover data and
+         * release all nodes in front of it. */
+        ssize_t remaining = *nwritten;
+        if (c->bufpos > 0) { /* deal with static reply buffer first. */
+            int buf_len = c->bufpos - c->sentlen;
+
+            /* If the buffer was sent, set bufpos to zero to continue with
+             * the remainder of the reply. */
+            if ((int)(c->sentlen + remaining) >= c->bufpos) {
+                c->bufpos = 0;
                 c->sentlen = 0;
             }
-        } else {
-            clientReplyBlock *o = listNodeValue(listFirst(c->reply));
-            size_t objlen = o->used;
-
-            if (objlen == 0) {
-                c->reply_bytes -= o->size;
-                listDelNode(c->reply,listFirst(c->reply));
-                return C_OK;
+            remaining -= buf_len;
+        }
+        listRewind(c->reply, &iter);
+        while (remaining > 0) {
+            next = listNext(&iter);
+            o = listNodeValue(next);
+            if (remaining < (ssize_t)(o->used - c->sentlen)) {
+                c->sentlen += remaining;
+                break;
             }
-
-            *nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
-            if (*nwritten <= 0) return C_ERR;
-            c->sentlen += *nwritten;
-
-            /* If we fully sent the object on head go to the next one */
-            if (c->sentlen == objlen) {
-                c->reply_bytes -= o->size;
-                listDelNode(c->reply, listFirst(c->reply));
-                c->sentlen = 0;
-            }
+            remaining -= (ssize_t)(o->used - c->sentlen);
+            c->reply_bytes -= o->size;
+            listDelNode(c->reply, next);
+            c->sentlen = 0;
         }
 
         /* If there are no longer objects in the list, we expect
