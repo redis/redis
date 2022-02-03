@@ -81,6 +81,13 @@ start_server {tags {"introspection"}} {
         assert_equal {key} [r command getkeys get key]
     }
 
+    test {COMMAND GETKEYSANDFLAGS} {
+        assert_equal {{k1 {OW update}}} [r command getkeysandflags set k1 v1]
+        assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags mset k1 v1 k2 v2]
+        assert_equal {{k1 {RW access delete}} {k2 {RW insert}}} [r command getkeysandflags LMOVE k1 k2 left right]
+        assert_equal {{k1 {RO access}} {k2 {OW update}}} [r command getkeysandflags sort k1 store k2]
+    }
+
     test {COMMAND GETKEYS MEMORY USAGE} {
         assert_equal {key} [r command getkeys memory usage key]
     }

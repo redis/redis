@@ -4150,6 +4150,7 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_DELETE,          "delete"},
         {CMD_KEY_CHANNEL,         "channel"},
         {CMD_KEY_INCOMPLETE,      "incomplete"},
+        {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
         {0,NULL}
     };
     addReplyCommandFlags(c, flags, docFlagNames);
@@ -4486,10 +4487,8 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     }
 }
 
-/* Helper for COMMAND(S) command
- *
- * COMMAND(S) GETKEYS cmd arg1 arg2 ... */
-void getKeysSubcommand(client *c) {
+/* Helper for COMMAND GETKEYS and GETKEYSANDFLAGS */
+void getKeysSubcommandImpl(client *c, int with_flags) {
     struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
     getKeysResult result = GETKEYS_RESULT_INIT;
     int j;
@@ -4507,17 +4506,37 @@ void getKeysSubcommand(client *c) {
         return;
     }
 
-    if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
+    if (!getKeysFromCommandWithSpecs(cmd,c->argv+2,c->argc-2,GET_KEYSPEC_DEFAULT,&result)) {
         if (cmd->flags & CMD_NO_MANDATORY_KEYS) {
             addReplyArrayLen(c,0);
         } else {
             addReplyError(c,"Invalid arguments specified for command");
         }
     } else {
-        addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+        if (!with_flags) {
+            addReplyArrayLen(c,result.numkeys);
+            for (j = 0; j < result.numkeys; j++)
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+        } else {
+            addReplyArrayLen(c,result.numkeys);
+            for (j = 0; j < result.numkeys; j++) {
+                addReplyArrayLen(c,2);
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+                addReplyFlagsForKeyArgs(c,result.keys[j].flags);
+            }
+        }
     }
     getKeysFreeResult(&result);
+}
+
+/* COMMAND GETKEYSANDFLAGS cmd arg1 arg2 ... */
+void commandGetKeysAndFlagsCommand(client *c) {
+    getKeysSubcommandImpl(c, 1);
+}
+
+/* COMMAND GETKEYS cmd arg1 arg2 ... */
+void getKeysSubcommand(client *c) {
+    getKeysSubcommandImpl(c, 0);
 }
 
 /* COMMAND (no args) */
@@ -4735,6 +4754,8 @@ void commandHelpCommand(client *c) {
 "    If no command names are given, documentation details for all",
 "    commands are returned.",
 "GETKEYS <full-command>",
+"    Return the keys from a full Redis command.",
+"GETKEYSANDFLAGS <full-command>",
 "    Return the keys from a full Redis command.",
 NULL
     };

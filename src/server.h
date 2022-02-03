@@ -268,6 +268,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
                                             * different flags depending on arguments */
 
+/* Key flags for when access type is unknown */
+#define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
+
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
@@ -3126,6 +3129,7 @@ void commandCountCommand(client *c);
 void commandListCommand(client *c);
 void commandInfoCommand(client *c);
 void commandGetKeysCommand(client *c);
+void commandGetKeysAndFlagsCommand(client *c);
 void commandHelpCommand(client *c);
 void commandDocsCommand(client *c);
 void setCommand(client *c);

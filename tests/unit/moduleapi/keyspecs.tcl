@@ -8,12 +8,12 @@ start_server {tags {"modules"}} {
         # Verify (first, last, step) and not movablekeys
         assert_equal [lindex $reply 2] {module}
         assert_equal [lindex $reply 3] 1
-        assert_equal [lindex $reply 4] 3
-        assert_equal [lindex $reply 5] 2
+        assert_equal [lindex $reply 4] 2
+        assert_equal [lindex $reply 5] 1
         # Verify key-spec auto-generated from the legacy triple
         set keyspecs [lindex $reply 8]
         assert_equal [llength $keyspecs] 1
-        assert_equal [lindex $keyspecs 0] {flags {} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 2 keystep 2 limit 0}}}
+        assert_equal [lindex $keyspecs 0] {flags {RW access update} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 1 keystep 1 limit 0}}}
     }
 
     test "Module key specs: Two ranges" {
@@ -75,6 +75,31 @@ start_server {tags {"modules"}} {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
         assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.tworanges}
+    }
+
+    test {COMMAND GETKEYSANDFLAGS correctly reports module key-spec without flags} {
+        r command getkeysandflags kspec.none key1 key2
+    } {{key1 {RW access update}} {key2 {RW access update}}}
+
+    test {COMMAND GETKEYSANDFLAGS correctly reports module key-spec flags} {
+        r command getkeysandflags kspec.keyword keys key1 key2 key3
+    } {{key1 {RO access}} {key2 {RO access}} {key3 {RO access}}}
+
+    # user that can only read from "read" keys, write to "write" keys, and read+write to "RW" keys
+    r ACL setuser testuser +@all %R~read* %W~write* %RW~rw*
+
+    test "Module key specs: No spec, only legacy triple - ACL" {
+        # legacy triple didn't provide flags, so they require both read and write
+        assert_equal "OK" [r ACL DRYRUN testuser kspec.none rw]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.none read read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.none write write]
+    }
+
+    test "Module key specs: tworanges - ACL" {
+        assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges read write]
+        assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges rw rw]
+        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.tworanges rw read]
+        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.tworanges write rw]
     }
 
     test "Unload the module - keyspecs" {

@@ -1827,25 +1827,31 @@ invalid_spec:
  * (e.g. RO / RW) and only resorts to the command-specific helper function if
  * any of the keys-specs are marked as INCOMPLETE. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    if (cmd->flags & CMD_MODULE_GETKEYS) {
-        return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
-    } else {
-        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS)) {
-            int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
-            if (ret >= 0)
-                return ret;
-        }
-        if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc)
-            return cmd->getkeys_proc(cmd,argv,argc,result);
-        return 0;
+    /* The command has at least one key-spec not marked as CHANNEL */
+    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);
+    /* The command has at least one key-spec marked as VARIABLE_FLAGS */
+    int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
+    /* We prefer key-specs if there are any, and their flags are reliable. */
+    if (has_keyspec && !has_varflags) {
+        int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
+        if (ret >= 0)
+            return ret;
+        /* If the specs returned with an error (probably an INVALID or INCOMPLETE spec),
+         * fallback to the callback method. */
     }
+    /* Resort to a callback method. */
+    if (cmd->flags & CMD_MODULE_GETKEYS)
+        return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
+    if (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc)
+        return cmd->getkeys_proc(cmd,argv,argc,result);
+    return 0;
 }
 
 /* This function returns a sanity check if the command may have keys. */
 int doesCommandHaveKeys(struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
-        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);       /* has at least one key-spec not marked as CHANNEL */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);        /* has at least one key-spec not marked as CHANNEL */
 }
 
 /* The base case is to use the keys position as given in the command table
