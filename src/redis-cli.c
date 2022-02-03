@@ -58,6 +58,7 @@
 #include "adlist.h"
 #include "zmalloc.h"
 #include "linenoise.h"
+#include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
 #include "cli_common.h"
@@ -172,12 +173,13 @@ static int dictSdsKeyCompare(dict *d, const void *key1,
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
 
-/* Command help info */
-struct commandHelp {
-  char *name;
-  char *params;
-  char *summary;
-  char *group;
+/* Command documentation info used for help output */
+struct commandDocs {
+    char *name;
+    char *params; /* A string describing the syntax of the command arguments. */
+    char *summary;
+    char *group;
+    char *since;
 };
 
 /* Cluster Manager Command Info */
@@ -404,7 +406,7 @@ typedef struct {
     sds full;
 
     /* Only used for help on commands */
-    struct commandHelp *org;
+    struct commandDocs org;
 } helpEntry;
 
 static helpEntry *helpEntries;
@@ -422,6 +424,102 @@ static sds cliVersion(void) {
         version = sdscat(version, ")");
     }
     return version;
+}
+
+/* For backwards compatibility with pre-7.0 servers. Initializes command help. */
+static void cliOldInitHelp(void) {
+    int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
+    int groupslen = sizeof(commandGroups)/sizeof(char*);
+    int i, len, pos = 0;
+    helpEntry tmp;
+
+    helpEntriesLen = len = commandslen+groupslen;
+    helpEntries = zmalloc(sizeof(helpEntry)*len);
+
+    for (i = 0; i < groupslen; i++) {
+        tmp.argc = 1;
+        tmp.argv = zmalloc(sizeof(sds));
+        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
+        tmp.full = tmp.argv[0];
+        tmp.type = CLI_HELP_GROUP;
+        tmp.org.name = NULL;
+        tmp.org.params = NULL;
+        tmp.org.summary = NULL;
+        tmp.org.since = NULL;
+        tmp.org.group = NULL;
+        helpEntries[pos++] = tmp;
+    }
+
+    for (i = 0; i < commandslen; i++) {
+        tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
+        tmp.full = sdsnew(commandHelp[i].name);
+        tmp.type = CLI_HELP_COMMAND;
+        tmp.org.name = commandHelp[i].name;
+        tmp.org.params = commandHelp[i].params;
+        tmp.org.summary = commandHelp[i].summary;
+        tmp.org.since = commandHelp[i].since;
+        tmp.org.group = commandGroups[commandHelp[i].group];
+        helpEntries[pos++] = tmp;
+    }
+}
+
+/* For backwards compatibility with pre-7.0 servers.
+ * cliOldInitHelp() setups the helpEntries array with the command and group
+ * names from the help.h file. However the Redis instance we are connecting
+ * to may support more commands, so this function integrates the previous
+ * entries with additional entries obtained using the COMMAND command
+ * available in recent versions of Redis. */
+static void cliOldIntegrateHelp(void) {
+    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
+
+    redisReply *reply = redisCommand(context, "COMMAND");
+    if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
+
+    /* Scan the array reported by COMMAND and fill only the entries that
+     * don't already match what we have. */
+    for (size_t j = 0; j < reply->elements; j++) {
+        redisReply *entry = reply->element[j];
+        if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
+            entry->element[0]->type != REDIS_REPLY_STRING ||
+            entry->element[1]->type != REDIS_REPLY_INTEGER ||
+            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
+        char *cmdname = entry->element[0]->str;
+        int i;
+
+        for (i = 0; i < helpEntriesLen; i++) {
+            helpEntry *he = helpEntries+i;
+            if (!strcasecmp(he->argv[0],cmdname))
+                break;
+        }
+        if (i != helpEntriesLen) continue;
+
+        helpEntriesLen++;
+        helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
+        helpEntry *new = helpEntries+(helpEntriesLen-1);
+
+        new->argc = 1;
+        new->argv = zmalloc(sizeof(sds));
+        new->argv[0] = sdsnew(cmdname);
+        new->full = new->argv[0];
+        new->type = CLI_HELP_COMMAND;
+        sdstoupper(new->argv[0]);
+
+        new->org.name = new->argv[0];
+        new->org.params = sdsempty();
+        int args = llabs(entry->element[1]->integer);
+        args--; /* Remove the command name itself. */
+        if (entry->element[3]->integer == 1) {
+            new->org.params = sdscat(new->org.params,"key ");
+            args--;
+        }
+        while(args-- > 0) new->org.params = sdscat(new->org.params,"arg ");
+        if (entry->element[1]->integer < 0)
+            new->org.params = sdscat(new->org.params,"...options...");
+        new->org.summary = "Help not available";
+        new->org.since = "Not known";
+        new->org.group = commandGroups[0];
+    }
+    freeReplyObject(reply);
 }
 
 /* Concatenate a string to an sds string, but if it's empty substitute double quote marks. */
@@ -554,10 +652,9 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->full = fullname;
     help->type = CLI_HELP_COMMAND;
 
-    struct commandHelp *ch = zmalloc(sizeof(*ch));
-    help->org = ch;
-    ch->name = help->full;
-    ch->params = sdsempty();
+    help->org.name = help->full;
+    help->org.params = sdsempty();
+    help->org.since = NULL;
 }
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
@@ -579,19 +676,19 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
         if (!strcmp(key, "summary")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org->summary = sdsnew(reply->str);
+            help->org.summary = sdsnew(reply->str);
         } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org->group = sdsnew(reply->str);
-            sds group = sdsdup(help->org->group);
+            help->org.group = sdsnew(reply->str);
+            sds group = sdsdup(help->org.group);
             if (dictAdd(groups, group, NULL) != DICT_OK) {
                 sdsfree(group);
             }
         } else if (!strcmp(key, "arguments")) {
             redisReply *args = specs->element[j + 1];
             assert(args->type == REDIS_REPLY_ARRAY);
-            help->org->params = cliConcatArguments(help->org->params, args, " ");
+            help->org.params = cliConcatArguments(help->org.params, args, " ");
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
@@ -637,31 +734,6 @@ int helpEntryCompare(const void *entry1, const void *entry2) {
     return strcmp(i1->full, i2->full);
 }
 
-/* Used to support old redis servers that don't implement COMMAND DOCS.
- * Initializes the help table from the output of COMMAND, which has no
- * information about command descriptions, groups or arguments.
- */
-static void cliInitHelpFromCommandCommand() {
-    redisReply *commandTable = redisCommand(context, "COMMAND");
-    if (commandTable == NULL || commandTable->type != REDIS_REPLY_ARRAY) return;
-    helpEntriesLen = commandTable->elements;
-    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
-    for (size_t i = 0; i < commandTable->elements; i++) {
-        redisReply *cmdspecs = commandTable->element[i];
-        helpEntry help;
-
-        assert(cmdspecs->type == REDIS_REPLY_ARRAY);
-        assert(cmdspecs->element[0]->type == REDIS_REPLY_STRING);
-        cliFillInCommandHelpEntry(&help, cmdspecs->element[0]->str, NULL);
-        help.org->summary = "Help not available";
-        help.org->group = "Unknown";
-        helpEntries[i] = help;
-    }
-
-    qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
-    freeReplyObject(commandTable);
-}
-
 /* Initializes command help entries for command groups.
  * Called after the command help entries have already been filled in.
  * Extends the help table with new entries for the command groups.
@@ -682,7 +754,7 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)entry->key);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
-        tmp.org = NULL;
+        // tmp.org = NULL;
         helpEntries[pos++] = tmp;
     }
     dictReleaseIterator(iter);
@@ -722,9 +794,10 @@ static void cliInitHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
     commandTable = redisCommand(context, "COMMAND DOCS");
     if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
-        /* New COMMAND DOCS subcommand not supported - generate help from old COMMAND instead. */
+        /* New COMMAND DOCS subcommand not supported - generate help from old help.h data instead. */
         freeReplyObject(commandTable);
-        cliInitHelpFromCommandCommand();
+        cliOldInitHelp();
+        cliOldIntegrateHelp();
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
@@ -743,9 +816,12 @@ static void cliInitHelp(void) {
 }
 
 /* Output command help to stdout. */
-static void cliOutputCommandHelp(struct commandHelp *help, int group) {
+static void cliOutputCommandHelp(struct commandDocs *help, int group) {
     printf("\r\n  \x1b[1m%s\x1b[0m \x1b[90m%s\x1b[0m\r\n", help->name, help->params);
     printf("  \x1b[33msummary:\x1b[0m %s\r\n", help->summary);
+    if (help->since != NULL) {
+        printf("  \x1b[33msince:\x1b[0m %s\r\n", help->since);
+    }
     if (group) {
         printf("  \x1b[33mgroup:\x1b[0m %s\r\n", help->group);
     }
@@ -776,7 +852,7 @@ static void cliOutputHelp(int argc, char **argv) {
     int i, j;
     char *group = NULL;
     helpEntry *entry;
-    struct commandHelp *help;
+    struct commandDocs *help;
 
     if (argc == 0) {
         cliOutputGenericHelp();
@@ -790,7 +866,7 @@ static void cliOutputHelp(int argc, char **argv) {
         entry = &helpEntries[i];
         if (entry->type != CLI_HELP_COMMAND) continue;
 
-        help = entry->org;
+        help = &entry->org;
         if (group == NULL) {
             /* Compare all arguments */
             if (argc <= entry->argc) {
@@ -876,7 +952,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (entry) {
         *color = 90;
         *bold = 0;
-        sds hint = sdsnew(entry->org->params);
+        sds hint = sdsnew(entry->org.params);
 
         /* Remove arguments from the returned hint to show only the
             * ones the user did not yet type. */
