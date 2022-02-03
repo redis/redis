@@ -1092,8 +1092,8 @@ start_server {tags {"scripting"}} {
 
             redis.register_function{function_name='get_version_v1', callback=function()
               return string.format('%s.%s.%s',
-                                    bit.band(bit.rshift(version, 4), 0x000000ff),
-                                    bit.band(bit.rshift(version, 2), 0x000000ff),
+                                    bit.band(bit.rshift(version, 16), 0x000000ff),
+                                    bit.band(bit.rshift(version, 8), 0x000000ff),
                                     bit.band(version, 0x000000ff))
             end}
             redis.register_function{function_name='get_version_v2', callback=function() return redis.REDIS_VERSION end}

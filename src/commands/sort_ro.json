@@ -36,10 +36,10 @@
                 }
             },
             {
+                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
                 "flags": [
                     "RO",
-                    "ACCESS",
-                    "INCOMPLETE"
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "unknown": null
@@ -59,6 +59,7 @@
                 "token": "BY",
                 "name": "pattern",
                 "type": "pattern",
+                "key_spec_index": 1,
                 "optional": true
             },
             {
@@ -80,6 +81,7 @@
             {
                 "token": "GET",
                 "name": "pattern",
+                "key_spec_index": 1,
                 "type": "string",
                 "optional": true,
                 "multiple": true,

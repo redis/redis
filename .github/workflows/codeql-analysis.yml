@@ -11,6 +11,7 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
 
     strategy:
       fail-fast: false

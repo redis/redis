@@ -6,6 +6,7 @@
         "since": "1.0.0",
         "arity": -3,
         "function": "setCommand",
+        "get_keys_function": "setGetKeys",
         "history": [
             [
                 "2.6.12",
@@ -33,10 +34,12 @@
         ],
         "key_specs": [
             {
+                "notes": "RW and ACCESS due to the optional `GET` argument",
                 "flags": [
                     "RW",
                     "ACCESS",
-                    "UPDATE"
+                    "UPDATE",
+                    "VARIABLE_FLAGS"
                 ],
                 "begin_search": {
                     "index": {
@@ -121,7 +124,8 @@
                 "name": "get",
                 "token": "GET",
                 "type": "pure-token",
-                "optional": true
+                "optional": true,
+                "since": "6.2.0"
             }
         ]
     }

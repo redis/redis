@@ -1704,7 +1704,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
         /* Skip specs that represent channels instead of keys */
-        if (spec->flags & (CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
+        if ((spec->flags & CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
             continue;
         }
 
@@ -1788,6 +1788,12 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             keys[k++].flags = spec->flags;
         }
 
+        /* Handle incomplete specs (only after we added the current spec
+         * to `keys`, just in case GET_KEYSPEC_RETURN_PARTIAL was given) */
+        if (spec->flags & CMD_KEY_INCOMPLETE) {
+            goto invalid_spec;
+        }
+
         /* Done with this spec */
         continue;
 
@@ -1824,7 +1830,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
     if (cmd->flags & CMD_MODULE_GETKEYS) {
         return moduleGetCommandKeysViaAPI(cmd,argv,argc,result);
     } else {
-        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_INCOMPLETE)) {
+        if (!(getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS)) {
             int ret = getKeysUsingKeySpecs(cmd,argv,argc,search_flags,result);
             if (ret >= 0)
                 return ret;
@@ -2209,4 +2215,52 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     } 
     result->numkeys = num;
     return num;
+}
+
+/* Helper function to extract keys from the SET command, which may have
+ * a read flag if the GET argument is passed in. */
+int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    UNUSED(cmd);
+
+    keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1; /* We always know the position */
+    result->numkeys = 1;
+
+    for (int i = 3; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        if ((arg[0] == 'g' || arg[0] == 'G') &&
+            (arg[1] == 'e' || arg[1] == 'E') &&
+            (arg[2] == 't' || arg[2] == 'T') && arg[3] == '\0')
+        {
+            keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+            return 1;
+        }
+    }
+
+    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+    return 1;
+}
+
+/* Helper function to extract keys from the BITFIELD command, which may be
+ * read-only if the BITFIELD GET subcommand is used. */
+int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    UNUSED(cmd);
+
+    keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1; /* We always know the position */
+    result->numkeys = 1;
+
+    for (int i = 2; i < argc; i++) {
+        int remargs = argc - i - 1; /* Remaining args other than current. */
+        char *arg = argv[i]->ptr;
+        if (!strcasecmp(arg, "get") && remargs >= 2) {
+            keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+            return 1;
+        }
+    }
+
+    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    return 1;
 }
