@@ -44,5 +44,17 @@ test "Sentinel Set with other error situations" {
 
    # unknown parameter option
    assert_error "ERR Unknown option or number of arguments for SENTINEL SET 'fakeoption'" {S 0 SENTINEL SET mymaster fakeoption fakevalue}
+
+   # save new config to disk failed
+   set info [S 0 SENTINEL master mymaster]
+   set origin_quorum [dict get $info quorum]
+   set update_quorum [expr $origin_quorum+1]
+   set sentinel_id 0
+   set configfilename [file join "sentinel_$sentinel_id" "sentinel.conf"]
+   exec chmod 000 $configfilename
+
+   catch {[S 0 SENTINEL SET mymaster quorum $update_quorum]} err
+   exec chmod 644 $configfilename
+   assert_equal "ERR Failed to save config file" $err
 }
 
