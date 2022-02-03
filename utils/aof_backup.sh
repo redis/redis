@@ -86,7 +86,8 @@ fi
 
 pid=$(get_info_field process_id)
 appenddirname=$(get_config appenddirname)
-appenddir_path=$(readlink /proc/$pid/cwd)/$appenddirname
+working_dir=$(readlink /proc/$pid/cwd)
+appenddir_path=$working_dir/$appenddirname
 if [ ! -d $appenddir_path ]; then
     echo "Couldn't find $appenddir_path. redis-server must be run locally. Aborting."
     exit 1
@@ -100,7 +101,7 @@ while true; do
       continue
     fi
 
-    tmp_dir=$(mktemp -d)
+    tmp_dir=$(mktemp -d -p $working_dir)
     backup_path=$tmp_dir/$appenddirname
     mkdir $backup_path
 
