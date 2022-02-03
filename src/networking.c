@@ -1635,7 +1635,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         ssize_t remaining = *nwritten;
         if (c->bufpos > 0) { /* deal with static reply buffer first. */
             int buf_len = c->bufpos - c->sentlen;
-
+            c->sentlen += remaining;
             /* If the buffer was sent, set bufpos to zero to continue with
              * the remainder of the reply. */
             if (remaining >= buf_len) {
