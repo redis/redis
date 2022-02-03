@@ -896,13 +896,13 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     return 0;
 }
 
-/* redis.acl_check_cmd_permissions()
+/* redis.acl_check_cmd()
  *
  * Checks ACL permissions for given command for the current user. */
 static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
-        lua_pushstring(lua, "redis.acl_check_cmd_permissions can only be called inside a script invocation");
+        lua_pushstring(lua, "redis.acl_check_cmd can only be called inside a script invocation");
         return lua_error(lua);
     }
     client* c = rctx->original_client;
@@ -917,7 +917,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     /* Find command */
     struct redisCommand *cmd;
     if ((cmd = lookupCommand(argv, argc)) == NULL) {
-        lua_pushstring(lua, "Invalid command passed to redis.acl_check_cmd_permissions()");
+        lua_pushstring(lua, "Invalid command passed to redis.acl_check_cmd()");
         raise_error = 1;
     } else {
         int keyidxptr;
@@ -1251,8 +1251,8 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_pushnumber(lua,PROPAGATE_AOF|PROPAGATE_REPL);
     lua_settable(lua,-3);
 
-    /* redis.acl_check_cmd_permissions */
-    lua_pushstring(lua,"acl_check_cmd_permissions");
+    /* redis.acl_check_cmd */
+    lua_pushstring(lua,"acl_check_cmd");
     lua_pushcfunction(lua,luaRedisAclCheckCmdPermissionsCommand);
     lua_settable(lua,-3);
 

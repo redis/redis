@@ -708,22 +708,22 @@ start_server {tags {"scripting"}} {
         
         # Check permission granted
         assert_equal [run_script {
-            return redis.acl_check_cmd_permissions('set','xx',1)
+            return redis.acl_check_cmd('set','xx',1)
         } 0] 1
 
         # Check permission denied unauthorised command
         assert_equal [run_script {
-            return redis.acl_check_cmd_permissions('hset','h','f',1)
+            return redis.acl_check_cmd('hset','h','f',1)
         } 0] {}
         
         # Check permission denied unauthorised key
         assert_equal [run_script {
-            return redis.acl_check_cmd_permissions('set','yy',1)
+            return redis.acl_check_cmd('set','yy',1)
         } 0] {}
 
         # Check error due to invalid command
-        assert_error {ERR *Invalid command passed to redis.acl_check_cmd_permissions()} {run_script {
-            return redis.acl_check_cmd_permissions('invalid-cmd','arg')
+        assert_error {ERR *Invalid command passed to redis.acl_check_cmd()} {run_script {
+            return redis.acl_check_cmd('invalid-cmd','arg')
         } 0}
     }
 }
