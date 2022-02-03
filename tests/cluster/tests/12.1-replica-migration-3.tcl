@@ -9,7 +9,7 @@ source "../tests/includes/utils.tcl"
 # Create a cluster with 5 master and 15 slaves, to make sure there are no
 # empty masters and make rebalancing simpler to handle during the test.
 test "Create a 5 nodes cluster" {
-    create_cluster 5 15
+    cluster_create_with_continuous_slots 5 15
 }
 
 test "Cluster is up" {
@@ -32,10 +32,6 @@ test "Set allow-replica-migration no" {
     foreach_redis_id id {
         R $id CONFIG SET cluster-allow-replica-migration no
     }
-}
-
-test "Wait cluster to be stable" {
-    wait_cluster_stable
 }
 
 set master0_id [dict get [get_myself 0] id]

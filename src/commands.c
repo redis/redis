@@ -624,6 +624,7 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 /* CLUSTER SLOTS history */
 commandHistory CLUSTER_SLOTS_History[] = {
 {"4.0.0","Added node IDs."},
+{"7.0.0","Added additional networking metadata and added support for hostnames and unknown endpoints."},
 {0}
 };
 
@@ -3403,7 +3404,7 @@ struct redisCommandArg FUNCTION_LOAD_Args[] = {
 {"engine-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"library-description",ARG_TYPE_STRING,-1,"DESC",NULL,NULL,CMD_ARG_OPTIONAL},
+{"library-description",ARG_TYPE_STRING,-1,"DESCRIPTION",NULL,NULL,CMD_ARG_OPTIONAL},
 {"function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
