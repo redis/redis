@@ -727,7 +727,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     static int inuse = 0;   /* Recursive calls detection. */
 
-    /* By using Lua debug hooks it is possible to trigger a re4f686555cecursive call
+    /* By using Lua debug hooks it is possible to trigger a recursive call
      * to luaRedisGenericCommand(), which normally should never happen.
      * To make this function reentrant is futile and makes it slower, but
      * we should at least detect such a misuse, and abort. */
