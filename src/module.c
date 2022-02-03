@@ -1093,8 +1093,7 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
 }
 
 /* Helpers for RM_SetCommandInfo. */
-static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info,
-                                     const RedisModuleCommandInfoVersion *version);
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
 static int64_t moduleConvertKeySpecsFlags(int64_t flags);
 static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
                                      const RedisModuleCommandInfoVersion *version);
@@ -1103,9 +1102,26 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 
-/* The real RedisModule_SetCommandInfo is defined in redismodule.h. The
- * following stub is provided for generated API documentation. */
-#if 0
+/* Accessors of array elements of structs where the element size is stored
+ * separately in the version struct. */
+static RedisModuleCommandHistoryEntry *
+moduleCmdHistoryEntryAt(const RedisModuleCommandInfoVersion *version,
+                        RedisModuleCommandHistoryEntry *entries, int index) {
+    off_t offset = index * version->sizeof_historyentry;
+    return (RedisModuleCommandHistoryEntry *)((char *)(entries) + offset);
+}
+static RedisModuleCommandKeySpec *
+moduleCmdKeySpecAt(const RedisModuleCommandInfoVersion *version,
+                   RedisModuleCommandKeySpec *keyspecs, int index) {
+    off_t offset = index * version->sizeof_keyspec;
+    return (RedisModuleCommandKeySpec *)((char *)(keyspecs) + offset);
+}
+static RedisModuleCommandArg *
+moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
+               const RedisModuleCommandArg *args, int index) {
+    off_t offset = index * version->sizeof_arg;
+    return (RedisModuleCommandArg *)((char *)(args) + offset);
+}
 
 /* Set additional command information.
  *
@@ -1118,6 +1134,7 @@ static int moduleConvertArgFlags(int flags);
  * only be set once for each command and has the following structure:
  *
  *     typedef struct RedisModuleCommandInfo {
+ *         const RedisModuleCommandInfoVersion *version;
  *         const char *summary;
  *         const char *complexity;
  *         const char *since;
@@ -1128,7 +1145,10 @@ static int moduleConvertArgFlags(int flags);
  *         RedisModuleCommandArg *args;
  *     } RedisModuleCommandInfo;
  *
- * All fields are optional. Explanation of the fields:
+ * All fields except `version` are optional. Explanation of the fields:
+ *
+ * - `version`: This field enables compatibility with different Redis versions.
+ *   Always set this field to REDISMODULE_COMMAND_INFO_VERSION.
  *
  * - `summary`: A short description of the command (optional).
  *
@@ -1404,45 +1424,9 @@ static int moduleConvertArgFlags(int flags);
  * and `errno` is set to EINVAL if invalid info was provided or EEXIST if info
  * has already been set. If the info is invalid, a warning is logged explaining
  * which part of the info is invalid and why. */
-int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
-    /* This stub is provided for generated documentation. The real definition is
-     * in redismodule.h which handles struct versioning and calls
-     * `RM_SetCommandInfo_` defined below. */
-    UNUSED(command); UNUSED(info);
-    return REDISMODULE_ERR;
-}
-#endif
-
-/* Accessors of array elements of structs where the element size is stored
- * separately in the version struct. */
-static RedisModuleCommandHistoryEntry *
-moduleCmdHistoryEntryAt(const RedisModuleCommandInfoVersion *version,
-                        RedisModuleCommandHistoryEntry *entries, int index) {
-    off_t offset = index * version->sizeof_historyentry;
-    return (RedisModuleCommandHistoryEntry *)((char *)(entries) + offset);
-}
-static RedisModuleCommandKeySpec *
-moduleCmdKeySpecAt(const RedisModuleCommandInfoVersion *version,
-                   RedisModuleCommandKeySpec *keyspecs, int index) {
-    off_t offset = index * version->sizeof_keyspec;
-    return (RedisModuleCommandKeySpec *)((char *)(keyspecs) + offset);
-}
-static RedisModuleCommandArg *
-moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
-               const RedisModuleCommandArg *args, int index) {
-    off_t offset = index * version->sizeof_arg;
-    return (RedisModuleCommandArg *)((char *)(args) + offset);
-}
-
-int RM_SetCommandInfo_(RedisModuleCommand *command,
-                       const RedisModuleCommandInfo *info,
-                       const RedisModuleCommandInfoVersion *version) {
-    /* This is the internal function implementing the RedisModule_SetCommandInfo
-     * functionality. Don't call this function directly! It is called by an
-     * inline wrapper function defined in redismodule.h. Note: This function is
-     * intentionally hidden from the module API docs, so there's no comment just
-     * before this function. */
-    if (!moduleValidateCommandInfo(info, version)) {
+int RM_SetCommandInfo(RedisModuleCommand *command,
+                      const RedisModuleCommandInfo *info) {
+    if (!moduleValidateCommandInfo(info)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -1466,6 +1450,7 @@ int RM_SetCommandInfo_(RedisModuleCommand *command,
     if (info->complexity) cmd->complexity = zstrdup(info->complexity);
     if (info->since) cmd->since = zstrdup(info->since);
 
+    const RedisModuleCommandInfoVersion *version = info->version;
     if (info->history) {
         size_t count = 0;
         while (moduleCmdHistoryEntryAt(version, info->history, count)->since)
@@ -1591,8 +1576,13 @@ static inline int isPowerOfTwo(uint64_t v) {
 }
 
 /* Returns 1 if the command info is valid and 0 otherwise. */
-static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info,
-                                     const RedisModuleCommandInfoVersion *version) {
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
+    const RedisModuleCommandInfoVersion *version = info->version;
+    if (!version) {
+        serverLog(LL_WARNING, "Invalid command info: version missing");
+        return 0;
+    }
+
     /* No validation for the fields summary, complexity, since, tips (strings or
      * NULL) and arity (any integer). */
 
@@ -11313,7 +11303,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateCommand);
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
-    REGISTER_API(SetCommandInfo_);
+    REGISTER_API(SetCommandInfo);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);

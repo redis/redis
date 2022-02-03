@@ -309,12 +309,12 @@ typedef struct RedisModuleCommandArg {
     struct RedisModuleCommandArg *subargs;
 } RedisModuleCommandArg;
 
-typedef struct RedisModuleCommandHistoryEntry {
+typedef struct {
     const char *since;
     const char *changes;
 } RedisModuleCommandHistoryEntry;
 
-typedef struct RedisModuleCommandKeySpec {
+typedef struct {
     const char *notes;
     uint64_t flags; /* REDISMODULE_CMD_KEY_* macros. */
     RedisModuleKeySpecBeginSearchType begin_search_type;
@@ -363,7 +363,25 @@ typedef struct RedisModuleCommandKeySpec {
     } fk;
 } RedisModuleCommandKeySpec;
 
-typedef struct RedisModuleCommandInfo {
+typedef struct {
+    int version;
+    size_t sizeof_historyentry;
+    size_t sizeof_keyspec;
+    size_t sizeof_arg;
+} RedisModuleCommandInfoVersion;
+
+static const RedisModuleCommandInfoVersion RedisModule_CurrentCommandInfoVersion = {
+    .version = 1,
+    .sizeof_historyentry = sizeof(RedisModuleCommandHistoryEntry),
+    .sizeof_keyspec = sizeof(RedisModuleCommandKeySpec),
+    .sizeof_arg = sizeof(RedisModuleCommandArg)
+};
+
+#define REDISMODULE_COMMAND_INFO_VERSION (&RedisModule_CurrentCommandInfoVersion)
+
+typedef struct {
+    /* Always set version to REDISMODULE_COMMAND_INFO_VERSION */
+    const RedisModuleCommandInfoVersion *version;
     /* Version 1 fields (added in Redis 7.0.0) */
     const char *summary;          /* Summary of the command */
     const char *complexity;       /* Complexity description */
@@ -377,13 +395,6 @@ typedef struct RedisModuleCommandInfo {
     RedisModuleCommandKeySpec *key_specs;
     RedisModuleCommandArg *args;
 } RedisModuleCommandInfo;
-
-typedef struct RedisModuleCommandInfoVersion {
-    int version;
-    size_t sizeof_historyentry;
-    size_t sizeof_keyspec;
-    size_t sizeof_arg;
-} RedisModuleCommandInfoVersion;
 
 /* Redis ACL key permission flags, which specify which permissions a module
  * needs on a key. */
@@ -820,7 +831,7 @@ REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommand *(*RedisModule_GetCommand)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetCommandInfo_)(RedisModuleCommand *command, const RedisModuleCommandInfo *info, const RedisModuleCommandInfoVersion *version) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetCommandInfo)(RedisModuleCommand *command, const RedisModuleCommandInfo *info) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_WrongArity)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1124,21 +1135,6 @@ REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEve
 REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
 
-/* This is the real definition of RM_SetCommandInfo. It sets the version fields to
- * match the structs defined in this file and then calls the actual
- * implementation. This function is defined in this header file to enable
- * backward and forward compatible changes to the structs involved. */
-static inline int RedisModule_SetCommandInfo(RedisModuleCommand *command,
-                                             const RedisModuleCommandInfo *info) {
-    static RedisModuleCommandInfoVersion version = {
-        .version = 1,
-        .sizeof_historyentry = sizeof(RedisModuleCommandHistoryEntry),
-        .sizeof_keyspec = sizeof(RedisModuleCommandKeySpec),
-        .sizeof_arg = sizeof(RedisModuleCommandArg)
-    };
-    return RedisModule_SetCommandInfo_(command, info, &version);
-}
-
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
 /* This is included inline inside each Redis module. */
@@ -1154,7 +1150,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateCommand);
     REDISMODULE_GET_API(GetCommand);
     REDISMODULE_GET_API(CreateSubcommand);
-    REDISMODULE_GET_API(SetCommandInfo_);
+    REDISMODULE_GET_API(SetCommandInfo);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(IsModuleNameBusy);
     REDISMODULE_GET_API(WrongArity);
