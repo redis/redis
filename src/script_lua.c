@@ -444,8 +444,8 @@ void luaPushError(lua_State *lua, char *error) {
     lua_pushstring(lua,"err");
 
     /* There are two possible formats for the received `error` string:
-     * 1) "-CODE msg": in this case we remove the leasing '-' since we don't store it as part of the lua error format.
-     * 2) "msg": in this case we prepend a generic 'ERR' code since all error statuses need a some error code.
+     * 1) "-CODE msg": in this case we remove the leading '-' since we don't store it as part of the lua error format.
+     * 2) "msg": in this case we prepend a generic 'ERR' code since all error statuses need some error code.
      * We support format (1) so this function can reuse the error messages used in other places in redis.
      * We support format (2) so it'll be easy to pass descriptive errors to this function without worrying about format.
      */
