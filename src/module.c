@@ -1424,8 +1424,7 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  * and `errno` is set to EINVAL if invalid info was provided or EEXIST if info
  * has already been set. If the info is invalid, a warning is logged explaining
  * which part of the info is invalid and why. */
-int RM_SetCommandInfo(RedisModuleCommand *command,
-                      const RedisModuleCommandInfo *info) {
+int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo *info) {
     if (!moduleValidateCommandInfo(info)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
