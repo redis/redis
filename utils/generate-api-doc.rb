@@ -136,8 +136,9 @@ def is_func_line(src, i)
 end
 
 puts "# Modules API reference\n\n"
-puts "<!-- This file is generated from module.c using gendoc.rb -->\n\n"
-src = File.open(File.dirname(__FILE__) ++ "/../module.c").to_a
+puts "<!-- This file is generated from module.c using\n"
+puts "     utils/generate-api-doc.rb -->\n\n"
+src = File.open(File.dirname(__FILE__) ++ "/../src/module.c").to_a
 
 # Build function index
 $index = {}
@@ -151,7 +152,7 @@ end
 
 # Populate the 'since' map (name => version) if we're in a git repo.
 $since = {}
-git_dir = File.dirname(__FILE__) ++ "/../../.git"
+git_dir = File.dirname(__FILE__) ++ "/../.git"
 if File.directory?(git_dir) && `which git` != ""
     `git --git-dir="#{git_dir}" tag --sort=v:refname`.each_line do |version|
         next if version !~ /^(\d+)\.\d+\.\d+?$/ || $1.to_i < 4
