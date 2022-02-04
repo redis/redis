@@ -2286,7 +2286,7 @@ werr:
  */
 static void sentinelFlushConfigAndReply(client *c) {
     if (sentinelFlushConfig() == C_ERR)
-        addReplyErrorFormat(c,"Failed to save config file");
+        addReplyError(c, "Failed to save config file. Check server logs.");
     else
         addReply(c, shared.ok);
 }
