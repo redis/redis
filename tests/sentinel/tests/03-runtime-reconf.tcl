@@ -51,10 +51,15 @@ test "Sentinel Set with other error situations" {
    set update_quorum [expr $origin_quorum+1]
    set sentinel_id 0
    set configfilename [file join "sentinel_$sentinel_id" "sentinel.conf"]
-   exec chmod 000 $configfilename
+   set configfilename_bak [file join "sentinel_$sentinel_id" "sentinel.conf.bak"]
+
+   file rename $configfilename $configfilename_bak
+   file mkdir $configfilename
 
    catch {[S 0 SENTINEL SET mymaster quorum $update_quorum]} err
-   exec chmod 644 $configfilename
-   assert_equal "ERR Failed to save config file" $err
-}
 
+   file delete $configfilename
+   file rename $configfilename_bak $configfilename
+
+   assert_match "ERR Failed to save config file*" $err
+}
