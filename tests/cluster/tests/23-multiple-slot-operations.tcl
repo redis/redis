@@ -67,10 +67,9 @@ test "Continuous slots distribution" {
 }
 
 test "ADDSLOTSRANGE command with several boundary conditions test suite" {
-    
     # Add multiple slots with incorrect argument number
-    assert_error "ERR wrong number of arguments for 'addslotsrange' command" {R 0 cluster ADDSLOTSRANGE 3001 3020 3030}
-    
+    assert_error "ERR wrong number of arguments for 'cluster|addslotsrange' command" {R 0 cluster ADDSLOTSRANGE 3001 3020 3030}
+
     # Add multiple slots with invalid input slot
     assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTSRANGE 3001 3020 3030 aaa}
     assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTSRANGE 3001 3020 3030 70000}
@@ -87,12 +86,11 @@ test "ADDSLOTSRANGE command with several boundary conditions test suite" {
 }
 
 test "DELSLOTSRANGE command with several boundary conditions test suite" {
-    
     # Delete multiple slots with incorrect argument number
-    assert_error "ERR wrong number of arguments for 'delslotsrange' command" {R 0 cluster DELSLOTSRANGE 1000 2000 2100}
+    assert_error "ERR wrong number of arguments for 'cluster|delslotsrange' command" {R 0 cluster DELSLOTSRANGE 1000 2000 2100}
     assert_match "* 0-3000 3051-3276*" [$master1 CLUSTER NODES]
     assert_match "*0 3000*3051 3276*" [$master1 CLUSTER SLOTS]
-    
+
     # Delete multiple slots with invalid input slot
     assert_error "ERR Invalid or out of range slot" {R 0 cluster DELSLOTSRANGE 1000 2000 2100 aaa}
     assert_error "ERR Invalid or out of range slot" {R 0 cluster DELSLOTSRANGE 1000 2000 2100 70000}
