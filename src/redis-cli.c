@@ -409,8 +409,8 @@ typedef struct {
     struct commandDocs org;
 } helpEntry;
 
-static helpEntry *helpEntries;
-static int helpEntriesLen;
+static helpEntry *helpEntries = NULL;
+static int helpEntriesLen = 0;
 
 static sds cliVersion(void) {
     sds version;
@@ -746,7 +746,7 @@ void cliInitGroupHelpEntries(dict *groups) {
     int numGroups = dictSize(groups);
     int pos = helpEntriesLen;
     helpEntriesLen += numGroups;
-    helpEntries = realloc(helpEntries, sizeof(helpEntry)*helpEntriesLen);
+    helpEntries = zrealloc(helpEntries, sizeof(helpEntry)*helpEntriesLen);
 
     for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
         tmp.argc = 1;
