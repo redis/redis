@@ -754,7 +754,11 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)entry->key);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
-        // tmp.org = NULL;
+        tmp.org.name = NULL;
+        tmp.org.params = NULL;
+        tmp.org.summary = NULL;
+        tmp.org.since = NULL;
+        tmp.org.group = NULL;
         helpEntries[pos++] = tmp;
     }
     dictReleaseIterator(iter);
