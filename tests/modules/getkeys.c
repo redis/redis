@@ -105,7 +105,7 @@ int getkeys_introspect(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (RedisModule_StringToLongLong(argv[1],&with_flags) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx,"ERR invalid integer");
 
-    int num_keys, *keyflags;
+    int num_keys, *keyflags = NULL;
     int *keyidx = RedisModule_GetCommandKeysWithFlags(ctx, &argv[2], argc - 2, &num_keys, with_flags ? &keyflags : NULL);
 
     if (!keyidx) {
@@ -150,6 +150,7 @@ int getkeys_introspect(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         }
 
         RedisModule_Free(keyidx);
+        RedisModule_Free(keyflags);
     }
 
     return REDISMODULE_OK;
