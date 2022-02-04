@@ -4897,7 +4897,8 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
 static void addInfoSectionsToDict(dict *section_dict, char **sections, int len) {
     for (int i = 0; i < len; i++){
         sds section = sdsnew(sections[i]);
-        dictAdd(section_dict, section, NULL);
+        if (dictAdd(section_dict, section, NULL)==DICT_ERR)
+            sdsfree(section);
     }
 }
 

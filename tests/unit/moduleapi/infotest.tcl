@@ -94,7 +94,7 @@ start_server {tags {"modules"}} {
         set info [r info replication INFOTEST]
         assert { [string match "*Spanish*" $info] }
         assert { ![string match "*used_memory*" $info] }
-        assert { [string match "*repl_offset*" $info] }        
+        assert { [string match "*repl_offset*" $info] }
     }
 
     test {module info multiply sections with all keyword and modules} {
@@ -109,6 +109,9 @@ start_server {tags {"modules"}} {
         assert { [string match "*client_recent*" $info] }
         assert { [string match "*cmdstat_info*" $info] }
         assert { [string match "*Italian*" $info] }
+        # check that we didn't get the same info twice
+        assert { ![string match "*used_cpu_user_children*used_cpu_user_children*" $info] }
+        assert { ![string match "*Italian*Italian*" $info] }
         field $info infotest_dos
     } {2}
 
