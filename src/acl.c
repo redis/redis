@@ -2602,8 +2602,7 @@ setuser_cleanup:
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
-            addReplyErrorFormat(c,
-                    "Can not find user '%s' in ACL",(char*)c->argv[2]->ptr);
+            addReplyNull(c);
             return;
         }
 

@@ -689,11 +689,6 @@ start_server {tags {"acl external:skip"}} {
        set err
     } {ERR The 'default' user cannot be removed}
 
-    test {Can not find proper user by ACL getuser command} {
-       catch {r ACL getuser fakeuser} err
-       set err
-    } {ERR Can not find user 'fakeuser' in ACL}
-
     test {ACL load non-existing configured ACL file} {
        catch {r ACL load} err
        set err
