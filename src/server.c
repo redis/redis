@@ -4894,41 +4894,59 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     return info;
 }
 
-static void addInfoSectionsToDict(dict *section_dict, char **sections, int len) {
-    for (int i = 0; i < len; i++){
-        sds section = sdsnew(sections[i]);
+/* Takes a null terminated sections list, and adds them to the dict. */
+void addInfoSectionsToDict(dict *section_dict, char **sections) {
+    while (*sections) {
+        sds section = sdsnew(*sections);
         if (dictAdd(section_dict, section, NULL)==DICT_ERR)
             sdsfree(section);
+        sections++;
     }
 }
 
-/* Create a dictionary according to the user input or call function 
- * The output parameters will be set value in this function based on the argv parameter.
- * The return value will be the dictionary for genRedisInfoString function */
-dict *genInfoSectionDict(robj **argv, int argc, int *out_all, int *out_everything, int *out_default) {
-    char *defSections[] = {
+/* Cached copy of the default sections, as an optimization. */
+static dict *cached_default_info_sectoins = NULL;
+
+void releaseInfoSectionDict(dict *sec) {
+    if (sec != cached_default_info_sectoins)
+        dictRelease(sec);
+}
+
+/* Create a dictionary with unique section names to be used by genRedisInfoString.
+ * 'argv' and 'argc' are list of arguments for INFO.
+ * 'defaults' is an optional null terminated list of default sections.
+ * 'out_all' and 'out_everything' are optional.
+ * The resulting dictionary should be released with releaseInfoSectionDict. */
+dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything) {
+    char *default_sections[] = {
         "server", "clients", "memory", "persistence", "stats", "replication",
-        "cpu", "module_list", "errorstats", "cluster", "keyspace", "latencystats"};
+        "cpu", "module_list", "errorstats", "cluster", "keyspace", "latencystats", NULL};
+    if (!defaults)
+        defaults = default_sections;
+
+    if (argc == 0) {
+        /* In this case we know the dict is not gonna be modified, so we cache
+         * it as an optimization for a common case. */
+        if (cached_default_info_sectoins)
+            return cached_default_info_sectoins;
+        cached_default_info_sectoins = dictCreate(&stringSetDictType);
+        addInfoSectionsToDict(cached_default_info_sectoins, defaults);
+        return cached_default_info_sectoins;
+    }
 
     dict *section_dict = dictCreate(&stringSetDictType);
-    if (argc == 0) {
-        if (out_default) *out_default = 1;
-        addInfoSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
-    } else {
-        for (int i = 0; i < argc; i++) {
-            if (!strcasecmp(argv[i]->ptr,"default")) {
-                if (out_default) *out_default = 1;
-                addInfoSectionsToDict(section_dict, defSections, sizeof(defSections)/sizeof(*defSections));
-            } else if (!strcasecmp(argv[i]->ptr,"all")) {
-                if (out_all) *out_all = 1;
-            } else if (!strcasecmp(argv[i]->ptr,"everything")) {
-                if (out_everything) *out_everything = 1;
-            } else {
-                sds section = sdsnew(argv[i]->ptr);
-                sdstolower(section);
-                if (dictAdd(section_dict, section, NULL) != DICT_OK)
-                    sdsfree(section);
-            }
+    for (int i = 0; i < argc; i++) {
+        if (!strcasecmp(argv[i]->ptr,"default")) {
+            addInfoSectionsToDict(section_dict, defaults);
+        } else if (!strcasecmp(argv[i]->ptr,"all")) {
+            if (out_all) *out_all = 1;
+        } else if (!strcasecmp(argv[i]->ptr,"everything")) {
+            if (out_everything) *out_everything = 1;
+        } else {
+            sds section = sdsnew(argv[i]->ptr);
+            sdstolower(section);
+            if (dictAdd(section_dict, section, NULL) != DICT_OK)
+                sdsfree(section);
         }
     }
     return section_dict;
@@ -5688,11 +5706,11 @@ void infoCommand(client *c) {
     }
     int all_sections = 0;
     int everything = 0;
-    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, &all_sections, &everything, NULL);
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, NULL, &all_sections, &everything);
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
-    dictRelease(sections_dict);
+    releaseInfoSectionDict(sections_dict);
     return;
 }
 

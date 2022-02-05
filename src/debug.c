@@ -1684,7 +1684,7 @@ void logServerInfo(void) {
     int all = 0, everything = 0;
     robj *argv[1];
     argv[0] = createStringObject("all", strlen("all"));
-    dict *section_dict = genInfoSectionDict(argv, 1, &all, &everything, NULL);
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
     infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
@@ -1692,7 +1692,7 @@ void logServerInfo(void) {
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
-    dictRelease(section_dict);
+    releaseInfoSectionDict(section_dict);
     decrRefCount(argv[0]);
 }
 

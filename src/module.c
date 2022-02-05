@@ -8449,7 +8449,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     int all = 0, everything = 0;
     robj *argv[1];
     argv[0] = section ? createStringObject(section, strlen(section)) : NULL;
-    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, &all, &everything, NULL);
+    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, NULL, &all, &everything);
     sds info = genRedisInfoString(section_dict, all, everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
@@ -8466,7 +8466,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     }
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
-    dictRelease(section_dict);
+    releaseInfoSectionDict(section_dict);
     if(argv[0]) decrRefCount(argv[0]);
     return d;
 }
