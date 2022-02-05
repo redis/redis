@@ -677,6 +677,10 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
             help->org.summary = sdsnew(reply->str);
+        } else if (!strcmp(key, "since")) {
+            redisReply *reply = specs->element[j + 1];
+            assert(reply->type == REDIS_REPLY_STRING);
+            help->org.since = sdsnew(reply->str);
         } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
