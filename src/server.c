@@ -4513,13 +4513,11 @@ void getKeysSubcommandImpl(client *c, int with_flags) {
             addReplyError(c,"Invalid arguments specified for command");
         }
     } else {
-        if (!with_flags) {
-            addReplyArrayLen(c,result.numkeys);
-            for (j = 0; j < result.numkeys; j++)
+        addReplyArrayLen(c,result.numkeys);
+        for (j = 0; j < result.numkeys; j++) {
+            if (!with_flags) {
                 addReplyBulk(c,c->argv[result.keys[j].pos+2]);
-        } else {
-            addReplyArrayLen(c,result.numkeys);
-            for (j = 0; j < result.numkeys; j++) {
+            } else {
                 addReplyArrayLen(c,2);
                 addReplyBulk(c,c->argv[result.keys[j].pos+2]);
                 addReplyFlagsForKeyArgs(c,result.keys[j].flags);
@@ -4756,7 +4754,7 @@ void commandHelpCommand(client *c) {
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
 "GETKEYSANDFLAGS <full-command>",
-"    Return the keys from a full Redis command.",
+"    Return the keys and the access flags from a full Redis command.",
 NULL
     };
 

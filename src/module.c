@@ -802,20 +802,18 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  * RedisModule_IsKeysPositionRequest() API and uses this function in
  * order to report keys.
  *
- * The supported flags are:
+ * The supported flags are the ones used by RM_SetCommandInfo, see REDISMODULE_CMD_KEY_*.
  *
- * REDISMODULE_KEY_PERMISSION_READ: Can the module read data from the key.
- * REDISMODULE_KEY_PERMISSION_WRITE: Can the module write data to the key.
  *
  * The following is an example of how it could be used:
  *
  *     if (RedisModule_IsKeysPositionRequest(ctx)) {
- *         RedisModule_KeyAtPosWithFlags(ctx, 2, REDISMODULE_CMD_KEY_RO | CMD_KEY_ACCESS);
- *         RedisModule_KeyAtPosWithFlags(ctx, 1, REDISMODULE_CMD_KEY_RW | CMD_KEY_UPDATE | CMD_KEY_ACCESS);
+ *         RedisModule_KeyAtPosWithFlags(ctx, 2, REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS);
+ *         RedisModule_KeyAtPosWithFlags(ctx, 1, REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_ACCESS);
  *     }
  *
  *  Note: in the example above the get keys API could have been handled by key-specs (preferred).
- *  The user of getkeys-api is required only when is it not possible to declare a key-spec that covers all keys.
+ *  Implementing the getkeys-api is required only when is it not possible to declare key-specs that cover all keys.
  *
  */
 void RM_KeyAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
@@ -835,9 +833,11 @@ void RM_KeyAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     res->numkeys++;
 }
 
-/* This API existed before RM_KeyAtPosWithFlags was added, now deprecated. */
+/* This API existed before RM_KeyAtPosWithFlags was added, now deprecated and
+ * can be used for compatibility with older versions, before key-specs and flags
+ * were introduced. */
 void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
-    /* Default flags require full access*/
+    /* Default flags require full access */
     int flags = moduleConvertKeySpecsFlags(CMD_KEY_FULL_ACCESS, 0);
     RM_KeyAtPosWithFlags(ctx, pos, flags);
 }
@@ -1019,7 +1019,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
         cp->rediscmd->key_specs_num = 1;
-        cp->rediscmd->key_specs[0].flags = CMD_KEY_FULL_ACCESS;
+        cp->rediscmd->key_specs[0].flags = CMD_KEY_FULL_ACCESS | CMD_KEY_VARIABLE_FLAGS;
         cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
         cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
         cp->rediscmd->key_specs[0].find_keys_type = KSPEC_FK_RANGE;
@@ -1211,8 +1211,9 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *     versions where RM_SetCommandInfo is not available.
  *
  *     Note that key-specs don't fully replace the "getkeys-api" (see
- *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be
- *     a good idea to supply both key-specs and a implement the getkeys-api.
+ *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPosWithFlags) so
+ *     it may be a good idea to supply both key-specs and a implement the
+ *     getkeys-api.
  *
  *     A key-spec has the following structure:
  *
@@ -1706,14 +1707,10 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api) {
         {REDISMODULE_CMD_KEY_INCOMPLETE, CMD_KEY_INCOMPLETE},
         {REDISMODULE_CMD_KEY_VARIABLE_FLAGS, CMD_KEY_VARIABLE_FLAGS},
         {0,0}};
-    if (from_api) {
-        for (int i=0; map[i][0]; i++)
-            if (flags & map[i][0]) out |= map[i][1];
-    } else {
-        for (int i=0; map[i][0]; i++)
-            if (flags & map[i][1]) out |= map[i][0];
-    }
 
+    int from_idx = from_api ? 0 : 1, to_idx = !from_idx;
+    for (int i=0; map[i][0]; i++)
+        if (flags & map[i][from_idx]) out |= map[i][to_idx];
     return out;
 }
 
