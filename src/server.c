@@ -4922,7 +4922,7 @@ void releaseInfoSectionDict(dict *sec) {
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_default, int *out_all, int *out_everything) {
     char *default_sections[] = {
         "server", "clients", "memory", "persistence", "stats", "replication",
-        "cpu", "module_list", "errorstats", "cluster", "keyspace", "latencystats", NULL};
+        "cpu", "module_list", "errorstats", "cluster", "keyspace", NULL};
     if (!defaults)
         defaults = default_sections;
 
