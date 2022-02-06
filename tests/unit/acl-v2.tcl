@@ -47,7 +47,7 @@ start_server {tags {"acl external:skip"}} {
         catch {r ACL SETUSER selector-syntax on (&fail)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Adding a pattern after the*" $e
 
-        assert_equal "" [r ACL GETUSER selector-syntax]        
+        assert_equal "" [r ACL GETUSER selector-syntax]
     }
 
     test {Test flexible selector definition} {
