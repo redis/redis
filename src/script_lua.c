@@ -1135,107 +1135,39 @@ sds luaGetStringSds(lua_State *lua, int index) {
     return str_sds;
 }
 
-/* This function installs metamethods in the global table _G that prevent
- * the creation of globals accidentally.
- *
- * It should be the last to be called in the scripting engine initialization
- * sequence, because it may interact with creation of globals.
- *
- * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
- * to create the global 'function <sha> ()' variable. On Functions Lua engine we do not use
- * this trick so it's not needed. */
-void luaEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
-    sds code = sdsempty();
-    int j = 0;
-
-    /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
-     * Modified to be adapted to Redis. */
-    s[j++]="local dbg=debug\n";
-    s[j++]="local mt = {}\n";
-    s[j++]="setmetatable(_G, mt)\n";
-    s[j++]="mt.__newindex = function (t, n, v)\n";
-    s[j++]="  if dbg.getinfo(2) then\n";
-    s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]="    if w ~= \"C\" then\n";
-    s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="    end\n";
-    s[j++]="  end\n";
-    s[j++]="  rawset(t, n, v)\n";
-    s[j++]="end\n";
-    s[j++]="mt.__index = function (t, n)\n";
-    s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
-    s[j++]="    error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="  end\n";
-    s[j++]="  return rawget(t, n)\n";
-    s[j++]="end\n";
-    s[j++]="debug = nil\n";
-    s[j++]=NULL;
-
-    for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
-    luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
-    lua_pcall(lua,0,0,0);
-    sdsfree(code);
+static int luaProtectedTableError(lua_State *lua) {
+    int argc = lua_gettop(lua);
+    if (argc != 2) {
+        serverLog(LL_WARNING, "malicious code trying to call luaProtectedTableError with wrong arguments");
+        luaL_error(lua, "Wrong number of arguments to luaProtectedTableError");
+    }
+    if (!lua_isstring(lua, -1) && !lua_isnumber(lua, -1)) {
+        luaL_error(lua, "Second argument to luaProtectedTableError must be a string or number");
+    }
+    const char* variable_name = lua_tostring(lua, -1);
+    luaL_error(lua, "Script attempted to access nonexistent global variable '%s'", variable_name);
+    return 0;
 }
 
-/* Create a global protection function and put it to registry.
- * This need to be called once in the lua_State lifetime.
- * After called it is possible to use luaSetGlobalProtection
- * to set global protection on a give table.
- *
- * The function assumes the Lua stack have a least enough
- * space to push 2 element, its up to the caller to verify
- * this before calling this function.
- *
- * Notice, the difference between this and luaEnableGlobalsProtection
- * is that luaEnableGlobalsProtection is enabling global protection
- * on the current Lua globals. This registering a global protection
- * function that later can be applied on any table. */
-void luaRegisterGlobalProtectionFunction(lua_State *lua) {
-    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
-    char *global_protection_func =       "local dbg = debug\n"
-                                         "local globals_protection = function (t)\n"
-                                         "   local mt = {}\n"
-                                         "   setmetatable(t, mt)\n"
-                                         "   mt.__newindex = function (t, n, v)\n"
-                                         "       if dbg.getinfo(2) then\n"
-                                         "           local w = dbg.getinfo(2, \"S\").what\n"
-                                         "           if w ~= \"C\" then\n"
-                                         "               error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n"
-                                         "           end"
-                                         "       end"
-                                         "       rawset(t, n, v)\n"
-                                         "   end\n"
-                                         "   mt.__index = function (t, n)\n"
-                                         "       if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n"
-                                         "           error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n"
-                                         "       end\n"
-                                         "       return rawget(t, n)\n"
-                                         "   end\n"
-                                         "end\n"
-                                         "return globals_protection";
-    int res = luaL_loadbuffer(lua, global_protection_func, strlen(global_protection_func), "@global_protection_def");
-    serverAssert(res == 0);
-    res = lua_pcall(lua,0,1,0);
-    serverAssert(res == 0);
-    lua_settable(lua, LUA_REGISTRYINDEX);
-}
-
-/* Set global protection on a given table.
- * The table need to be located on the top of the lua stack.
+/* Set global protection on table on the top of the stack.
  * After called, it will no longer be possible to set
- * new items on the table. The function is not removing
- * the table from the top of the stack!
+ * new items on the table. Any attempt to access a protected
+ * table for write will result in an error. Any attempt to
+ * get a none existing element from a locked table will result
+ * in an error.
  *
  * The function assumes the Lua stack have a least enough
  * space to push 2 element, its up to the caller to verify
  * this before calling this function. */
 void luaSetGlobalProtection(lua_State *lua) {
-    lua_pushstring(lua, REGISTRY_SET_GLOBALS_PROTECTION_NAME);
-    lua_gettable(lua, LUA_REGISTRYINDEX);
-    lua_pushvalue(lua, -2);
-    int res = lua_pcall(lua, 1, 0, 0);
-    serverAssert(res == 0);
+    lua_newtable(lua); /* push metatable */
+    lua_pushcfunction(lua, luaProtectedTableError); /* push get error handler */
+    lua_setfield(lua, -2, "__index");
+    lua_enablereadonlytable(lua, -1, 1); /* protect the metatable */
+
+    lua_setmetatable(lua, -2);
+
+    lua_enablereadonlytable(lua, -1, 1);
 }
 
 void luaRegisterVersion(lua_State* lua) {
@@ -1504,9 +1436,19 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
      * EVAL received. */
     luaCreateArray(lua,keys,nkeys);
     /* On eval, keys and arguments are globals. */
-    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"KEYS");
+    if (run_ctx->flags & SCRIPT_EVAL_MODE){
+        /* open global protection to set KEYS */
+        lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 0);
+        lua_setglobal(lua,"KEYS");
+        lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
+    }
     luaCreateArray(lua,args,nargs);
-    if (run_ctx->flags & SCRIPT_EVAL_MODE) lua_setglobal(lua,"ARGV");
+    if (run_ctx->flags & SCRIPT_EVAL_MODE){
+        /* open global protection to set ARGV */
+        lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 0);
+        lua_setglobal(lua,"ARGV");
+        lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
+    }
 
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it.

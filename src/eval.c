@@ -266,10 +266,10 @@ void scriptingInit(int setup) {
         lctx.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
-    /* Lua beginners often don't use "local", this is likely to introduce
-     * subtle bugs in their code. To prevent problems we protect accesses
-     * to global variables. */
-    luaEnableGlobalsProtection(lua);
+    /* Lock the global table from any changes */
+    lua_pushvalue(lua, LUA_GLOBALSINDEX);
+    luaSetGlobalProtection(lua);
+    lua_pop(lua, 1);
 
     lctx.lua = lua;
 }

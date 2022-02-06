@@ -452,7 +452,7 @@ start_server {tags {"scripting"}} {
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {ERR *attempted to create global*}
+    } {ERR *Attempt to modify a readonly table*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
@@ -741,6 +741,43 @@ start_server {tags {"scripting"}} {
             return loadstring(string.dump(function() return 1 end))()
         } 0}
     }
+
+    test "Try trick global protection 1" {
+        catch {
+            run_script {
+                setmetatable(_G, {})
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 2" {
+        catch {
+            run_script {
+                local g = getmetatable(_G)
+                g.__index = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 3" {
+        catch {
+            run_script {
+                redis = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 4" {
+        catch {
+            run_script {
+                _G = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
 }
 
 # Start a new server since the last test in this stanza will kill the
