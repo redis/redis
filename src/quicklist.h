@@ -28,10 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdint.h> // for UINTPTR_MAX
-
 #ifndef __QUICKLIST_H__
 #define __QUICKLIST_H__
+
+#include <stdint.h> // for UINTPTR_MAX
 
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 

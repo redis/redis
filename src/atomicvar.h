@@ -49,11 +49,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <pthread.h>
-#include "config.h"
-
 #ifndef __ATOMIC_VAR_H
 #define __ATOMIC_VAR_H
+
+#include <pthread.h>
+#include "config.h"
 
 /* Define redisAtomic for atomic variable. */
 #define redisAtomic
