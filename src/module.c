@@ -8957,11 +8957,11 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     struct RedisModuleServerInfoData *d = zmalloc(sizeof(*d));
     d->rax = raxNew();
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
-    int all = 0, everything = 0;
+    int defaults = 0, all = 0, everything = 0;
     robj *argv[1];
     argv[0] = section ? createStringObject(section, strlen(section)) : NULL;
-    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, NULL, &all, &everything);
-    sds info = genRedisInfoString(section_dict, all, everything);
+    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, NULL, &defaults, &all, &everything);
+    sds info = genRedisInfoString(section_dict, defaults, all, everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
     for(i=0; i<totlines; i++) {
