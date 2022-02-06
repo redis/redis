@@ -4938,7 +4938,7 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
     }
 
     dict *section_dict = dictCreate(&stringSetDictType);
-    dictExpand(cached_default_info_sectoins, 16);
+    dictExpand(section_dict, min(argc,16));
     for (int i = 0; i < argc; i++) {
         if (!strcasecmp(argv[i]->ptr,"default")) {
             addInfoSectionsToDict(section_dict, defaults);
