@@ -4103,11 +4103,11 @@ void addInfoSectionsToDict(dict *section_dict, char **sections);
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
-    int defaults = 0, all = 0, everything = 0;
+    int sec_all = 0, sec_everything = 0;
     static dict *cached_all_info_sectoins = NULL;
 
     /* Get requested section list. */
-    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, sentinel_sections, &defaults, &all, &everything);
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, sentinel_sections, &sec_all, &sec_everything);
 
     /* Purge unsupported sections from the requested ones. */
     dictEntry *de;
@@ -4125,7 +4125,7 @@ void sentinelInfoCommand(client *c) {
     dictReleaseIterator(di);
 
     /* Insert explicit all sections (don't pass these vars to genRedisInfoString) */
-    if (all || everything) {
+    if (sec_all || sec_everything) {
         releaseInfoSectionDict(sections_dict);
         /* We cache this dict as an optimization. */
         if (!cached_all_info_sectoins) {
@@ -4136,8 +4136,8 @@ void sentinelInfoCommand(client *c) {
     }
 
     sds info = sdsempty();
-    info = genRedisInfoString(sections_dict, 0, 0, 0);
-    if (all || (dictFind(sections_dict, "sentinel") != NULL)) {
+    info = genRedisInfoString(sections_dict, 0, 0);
+    if (sec_all || (dictFind(sections_dict, "sentinel") != NULL)) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
