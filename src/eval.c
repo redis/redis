@@ -269,7 +269,7 @@ void scriptingInit(int setup) {
     /* Lua beginners often don't use "local", this is likely to introduce
      * subtle bugs in their code. To prevent problems we protect accesses
      * to global variables. */
-    luaEnableGlobalsProtection(lua, 1);
+    luaEnableGlobalsProtection(lua);
 
     lctx.lua = lua;
 }
@@ -378,35 +378,20 @@ sds luaCreateFunction(client *c, robj *body) {
         sdsfreesplitres(parts, numparts);
     }
 
-    /* Build the lua function to be loaded */
-    sds funcdef = sdsempty();
-    funcdef = sdscat(funcdef,"function ");
-    funcdef = sdscatlen(funcdef,funcname,42);
-    funcdef = sdscatlen(funcdef,"() ",3);
     /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
-    funcdef = sdscatlen(funcdef,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len);
-    funcdef = sdscatlen(funcdef,"\nend",4);
-
-    if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
+    if (luaL_loadbuffer(lctx.lua,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len,"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
                 "Error compiling script (new function): %s",
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(funcdef);
         return NULL;
     }
-    sdsfree(funcdef);
 
-    if (lua_pcall(lctx.lua,0,0,0)) {
-        if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s",
-                lua_tostring(lctx.lua,-1));
-        }
-        lua_pop(lctx.lua,1);
-        return NULL;
-    }
+    serverAssert(lua_isfunction(lctx.lua, -1));
+
+    lua_setfield(lctx.lua, LUA_REGISTRYINDEX, funcname);
 
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
@@ -479,7 +464,7 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_getglobal(lua, "__redis__err__handler");
 
     /* Try to lookup the Lua function */
-    lua_getglobal(lua, funcname);
+    lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
     if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
@@ -497,7 +482,7 @@ void evalGenericCommand(client *c, int evalsha) {
             return;
         }
         /* Now the following is guaranteed to return non nil */
-        lua_getglobal(lua, funcname);
+        lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
         serverAssert(!lua_isnil(lua,-1));
     }
 

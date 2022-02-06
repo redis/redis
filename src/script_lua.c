@@ -1144,7 +1144,7 @@ sds luaGetStringSds(lua_State *lua, int index) {
  * On Legacy Lua (eval) we need to check 'w ~= \"main\"' otherwise we will not be able
  * to create the global 'function <sha> ()' variable. On Functions Lua engine we do not use
  * this trick so it's not needed. */
-void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
+void luaEnableGlobalsProtection(lua_State *lua) {
     char *s[32];
     sds code = sdsempty();
     int j = 0;
@@ -1157,7 +1157,7 @@ void luaEnableGlobalsProtection(lua_State *lua, int is_eval) {
     s[j++]="mt.__newindex = function (t, n, v)\n";
     s[j++]="  if dbg.getinfo(2) then\n";
     s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]=     is_eval ? "    if w ~= \"main\" and w ~= \"C\" then\n" : "    if w ~= \"C\" then\n";
+    s[j++]="    if w ~= \"C\" then\n";
     s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="    end\n";
     s[j++]="  end\n";
