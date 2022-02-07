@@ -1,7 +1,7 @@
 {
     "FCALL": {
-        "summary": "PATCH__TBD__38__",
-        "complexity": "PATCH__TBD__37__",
+        "summary": "Invoke a function",
+        "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -3,
