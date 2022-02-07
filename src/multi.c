@@ -220,9 +220,9 @@ void execCommand(client *c) {
                 "following reason: %s", reason);
         } else {
             if (c->id == CLIENT_ID_AOF)
-                call(c,CMD_CALL_NONE);
+                checkedCall(c,CMD_CALL_NONE);
             else
-                call(c,CMD_CALL_FULL);
+                checkedCall(c,CMD_CALL_FULL);
 
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
         }
