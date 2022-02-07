@@ -711,27 +711,21 @@ int clientsCronResizeQueryBuffer(client *c) {
  * the logic is:
  * in case the last observed peak size of the buffer equals the buffer size - we double the size
  * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
- * in any case we will reset the peak value each cron run.
+ * The buffer peak will be reset back to zero every 5 seconds
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeOutputBuffer(client *c) {
 
-    void *new_buf = NULL;
-    const size_t BUFFER_TARGET_SHRINK_SIZE = c->buf_usable_size/2;
-    const size_t BUFFER_TARGET_EXPEND_SIZE = c->buf_usable_size*2;
+    size_t new_buffer_size = 0;
+    const size_t buffer_target_shrink_size = c->buf_usable_size/2;
+    const size_t buffer_target_expend_size = c->buf_usable_size*2;
 
-    if(c->bufpos != 0)  return 0;
-
-    if (BUFFER_TARGET_SHRINK_SIZE >= PROTO_REPLY_MIN_BYTES &&
-        c->buf_peak < BUFFER_TARGET_SHRINK_SIZE )
-    {
-
-        new_buf = ztryrealloc(c->buf,BUFFER_TARGET_SHRINK_SIZE);
+    if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
+        c->buf_peak < buffer_target_shrink_size ) {
+        new_buffer_size = buffer_target_shrink_size;
         server.stat_reply_buffer_shrinks++;
-
-    } else if(BUFFER_TARGET_EXPEND_SIZE <= PROTO_REPLY_CHUNK_BYTES &&
-            c->buf_peak == c->buf_usable_size)
-    {
-        new_buf = ztryrealloc(c->buf,BUFFER_TARGET_EXPEND_SIZE);
+    } else if(buffer_target_expend_size <= PROTO_REPLY_CHUNK_BYTES &&
+            c->buf_peak == c->buf_usable_size) {
+        new_buffer_size = buffer_target_expend_size;
         server.stat_reply_buffer_expends++;
     }
 
@@ -743,9 +737,17 @@ int clientsCronResizeOutputBuffer(client *c) {
         c->buf_peak_last_reset_time = server.unixtime;
     }
 
-    if(new_buf) {
-        c->buf = new_buf;
-        c->buf_usable_size = zmalloc_usable_size(c->buf);
+    if(new_buffer_size) {
+        /* In case the buffer possition in 0 we can just delete and realloc the buffer with the new size
+         * no memmove is needed.
+         */
+        if(c->bufpos == 0) {
+            zfree(c->buf);
+            c->buf = zmalloc(new_buffer_size);
+            c->buf_usable_size = zmalloc_usable_size(c->buf);
+        } else {
+            c->buf = zrealloc_usable(c->buf,new_buffer_size,&c->buf_usable_size);
+        }
     }
     return 0;
 }

@@ -316,6 +316,9 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t reply_len = len > available ? available : len;
     memcpy(c->buf+c->bufpos,s,reply_len);
     c->bufpos+=reply_len;
+    /* We update the buffer peak after appending the reply to the buffer */
+    if(c->buf_peak < (size_t)c->bufpos)
+        c->buf_peak = (size_t)c->bufpos;
     return reply_len;
 }
 
@@ -1734,8 +1737,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
         if ((int)c->sentlen == c->bufpos) {
-            if(c->buf_peak < (size_t)c->bufpos)
-                c->buf_peak = (size_t)c->bufpos;
             c->bufpos = 0;
             c->sentlen = 0;
         }
