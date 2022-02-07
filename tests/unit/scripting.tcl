@@ -1455,7 +1455,7 @@ start_server {tags {"scripting"}} {
                 end
             } 1 x
         ] 1
-    }
+    } {} {cluster:skip}
     
     test "LUA redis.error_reply API" {
         assert_error {MY_ERR_CODE custom msg} {
