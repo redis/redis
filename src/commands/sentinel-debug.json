@@ -1,5 +1,7 @@
 {
     "DEBUG": {
+        "summary": "Check for a Sentinel quorum",
+        "complexity": "O(N) where N is the number of configurable parameters",
         "group": "sentinel",
         "since": "7.0.0",
         "arity": -2,
