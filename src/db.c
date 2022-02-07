@@ -83,16 +83,16 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
-        int force_delete_expired = flags & LOOKUP_WRITE;
-        if (force_delete_expired) {
-            /* Forcing deletion of expired keys on a replica makes the replica
-             * inconsistent with the master. The reason it's allowed for write
-             * commands is to make writable replicas behave consistently. It
-             * shall not be used in readonly commands. Modules are accepted so
-             * that we don't break old modules. */
-            client *c = server.in_script ? scriptGetClient() : server.current_client;
-            serverAssert(!c || !c->cmd || (c->cmd->flags & (CMD_WRITE|CMD_MODULE)));
-        }
+        /* Forcing deletion of expired keys on a replica makes the replica
+         * inconsistent with the master. We forbid it on readonly replicas, but
+         * we have to allow it on writable replicas to make write commands
+         * behave consistently.
+         *
+         * It's possible that the WRITE flag is set even during a readonly
+         * command, since the command may trigger events that cause modules to
+         * perform additional writes. */
+        int is_ro_replica = server.masterhost && server.repl_slave_ro;
+        int force_delete_expired = flags & LOOKUP_WRITE && !is_ro_replica;
         if (expireIfNeeded(db, key, force_delete_expired)) {
             /* The key is no longer valid. */
             val = NULL;
