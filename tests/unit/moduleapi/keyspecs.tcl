@@ -14,6 +14,7 @@ start_server {tags {"modules"}} {
         set keyspecs [lindex $reply 8]
         assert_equal [llength $keyspecs] 1
         assert_equal [lindex $keyspecs 0] {flags {RW access update variable_flags} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey -1 keystep 2 limit 0}}}
+        assert_equal [r command getkeys kspec.none key1 val1 key2 val2] {key1 key2}
     }
 
     test "Module key specs: Two ranges" {
@@ -27,6 +28,7 @@ start_server {tags {"modules"}} {
         set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags {RO access} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags {RW update} begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [r command getkeys kspec.tworanges foo bar baz quux] {foo bar}
     }
 
     test "Module key specs: Keyword-only spec clears the legacy triple" {
@@ -39,6 +41,7 @@ start_server {tags {"modules"}} {
         # Verify key-specs
         set keyspecs [lindex $reply 8]
         assert_equal [lindex $keyspecs 0] {flags {RO access} begin_search {type keyword spec {keyword KEYS startfrom 1}} find_keys {type range spec {lastkey -1 keystep 1 limit 0}}}
+        assert_equal [r command getkeys kspec.keyword foo KEYS bar baz] {bar baz}
     }
 
     test "Module key specs: Complex specs, case 1" {
@@ -53,6 +56,7 @@ start_server {tags {"modules"}} {
         assert_equal [lindex $keyspecs 0] {flags RO begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 1] {flags {RW update} begin_search {type keyword spec {keyword STORE startfrom 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 2] {flags {RO access} begin_search {type keyword spec {keyword KEYS startfrom 2}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
+        assert_equal [r command getkeys kspec.complex1 foo dummy KEYS 1 bar baz STORE quux] {foo quux bar}
     }
 
     test "Module key specs: Complex specs, case 2" {
@@ -69,12 +73,14 @@ start_server {tags {"modules"}} {
         assert_equal [lindex $keyspecs 2] {flags {RO access} begin_search {type index spec {index 2}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
         assert_equal [lindex $keyspecs 3] {flags {RW update} begin_search {type index spec {index 3}} find_keys {type keynum spec {keynumidx 0 firstkey 1 keystep 1}}}
         assert_equal [lindex $keyspecs 4] {flags {RW update} begin_search {type keyword spec {keyword MOREKEYS startfrom 5}} find_keys {type range spec {lastkey -1 keystep 1 limit 0}}}
+        assert_equal [r command getkeys kspec.complex2 foo bar 2 baz quux banana STORE dst dummy MOREKEYS hey ho] {dst foo bar baz quux hey ho}
     }
 
     test "Module command list filtering" {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
         assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.tworanges}
+        assert_equal [r command getkeys kspec.complex2 foo bar 2 baz quux banana STORE dst dummy MOREKEYS hey ho] {dst foo bar baz quux hey ho}
     }
 
     test {COMMAND GETKEYSANDFLAGS correctly reports module key-spec without flags} {
