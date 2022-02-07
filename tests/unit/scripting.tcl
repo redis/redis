@@ -1444,7 +1444,7 @@ start_server {tags {"scripting"}} {
         assert_error {ERR Error running script (call to *): @user_script:*: ERR Write commands are not allowed from read-only scripts.} {
             r eval_ro {return redis.call('set','x','y')} 1 x
         }
-        # redis.pcall() failure due to scripting specifc error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
+        # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
         assert_equal [
             r eval_ro {
                 local t = redis.pcall('set','x','y')
