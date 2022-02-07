@@ -2336,6 +2336,8 @@ void resetServerStats(void) {
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
+    server.stat_reply_buffer_shrinks = 0;
+    server.stat_reply_buffer_expends = 0;
     lazyfreeResetStats();
 }
 
