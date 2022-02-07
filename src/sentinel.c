@@ -3735,7 +3735,7 @@ void sentinelCommand(client *c) {
 "    Set a global Sentinel configuration parameter.",
 "CONFIG GET <param>",
 "    Get global Sentinel configuration parameter.",
-"DEBUG",
+"DEBUG [<param> <value> ...]",
 "    Show a list of configurable time parameters and their values (milliseconds).",
 "    Or update current configurable parameters values (one or more).",
 "GET-MASTER-ADDR-BY-NAME <master-name>",
