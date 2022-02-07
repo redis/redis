@@ -289,6 +289,8 @@ void watchForKey(client *c, robj *key) {
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
+    /* Use the lru field to flag that we're watching an already expired key. */
+    key->lru = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
 }
@@ -321,8 +323,8 @@ void unwatchAllKeys(client *c) {
     }
 }
 
-/* iterates over the watched_keys list and
- * look for an expired key . */
+/* Iterates over the watched_keys list and looks for an expired key. Keys which
+ * were expired already when WATCH was called are ignored. */
 int isWatchedKeyExpired(client *c) {
     listIter li;
     listNode *ln;
@@ -331,6 +333,7 @@ int isWatchedKeyExpired(client *c) {
     listRewind(c->watched_keys,&li);
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
+        if (wk->key->lru == 1) continue; /* was expired when WATCH was called */
         if (keyIsExpired(wk->db, wk->key)) return 1;
     }
 
@@ -348,17 +351,43 @@ void touchWatchedKey(redisDb *db, robj *key) {
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
+    int key_exists = dictFind(db->dict, key->ptr) != NULL;
+
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
+        if (!key_exists) {
+            /* Was the key expired already when the client watched it? If so,
+             * there is no logical change regarding the key's existence. */
+            listIter wk_li;
+            listNode *wk_ln;
+            listRewind(c->watched_keys, &wk_li);
+            while ((wk_ln = listNext(&wk_li))) {
+                watchedKey *wk = listNodeValue(wk_ln);
+                if (wk->db == c->db && equalStringObjects(key, wk->key)) {
+                    /* Found the key. */
+                    if (wk->key->lru == 1) {
+                        /* The key was already expired when WATCH was called.
+                         * Now the key is explicitly deleted. */
+                        wk->key->lru = 0;
+                        goto skip_client;
+                    }
+                    break;
+                }
+            }
+        }
+
         c->flags |= CLIENT_DIRTY_CAS;
         /* As the client is marked as dirty, there is no point in getting here
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
+
+    skip_client:
+        continue;
     }
 }
 
