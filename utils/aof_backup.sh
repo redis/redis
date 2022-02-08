@@ -82,12 +82,12 @@ fi
 if [ $(get_config appendonly) != yes ]; then
     echo "Redis not configured for append only, aborting..."
     exit 1
-fi    
+fi
 
 pid=$(get_info_field process_id)
 appenddirname=$(get_config appenddirname)
 appendfilename=$(get_config appendfilename).
-working_dir=$(readlink /proc/$pid/cwd)
+working_dir=$(lsof -a -p $pid -d cwd -Fn | grep "^n" | sed "s/n\//\//")
 appenddir_path=$working_dir/$appenddirname
 if [ ! -d $appenddir_path ]; then
     echo "Couldn't find $appenddir_path. redis-server must be run locally. Aborting."
@@ -102,7 +102,7 @@ while true; do
       continue
     fi
 
-    tmp_dir=$(mktemp -d -p $working_dir)
+    tmp_dir=$(mktemp -d $working_dir/tmp.XXXXXXXXXX)
     backup_path=$tmp_dir/$appenddirname
     mkdir $backup_path
 
@@ -118,7 +118,7 @@ done
 # and our hard links ctime changes (if)when redis deletes old files after a rewrite. This can 
 # happen while we're still accessing them from tar. A ctime change isn't an mtime change, and
 # doesn't mean the file's data actually changed.
-tar -czf $filename -C $tmp_dir --warning no-file-change $appenddirname  || [[ $? -eq 1 ]]
+tar -czf $filename -C $tmp_dir $appenddirname  || [[ $? -eq 1 ]]
 rm -r $tmp_dir
 echo "Done. Successfully created backup file $filename."
 
