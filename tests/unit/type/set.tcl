@@ -144,8 +144,8 @@ start_server {
     } {3}
 
     test "SINTERCARD with illegal arguments" {
-        assert_error "ERR wrong number of arguments*" {r sintercard}
-        assert_error "ERR wrong number of arguments*" {r sintercard 1}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard}
+        assert_error "ERR wrong number of arguments for 'sintercard' command" {r sintercard 1}
 
         assert_error "ERR numkeys*" {r sintercard 0 myset{t}}
         assert_error "ERR numkeys*" {r sintercard a myset{t}}

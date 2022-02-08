@@ -1,0 +1,37 @@
+{
+    "INFO": {
+        "summary": "Get information and statistics about the server",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "infoCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added support for taking multiple section arguments."
+            ]
+        ],
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL"
+        ],
+        "arguments": [
+            {
+                "name": "section",
+                "type": "string",
+                "multiple": true,
+                "optional": true
+            }
+        ]
+    }
+}

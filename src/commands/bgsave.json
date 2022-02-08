@@ -1,0 +1,30 @@
+{
+    "BGSAVE": {
+        "summary": "Asynchronously save the dataset to disk",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "bgsaveCommand",
+        "history": [
+            [
+                "3.2.2",
+                "Added the `SCHEDULE` option."
+            ]
+        ],
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "arguments": [
+            {
+                "name": "schedule",
+                "token": "SCHEDULE",
+                "type": "pure-token",
+                "optional": true,
+                "since": "3.2.2"
+            }
+        ]
+    }
+}

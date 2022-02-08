@@ -1,0 +1,55 @@
+{
+    "ZINTERCARD": {
+        "summary": "Intersect multiple sorted sets and return the cardinality of the result",
+        "complexity": "O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.",
+        "group": "sorted_set",
+        "since": "7.0.0",
+        "arity": -3,
+        "function": "zinterCardCommand",
+        "get_keys_function": "zunionInterDiffGetKeys",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "token": "LIMIT",
+                "name": "limit",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

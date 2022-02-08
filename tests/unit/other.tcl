@@ -47,7 +47,7 @@ start_server {tags {"other"}} {
         waitForBgsave r
         r debug reload
         r get x
-    } {10} {needs:save}
+    } {10} {needs:debug needs:save}
 
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
@@ -57,11 +57,11 @@ start_server {tags {"other"}} {
     tags {consistency} {
         proc check_consistency {dumpname code} {
             set dump [csvdump r]
-            set sha1 [r debug digest]
+            set sha1 [debug_digest]
 
             uplevel 1 $code
 
-            set sha1_after [r debug digest]
+            set sha1_after [debug_digest]
             if {$sha1 eq $sha1_after} {
                 return 1
             }
@@ -92,7 +92,7 @@ start_server {tags {"other"}} {
                     r debug reload
                 }
             }
-        } {1}
+        } {1} {needs:debug}
 
         test {Same dataset digest if saving/reloading as AOF?} {
             if {$::ignoredigest} {
@@ -172,9 +172,11 @@ start_server {tags {"other"}} {
                 set fd2 [socket [srv host] [srv port]]
             }
             fconfigure $fd2 -encoding binary -translation binary
-            puts -nonewline $fd2 "SELECT 9\r\n"
-            flush $fd2
-            gets $fd2
+            if {!$::singledb} {
+                puts -nonewline $fd2 "SELECT 9\r\n"
+                flush $fd2
+                gets $fd2
+            }
 
             for {set i 0} {$i < 100000} {incr i} {
                 set q {}
@@ -303,10 +305,18 @@ start_server {tags {"other"}} {
 
         assert_equal [r acl whoami] default
     } {} {needs:reset}
+
+    test "Subcommand syntax error crash (issue #10070)" {
+        assert_error {*unknown command*} {r GET|}
+        assert_error {*unknown command*} {r GET|SET}
+        assert_error {*unknown command*} {r GET|SET|OTHER}
+        assert_error {*unknown command*} {r CONFIG|GET GET_XX}
+        assert_error {*Unknown subcommand*} {r CONFIG GET_XX}
+    }
 }
 
 start_server {tags {"other external:skip"}} {
-    test {Don't rehash if redis has child proecess} {
+    test {Don't rehash if redis has child process} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 
@@ -328,7 +338,7 @@ start_server {tags {"other external:skip"}} {
         # size is power of two and over 4098, so it is 8192
         r set k3 v3
         assert_match "*table size: 8192*" [r debug HTSTATS 9]
-    } {} {needs:local-process}
+    } {} {needs:debug needs:local-process}
 }
 
 proc read_proc_title {pid} {

@@ -55,4 +55,34 @@ start_server {tags {"modules"}} {
         r copy sourcekey targetkey
         r datatype.get targetkey
     } {1234 AAA/sourcekey/targetkey}
+
+    test {DataType: Slow Loading} {
+        r config set busy-reply-threshold 5000 ;# make sure we're using a high default
+        # trigger slow loading
+        r datatype.slow_loading 1
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd debug reload
+
+        # wait till we know we're blocked inside the module
+        wait_for_condition 50 100 {
+            [r datatype.is_in_slow_loading] eq 1
+        } else {
+            fail "Failed waiting for slow loading to start"
+        }
+
+        # make sure we get LOADING error, and that we didn't get here late (not waiting for busy-reply-threshold)
+        assert_error {*LOADING*} {r ping}
+        assert_lessthan [expr [clock clicks -milliseconds]-$start] 2000
+
+        # abort the blocking operation
+        r datatype.slow_loading 0
+        wait_for_condition 50 100 {
+            [s loading] eq {0}
+        } else {
+            fail "Failed waiting for loading to end"
+        }
+        $rd read
+        $rd close
+    }
 }

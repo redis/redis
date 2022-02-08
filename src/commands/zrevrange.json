@@ -1,0 +1,62 @@
+{
+    "ZREVRANGE": {
+        "summary": "Return a range of members in a sorted set, by index, with scores ordered from high to low",
+        "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": -4,
+        "function": "zrevrangeCommand",
+        "deprecated_since": "6.2.0",
+        "replaced_by": "`ZRANGE` with the `REV` argument",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "stop",
+                "type": "integer"
+            },
+            {
+                "name": "withscores",
+                "token": "WITHSCORES",
+                "type": "pure-token",
+                "optional": true
+            }
+        ]
+    }
+}

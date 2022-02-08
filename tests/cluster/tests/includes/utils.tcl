@@ -23,3 +23,14 @@ proc fix_cluster {addr} {
         fail "Cluster could not settle with configuration"
     }
 }
+
+proc wait_cluster_stable {} {
+    wait_for_condition 1000 50 {
+        [catch {exec ../../../src/redis-cli --cluster \
+            check 127.0.0.1:[get_instance_attrib redis 0 port] \
+            {*}[rediscli_tls_config "../../../tests"] \
+            }] == 0
+    } else {
+        fail "Cluster doesn't stabilize"
+    }
+}

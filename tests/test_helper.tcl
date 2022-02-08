@@ -6,6 +6,7 @@ package require Tcl 8.5
 
 set tcl_precision 17
 source tests/support/redis.tcl
+source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
@@ -19,6 +20,7 @@ set ::all_tests {
     unit/keyspace
     unit/scan
     unit/info
+    unit/info-command
     unit/type/string
     unit/type/incr
     unit/type/list
@@ -36,6 +38,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/acl-v2
     unit/latency-monitor
     integration/block-repl
     integration/replication
@@ -44,7 +47,9 @@ set ::all_tests {
     integration/replication-4
     integration/replication-psync
     integration/replication-buffer
+    integration/shutdown
     integration/aof
+    integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
@@ -61,8 +66,10 @@ set ::all_tests {
     integration/redis-benchmark
     integration/dismiss-mem
     unit/pubsub
+    unit/pubsubshard
     unit/slowlog
     unit/scripting
+    unit/functions
     unit/maxmemory
     unit/introspection
     unit/introspection-2
@@ -367,7 +374,7 @@ proc accept_test_clients {fd addr port} {
 proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
-    foreach {status data} $payload break
+    foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
 
     if {$status eq {ready}} {
@@ -386,7 +393,7 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
         if {!$::quiet} {
-            puts "\[[colorstr green $status]\]: $data"
+            puts "\[[colorstr green $status]\]: $data ($elapsed ms)"
         }
         set ::active_clients_task($fd) "(OK) $data"
     } elseif {$status eq {skip}} {
@@ -552,8 +559,8 @@ proc test_client_main server_port {
     }
 }
 
-proc send_data_packet {fd status data} {
-    set payload [list $status $data]
+proc send_data_packet {fd status data {elapsed 0}} {
+    set payload [list $status $data $elapsed]
     puts $fd [string length $payload]
     puts -nonewline $fd $payload
     flush $fd

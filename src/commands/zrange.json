@@ -1,0 +1,105 @@
+{
+    "ZRANGE": {
+        "summary": "Return a range of members in a sorted set",
+        "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": -4,
+        "function": "zrangeCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `REV`, `BYSCORE`, `BYLEX` and `LIMIT` options."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "min",
+                "type": "string"
+            },
+            {
+                "name": "max",
+                "type": "string"
+            },
+            {
+                "name": "sortby",
+                "type": "oneof",
+                "optional": true,
+                "since": "6.2.0",
+                "arguments": [
+                    {
+                        "name": "byscore",
+                        "type": "pure-token",
+                        "token": "BYSCORE"
+                    },
+                    {
+                        "name": "bylex",
+                        "type": "pure-token",
+                        "token": "BYLEX"
+                    }
+                ]
+            },
+            {
+                "name": "rev",
+                "token": "REV",
+                "type": "pure-token",
+                "optional": true,
+                "since": "6.2.0"
+            },
+            {
+                "token": "LIMIT",
+                "name": "offset_count",
+                "type": "block",
+                "optional": true,
+                "since": "6.2.0",
+                "arguments": [
+                    {
+                        "name": "offset",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    }
+                ]
+            },
+            {
+                "name": "withscores",
+                "token": "WITHSCORES",
+                "type": "pure-token",
+                "optional": true
+            }
+        ]
+    }
+}

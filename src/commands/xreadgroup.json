@@ -1,0 +1,92 @@
+{
+    "XREADGROUP": {
+        "summary": "Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.",
+        "complexity": "For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -7,
+        "function": "xreadCommand",
+        "get_keys_function": "xreadGetKeys",
+        "command_flags": [
+            "BLOCKING",
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "keyword": {
+                        "keyword": "STREAMS",
+                        "startfrom": 4
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 2
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "token": "GROUP",
+                "name": "group_consumer",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "group",
+                        "type": "string"
+                    },
+                    {
+                        "name": "consumer",
+                        "type": "string"
+                    }
+                ]
+            },
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "BLOCK",
+                "name": "milliseconds",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "noack",
+                "token": "NOACK",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "streams",
+                "token": "STREAMS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "key",
+                        "type": "key",
+                        "key_spec_index": 0,
+                        "multiple": true
+                    },
+                    {
+                        "name": "ID",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "DEBUG": {
+        "summary": "List or update the current configurable parameters",
+        "complexity": "O(N) where N is the number of configurable parameters",
+        "group": "sentinel",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ]
+    }
+}

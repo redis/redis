@@ -1234,6 +1234,110 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
+ssize_t rdbSaveFunctions(rio *rdb) {
+    dict *functions = functionsLibGet();
+    dictIterator *iter = dictGetIterator(functions);
+    dictEntry *entry = NULL;
+    ssize_t written = 0;
+    ssize_t ret;
+    while ((entry = dictNext(iter))) {
+        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION)) < 0) goto werr;
+        written += ret;
+        functionLibInfo *li = dictGetVal(entry);
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->name, sdslen(li->name))) < 0) goto werr;
+        written += ret;
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->ei->name, sdslen(li->ei->name))) < 0) goto werr;
+        written += ret;
+        if (li->desc) {
+            /* desc exists */
+            if ((ret = rdbSaveLen(rdb, 1)) < 0) goto werr;
+            written += ret;
+            if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->desc, sdslen(li->desc))) < 0) goto werr;
+            written += ret;
+        } else {
+            /* desc not exists */
+            if ((ret = rdbSaveLen(rdb, 0)) < 0) goto werr;
+            written += ret;
+        }
+        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->code, sdslen(li->code))) < 0) goto werr;
+        written += ret;
+    }
+    dictReleaseIterator(iter);
+    return written;
+
+werr:
+    dictReleaseIterator(iter);
+    return -1;
+}
+
+ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
+    dictIterator *di;
+    dictEntry *de;
+    ssize_t written = 0;
+    ssize_t res;
+    static long long info_updated_time = 0;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
+
+    redisDb *db = server.db + dbid;
+    dict *d = db->dict;
+    if (dictSize(d) == 0) return 0;
+    di = dictGetSafeIterator(d);
+
+    /* Write the SELECT DB opcode */
+    if ((res = rdbSaveType(rdb,RDB_OPCODE_SELECTDB)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb, dbid)) < 0) goto werr;
+    written += res;
+
+    /* Write the RESIZE DB opcode. */
+    uint64_t db_size, expires_size;
+    db_size = dictSize(db->dict);
+    expires_size = dictSize(db->expires);
+    if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
+    written += res;
+    if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
+    written += res;
+
+    /* Iterate this DB writing every entry */
+    while((de = dictNext(di)) != NULL) {
+        sds keystr = dictGetKey(de);
+        robj key, *o = dictGetVal(de);
+        long long expire;
+        size_t rdb_bytes_before_key = rdb->processed_bytes;
+
+        initStaticStringObject(key,keystr);
+        expire = getExpire(db,&key);
+        if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
+        written += res;
+
+        /* In fork child process, we can try to release memory back to the
+         * OS and possibly avoid or decrease COW. We give the dismiss
+         * mechanism a hint about an estimated size of the object we stored. */
+        size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
+        if (server.in_fork_child) dismissObject(o, dump_size);
+
+        /* Update child info every 1 second (approximately).
+         * in order to avoid calling mstime() on each iteration, we will
+         * check the diff every 1024 keys */
+        if (((*key_counter)++ & 1023) == 0) {
+            long long now = mstime();
+            if (now - info_updated_time >= 1000) {
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, *key_counter, pname);
+                info_updated_time = now;
+            }
+        }
+    }
+
+    dictReleaseIterator(di);
+    return written;
+
+werr:
+    dictReleaseIterator(di);
+    return -1;
+}
+
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -1242,119 +1346,30 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
  * When the function returns C_ERR and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. */
-int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
-    dictIterator *di = NULL;
-    dictEntry *de;
+int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     char magic[10];
     uint64_t cksum;
-    size_t processed = 0;
+    long key_counter = 0;
     int j;
-    long key_count = 0;
-    long long info_updated_time = 0;
-    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
     if (rdbSaveInfoAuxFields(rdb,rdbflags,rsi) == -1) goto werr;
-    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_BEFORE_RDB) == -1) goto werr;
 
     /* save functions */
-    dict *functions = functionsGet();
-    dictIterator *iter = dictGetIterator(functions);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-        rdbSaveType(rdb, RDB_OPCODE_FUNCTION);
-        functionInfo* fi = dictGetVal(entry);
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->name, sdslen(fi->name)) == -1) goto werr;
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->ei->name, sdslen(fi->ei->name)) == -1) goto werr;
-        if (fi->desc) {
-            if (rdbSaveLen(rdb, 1) == -1) goto werr; /* desc exists */
-            if (rdbSaveRawString(rdb, (unsigned char *) fi->desc, sdslen(fi->desc)) == -1) goto werr;
-        } else {
-            if (rdbSaveLen(rdb, 0) == -1) goto werr; /* desc not exists */
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
+
+    /* save all databases, skip this if we're in functions-only mode */
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
+        for (j = 0; j < server.dbnum; j++) {
+            if (rdbSaveDb(rdb, j, rdbflags, &key_counter) == -1) goto werr;
         }
-        if (rdbSaveRawString(rdb, (unsigned char *) fi->code, sdslen(fi->code)) == -1) goto werr;
-    }
-    dictReleaseIterator(iter);
-
-    for (j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
-
-        /* Write the SELECT DB opcode */
-        if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,j) == -1) goto werr;
-
-        /* Write the RESIZE DB opcode. */
-        uint64_t db_size, expires_size;
-        db_size = dictSize(db->dict);
-        expires_size = dictSize(db->expires);
-        if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
-        if (rdbSaveLen(rdb,db_size) == -1) goto werr;
-        if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
-
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
-            long long expire;
-            size_t rdb_bytes_before_key = rdb->processed_bytes;
-
-            initStaticStringObject(key,keystr);
-            expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire,j) == -1) goto werr;
-
-            /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We give the dismiss
-             * mechanism a hint about an estimated size of the object we stored. */
-            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-            if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* When this RDB is produced as part of an AOF rewrite, move
-             * accumulated diff from parent to child while rewriting in
-             * order to have a smaller final write. */
-            if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
-                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-            {
-                processed = rdb->processed_bytes;
-                aofReadDiffFromParent();
-            }
-
-            /* Update child info every 1 second (approximately).
-             * in order to avoid calling mstime() on each iteration, we will
-             * check the diff every 1024 keys */
-            if ((key_count++ & 1023) == 0) {
-                long long now = mstime();
-                if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
-                    info_updated_time = now;
-                }
-            }
-        }
-        dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
     }
 
-    /* If we are storing the replication information on disk, persist
-     * the script cache as well: on successful PSYNC after a restart, we need
-     * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
-    if (rsi && dictSize(evalScriptsDict())) {
-        di = dictGetIterator(evalScriptsDict());
-        while((de = dictNext(di)) != NULL) {
-            robj *body = dictGetVal(de);
-            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
-                goto werr;
-        }
-        dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
-    }
-
-    if (rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -1368,7 +1383,6 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
 werr:
     if (error) *error = errno;
-    if (di) dictReleaseIterator(di);
     return C_ERR;
 }
 
@@ -1380,7 +1394,7 @@ werr:
  * While the suffix is the 40 bytes hex string we announced in the prefix.
  * This way processes receiving the payload can understand when it ends
  * without doing any processing of the content. */
-int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
+int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
     startSaving(RDBFLAGS_REPLICATION);
@@ -1389,7 +1403,7 @@ int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+    if (rdbSaveRio(req,rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     stopSaving(1);
     return C_OK;
@@ -1402,7 +1416,7 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
-int rdbSave(char *filename, rdbSaveInfo *rsi) {
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     FILE *fp = NULL;
@@ -1429,7 +1443,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     if (server.rdb_save_incremental_fsync)
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
 
-    if (rdbSaveRio(&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
+    if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
     }
@@ -1472,7 +1486,7 @@ werr:
     return C_ERR;
 }
 
-int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
@@ -1486,7 +1500,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
-        retval = rdbSave(filename,rsi);
+        retval = rdbSave(req, filename,rsi);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -1883,6 +1897,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     sdsfree(sdsele);
                     return NULL;
                 }
+            }
+
+            if (isnan(score)) {
+                rdbReportCorruptRDB("Zset with NAN score detected");
+                decrRefCount(o);
+                sdsfree(sdsele);
+                return NULL;
             }
 
             /* Don't care about integer-encoded strings. */
@@ -2703,19 +2724,28 @@ void startLoading(size_t size, int rdbflags, int async) {
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats.
  * 'filename' is optional and used for rdb-check on error */
-void startLoadingFile(FILE *fp, char* filename, int rdbflags) {
-    struct stat sb;
-    if (fstat(fileno(fp), &sb) == -1)
-        sb.st_size = 0;
+void startLoadingFile(size_t size, char* filename, int rdbflags) {
     rdbFileBeingLoaded = filename;
-    startLoading(sb.st_size, rdbflags, 0);
+    startLoading(size, rdbflags, 0);
 }
 
-/* Refresh the loading progress info */
-void loadingProgress(off_t pos) {
+/* Refresh the absolute loading progress info */
+void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
     if (server.stat_peak_memory < zmalloc_used_memory())
         server.stat_peak_memory = zmalloc_used_memory();
+}
+
+/* Refresh the incremental loading progress info */
+void loadingIncrProgress(off_t size) {
+    server.loading_loaded_bytes += size;
+    if (server.stat_peak_memory < zmalloc_used_memory())
+        server.stat_peak_memory = zmalloc_used_memory();
+}
+
+/* Update the file name currently being loaded */
+void updateLoadingFileName(char* filename) {
+    rdbFileBeingLoaded = filename;
 }
 
 /* Loading finished */
@@ -2730,14 +2760,16 @@ void stopLoading(int success) {
                           success?
                             REDISMODULE_SUBEVENT_LOADING_ENDED:
                             REDISMODULE_SUBEVENT_LOADING_FAILED,
-                          NULL);
+                           NULL);
 }
 
 void startSaving(int rdbflags) {
     /* Fire the persistence modules end event. */
     int subevent;
-    if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
+    if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
+    else if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
+        subevent = REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START;
     else if (getpid()!=server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START;
     else
@@ -2764,49 +2796,60 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     {
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
+        loadingAbsProgress(r->processed_bytes);
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
     }
 }
 
-static int rdbFunctionLoad(rio *rdb, int ver, functionsCtx* functions_ctx) {
+/* Save the given functions_ctx to the rdb.
+ * The err output parameter is optional and will be set with relevant error
+ * message on failure, it is the caller responsibility to free the error
+ * message on failure.
+ *
+ * The lib_ctx argument is also optional. If NULL is given, only verify rdb
+ * structure with out performing the actual functions loading. */
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
     UNUSED(ver);
     sds name = NULL;
     sds engine_name = NULL;
     sds desc = NULL;
     sds blob = NULL;
-    sds err = NULL;
     uint64_t has_desc;
+    sds error = NULL;
     int res = C_ERR;
     if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function name");
+        error = sdsnew("Failed loading library name");
         goto error;
     }
 
     if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading engine name");
+        error = sdsnew("Failed loading engine name");
         goto error;
     }
 
     if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        serverLog(LL_WARNING, "Failed loading function desc indicator");
+        error = sdsnew("Failed loading library description indicator");
         goto error;
     }
 
     if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function desc");
+        error = sdsnew("Failed loading library description");
         goto error;
     }
 
     if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        serverLog(LL_WARNING, "Failed loading function blob");
+        error = sdsnew("Failed loading library blob");
         goto error;
     }
 
-    if (functionsCreateWithFunctionCtx(name, engine_name, desc, blob, 0, &err, functions_ctx) != C_OK) {
-        serverLog(LL_WARNING, "Failed compiling and saving the function %s", err);
-        goto error;
+    if (lib_ctx) {
+        if (functionsCreateWithLibraryCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
+            if (!error) {
+                error = sdsnew("Failed creating the library");
+            }
+            goto error;
+        }
     }
 
     res = C_OK;
@@ -2816,21 +2859,23 @@ error:
     if (engine_name) sdsfree(engine_name);
     if (desc) sdsfree(desc);
     if (blob) sdsfree(blob);
-    if (err)  sdsfree(err);
+    if (error) {
+        if (err) {
+            *err = error;
+        } else {
+            serverLog(LL_WARNING, "Failed creating function, %s", error);
+            sdsfree(error);
+        }
+    }
     return res;
 }
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    functionsCtx* functions_ctx = functionsCtxGetCurrent();
-    functionsCtxClear(functions_ctx);
-    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_ctx = functions_ctx };
+    functionsLibCtx* functions_lib_ctx = functionsLibCtxGetCurrent();
+    rdbLoadingCtx loading_ctx = { .dbarray = server.db, .functions_lib_ctx = functions_lib_ctx };
     int retval = rdbLoadRioWithLoadingCtx(rdb,rdbflags,rsi,&loading_ctx);
-    if (retval != C_OK) {
-        /* Loading failed, clear the function ctx */
-        functionsCtxClear(functions_ctx);
-    }
     return retval;
 }
 
@@ -2838,7 +2883,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. 
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
- * currently it only allow to set db object and functionsCtx to which the data
+ * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
@@ -2958,12 +3003,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
-                /* Load the script back in memory. */
-                if (luaCreateFunction(NULL, auxval) == NULL) {
-                    rdbReportCorruptRDB(
-                        "Can't load Lua script from RDB file! "
-                        "BODY: %s", (char*)auxval->ptr);
-                }
+                /* Won't load the script back in memory anymore. */
             } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
                 serverLog(LL_NOTICE,"Loading RDB produced by version %s",
                     (char*)auxval->ptr);
@@ -3047,8 +3087,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Read next opcode. */
             }
         } else if (type == RDB_OPCODE_FUNCTION) {
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_ctx) != C_OK) {
-                serverLog(LL_WARNING,"Failed loading function");
+            sds err = NULL;
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
+                serverLog(LL_WARNING,"Failed loading library, %s", err);
+                sdsfree(err);
                 goto eoferr;
             }
             continue;
@@ -3197,9 +3239,14 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
     rio rdb;
     int retval;
+    struct stat sb;
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-    startLoadingFile(fp, filename,rdbflags);
+
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+
+    startLoadingFile(sb.st_size, filename, rdbflags);
     rioInitWithFile(&rdb,fp);
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
@@ -3303,7 +3350,7 @@ void killRDBChild(void) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
-int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
+int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     listNode *ln;
     listIter li;
     pid_t childpid;
@@ -3342,6 +3389,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            /* Check slave has the exact requirements */
+            if (slave->slave_req != req)
+                continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         }
@@ -3358,7 +3408,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
+        retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 
@@ -3420,7 +3470,7 @@ void saveCommand(client *c) {
     }
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3447,8 +3497,8 @@ void bgsaveCommand(client *c) {
 
     if (server.child_type == CHILD_TYPE_RDB) {
         addReplyError(c,"Background save already in progress");
-    } else if (hasActiveChildProcess()) {
-        if (schedule) {
+    } else if (hasActiveChildProcess() || server.in_exec) {
+        if (schedule || server.in_exec) {
             server.rdb_bgsave_scheduled = 1;
             addReplyStatus(c,"Background saving scheduled");
         } else {
@@ -3457,7 +3507,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);

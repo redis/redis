@@ -1,4 +1,3 @@
-#define REDISMODULE_EXPERIMENTAL_API
 
 /* define macros for having usleep */
 #define _BSD_SOURCE

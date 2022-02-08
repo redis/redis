@@ -1,0 +1,24 @@
+{
+    "COUNT-FAILURE-REPORTS": {
+        "summary": "Return the number of failure reports active for a given node",
+        "complexity": "O(N) where N is the number of failure reports",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string"
+            }
+        ]
+    }
+}

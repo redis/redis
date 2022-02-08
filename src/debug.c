@@ -79,13 +79,13 @@ void logStackTrace(void *eip, int uplevel);
  * "add" digests relative to unordered elements.
  *
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
-void xorDigest(unsigned char *digest, void *ptr, size_t len) {
+void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20];
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,ptr,len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -112,11 +112,10 @@ void xorStringObjectDigest(unsigned char *digest, robj *o) {
  * Also note that mixdigest("foo") followed by mixdigest("bar")
  * will lead to a different digest compared to "fo", "obar".
  */
-void mixDigest(unsigned char *digest, void *ptr, size_t len) {
+void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    char *s = ptr;
 
-    xorDigest(digest,s,len);
+    xorDigest(digest,ptr,len);
     SHA1Init(&ctx);
     SHA1Update(&ctx,digest,20);
     SHA1Final(digest,&ctx);
@@ -417,9 +416,6 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
-"    Setting it to 1 makes Lua replication defaulting to replicating single",
-"    commands, without the script having to enable effects replication.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -428,6 +424,8 @@ void debugCommand(client *c) {
 #endif
 "OBJECT <key>",
 "    Show low level info about `key` and associated value.",
+"DROP-CLUSTER-PACKET-FILTER <packet-type>",
+"    Drop all packets that match the filtered type. Set to -1 allow all packets.",
 "OOM",
 "    Crash the server simulating an out-of-memory error.",
 "PANIC",
@@ -547,7 +545,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -556,7 +554,7 @@ NULL
         /* The default behavior is to remove the current dataset from
          * memory before loading the RDB file, however when MERGE is
          * used together with NOFLUSH, we are able to merge two datasets. */
-        if (flush) emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        if (flush) emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
 
         protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
@@ -569,14 +567,23 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
-        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+        emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
-        int ret = loadAppendOnlyFile(server.aof_filename);
+        if (server.aof_manifest) aofManifestFree(server.aof_manifest);
+        aofLoadManifestFromDisk();
+        aofDelHistoryFiles();
+        int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
+        long packet_type;
+        if (getLongFromObjectOrReply(c, c->argv[2], &packet_type, NULL) != C_OK)
+            return;
+        server.cluster_drop_packet_filter = packet_type;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
@@ -818,7 +825,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -831,11 +838,6 @@ NULL
                c->argc == 3)
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
-        addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"lua-always-replicate-commands") &&
-               c->argc == 3)
-    {
-        server.lua_always_replicate_commands = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
@@ -924,7 +926,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -1679,13 +1681,19 @@ void logStackTrace(void *eip, int uplevel) {
 void logServerInfo(void) {
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = createStringObject("all", strlen("all"));
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
+    infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    releaseInfoSectionDict(section_dict);
+    decrRefCount(argv[0]);
 }
 
 /* Log certain config values, which can be used for debuggin */
@@ -1762,7 +1770,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
