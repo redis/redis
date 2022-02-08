@@ -86,6 +86,7 @@ fi
 
 pid=$(get_info_field process_id)
 appenddirname=$(get_config appenddirname)
+appendfilename=$(get_config appendfilename).
 working_dir=$(readlink /proc/$pid/cwd)
 appenddir_path=$working_dir/$appenddirname
 if [ ! -d $appenddir_path ]; then
@@ -105,7 +106,7 @@ while true; do
     backup_path=$tmp_dir/$appenddirname
     mkdir $backup_path
 
-    ln $appenddir_path/* $backup_path
+    ln $appenddir_path/$appendfilename* $backup_path
     
     if [ $(get_info_field aof_rewrites) -eq $aof_rewrites ]; then break; fi
     
