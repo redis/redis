@@ -2308,8 +2308,9 @@ extern dict *modules;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
-/* Key arguments specs */
+/* Command metadata */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
+int populateArgsStructure(struct redisCommandArg *args);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -2377,6 +2378,7 @@ int beforeNextClient(client *c);
 void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
+void freeClientArgv(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
@@ -2932,7 +2934,7 @@ void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
-int rewriteConfig(char *path, int force_all);
+int rewriteConfig(char *path, int force_write);
 void initConfigValues();
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);

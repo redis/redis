@@ -2281,6 +2281,16 @@ werr:
     return C_ERR;
 }
 
+/* Call sentinelFlushConfig() produce a success/error reply to the
+ * calling client.
+ */
+static void sentinelFlushConfigAndReply(client *c) {
+    if (sentinelFlushConfig() == C_ERR)
+        addReplyError(c, "Failed to save config file. Check server logs.");
+    else
+        addReply(c, shared.ok);
+}
+
 /* ====================== hiredis connection handling ======================= */
 
 /* Send the AUTH command with the specified master password if needed.
@@ -3174,8 +3184,7 @@ void sentinelConfigSetCommand(client *c) {
         return;
     }
 
-    sentinelFlushConfig();
-    addReply(c, shared.ok);
+    sentinelFlushConfigAndReply(c);
 
     /* Drop Sentinel connections to initiate a reconnect if needed. */
     if (drop_conns)
@@ -3726,8 +3735,9 @@ void sentinelCommand(client *c) {
 "    Set a global Sentinel configuration parameter.",
 "CONFIG GET <param>",
 "    Get global Sentinel configuration parameter.",
-"DEBUG",
+"DEBUG [<param> <value> ...]",
 "    Show a list of configurable time parameters and their values (milliseconds).",
+"    Or update current configurable parameters values (one or more).",
 "GET-MASTER-ADDR-BY-NAME <master-name>",
 "    Return the ip and port number of the master with that name.",
 "FAILOVER <master-name>",
@@ -3929,14 +3939,12 @@ NULL
         if (ri == NULL) {
             addReplyError(c,sentinelCheckCreateInstanceErrors(SRI_MASTER));
         } else {
-            sentinelFlushConfig();
+            sentinelFlushConfigAndReply(c);
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
-            addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
         if (c->argc != 2) goto numargserr;
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        sentinelFlushConfigAndReply(c);
         return;
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
@@ -3947,8 +3955,7 @@ NULL
             == NULL) return;
         sentinelEvent(LL_WARNING,"-monitor",ri,"%@");
         dictDelete(sentinel.masters,c->argv[2]->ptr);
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        sentinelFlushConfigAndReply(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"ckquorum")) {
         /* SENTINEL CKQUORUM <name> */
         sentinelRedisInstance *ri;
@@ -4348,22 +4355,16 @@ void sentinelSetCommand(client *c) {
             break;
         }
     }
-    if (changes && sentinelFlushConfig() == C_ERR) {
-        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-        return;
-    }
-    addReply(c,shared.ok);
+    if (changes) sentinelFlushConfigAndReply(c);
     return;
 
 badfmt: /* Bad format errors */
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
         (char*)c->argv[badarg]->ptr,option);
 seterr:
-    if (changes && sentinelFlushConfig() == C_ERR) {
-        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-        return;
-    }
-    return;
+    /* TODO: Handle the case of both bad input and save error, possibly handling
+     * SENTINEL SET atomically. */
+    if (changes) sentinelFlushConfig();
 }
 
 /* Our fake PUBLISH command: it is actually useful only to receive hello messages

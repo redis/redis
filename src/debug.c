@@ -825,7 +825,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -926,7 +926,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -1764,7 +1764,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 

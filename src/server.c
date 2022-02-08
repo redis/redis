@@ -1891,7 +1891,7 @@ int restartServer(int flags, mstime_t delay) {
         rewriteConfig(server.configfile, 0) == -1)
     {
         serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
-                             "failed");
+                             "failed: %s", strerror(errno));
         return C_ERR;
     }
 
@@ -2631,12 +2631,14 @@ void setImplicitACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
-/* Recursively populate the args structure and return the number of args. */
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
 int populateArgsStructure(struct redisCommandArg *args) {
     if (!args)
         return 0;
     int count = 0;
     while (args->name) {
+        serverAssert(count < INT_MAX);
         args->num_args = populateArgsStructure(args->subargs);
         count++;
         args++;
@@ -4435,7 +4437,9 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
 /* Output the representation of a Redis command. Used by the COMMAND DOCS. */
 void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     /* Count our reply len so we don't have to use deferred reply. */
-    long maplen = 3;
+    long maplen = 1;
+    if (cmd->summary) maplen++;
+    if (cmd->since) maplen++;
     if (cmd->complexity) maplen++;
     if (cmd->doc_flags) maplen++;
     if (cmd->deprecated_since) maplen++;
@@ -4445,12 +4449,16 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
 
-    addReplyBulkCString(c, "summary");
-    addReplyBulkCString(c, cmd->summary);
+    if (cmd->summary) {
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, cmd->summary);
+    }
+    if (cmd->since) {
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, cmd->since);
+    }
 
-    addReplyBulkCString(c, "since");
-    addReplyBulkCString(c, cmd->since);
-
+    /* Always have the group, for module commands the group is always "module". */
     addReplyBulkCString(c, "group");
     addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
 

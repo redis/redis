@@ -701,6 +701,32 @@ start_server {tags {"scripting"}} {
              return redis.call("EXISTS", "key")
         } 0] 0
     }
+    
+    test "Script ACL check" {
+        r acl setuser bob on {>123} {+@scripting} {+set} {~x*}
+        assert_equal [r auth bob 123] {OK}
+        
+        # Check permission granted
+        assert_equal [run_script {
+            return redis.acl_check_cmd('set','xx',1)
+        } 1 xx] 1
+
+        # Check permission denied unauthorised command
+        assert_equal [run_script {
+            return redis.acl_check_cmd('hset','xx','f',1)
+        } 1 xx] {}
+        
+        # Check permission denied unauthorised key
+        # Note: we don't pass the "yy" key as an argument to the script so key acl checks won't block the script
+        assert_equal [run_script {
+            return redis.acl_check_cmd('set','yy',1)
+        } 0] {}
+
+        # Check error due to invalid command
+        assert_error {ERR *Invalid command passed to redis.acl_check_cmd()} {run_script {
+            return redis.acl_check_cmd('invalid-cmd','arg')
+        } 0}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
