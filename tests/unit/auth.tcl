@@ -3,6 +3,11 @@ start_server {tags {"auth external:skip"}} {
         catch {r auth foo} err
         set _ $err
     } {ERR*any password*}
+
+    test {Arity check for auth command} {
+        catch {r auth a b c} err
+        set _ $err
+    } {ERR*Wrong number of arguments*}
 }
 
 start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {

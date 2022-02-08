@@ -2889,7 +2889,8 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
 void authCommand(client *c) {
     /* Only two or three argument forms are allowed. */
     if (c->argc > 3) {
-        addReplyErrorObject(c,shared.syntaxerr);
+        addReplyErrorFormat(c,
+        "Wrong number of arguments for '%s' subcommand", c->argv[0]->ptr);
         return;
     }
     /* Always redact the second argument */
