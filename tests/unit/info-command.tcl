@@ -29,7 +29,7 @@ start_server {tags {"info and its relative command"}} {
         assert { ![string match "*sentinel_tilt*" $info] }
         assert { ![string match "*used_memory*" $info] }
 
-        set info [r info commandstats]
+        set info [r info commandSTATS] ;# test case insensitive compare
         assert { ![string match "*used_memory*" $info] }
         assert { [string match "*rejected_calls*" $info] }
     }

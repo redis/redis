@@ -64,7 +64,7 @@ start_server {tags {"modules"}} {
     }
 
     test {module info one module} {
-        set info [r info INFOTEST]
+        set info [r info INFOtest] ;# test case insensitive compare
         # info all does not contain modules
         assert { [string match "*Spanish*" $info] }
         assert { ![string match "*used_memory*" $info] }
@@ -72,7 +72,7 @@ start_server {tags {"modules"}} {
     } {-2}
 
     test {module info one section} {
-        set info [r info INFOTEST_SPANISH]
+        set info [r info INFOtest_SpanisH] ;# test case insensitive compare
         assert { ![string match "*used_memory*" $info] }
         assert { ![string match "*Italian*" $info] }
         assert { ![string match "*infotest_global*" $info] }

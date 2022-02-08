@@ -294,6 +294,11 @@ uint64_t distCStrHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
+/* Dict hash function for null terminated string */
+uint64_t distCStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
 /* Dict compare function for null terminated string */
 int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
@@ -303,6 +308,12 @@ int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
+}
+
+/* Dict case insensitive compare function for null terminated string */
+int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return strcasecmp(key1, key2) == 0;
 }
 
 int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
@@ -516,12 +527,13 @@ dictType replScriptCacheDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Dict for null terminated C strings */
+/* Dict for for case-insensitive search using null terminated C strings.
+ * The keys stored in dict are sds though. */
 dictType stringSetDictType = {
-    distCStrHash,               /* hash function */
+    distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    distCStrKeyCompare,            /* key compare */
+    distCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -4907,10 +4919,10 @@ void addInfoSectionsToDict(dict *section_dict, char **sections) {
 }
 
 /* Cached copy of the default sections, as an optimization. */
-static dict *cached_default_info_sectoins = NULL;
+static dict *cached_default_info_sections = NULL;
 
 void releaseInfoSectionDict(dict *sec) {
-    if (sec != cached_default_info_sectoins)
+    if (sec != cached_default_info_sections)
         dictRelease(sec);
 }
 
@@ -4929,12 +4941,12 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
     if (argc == 0) {
         /* In this case we know the dict is not gonna be modified, so we cache
          * it as an optimization for a common case. */
-        if (cached_default_info_sectoins)
-            return cached_default_info_sectoins;
-        cached_default_info_sectoins = dictCreate(&stringSetDictType);
-        dictExpand(cached_default_info_sectoins, 16);
-        addInfoSectionsToDict(cached_default_info_sectoins, defaults);
-        return cached_default_info_sectoins;
+        if (cached_default_info_sections)
+            return cached_default_info_sections;
+        cached_default_info_sections = dictCreate(&stringSetDictType);
+        dictExpand(cached_default_info_sections, 16);
+        addInfoSectionsToDict(cached_default_info_sections, defaults);
+        return cached_default_info_sections;
     }
 
     dict *section_dict = dictCreate(&stringSetDictType);
@@ -4949,7 +4961,6 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
             if (out_all) *out_all = 1;
         } else {
             sds section = sdsnew(argv[i]->ptr);
-            sdstolower(section);
             if (dictAdd(section_dict, section, NULL) != DICT_OK)
                 sdsfree(section);
         }

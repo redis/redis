@@ -8753,15 +8753,9 @@ int RM_InfoEndDictField(RedisModuleInfoCtx *ctx);
  * NULL or empty string indicates the default section (only `<modulename>`) is used.
  * When return value is REDISMODULE_ERR, the section should and will be skipped. */
 int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
-    int ret = REDISMODULE_OK;
-    sds module_name = sdsdup(ctx->module->name);
-    sds full_name = NULL;
+    sds full_name = sdsdup(ctx->module->name);
     if (name != NULL && strlen(name) > 0)
-        full_name = sdscatfmt(sdsdup(module_name), "_%s", name);
-    sds module_name_lower = sdsdup(module_name);
-    sds full_name_lower = full_name ? sdsdup(full_name) : NULL;
-    sdstolower(module_name_lower);
-    if (full_name_lower) sdstolower(full_name_lower);
+        full_name = sdscatfmt(full_name, "_%s", name);
 
     /* Implicitly end dicts, instead of returning an error which is likely un checked. */
     if (ctx->in_dict_field)
@@ -8772,23 +8766,19 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
      * 2) the module name was requested (emit all)
      * 3) this specific section was requested. */
     if (ctx->requested_sections) {
-        if ((!full_name_lower || !dictFind(ctx->requested_sections, full_name_lower)) &&
-            (!dictFind(ctx->requested_sections, module_name_lower)))
+        if ((!full_name || !dictFind(ctx->requested_sections, full_name)) &&
+            (!dictFind(ctx->requested_sections, ctx->module->name)))
         {
+            sdsfree(full_name);
             ctx->in_section = 0;
-            ret = REDISMODULE_ERR;
-            goto end;
+            return REDISMODULE_ERR;
         }
     }
     if (ctx->sections++) ctx->info = sdscat(ctx->info,"\r\n");
-    ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name ? full_name : module_name);
+    ctx->info = sdscatfmt(ctx->info, "# %S\r\n", full_name);
     ctx->in_section = 1;
-end:
-    sdsfree(module_name);
     sdsfree(full_name);
-    sdsfree(module_name_lower);
-    sdsfree(full_name_lower);
-    return ret;
+    return REDISMODULE_OK;
 }
 
 /* Starts a dict field, similar to the ones in INFO KEYSPACE. Use normal
