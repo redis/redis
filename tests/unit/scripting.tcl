@@ -1400,3 +1400,75 @@ start_server {tags {"scripting"}} {
         set _ {}
     } {} {external:skip}
 }
+
+# Additional eval only tests
+start_server {tags {"scripting"}} {
+    test "Consistent eval error reporting" {
+        r config set maxmemory 1
+        # Script aborted due to Redis state (OOM) should report script execution error with detailed internal error
+        assert_error {ERR Error running script (call to *): @user_script:*: OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval {return redis.call('set','x','y')} 1 x
+        }
+        # redis.pcall() failure due to Redis state (OOM) returns lua error table with Redis error message without '-' prefix
+        assert_equal [
+            r eval {
+                local t = redis.pcall('set','x','y')
+                if t['err'] == "OOM command not allowed when used memory > 'maxmemory'." then
+                    return 1
+                else
+                    return 0
+                end
+            } 1 x
+        ] 1
+        # Returning an error object from lua is handled as a valid RESP error result.
+        assert_error {OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval { return redis.pcall('set','x','y') } 1 x
+        }
+        r config set maxmemory 0
+        # Script aborted due to error result of Redis command
+        assert_error {ERR Error running script (call to *): @user_script:*: ERR DB index is out of range} {
+            r eval {return redis.call('select',99)} 0
+        }
+        # redis.pcall() failure due to error in Redis command returns lua error table with redis error message without '-' prefix
+        assert_equal [
+            r eval {
+                local t = redis.pcall('select',99)
+                if t['err'] == "ERR DB index is out of range" then
+                    return 1
+                else
+                    return 0
+                end
+            } 0
+        ] 1
+        # Script aborted due to scripting specific error state (write cmd with eval_ro) should report script execution error with detailed internal error
+        assert_error {ERR Error running script (call to *): @user_script:*: ERR Write commands are not allowed from read-only scripts.} {
+            r eval_ro {return redis.call('set','x','y')} 1 x
+        }
+        # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
+        assert_equal [
+            r eval_ro {
+                local t = redis.pcall('set','x','y')
+                if t['err'] == "ERR Write commands are not allowed from read-only scripts." then
+                    return 1
+                else
+                    return 0
+                end
+            } 1 x
+        ] 1
+    } {} {cluster:skip}
+    
+    test "LUA redis.error_reply API" {
+        assert_error {MY_ERR_CODE custom msg} {
+            r eval {return redis.error_reply("MY_ERR_CODE custom msg")} 0
+        }
+    }
+
+    test "LUA redis.status_reply API" {
+        r readraw 1
+        assert_equal [
+            r eval {return redis.status_reply("MY_OK_CODE custom msg")} 0
+        ] {+MY_OK_CODE custom msg}
+        r readraw 0
+    }
+}
+
