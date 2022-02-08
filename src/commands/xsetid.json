@@ -4,8 +4,14 @@
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
-        "arity": 3,
+        "arity": -3,
         "function": "xsetidCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `offset` and `max_del_id` arguments."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM",
@@ -43,6 +49,21 @@
             {
                 "name": "last-id",
                 "type": "string"
+            },
+            {
+                "name": "extended_form",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "offset",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "max_xdel_id",
+                        "type": "string"
+                    }
+                ]
             }
         ]
     }
