@@ -738,7 +738,7 @@ int clientsCronResizeOutputBuffer(client *c) {
     }
 
     if(new_buffer_size) {
-        /* In case the buffer possition in 0 we can just delete and realloc the buffer with the new size
+        /* In case the buffer position in 0 we can just delete and realloc the buffer with the new size
          * no memmove is needed.
          */
         if(c->bufpos == 0) {
