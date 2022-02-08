@@ -1375,7 +1375,7 @@ int streamIDEqZero(streamID *id) {
  *
  * NOTE: this assumes that the caller had verified that 'start' is less than
  * 's->last_id'. */
-int streamRangeContainsTombstone(stream *s, streamID *start) {
+int streamRangeDoesNotContainTombstone(stream *s, streamID *start) {
     streamID start_id;
 
     if (!s->length || streamIDEqZero(&s->xdel_max_id)) {
@@ -1415,12 +1415,12 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     if (!s->offset) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
-    } else if (cg->offset && streamRangeContainsTombstone(s,&cg->last_id)) {
+    } else if (cg->offset && streamRangeDoesNotContainTombstone(s,&cg->last_id)) {
         /* No fragmentation ahead means that the group's offset is valid for
          * performing the lag calculation. */
         lag = s->offset - cg->offset;
     } else if (streamIDEqZero(&cg->last_id)) {
-        if (streamRangeContainsTombstone(s,NULL)) {
+        if (streamRangeDoesNotContainTombstone(s,NULL)) {
             /* The group is at 0-0 of a non-fragmented stream. */
             lag = s->length;
         } else {
@@ -1689,7 +1689,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->offset && streamRangeContainsTombstone(s,&id)) {
+            if (group->offset && streamRangeDoesNotContainTombstone(s,&id)) {
                 /* A valid (non-zero) offset and no future tombstones mean we
                  * can increment the offset to keep tracking the group's
                  * progress. */
