@@ -734,16 +734,16 @@ int clientsCronResizeOutputBuffer(client *c) {
     /* reset the peak value each 5 seconds. in case the client will be idle
      * it will start to shrink.
      */
-    if(server.unixtime - c->buf_peak_last_reset_time >= 5) {
+    if (server.unixtime - c->buf_peak_last_reset_time >= 5) {
         c->buf_peak = c->bufpos;
         c->buf_peak_last_reset_time = server.unixtime;
     }
 
-    if(new_buffer_size) {
+    if (new_buffer_size) {
         /* In case the buffer position in 0 we can just delete and realloc the buffer with the new size
          * no memmove is needed.
          */
-        if(c->bufpos == 0) {
+        if (c->bufpos == 0) {
             zfree(c->buf);
             c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
         } else {
