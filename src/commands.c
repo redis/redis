@@ -5922,7 +5922,10 @@ struct redisCommandArg XADD_Args[] = {
 /********** XAUTOCLAIM ********************/
 
 /* XAUTOCLAIM history */
-#define XAUTOCLAIM_History NULL
+commandHistory XAUTOCLAIM_History[] = {
+{"7.0.0","Added an element to the reply array, containing deleted entries the command cleared from the PEL"},
+{0}
+};
 
 /* XAUTOCLAIM tips */
 const char *XAUTOCLAIM_tips[] = {
