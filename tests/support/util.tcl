@@ -118,6 +118,14 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_replica_online r {
+    wait_for_condition 50 100 {
+        [string match "*slave0:*,state=online*" [$r info replication]]
+    } else {
+        fail "replica didn't sync in time"
+    }
+}
+
 proc wait_for_ofs_sync {r1 r2} {
     wait_for_condition 50 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
@@ -639,7 +647,7 @@ proc latencyrstat_percentiles {cmd r} {
 
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
-    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
     set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}

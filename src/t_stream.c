@@ -1810,7 +1810,7 @@ void xaddCommand(client *c) {
 
     /* Check arity. */
     if ((c->argc - field_pos) < 2 || ((c->argc-field_pos) % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for XADD");
+        addReplyErrorArity(c);
         return;
     }
 

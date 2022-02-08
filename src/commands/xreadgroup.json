@@ -8,16 +8,17 @@
         "function": "xreadCommand",
         "get_keys_function": "xreadGetKeys",
         "command_flags": [
+            "BLOCKING",
             "WRITE"
         ],
         "acl_categories": [
-            "STREAM",
-            "BLOCKING"
+            "STREAM"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "keyword": {

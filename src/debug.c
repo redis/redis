@@ -79,13 +79,13 @@ void logStackTrace(void *eip, int uplevel);
  * "add" digests relative to unordered elements.
  *
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
-void xorDigest(unsigned char *digest, void *ptr, size_t len) {
+void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20];
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,ptr,len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -112,11 +112,10 @@ void xorStringObjectDigest(unsigned char *digest, robj *o) {
  * Also note that mixdigest("foo") followed by mixdigest("bar")
  * will lead to a different digest compared to "fo", "obar".
  */
-void mixDigest(unsigned char *digest, void *ptr, size_t len) {
+void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    char *s = ptr;
 
-    xorDigest(digest,s,len);
+    xorDigest(digest,ptr,len);
     SHA1Init(&ctx);
     SHA1Update(&ctx,digest,20);
     SHA1Final(digest,&ctx);
@@ -826,7 +825,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -927,7 +926,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -1765,7 +1764,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 

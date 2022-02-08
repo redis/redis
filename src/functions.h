@@ -96,6 +96,7 @@ typedef struct functionInfo {
                             to run the function, usually it's the function compiled code. */
     functionLibInfo* li; /* Pointer to the library created the function */
     sds desc;            /* Function description */
+    uint64_t f_flags;    /* Function flags */
 } functionInfo;
 
 /* Hold information about the specific library.
@@ -124,7 +125,7 @@ void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);
 void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
-int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err);
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
 
 int luaEngineInitEngine();
 int functionsInit();

@@ -41,13 +41,20 @@ static size_t engine_cache_memory = 0;
 
 /* Forward declaration */
 static void engineFunctionDispose(dict *d, void *obj);
+static void engineStatsDispose(dict *d, void *obj);
 static void engineLibraryDispose(dict *d, void *obj);
 static int functionsVerifyName(sds name);
 
+typedef struct functionsLibEngineStats {
+    size_t n_lib;
+    size_t n_functions;
+} functionsLibEngineStats;
+
 struct functionsLibCtx {
-    dict *libraries;    /* Function name -> Function object that can be used to run the function */
-    dict *functions;    /* Function name -> Function object that can be used to run the function */
-    size_t cache_memory /* Overhead memory (structs, dictionaries, ..) used by all the functions */;
+    dict *libraries;     /* Library name -> Library object */
+    dict *functions;     /* Function name -> Function object that can be used to run the function */
+    size_t cache_memory; /* Overhead memory (structs, dictionaries, ..) used by all the functions */
+    dict *engines_stats; /* Per engine statistics */
 };
 
 dictType engineDictType = {
@@ -67,6 +74,16 @@ dictType functionDictType = {
         dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         NULL,                 /* val destructor */
+        NULL                  /* allow to expand */
+};
+
+dictType engineStatsDictType = {
+        dictSdsCaseHash,      /* hash function */
+        dictSdsDup,           /* key dup */
+        NULL,                 /* val dup */
+        dictSdsKeyCaseCompare,/* key compare */
+        dictSdsDestructor,    /* key destructor */
+        engineStatsDispose,   /* val destructor */
         NULL                  /* allow to expand */
 };
 
@@ -111,6 +128,12 @@ static size_t libraryMallocSize(functionLibInfo *li) {
             + sdsZmallocSize(li->code);
 }
 
+static void engineStatsDispose(dict *d, void *obj) {
+    UNUSED(d);
+    functionsLibEngineStats *stats = obj;
+    zfree(stats);
+}
+
 /* Dispose function memory */
 static void engineFunctionDispose(dict *d, void *obj) {
     UNUSED(d);
@@ -147,6 +170,14 @@ static void engineLibraryDispose(dict *d, void *obj) {
 void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     dictEmpty(lib_ctx->functions, NULL);
     dictEmpty(lib_ctx->libraries, NULL);
+    dictIterator *iter = dictGetIterator(lib_ctx->engines_stats);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        functionsLibEngineStats *stats = dictGetVal(entry);
+        stats->n_functions = 0;
+        stats->n_lib = 0;
+    }
+    dictReleaseIterator(iter);
     curr_functions_lib_ctx->cache_memory = 0;
 }
 
@@ -165,6 +196,7 @@ void functionsLibCtxFree(functionsLibCtx *functions_lib_ctx) {
     functionsLibCtxClear(functions_lib_ctx);
     dictRelease(functions_lib_ctx->functions);
     dictRelease(functions_lib_ctx->libraries);
+    dictRelease(functions_lib_ctx->engines_stats);
     zfree(functions_lib_ctx);
 }
 
@@ -185,6 +217,15 @@ functionsLibCtx* functionsLibCtxCreate() {
     functionsLibCtx *ret = zmalloc(sizeof(functionsLibCtx));
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
+    ret->engines_stats = dictCreate(&engineStatsDictType);
+    dictIterator *iter = dictGetIterator(engines);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        engineInfo *ei = dictGetVal(entry);
+        functionsLibEngineStats *stats = zcalloc(sizeof(*stats));
+        dictAdd(ret->engines_stats, ei->name, stats);
+    }
+    dictReleaseIterator(iter);
     ret->cache_memory = 0;
     return ret;
 }
@@ -198,7 +239,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  *       the function will verify that the given name is following the naming format
  *       and return an error if its not.
  */
-int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, sds *err) {
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
         *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
         return C_ERR;
@@ -215,6 +256,7 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
         .function = function,
         .li = li,
         .desc = desc,
+        .f_flags = f_flags,
     };
 
     int res = dictAdd(li->functions, fi->name, fi);
@@ -249,6 +291,12 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
     lib_ctx->cache_memory += libraryMallocSize(li);
+
+    /* update stats */
+    functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
+    serverAssert(stats);
+    stats->n_lib--;
+    stats->n_functions -= dictSize(li->functions);
 }
 
 static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
@@ -263,6 +311,12 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
 
     dictAdd(lib_ctx->libraries, li->name, li);
     lib_ctx->cache_memory += libraryMallocSize(li);
+
+    /* update stats */
+    functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
+    serverAssert(stats);
+    stats->n_lib++;
+    stats->n_functions += dictSize(li->functions);
 }
 
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
@@ -400,14 +454,38 @@ void functionStatsCommand(client *c) {
     }
 
     addReplyBulkCString(c, "engines");
-    addReplyArrayLen(c, dictSize(engines));
+    addReplyMapLen(c, dictSize(engines));
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         engineInfo *ei = dictGetVal(entry);
         addReplyBulkCString(c, ei->name);
+        addReplyMapLen(c, 2);
+        functionsLibEngineStats *e_stats = dictFetchValue(curr_functions_lib_ctx->engines_stats, ei->name);
+        addReplyBulkCString(c, "libraries_count");
+        addReplyLongLong(c, e_stats->n_lib);
+        addReplyBulkCString(c, "functions_count");
+        addReplyLongLong(c, e_stats->n_functions);
     }
     dictReleaseIterator(iter);
+}
+
+static void functionListReplyFlags(client *c, functionInfo *fi) {
+    /* First count the number of flags we have */
+    int flagcount = 0;
+    for (scriptFlag *flag = scripts_flags_def; flag->str ; ++flag) {
+        if (fi->f_flags & flag->flag) {
+            ++flagcount;
+        }
+    }
+
+    addReplySetLen(c, flagcount);
+
+    for (scriptFlag *flag = scripts_flags_def; flag->str ; ++flag) {
+        if (fi->f_flags & flag->flag) {
+            addReplyStatus(c, flag->str);
+        }
+    }
 }
 
 /*
@@ -480,7 +558,7 @@ void functionListCommand(client *c) {
         dictEntry *function_entry = NULL;
         while ((function_entry = dictNext(functions_iter))) {
             functionInfo *fi = dictGetVal(function_entry);
-            addReplyMapLen(c, 2);
+            addReplyMapLen(c, 3);
             addReplyBulkCString(c, "name");
             addReplyBulkCBuffer(c, fi->name, sdslen(fi->name));
             addReplyBulkCString(c, "description");
@@ -489,6 +567,8 @@ void functionListCommand(client *c) {
             } else {
                 addReplyNull(c);
             }
+            addReplyBulkCString(c, "flags");
+            functionListReplyFlags(c, fi);
         }
         dictReleaseIterator(functions_iter);
 
@@ -551,10 +631,9 @@ static void fcallCommandGeneric(client *c, int ro) {
 
     scriptRunCtx run_ctx;
 
-    scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name);
-    if (ro) {
-        run_ctx.flags |= SCRIPT_READ_ONLY;
-    }
+    if (scriptPrepareForRun(&run_ctx, fi->li->ei->c, c, fi->name, fi->f_flags, ro) != C_OK)
+        return;
+
     engine->call(&run_ctx, engine->engine_ctx, fi->function, c->argv + 3, numkeys,
                  c->argv + 3 + numkeys, c->argc - 3 - numkeys);
     scriptResetRun(&run_ctx);
@@ -729,7 +808,7 @@ void functionFlushCommand(client *c) {
 
 void functionHelpCommand(client *c) {
     const char *help[] = {
-"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESC <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
+"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",
@@ -888,6 +967,8 @@ void functionLoadCommand(client *c) {
             desc = c->argv[argc_pos++]->ptr;
             continue;
         }
+        addReplyErrorFormat(c, "Unknown option given: %s", (char*)next_arg->ptr);
+        return;
     }
 
     if (argc_pos >= c->argc) {
@@ -957,11 +1038,13 @@ size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
  * Should be called once on server initialization */
 int functionsInit() {
     engines = dictCreate(&engineDictType);
-    curr_functions_lib_ctx = functionsLibCtxCreate();
 
     if (luaEngineInitEngine() != C_OK) {
         return C_ERR;
     }
+
+    /* Must be initialized after engines initialization */
+    curr_functions_lib_ctx = functionsLibCtxCreate();
 
     return C_OK;
 }

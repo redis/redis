@@ -14,7 +14,11 @@ test "Cluster is up" {
 }
 
 test "The first master has actually two slaves" {
-    assert {[llength [lindex [R 0 role] 2]] == 2}
+    wait_for_condition 1000 50 {
+        [llength [lindex [R 0 role] 2]] == 2
+    } else {
+        fail "replicas didn't connect"
+    }
 }
 
 test {Slaves of #0 are instance #5 and #10 as expected} {
@@ -106,7 +110,11 @@ test "Cluster is up" {
 }
 
 test "The first master has actually 5 slaves" {
-    assert {[llength [lindex [R 0 role] 2]] == 5}
+    wait_for_condition 1000 50 {
+        [llength [lindex [R 0 role] 2]] == 5
+    } else {
+        fail "replicas didn't connect"
+    }
 }
 
 test {Slaves of #0 are instance #3, #6, #9, #12 and #15 as expected} {

@@ -505,6 +505,10 @@ proc start_server {options {code undefined}} {
         close $fd
     }
 
+    # We may have a stdout left over from the previous tests, so we need
+    # to get the current count of ready logs
+    set previous_ready_count [count_message_lines $stdout "Ready to accept"]
+
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -585,7 +589,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > 0} {
+            if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
                 break
             }
             after 10
