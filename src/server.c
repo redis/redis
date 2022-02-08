@@ -733,7 +733,7 @@ int clientsCronResizeOutputBuffer(client *c) {
      * it will start to shrink.
      */
     if(server.unixtime - c->buf_peak_last_reset_time >= 5) {
-        c->buf_peak = 0UL;
+        c->buf_peak = c->bufpos;
         c->buf_peak_last_reset_time = server.unixtime;
     }
 
