@@ -521,6 +521,12 @@ foreach testType {Successful Aborted} {
             # Set a key value on replica to check status during loading, on failure and after swapping db
             $replica set mykey myvalue
 
+            # Set a function value on replica to check status during loading, on failure and after swapping db
+            $replica function create LUA test {return 'hello1'}
+
+            # Set a function value on master to check it reaches the replica when replication ends
+            $master function create LUA test {return 'hello2'}
+
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
             $master client kill type replica
@@ -552,6 +558,9 @@ foreach testType {Successful Aborted} {
                         # Ensure we still see old values while async_loading is in progress and also not LOADING status
                         assert_equal [$replica get mykey] "myvalue"
 
+                        # Ensure we still can call old function while async_loading is in progress
+                        assert_equal [$replica fcall test 0] "hello1"
+
                         # Make sure we're still async_loading to validate previous assertion
                         assert_equal [s -1 async_loading] 1
 
@@ -576,6 +585,9 @@ foreach testType {Successful Aborted} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
 
+                        # Ensure we still can call old function
+                        assert_equal [$replica fcall test 0] "hello1"
+
                         # Make sure amount of replica keys didn't change
                         assert_equal [$replica dbsize] 2001
                     }
@@ -594,6 +606,9 @@ foreach testType {Successful Aborted} {
                     test {Diskless load swapdb (async_loading): new database is exposed after swapping} {
                         # Ensure we don't see anymore the key that was stored only to replica and also that we don't get LOADING status
                         assert_equal [$replica GET mykey] ""
+
+                        # Ensure we got the new function
+                        assert_equal [$replica fcall test 0] "hello2"
 
                         # Make sure amount of keys matches master
                         assert_equal [$replica dbsize] 1010
@@ -624,6 +639,10 @@ test {diskless loading short read} {
             $replica config set dynamic-hz no
             # Try to fill the master with all types of data types / encodings
             set start [clock clicks -milliseconds]
+
+            # Set a function value to check short read handling on functions
+            r function create LUA test {return 'hello1'}
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]

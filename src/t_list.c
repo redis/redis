@@ -112,7 +112,7 @@ void listTypeSetIteratorDirection(listTypeIterator *li, unsigned char direction)
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    zfree(li->iter);
+    quicklistReleaseIterator(li->iter);
     zfree(li);
 }
 
@@ -154,11 +154,9 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
         sds str = value->ptr;
         size_t len = sdslen(str);
         if (where == LIST_TAIL) {
-            quicklistInsertAfter((quicklist *)entry->entry.quicklist,
-                                 &entry->entry, str, len);
+            quicklistInsertAfter(entry->li->iter, &entry->entry, str, len);
         } else if (where == LIST_HEAD) {
-            quicklistInsertBefore((quicklist *)entry->entry.quicklist,
-                                  &entry->entry, str, len);
+            quicklistInsertBefore(entry->li->iter, &entry->entry, str, len);
         }
         decrRefCount(value);
     } else {
@@ -172,8 +170,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
-        quicklistReplaceEntry((quicklist *)entry->entry.quicklist,
-                              &entry->entry, str, len);
+        quicklistReplaceEntry(entry->li->iter, &entry->entry, str, len);
         decrRefCount(value);
     } else {
         serverPanic("Unknown list encoding");
@@ -348,7 +345,8 @@ void lindexCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
-        if (quicklistIndex(o->ptr, index, &entry)) {
+        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(o->ptr, index, &entry);
+        if (iter) {
             if (entry.value) {
                 addReplyBulkCBuffer(c, entry.value, entry.sz);
             } else {
@@ -357,6 +355,7 @@ void lindexCommand(client *c) {
         } else {
             addReplyNull(c);
         }
+        quicklistReleaseIterator(iter);
     } else {
         serverPanic("Unknown list encoding");
     }

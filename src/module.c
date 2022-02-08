@@ -96,7 +96,7 @@ struct AutoMemEntry {
     int type;
 };
 
-/* AutMemEntry type field values. */
+/* AutoMemEntry type field values. */
 #define REDISMODULE_AM_KEY 0
 #define REDISMODULE_AM_STRING 1
 #define REDISMODULE_AM_REPLY 2
@@ -629,7 +629,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
 
     /* If this command is executed from with Lua or MULTI/EXEC we do not
      * need to propagate EXEC */
-    if (server.in_eval || server.in_exec) return;
+    if (server.in_script || server.in_exec) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrapped around MULTI/EXEC. */
@@ -991,10 +991,10 @@ RedisModuleCommandProxy *moduleCreateCommandProxy(RedisModuleCtx *ctx, const cha
  * if (RedisModule_CreateCommand(ctx,"module.config",NULL,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","set",cmd_config_set,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
- *  if (RedisModule_CreateSubcommand(ctx,"container.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
+ *  if (RedisModule_CreateSubcommand(ctx,"module.config","get",cmd_config_get,"",0,0,0) == REDISMODULE_ERR)
  *     return REDISMODULE_ERR;
  *
  */
@@ -2333,7 +2333,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
     /* Skip this if client explicitly wrap the command with MULTI, or if
      * the module command was called by a script. */
-    if (server.in_eval || server.in_exec) return;
+    if (server.in_script || server.in_exec) return;
     /* If we already emitted MULTI return ASAP. */
     if (server.propagate_in_transaction) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -2709,7 +2709,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         }
     }
 
-    if (server.in_eval)
+    if (server.in_script)
         flags |= REDISMODULE_CTX_FLAGS_LUA;
 
     if (server.in_exec)
@@ -4232,7 +4232,8 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         use_id.seq = id->seq;
         use_id_ptr = &use_id;
     }
-    if (streamAppendItem(s, argv, numfields, &added_id, use_id_ptr) == C_ERR) {
+
+    if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
          * set by streamAppendItem. */
@@ -6214,7 +6215,7 @@ void unblockClientFromModule(client *c) {
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     client *c = ctx->client;
-    int islua = server.in_eval;
+    int islua = server.in_script;
     int ismulti = server.in_exec;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
@@ -9815,7 +9816,7 @@ void addReplyLoadedModules(client *c) {
 }
 
 /* Helper for genModulesInfoString(): given a list of modules, return
- * am SDS string in the form "[modulename|modulename2|...]" */
+ * an SDS string in the form "[modulename|modulename2|...]" */
 sds genModulesInfoStringRenderModulesList(list *l) {
     listIter li;
     listNode *ln;
