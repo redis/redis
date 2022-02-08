@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 # coding: utf-8
 # gendoc.rb -- Converts the top-comments inside module.c to modules API
 #              reference documentation in markdown format.
