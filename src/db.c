@@ -1821,11 +1821,7 @@ invalid_spec:
  * associated with how Redis will access the key.
  *
  * 'cmd' must be point to the corresponding entry into the redisCommand
- * table, according to the command name in argv[0].
- *
- * This function uses the command's key specs, which contain the key-spec flags,
- * (e.g. RO / RW) and only resorts to the command-specific helper function if
- * any of the keys-specs are marked as INCOMPLETE. */
+ * table, according to the command name in argv[0]. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     /* The command has at least one key-spec not marked as CHANNEL */
     int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);

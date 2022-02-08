@@ -1212,7 +1212,7 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *
  *     Note that key-specs don't fully replace the "getkeys-api" (see
  *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPosWithFlags) so
- *     it may be a good idea to supply both key-specs and a implement the
+ *     it may be a good idea to supply both key-specs and implement the
  *     getkeys-api.
  *
  *     A key-spec has the following structure:
