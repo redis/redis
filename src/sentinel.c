@@ -3454,7 +3454,6 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 }
 
 void sentinelSetDebugConfigParameters(client *c){
-
     int j;
     int badarg = 0; /* Bad argument position for error reporting. */
     char *option;
@@ -3473,7 +3472,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_info_period = ll;
-            
+
         } else if (!strcasecmp(option,"ping-period") && moreargs > 0) {
             /* ping-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3482,7 +3481,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ping_period = ll;
-           
+
         } else if (!strcasecmp(option,"ask-period") && moreargs > 0) {
             /* ask-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3491,7 +3490,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ask_period = ll;
-           
+
         } else if (!strcasecmp(option,"publish-period") && moreargs > 0) {
             /* publish-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3500,8 +3499,8 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_publish_period = ll;
-           
-        }else if (!strcasecmp(option,"default-down-after") && moreargs > 0) {
+
+        } else if (!strcasecmp(option,"default-down-after") && moreargs > 0) {
             /* default-down-after <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
@@ -3509,7 +3508,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_default_down_after = ll;
-           
+
         } else if (!strcasecmp(option,"tilt-trigger") && moreargs > 0) {
             /* tilt-trigger <milliseconds> */
             robj *o = c->argv[++j];
@@ -3518,7 +3517,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_trigger = ll;
-           
+
         } else if (!strcasecmp(option,"tilt-period") && moreargs > 0) {
             /* tilt-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3527,7 +3526,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_period = ll;
-           
+
         } else if (!strcasecmp(option,"slave-reconf-timeout") && moreargs > 0) {
             /* slave-reconf-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3536,7 +3535,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_slave_reconf_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"min-link-reconnect-period") && moreargs > 0) {
             /* min-link-reconnect-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3545,7 +3544,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_min_link_reconnect_period = ll;
-           
+
         } else if (!strcasecmp(option,"default-failover-timeout") && moreargs > 0) {
             /* default-failover-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3554,7 +3553,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_default_failover_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"election-timeout") && moreargs > 0) {
             /* election-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3563,7 +3562,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_election_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"script-max-runtime") && moreargs > 0) {
             /* script-max-runtime <milliseconds> */
             robj *o = c->argv[++j];
@@ -3572,7 +3571,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_script_max_runtime = ll;
-           
+
         } else if (!strcasecmp(option,"script-retry-delay") && moreargs > 0) {
             /* script-retry-delay <milliseconds> */
             robj *o = c->argv[++j];
@@ -3581,27 +3580,25 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_script_retry_delay = ll;
-           
+
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
-                                  "SENTINEL SET '%s'", option);            
+                                  "SENTINEL DEBUG '%s'", option);
+            return;
         }
-
     }
 
     addReply(c,shared.ok);
     return;
 
 badfmt: /* Bad format errors */
-    addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
+    addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL DEBUG '%s'",
         (char*)c->argv[badarg]->ptr,option);
 
     return;
 }
 
-
 void addReplySentinelDebugInfo(client *c) {
-   
     void *mbl;
     int fields = 0;
 
@@ -3630,7 +3627,7 @@ void addReplySentinelDebugInfo(client *c) {
     addReplyBulkCString(c,"DEFAULT-FAILOVER-TIMEOUT");
     addReplyBulkLongLong(c,sentinel_default_failover_timeout);
     fields++;
-    
+
     addReplyBulkCString(c,"TILT-TRIGGER");
     addReplyBulkLongLong(c,sentinel_tilt_trigger);
     fields++;
