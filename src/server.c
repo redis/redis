@@ -711,7 +711,7 @@ int clientsCronResizeQueryBuffer(client *c) {
  * the logic is:
  * in case the last observed peak size of the buffer equals the buffer size - we double the size
  * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
- * The buffer peak will be reset back to the buffer possition every 5 seconds
+ * The buffer peak will be reset back to the buffer position every 5 seconds
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeOutputBuffer(client *c) {
 
