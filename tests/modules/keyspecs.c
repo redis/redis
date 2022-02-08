@@ -12,8 +12,8 @@ int kspec_impl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int createKspecNone(RedisModuleCtx *ctx) {
-    /* A command without keyspecs; only the legacy (first,last,step) triple. */
-    if (RedisModule_CreateCommand(ctx,"kspec.none",kspec_impl,"",1,3,2) == REDISMODULE_ERR)
+    /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec). */
+    if (RedisModule_CreateCommand(ctx,"kspec.none",kspec_impl,"",1,-1,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

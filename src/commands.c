@@ -3315,7 +3315,7 @@ NULL
 
 /* FUNCTION DELETE argument table */
 struct redisCommandArg FUNCTION_DELETE_Args[] = {
-{"function-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4033,6 +4033,14 @@ struct redisCommandArg COMMAND_DOCS_Args[] = {
 /* COMMAND GETKEYS tips */
 #define COMMAND_GETKEYS_tips NULL
 
+/********** COMMAND GETKEYSANDFLAGS ********************/
+
+/* COMMAND GETKEYSANDFLAGS history */
+#define COMMAND_GETKEYSANDFLAGS_History NULL
+
+/* COMMAND GETKEYSANDFLAGS tips */
+#define COMMAND_GETKEYSANDFLAGS_tips NULL
+
 /********** COMMAND HELP ********************/
 
 /* COMMAND HELP history */
@@ -4085,6 +4093,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_tips,commandCountCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
+{"getkeysandflags","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
 {"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args},
