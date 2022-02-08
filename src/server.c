@@ -745,7 +745,7 @@ int clientsCronResizeOutputBuffer(client *c) {
          */
         if(c->bufpos == 0) {
             zfree(c->buf);
-            c->buf = zmalloc_usable(new_buffer_size, c->buf_usable_size);
+            c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
         } else {
             c->buf = zrealloc_usable(c->buf,new_buffer_size,&c->buf_usable_size);
         }
