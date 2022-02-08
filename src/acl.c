@@ -2890,7 +2890,7 @@ void authCommand(client *c) {
     /* Only two or three argument forms are allowed. */
     if (c->argc > 3) {
         addReplyErrorFormat(c,
-        "ERR Only two or three argument forms are allowed.");
+        "Only two or three argument forms are allowed.");
         return;
     }
     /* Always redact the second argument */
