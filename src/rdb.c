@@ -992,12 +992,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         if ((n = rdbSaveLen(rdb,s->first_id.seq)) == -1) return -1;
         nwritten += n;
         /* Save the maximal tombstone ID. */
-        if ((n = rdbSaveLen(rdb,s->xdel_max_id.ms)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->max_deleted_entry_id.ms)) == -1) return -1;
         nwritten += n;
-        if ((n = rdbSaveLen(rdb,s->xdel_max_id.seq)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->max_deleted_entry_id.seq)) == -1) return -1;
         nwritten += n;
         /* Save the offset. */
-        if ((n = rdbSaveLen(rdb,s->offset)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->entries_added)) == -1) return -1;
         nwritten += n;
 
         /* The consumer groups and their clients are part of the stream
@@ -1034,8 +1034,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
                 
-                /* Save the group offset. */
-                if ((n = rdbSaveLen(rdb,cg->offset)) == -1) {
+                /* Save the group's logical reads counter. */
+                if ((n = rdbSaveLen(rdb,cg->entries_read)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -2421,19 +2421,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             s->first_id.ms = rdbLoadLen(rdb,NULL);
             s->first_id.seq = rdbLoadLen(rdb,NULL);
 
-            /* Load the maximal tombstone ID. */
-            s->xdel_max_id.ms = rdbLoadLen(rdb,NULL);
-            s->xdel_max_id.seq = rdbLoadLen(rdb,NULL);
+            /* Load the maximal deleted entry ID. */
+            s->max_deleted_entry_id.ms = rdbLoadLen(rdb,NULL);
+            s->max_deleted_entry_id.seq = rdbLoadLen(rdb,NULL);
 
             /* Load the offset. */
-            s->offset = rdbLoadLen(rdb,NULL);
+            s->entries_added = rdbLoadLen(rdb,NULL);
         } else {
             /* During migration the offset can be initialized to the stream's
              * length. At this point, we also don't care about tombstones
              * because CG offsets will be later initialized as well. */
-            s->xdel_max_id.ms = 0;
-            s->xdel_max_id.seq = 0;
-            s->offset = s->length;
+            s->max_deleted_entry_id.ms = 0;
+            s->max_deleted_entry_id.seq = 0;
+            s->entries_added = s->length;
             
             /* Since the rax is already loaded, we can find the first entry's
              * ID. */ 

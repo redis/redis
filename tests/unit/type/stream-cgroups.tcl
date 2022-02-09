@@ -746,15 +746,15 @@ start_server {
         }
     }
 
-    test {Consumer group offset and lag in empty streams} {
+    test {Consumer group read counter and lag in empty streams} {
         r DEL x
         r XGROUP CREATE x g1 0 MKSTREAM
 
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $reply xdel-max-id] "0-0"
-        assert_equal [dict get $reply last-offset] 0
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
+        assert_equal [dict get $reply entries-added] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 0
 
         r XADD x 1-0 data a
@@ -762,13 +762,13 @@ start_server {
 
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $reply xdel-max-id] "1-0"
-        assert_equal [dict get $reply last-offset] 1
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $reply max-deleted-entry-id] "1-0"
+        assert_equal [dict get $reply entries-added] 1
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 0
     }
 
-    test {Consumer group offset and lag sanity} {
+    test {Consumer group read counter and lag sanity} {
         r DEL x
         r XADD x 1-0 data a
         r XADD x 2-0 data b
@@ -779,25 +779,25 @@ start_server {
 
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 5
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 1
+        assert_equal [dict get $group entries-read] 1
         assert_equal [dict get $group lag] 4
 
         r XREADGROUP GROUP g1 c12 COUNT 10 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 0
 
         r XADD x 6-0 data f
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
     }
 
@@ -814,55 +814,55 @@ start_server {
         
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 0
 
         r XADD x 6-0 data f
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
         
         r XTRIM x MINID = 3-0
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
         set group [lindex [dict get $reply groups] 1]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 3
 
         r XTRIM x MINID = 5-0
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 5
+        assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
         set group [lindex [dict get $reply groups] 1]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 2
     }
 
@@ -884,13 +884,13 @@ start_server {
         r RESTORE x 0 "\x0F\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\xC3\x40\x4A\x40\x57\x16\x57\x00\x00\x00\x23\x00\x02\x01\x04\x01\x01\x01\x84\x64\x61\x74\x61\x05\x00\x01\x03\x01\x00\x20\x01\x03\x81\x61\x02\x04\x20\x0A\x00\x01\x40\x0A\x00\x62\x60\x0A\x00\x02\x40\x0A\x00\x63\x60\x0A\x40\x22\x01\x81\x64\x20\x0A\x40\x39\x20\x0A\x00\x65\x60\x0A\x00\x05\x40\x0A\x00\x66\x20\x0A\x00\xFF\x02\x06\x00\x02\x02\x67\x31\x05\x00\x04\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x01\x03\x63\x31\x31\x3E\xF7\x83\x43\x7A\x01\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x02\x67\x32\x00\x00\x00\x00\x09\x00\x3D\x52\xEF\x68\x67\x52\x1D\xFA"
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [dict get $reply xdel-max-id] "0-0"
-        assert_equal [dict get $reply last-offset] 2
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
+        assert_equal [dict get $reply entries-added] 2
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group last-delivered-offset] 1
+        assert_equal [dict get $group entries-read] 1
         assert_equal [dict get $group lag] 1
         set group [lindex [dict get $reply groups] 1]
-        assert_equal [dict get $group last-delivered-offset] 0
+        assert_equal [dict get $group entries-read] 0
         assert_equal [dict get $group lag] 2
     }
 

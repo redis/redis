@@ -18,8 +18,8 @@ typedef struct stream {
     uint64_t length;        /* Current number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
     streamID first_id;      /* The first non-tombstone entry, zero if empty. */
-    streamID xdel_max_id;   /* The maximal ID that was deleted. */
-    uint64_t offset;        /* All time number of elements in this stream. */
+    streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
+    uint64_t entries_added;         /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
 } stream;
 
@@ -56,7 +56,11 @@ typedef struct streamCG {
     streamID last_id;       /* Last delivered (not acknowledged) ID for this
                                group. Consumers that will just ask for more
                                messages will served with IDs > than this. */
-    uint64_t offset;        /* The offset of the last ID of this group. */
+    uint64_t entries_read;  /* In a perfect world (CG starts at 0-0, no dels, no
+                               XGROUP SETID, ...), this is the total number of
+                               group reads. In the real world, the reasoning behind
+                               this value is detailed at the top comment of
+                               streamEstimateDistanceFromFirstEverEntry(). */
     rax *pel;               /* Pending entries list. This is a radix tree that
                                has every message delivered to consumers (without
                                the NOACK option) that was yet not acknowledged
