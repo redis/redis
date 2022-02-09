@@ -70,7 +70,7 @@
 
 typedef struct RedisModuleInfoCtx {
     struct RedisModule *module;
-    const char *requested_section;
+    dict *requested_sections;
     sds info;           /* info string we collected so far */
     int sections;       /* number of sections we collected so far */
     int in_section;     /* indication if we're in an active section or not */
@@ -390,6 +390,7 @@ typedef struct RedisModuleKeyOptCtx {
                                               In most cases, only 'from_dbid' is valid, but in callbacks such 
                                               as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
 } RedisModuleKeyOptCtx;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -403,6 +404,16 @@ static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
 void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
 void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
+
+/* Helpers for RM_SetCommandInfo. */
+static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
+static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api);
+static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
+                                     const RedisModuleCommandInfoVersion *version);
+static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args,
+                                                     const RedisModuleCommandInfoVersion *version);
+static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
+static int moduleConvertArgFlags(int flags);
 
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
@@ -789,17 +800,23 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  * keys, since it was flagged as "getkeys-api" during the registration,
  * the command implementation checks for this special call using the
  * RedisModule_IsKeysPositionRequest() API and uses this function in
- * order to report keys, like in the following example:
+ * order to report keys.
+ *
+ * The supported flags are the ones used by RM_SetCommandInfo, see REDISMODULE_CMD_KEY_*.
+ *
+ *
+ * The following is an example of how it could be used:
  *
  *     if (RedisModule_IsKeysPositionRequest(ctx)) {
- *         RedisModule_KeyAtPos(ctx,1);
- *         RedisModule_KeyAtPos(ctx,2);
+ *         RedisModule_KeyAtPosWithFlags(ctx, 2, REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS);
+ *         RedisModule_KeyAtPosWithFlags(ctx, 1, REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_ACCESS);
  *     }
  *
- *  Note: in the example below the get keys API would not be needed since
- *  keys are at fixed positions. This interface is only used for commands
- *  with a more complex structure. */
-void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
+ *  Note: in the example above the get keys API could have been handled by key-specs (preferred).
+ *  Implementing the getkeys-api is required only when is it not possible to declare key-specs that cover all keys.
+ *
+ */
+void RM_KeyAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     if (!(ctx->flags & REDISMODULE_CTX_KEYS_POS_REQUEST) || !ctx->keys_result) return;
     if (pos <= 0) return;
 
@@ -811,7 +828,18 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
         getKeysPrepareResult(res, newsize);
     }
 
-    res->keys[res->numkeys++].pos = pos;
+    res->keys[res->numkeys].pos = pos;
+    res->keys[res->numkeys].flags = moduleConvertKeySpecsFlags(flags, 1);
+    res->numkeys++;
+}
+
+/* This API existed before RM_KeyAtPosWithFlags was added, now deprecated and
+ * can be used for compatibility with older versions, before key-specs and flags
+ * were introduced. */
+void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
+    /* Default flags require full access */
+    int flags = moduleConvertKeySpecsFlags(CMD_KEY_FULL_ACCESS, 0);
+    RM_KeyAtPosWithFlags(ctx, pos, flags);
 }
 
 /* Helper for RM_CreateCommand(). Turns a string representing command
@@ -991,7 +1019,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
         cp->rediscmd->key_specs_num = 1;
-        cp->rediscmd->key_specs[0].flags = 0;
+        cp->rediscmd->key_specs[0].flags = CMD_KEY_FULL_ACCESS | CMD_KEY_VARIABLE_FLAGS;
         cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
         cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
         cp->rediscmd->key_specs[0].find_keys_type = KSPEC_FK_RANGE;
@@ -1092,16 +1120,6 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     return REDISMODULE_OK;
 }
 
-/* Helpers for RM_SetCommandInfo. */
-static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
-static int64_t moduleConvertKeySpecsFlags(int64_t flags);
-static int moduleValidateCommandArgs(RedisModuleCommandArg *args,
-                                     const RedisModuleCommandInfoVersion *version);
-static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args,
-                                                     const RedisModuleCommandInfoVersion *version);
-static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
-static int moduleConvertArgFlags(int flags);
-
 /* Accessors of array elements of structs where the element size is stored
  * separately in the version struct. */
 static RedisModuleCommandHistoryEntry *
@@ -1193,8 +1211,9 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *     versions where RM_SetCommandInfo is not available.
  *
  *     Note that key-specs don't fully replace the "getkeys-api" (see
- *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPos) so it may be
- *     a good idea to supply both key-specs and a implement the getkeys-api.
+ *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPosWithFlags) so
+ *     it may be a good idea to supply both key-specs and implement the
+ *     getkeys-api.
  *
  *     A key-spec has the following structure:
  *
@@ -1503,7 +1522,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
             RedisModuleCommandKeySpec *spec =
                 moduleCmdKeySpecAt(version, info->key_specs, j);
             cmd->key_specs[j].notes = spec->notes ? zstrdup(spec->notes) : NULL;
-            cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(spec->flags);
+            cmd->key_specs[j].flags = moduleConvertKeySpecsFlags(spec->flags, 1);
             switch (spec->begin_search_type) {
             case REDISMODULE_KSPEC_BS_UNKNOWN:
                 cmd->key_specs[j].begin_search_type = KSPEC_BS_UNKNOWN;
@@ -1671,21 +1690,28 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
     return moduleValidateCommandArgs(info->args, version);
 }
 
-/* Converts from REDISMODULE_CMD_KEY_* flags to CMD_KEY_* flags. */
-static int64_t moduleConvertKeySpecsFlags(int64_t flags) {
-    int64_t realflags = 0;
-    if (flags & REDISMODULE_CMD_KEY_RO) realflags |= CMD_KEY_RO;
-    if (flags & REDISMODULE_CMD_KEY_RW) realflags |= CMD_KEY_RW;
-    if (flags & REDISMODULE_CMD_KEY_OW) realflags |= CMD_KEY_OW;
-    if (flags & REDISMODULE_CMD_KEY_RM) realflags |= CMD_KEY_RM;
-    if (flags & REDISMODULE_CMD_KEY_ACCESS) realflags |= CMD_KEY_ACCESS;
-    if (flags & REDISMODULE_CMD_KEY_INSERT) realflags |= CMD_KEY_INSERT;
-    if (flags & REDISMODULE_CMD_KEY_UPDATE) realflags |= CMD_KEY_UPDATE;
-    if (flags & REDISMODULE_CMD_KEY_DELETE) realflags |= CMD_KEY_DELETE;
-    if (flags & REDISMODULE_CMD_KEY_CHANNEL) realflags |= CMD_KEY_CHANNEL;
-    if (flags & REDISMODULE_CMD_KEY_INCOMPLETE) realflags |= CMD_KEY_INCOMPLETE;
-    if (flags & REDISMODULE_CMD_KEY_VARIABLE_FLAGS) realflags |= CMD_KEY_VARIABLE_FLAGS;
-    return realflags;
+/* When from_api is true, converts from REDISMODULE_CMD_KEY_* flags to CMD_KEY_* flags.
+ * When from_api is false, converts from CMD_KEY_* flags to REDISMODULE_CMD_KEY_* flags. */
+static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api) {
+    int64_t out = 0;
+    int64_t map[][2] = {
+        {REDISMODULE_CMD_KEY_RO, CMD_KEY_RO},
+        {REDISMODULE_CMD_KEY_RW, CMD_KEY_RW},
+        {REDISMODULE_CMD_KEY_OW, CMD_KEY_OW},
+        {REDISMODULE_CMD_KEY_RM, CMD_KEY_RM},
+        {REDISMODULE_CMD_KEY_ACCESS, CMD_KEY_ACCESS},
+        {REDISMODULE_CMD_KEY_INSERT, CMD_KEY_INSERT},
+        {REDISMODULE_CMD_KEY_UPDATE, CMD_KEY_UPDATE},
+        {REDISMODULE_CMD_KEY_DELETE, CMD_KEY_DELETE},
+        {REDISMODULE_CMD_KEY_CHANNEL, CMD_KEY_CHANNEL},
+        {REDISMODULE_CMD_KEY_INCOMPLETE, CMD_KEY_INCOMPLETE},
+        {REDISMODULE_CMD_KEY_VARIABLE_FLAGS, CMD_KEY_VARIABLE_FLAGS},
+        {0,0}};
+
+    int from_idx = from_api ? 0 : 1, to_idx = !from_idx;
+    for (int i=0; map[i][0]; i++)
+        if (flags & map[i][from_idx]) out |= map[i][to_idx];
+    return out;
 }
 
 /* Validates an array of RedisModuleCommandArg. Returns 1 if it's valid and 0 if
@@ -8765,9 +8791,10 @@ int RM_InfoAddSection(RedisModuleInfoCtx *ctx, const char *name) {
      * 1) no section was requested (emit all)
      * 2) the module name was requested (emit all)
      * 3) this specific section was requested. */
-    if (ctx->requested_section) {
-        if (strcasecmp(ctx->requested_section, full_name) &&
-            strcasecmp(ctx->requested_section, ctx->module->name)) {
+    if (ctx->requested_sections) {
+        if ((!full_name || !dictFind(ctx->requested_sections, full_name)) &&
+            (!dictFind(ctx->requested_sections, ctx->module->name)))
+        {
             sdsfree(full_name);
             ctx->in_section = 0;
             return REDISMODULE_ERR;
@@ -8916,7 +8943,7 @@ int RM_RegisterInfoFunc(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) {
     return REDISMODULE_OK;
 }
 
-sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections) {
+sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int sections) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -8924,7 +8951,7 @@ sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int 
         struct RedisModule *module = dictGetVal(de);
         if (!module->info_cb)
             continue;
-        RedisModuleInfoCtx info_ctx = {module, section, info, sections, 0, 0};
+        RedisModuleInfoCtx info_ctx = {module, sections_dict, info, sections, 0, 0};
         module->info_cb(&info_ctx, for_crash_report);
         /* Implicitly end dicts (no way to handle errors, and we must add the newline). */
         if (info_ctx.in_dict_field)
@@ -8946,7 +8973,11 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     struct RedisModuleServerInfoData *d = zmalloc(sizeof(*d));
     d->rax = raxNew();
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_INFO,d);
-    sds info = genRedisInfoString(section);
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = section ? createStringObject(section, strlen(section)) : NULL;
+    dict *section_dict = genInfoSectionDict(argv, section ? 1 : 0, NULL, &all, &everything);
+    sds info = genRedisInfoString(section_dict, all, everything);
     int totlines, i;
     sds *lines = sdssplitlen(info, sdslen(info), "\r\n", 2, &totlines);
     for(i=0; i<totlines; i++) {
@@ -8962,6 +8993,8 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
     }
     sdsfree(info);
     sdsfreesplitres(lines,totlines);
+    releaseInfoSectionDict(section_dict);
+    if(argv[0]) decrRefCount(argv[0]);
     return d;
 }
 
@@ -11036,6 +11069,10 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
  * contains the indexes of all key name arguments. This function is
  * essentially a more efficient way to do `COMMAND GETKEYS`.
  *
+ * The out_flags argument is optional, and can be set to NULL.
+ * When provided it is filled with REDISMODULE_CMD_KEY_ flags in matching
+ * indexes with the key indexes of the returned array.
+ *
  * A NULL return value indicates the specified command has no keys, or
  * an error condition. Error conditions are indicated by setting errno
  * as follows:
@@ -11045,9 +11082,10 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
  *
  * NOTE: The returned array is not a Redis Module object so it does not
  * get automatically freed even when auto-memory is used. The caller
- * must explicitly call RM_Free() to free it.
+ * must explicitly call RM_Free() to free it, same as the out_flags pointer if
+ * used.
  */
-int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) {
+int *RM_GetCommandKeysWithFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys, int **out_flags) {
     UNUSED(ctx);
     struct redisCommand *cmd;
     int *res = NULL;
@@ -11082,11 +11120,20 @@ int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, 
     /* The return value here expects an array of key positions */
     unsigned long int size = sizeof(int) * result.numkeys;
     res = zmalloc(size);
+    if (out_flags)
+        *out_flags = zmalloc(size);
     for (int i = 0; i < result.numkeys; i++) {
         res[i] = result.keys[i].pos;
+        if (out_flags)
+            (*out_flags)[i] = moduleConvertKeySpecsFlags(result.keys[i].flags, 0);
     }
 
     return res;
+}
+
+/* Identinal to RM_GetCommandKeysWithFlags when flags are not needed. */
+int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) {
+    return RM_GetCommandKeysWithFlags(ctx, argv, argc, num_keys, NULL);
 }
 
 /* Return the name of the command currently running */
@@ -11439,6 +11486,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamTrimByID);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
+    REGISTER_API(KeyAtPosWithFlags);
     REGISTER_API(GetClientId);
     REGISTER_API(GetClientUserNameById);
     REGISTER_API(GetContextFlags);
@@ -11616,6 +11664,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
     REGISTER_API(GetCommandKeys);
+    REGISTER_API(GetCommandKeysWithFlags);
     REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);

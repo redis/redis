@@ -1546,6 +1546,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listNode *ln;
     listIter li;
 
+    /* Note: there's a chance we got here from within the REPLCONF ACK command
+     * so we must avoid using freeClient, otherwise we'll crash on our way up. */
+
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -1554,7 +1557,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
-                freeClient(slave);
+                freeClientAsync(slave);
                 serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
             }
@@ -1598,7 +1601,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             } else {
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
-                    freeClient(slave);
+                    freeClientAsync(slave);
                     serverLog(LL_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
                     continue;
                 }
@@ -1610,7 +1613,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
 
                 connSetWriteHandler(slave->conn,NULL);
                 if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
-                    freeClient(slave);
+                    freeClientAsync(slave);
                     continue;
                 }
             }
