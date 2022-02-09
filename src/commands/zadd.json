@@ -48,6 +48,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf":[
+                {
+                    "description": "Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options).",
+                    "type": "null"
+                },
+                {
+                    "description": "The number of new members (when the `CH` option is not used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The number of new or updated members (when the `CH` option is used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The updated score of the member (when the `INCR` option is used)",
+                    "type": "number"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

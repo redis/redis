@@ -4391,6 +4391,38 @@ const char *RESP3_TYPE_STR[] = {
     "null",
 };
 
+void addReplyCommandReplySchema(client *c, struct commandReplySchema *rs, int length) {
+    addReplyMapLen(c, length);
+
+    for (int i = 0; i < length; i++) {
+        struct commandReplySchema *curr = &rs[i];
+        addReplyBulkCString(c, curr->key);
+        switch (curr->val_type) {
+            case (SCHEMA_VAL_TYPE_BOOLEAN):
+                addReplyBool(c, curr->value.boolean);
+                break;
+            case (SCHEMA_VAL_TYPE_INTEGER):
+                addReplyLongLong(c, curr->value.integer);
+                break;
+            case (SCHEMA_VAL_TYPE_STRING):
+                addReplyBulkCString(c, curr->value.string);
+                break;
+            case (SCHEMA_VAL_TYPE_SCHEMA):
+                addReplyCommandReplySchema(c, curr->value.schema, curr->length);
+                break;
+            case (SCHEMA_VAL_TYPE_SCHEMA_ARRAY):
+                addReplyArrayLen(c, curr->length);
+                for (int k = 0; k < curr->length; k++) {
+                    struct commandReplySchemaArray *sub = &curr->value.array[k];
+                    addReplyCommandReplySchema(c, sub->schema, sub->length);
+                }
+                break;
+            default:
+                serverPanic("Invalid schema type %d", curr->val_type);
+        }
+    }
+}
+
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->num_history);
     for (int j = 0; j<cmd->num_history; j++) {
@@ -4586,6 +4618,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->deprecated_since) maplen++;
     if (cmd->replaced_by) maplen++;
     if (cmd->history) maplen++;
+    if (cmd->reply_schema) maplen++;
     if (cmd->args) maplen++;
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
@@ -4622,6 +4655,10 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->history) {
         addReplyBulkCString(c, "history");
         addReplyCommandHistory(c, cmd);
+    }
+    if (cmd->reply_schema) {
+        addReplyBulkCString(c, "reply_schema");
+        addReplyCommandReplySchema(c, cmd->reply_schema, cmd->length_reply_schema);
     }
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");

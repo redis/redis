@@ -2077,6 +2077,99 @@ typedef enum {
     RESP3_NULL,
 } redisCommandRESP3Type;
 
+typedef enum {
+    SCHEMA_VAL_TYPE_STRING,
+    SCHEMA_VAL_TYPE_INTEGER,
+    SCHEMA_VAL_TYPE_BOOLEAN,
+    SCHEMA_VAL_TYPE_SCHEMA,
+    SCHEMA_VAL_TYPE_SCHEMA_ARRAY,
+} replySchemaValueType;
+
+struct commandReplySchemaArray;
+
+typedef struct commandReplySchema {
+    const char *key;
+    replySchemaValueType val_type;
+    union {
+        const char *string;
+        int integer;
+        int boolean;
+        struct commandReplySchema *schema;
+        struct commandReplySchemaArray *array;
+    } value;
+
+    int length;
+} commandReplySchema;
+
+typedef struct commandReplySchemaArray {
+    struct commandReplySchema *schema;
+    int length;
+} commandReplySchemaArray;
+
+
+#if 0
+{
+                            "description": "Popped members and their scores.",
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Member",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "Score",
+                                        "type": "number"
+                                    }
+                                ]
+                            }
+                        }
+
+
+struct commandReplySchemaArray name1 = {
+{{"description", .value.string = "Member"}
+{"type", .value.string = "string"}},
+2
+};
+
+struct commandReplySchema name1b[] = {
+{"description", .value.string = "Score"}
+{"type", .value.string = "number"},
+{0}
+};
+
+struct commandReplySchema name1c[] = {
+name1,
+name1b,
+{0}
+};
+
+struct commandReplySchema name2[] = {
+    {"type", .value.string = "array"},
+    {"minItems", .value.integer = 2},
+    {"maxItems", .value.integer = 2},
+    {"type", .value.schema_array = namec},
+    {0}
+}
+
+struct commandReplySchema name3[] = {
+{"description", .value.string = "Popped members and their scores."}
+{"type", .value.string = "array"},
+{"uniqueItems", .value.boolean = 1},
+{"items", .value.schema = name2},
+{0}
+};
+
+commandReplySchema name1 = {"description", .value.string = "Member"};
+commandReplySchema name2 = {"type", .value.string = "string"};
+commandReplySchema name3[] = {name1, name2, .key=NULL};
+commandReplySchema name4 = {"items", .value.schema_array = name3};
+
+#endif
 typedef struct {
     const char *since;
     const char *changes;
@@ -2218,6 +2311,9 @@ struct redisCommand {
     struct redisCommand *subcommands;
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
+    /* Reply schema */
+    struct commandReplySchema *reply_schema;
+    int length_reply_schema;
 
     /* Runtime populated data */
     /* What keys should be loaded in background when calling this command? */

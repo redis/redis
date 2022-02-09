@@ -35,6 +35,46 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Timeout reached and no elements were popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname and the popped members.",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "Keyname",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Popped members and their scores.",
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Member",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "Score",
+                                        "type": "number"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "timeout",
