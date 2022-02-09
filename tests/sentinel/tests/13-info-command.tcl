@@ -1,4 +1,3 @@
-# Check the basic monitoring and failover capabilities.
 source "../tests/includes/init-tests.tcl"
 
 test "info command with at most one argument" {
