@@ -21,18 +21,8 @@ if {$backtrace_supported} {
             r config set watchdog-period 200
             r debug sleep 1
             set pattern "*debugCommand*"
-            set retry 10
-            while {$retry} {
-                set result [exec tail -100 < [srv 0 stdout]]
-                if {[string match $pattern $result]} {
-                    break
-                }
-                incr retry -1
-                after 1000
-            }
-            if {$retry == 0} {
-                error "assertion:expected stack trace not found into log file"
-            }
+            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+            if {$::verbose} { puts $res }
         }
     }
 }
@@ -50,8 +40,8 @@ if {!$::valgrind} {
         test "Crash report generated on SIGABRT" {
             set pid [s process_id]
             exec kill -SIGABRT $pid
-            set result [exec tail -1000 < [srv 0 stdout]]
-            assert {[string match $crash_pattern $result]}
+            set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
+            if {$::verbose} { puts $res }
         }
     }
 
@@ -59,8 +49,8 @@ if {!$::valgrind} {
     start_server [list overrides [list dir $server_path]] {
         test "Crash report generated on DEBUG SEGFAULT" {
             catch {r debug segfault}
-            set result [exec tail -1000 < [srv 0 stdout]]
-            assert {[string match $crash_pattern $result]}
+            set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
+            if {$::verbose} { puts $res }
         }
     }
 }

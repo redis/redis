@@ -1,0 +1,75 @@
+{
+    "TRACKING": {
+        "summary": "Enable or disable server assisted client side caching support",
+        "complexity": "O(1). Some options may introduce additional complexity.",
+        "group": "connection",
+        "since": "6.0.0",
+        "arity": -3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "status",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "on",
+                        "type": "pure-token",
+                        "token": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "pure-token",
+                        "token": "OFF"
+                    }
+                ]
+            },
+            {
+                "token": "REDIRECT",
+                "name": "client-id",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "PREFIX",
+                "name": "prefix",
+                "type": "string",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true
+            },
+            {
+                "name": "BCAST",
+                "token": "BCAST",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "OPTIN",
+                "token": "OPTIN",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "OPTOUT",
+                "token": "OPTOUT",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "NOLOOP",
+                "token": "NOLOOP",
+                "type": "pure-token",
+                "optional": true
+            }
+        ]
+    }
+}

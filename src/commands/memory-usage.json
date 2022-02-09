@@ -1,0 +1,46 @@
+{
+    "USAGE": {
+        "summary": "Estimate the memory usage of a key",
+        "complexity": "O(N) where N is the number of samples.",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": -3,
+        "container": "MEMORY",
+        "function": "memoryCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "token": "SAMPLES",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

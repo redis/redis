@@ -1,0 +1,23 @@
+{
+    "UNLOAD": {
+        "summary": "Unload a module",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": 3,
+        "container": "MODULE",
+        "function": "moduleCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT",
+            "PROTECTED"
+        ],
+        "arguments": [
+            {
+                "name": "name",
+                "type": "string"
+            }
+        ]
+    }
+}

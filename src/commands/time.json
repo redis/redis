@@ -1,0 +1,18 @@
+{
+    "TIME": {
+        "summary": "Return the current server time",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.6.0",
+        "arity": 1,
+        "function": "timeCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "FAST"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

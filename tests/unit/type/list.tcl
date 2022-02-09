@@ -1,38 +1,3 @@
-set ::str500 [string repeat x 500000000] ;# 500mb
-
-# Utility function to write big argument into redis client connection
-proc write_big_bulk {size} {
-    r write "\$$size\r\n"
-    while {$size >= 500000000} {
-        r write $::str500
-        incr size -500000000
-    }
-    if {$size > 0} {
-        r write [string repeat x $size]
-    }
-    r write "\r\n"
-    r flush
-    r read
-}
-
-# Utility to read big bulk response (work around Tcl limitations)
-proc read_big_bulk {code} {
-    r readraw 1
-    set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
-    assert_equal [string range $resp_len 0 0] "$"
-    set resp_len [string range $resp_len 1 end]
-    set remaining $resp_len
-    while {$remaining > 0} {
-        set l $remaining
-        if {$l > 2147483647} {set l 2147483647}
-        set nbytes [string length [r rawread $l]]
-        incr remaining [expr {- $nbytes}]
-    }
-    assert_equal [r rawread 2] "\r\n"
-    r readraw 0
-    return $resp_len
-}
-
 # check functionality compression of plain and zipped nodes
 start_server [list overrides [list save ""] ] {
     r config set list-compress-depth 2
@@ -521,6 +486,11 @@ start_server {
         assert_equal c [r lpop mylist2]
     }
 
+    test "LPOP/RPOP with wrong number of arguments" {
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
+    }
+
     test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {gg} [r lpop listcount 1]
@@ -531,15 +501,45 @@ start_server {
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
 
-    # Make sure we can distinguish between an empty array and a null response
-    r readraw 1
+    proc verify_resp_response {resp response resp2_response resp3_response} {
+        if {$resp == 2} {
+            assert_equal $response $resp2_response
+        } elseif {$resp == 3} {
+            assert_equal $response $resp3_response
+        }
+    }
 
-    test {RPOP/LPOP with the count 0 returns an empty array} {
-        r lpush listcount zero
-        r lpop listcount 0
-    } {*0}
+    foreach resp {3 2} {
+        r hello $resp
 
-    r readraw 0
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        test "LPOP/RPOP with the count 0 returns an empty array in RESP$resp" {
+            r lpush listcount zero
+            assert_equal {*0} [r lpop listcount 0]
+            assert_equal {*0} [r rpop listcount 0]
+        }
+
+        test "LPOP/RPOP against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
+        }
+
+        test "LPOP/RPOP with <count> against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r lpop non_existing_key 1] {*-1} {_}
+
+            verify_resp_response $resp [r rpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key 1] {*-1} {_}
+        }
+
+        r readraw 0
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
@@ -1050,7 +1050,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd read
     } {k hello} {singledb:skip}
 
-    test {SWAPDB awakes blocked client, but the key already expired} {
+    test {SWAPDB wants to wake blocked client, but the key already expired} {
+        set repl [attach_to_replication_stream]
         r flushall
         r debug set-active-expire 0
         r select 1
@@ -1071,10 +1072,59 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_match "*flags=b*" [r client list id $id]
         r client unblock $id
         assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {select 1}
+            {rpush k hello}
+            {pexpireat k *}
+            {swapdb 1 9}
+            {select 9}
+            {del k}
+        }
+        close_replication_stream $repl
         # Restore server and client state
         r debug set-active-expire 1
         r select 9
-    } {OK} {singledb:skip}
+    } {OK} {singledb:skip needs:debug}
+
+    test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 0
+        wait_for_blocked_clients_count 1
+
+        r multi
+        r rpush k hello
+        r pexpire k 100
+        r debug sleep 0.2
+        r exec
+
+        # The EXEC command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {multi}
+            {rpush k hello}
+            {pexpireat k *}
+            {exec}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip needs:debug}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
@@ -1246,6 +1296,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {rpop mylist2{t} 3}
             {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {LPUSHX, RPUSHX - generic} {
@@ -1554,9 +1605,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments*" {r lmpop}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}
@@ -1667,6 +1718,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpop mylist2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach {type large} [array get largevalue] {

@@ -205,11 +205,87 @@ start_server {
         $rd close
     }
 
+    test {Blocking XREADGROUP for stream that ran dry (issue #5299)} {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Pass a special `>` ID but without new entry, released on timeout.
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 10 STREAMS mystream >
+        assert_equal [$rd read] {}
+
+        # Throw an error if the ID equal or smaller than the last_id.
+        assert_error ERR*equal*smaller* {r XADD mystream 665 key value}
+        assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
+
+        # Entered blocking state and then release because of the new entry.
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        r XADD mystream 667 key value
+        assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+
+        $rd close
+    }
+
+    test "Blocking XREADGROUP will ignore BLOCK if ID is not >" {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Return right away instead of blocking, return the stream with an
+        # empty list instead of NIL if the ID specified is not the special `>` ID.
+        foreach id {0 600 666 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After adding a new entry, `XREADGROUP BLOCK` still return the stream
+        # with an empty list because the pending list is empty.
+        r XADD mystream 667 key value
+        foreach id {0 600 666 667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After we read it once, the pending list is not empty at this time,
+        # pass any ID smaller than 667 will return one of the pending entry.
+        set res [r XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream >]
+        assert_equal $res {{mystream {{667-0 {key value}}}}}
+        foreach id {0 600 666} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+        }
+
+        # Pass ID equal or greater than 667 will return the stream with an empty list.
+        foreach id {667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        # After we ACK the pending entry, return the stream with an empty list.
+        r XACK mystream mygroup 667
+        foreach id {0 600 666 667 700} {
+            $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream $id
+            assert_equal [$rd read] {{mystream {}}}
+        }
+
+        $rd close
+    }
+
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
         r del mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
         set rd [redis_deferring_client]
-        $rd XREADGROUP GROUP mygroup Alice BLOCK 100 STREAMS mystream ">"
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r XGROUP DESTROY mystream mygroup
         assert_error "*NOGROUP*" {$rd read}
         $rd close
@@ -220,6 +296,7 @@ start_server {
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        wait_for_blocked_clients_count 1
         r XGROUP CREATE mystream2{t} mygroup $ MKSTREAM
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
@@ -232,6 +309,7 @@ start_server {
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream{t} ">"
+        wait_for_blocked_clients_count 1
         r XADD mystream2{t} 100 f1 v1
         r RENAME mystream2{t} mystream{t}
         assert_error "*NOGROUP*" {$rd read} ;# mystream2{t} didn't have mygroup before RENAME
@@ -277,24 +355,22 @@ start_server {
 
         # Delete item 2 from the stream. Now consumer 1 has PEL that contains
         # only item 3. Try to use consumer 2 to claim the deleted item 2
-        # from the PEL of consumer 1, this should return nil
+        # from the PEL of consumer 1, this should be NOP
         r XDEL mystream $id2
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id2
         ]
-        assert {[llength $reply] == 1}
-        assert_equal "" [lindex $reply 0]
+        assert {[llength $reply] == 0}
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
-        # of consumer 1, this should return nil
+        # of consumer 1, this should be NOP
         after 200
         r XDEL mystream $id3
         set reply [
             r XCLAIM mystream mygroup consumer2 10 $id3
         ]
-        assert {[llength $reply] == 1}
-        assert_equal "" [lindex $reply 0]
+        assert {[llength $reply] == 0}
     }
 
     test {XCLAIM without JUSTID increments delivery count} {
@@ -367,6 +443,7 @@ start_server {
         set id1 [r XADD mystream * a 1]
         set id2 [r XADD mystream * b 2]
         set id3 [r XADD mystream * c 3]
+        set id4 [r XADD mystream * d 4]
         r XGROUP CREATE mystream mygroup 0
 
         # Consumer 1 reads item 1 from the stream without acknowledgements.
@@ -376,7 +453,7 @@ start_server {
         assert_equal [lindex $reply 0 1 0 1] {a 1}
         after 200
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 1]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] "0-0"
         assert_equal [llength [lindex $reply 1]] 1
         assert_equal [llength [lindex $reply 1 0]] 2
@@ -384,7 +461,7 @@ start_server {
         assert_equal [lindex $reply 1 0 1] {a 1}
 
         # Consumer 1 reads another 2 items from stream
-        r XREADGROUP GROUP mygroup consumer1 count 2 STREAMS mystream >
+        r XREADGROUP GROUP mygroup consumer1 count 3 STREAMS mystream >
 
         # For min-idle-time
         after 200
@@ -393,33 +470,37 @@ start_server {
         # only item 3. Try to use consumer 2 to claim the deleted item 2
         # from the PEL of consumer 1, this should return nil
         r XDEL mystream $id2
+
+        # id1 and id3 are self-claimed here but not id2 ('count' was set to 2)
+        # we make sure id2 is indeed skipped (the cursor points to id4)
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
-        # id1 is self-claimed here but not id2 ('count' was set to 2)
-        assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] $id3
+
+        assert_equal [llength $reply] 3
+        assert_equal [lindex $reply 0] $id4
         assert_equal [llength [lindex $reply 1]] 2
         assert_equal [llength [lindex $reply 1 0]] 2
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {a 1}
-        assert_equal [lindex $reply 1 1] ""
+        assert_equal [lindex $reply 1 1 1] {c 3}
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
         # of consumer 1, this should return nil
         after 200
-        r XDEL mystream $id3
+
+        r XDEL mystream $id4
+
+        # id1 and id3 are self-claimed here but not id2 and id4 ('count' is default 100)
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - JUSTID]
-        # id1 is self-claimed here but not id2 and id3 ('count' is default 100)
 
         # we also test the JUSTID modifier here. note that, when using JUSTID,
         # deleted entries are returned in reply (consistent with XCLAIM).
 
-        assert_equal [llength $reply] 2
-        assert_equal [lindex $reply 0] "0-0"
-        assert_equal [llength [lindex $reply 1]] 3
+        assert_equal [llength $reply] 3
+        assert_equal [lindex $reply 0] {0-0}
+        assert_equal [llength [lindex $reply 1]] 2
         assert_equal [lindex $reply 1 0] $id1
-        assert_equal [lindex $reply 1 1] $id2
-        assert_equal [lindex $reply 1 2] $id3
+        assert_equal [lindex $reply 1 1] $id3
     }
 
     test {XAUTOCLAIM as an iterator} {
@@ -440,7 +521,7 @@ start_server {
 
         # Claim 2 entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor $id3
         assert_equal [llength [lindex $reply 1]] 2
@@ -449,7 +530,7 @@ start_server {
 
         # Claim 2 more entries
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 2]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor $id5
         assert_equal [llength [lindex $reply 1]] 2
@@ -458,7 +539,7 @@ start_server {
 
         # Claim last entry
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 $cursor COUNT 1]
-        assert_equal [llength $reply] 2
+        assert_equal [llength $reply] 3
         set cursor [lindex $reply 0]
         assert_equal $cursor {0-0}
         assert_equal [llength [lindex $reply 1]] 1
@@ -468,6 +549,56 @@ start_server {
 
     test {XAUTOCLAIM COUNT must be > 0} {
        assert_error "ERR COUNT must be > 0" {r XAUTOCLAIM key group consumer 1 1 COUNT 0}
+    }
+
+    test {XCLAIM with XDEL} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 2-0
+        assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{1-0 {f v}} {3-0 {f v}}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XCLAIM with trimming} {
+        r DEL x
+        r config set stream-node-max-entries 2
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XTRIM x MAXLEN 1
+        assert_equal [r XCLAIM x grp Bob 0 1-0 2-0 3-0] {{3-0 {f v}}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XAUTOCLAIM with XDEL} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 2-0
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}} 2-0}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XCLAIM with trimming} {
+        r DEL x
+        r config set stream-node-max-entries 2
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XTRIM x MAXLEN 1
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{3-0 {f v}}} {1-0 2-0}}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 
     test {XINFO FULL output} {
@@ -569,10 +700,13 @@ start_server {
             r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
             set rd [redis_deferring_client]
             $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            wait_for_blocked_clients_count 1
             r XADD mystream * f2 v2
             set grpinfo [r xinfo groups mystream]
 
             r debug loadaof
+            set foo [r xinfo groups mystream]
+            puts $foo
             assert {[r xinfo groups mystream] == $grpinfo}
             set reply [r xinfo consumers mystream mygroup]
             set consumer_info [lindex $reply 0]
@@ -589,6 +723,7 @@ start_server {
             r XREADGROUP GROUP mygroup Alice NOACK STREAMS mystream ">"
             set rd [redis_deferring_client]
             $rd XREADGROUP GROUP mygroup Bob BLOCK 0 NOACK STREAMS mystream ">"
+            wait_for_blocked_clients_count 1
             r XGROUP CREATECONSUMER mystream mygroup Charlie
             set grpinfo [lindex [r xinfo groups mystream] 0]
 
@@ -806,6 +941,46 @@ start_server {
                 # The consumed entry should be the third
                 set myentry [lindex $item 0 1 0 1]
                 assert {$myentry eq {a 3}}
+            }
+        }
+    }
+
+    start_server {tags {"external:skip"}} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        foreach autoclaim {0 1} {
+            test "Replication tests of XCLAIM with deleted entries (autclaim=$autoclaim)" {
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [s 0 master_link_status] eq {up}
+                } else {
+                    fail "Replication not started."
+                }
+
+                $master DEL x
+                $master XADD x 1-0 f v
+                $master XADD x 2-0 f v
+                $master XADD x 3-0 f v
+                $master XADD x 4-0 f v
+                $master XADD x 5-0 f v
+                $master XGROUP CREATE x grp 0
+                assert_equal [$master XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}} {4-0 {f v}} {5-0 {f v}}}}}
+                wait_for_ofs_sync $master $replica
+                assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 5
+                $master XDEL x 2-0
+                $master XDEL x 4-0
+                if {$autoclaim} {
+                    assert_equal [$master XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}} {5-0 {f v}}} {2-0 4-0}}
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 0
+                } else {
+                    assert_equal [$master XCLAIM x grp Bob 0 1-0 2-0 3-0 4-0] {{1-0 {f v}} {3-0 {f v}}}
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
+                }
             }
         }
     }

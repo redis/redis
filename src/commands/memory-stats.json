@@ -1,0 +1,14 @@
+{
+    "STATS": {
+        "summary": "Show memory usage details",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": 2,
+        "container": "MEMORY",
+        "function": "memoryCommand",
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

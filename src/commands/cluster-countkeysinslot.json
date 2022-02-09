@@ -1,0 +1,23 @@
+{
+    "COUNTKEYSINSLOT": {
+        "summary": "Return the number of local keys in the specified hash slot",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer"
+            }
+        ]
+    }
+}

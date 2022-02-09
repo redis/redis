@@ -182,6 +182,12 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
+    /* Sanity: There can't be any pending commands to propagate when
+     * we're in cron */
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+    server.propagate_no_multi = 1;
+
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
         unsigned long expired, sampled;
@@ -301,6 +307,14 @@ void activeExpireCycle(int type) {
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
+
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    /* Propagate all DELs */
+    propagatePendingCommands();
+
+    server.core_propagates = 0;
+    server.propagate_no_multi = 0;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
@@ -557,14 +571,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
      * overflow by either unit conversion or basetime addition. */
     if (unit == UNIT_SECONDS) {
         if (when > LLONG_MAX / 1000 || when < LLONG_MIN / 1000) {
-            addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+            addReplyErrorExpireTime(c);
             return;
         }
         when *= 1000;
     }
 
     if (when > LLONG_MAX - basetime) {
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return;
     }
     when += basetime;

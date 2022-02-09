@@ -35,6 +35,7 @@ array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
 array set ::redis::readraw {}
+array set ::redis::attributes {} ;# Holds the RESP3 attributes from the last call
 array set ::redis::reconnect {}
 array set ::redis::tls {}
 array set ::redis::callback {}
@@ -105,6 +106,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set argv [lrange $argv 0 end-1]
     }
     if {[info command ::redis::__method__$method] eq {}} {
+        catch {unset ::redis::attributes($id)}
         set cmd "*[expr {[llength $argv]+1}]\r\n"
         append cmd "$[string length $method]\r\n$method\r\n"
         foreach a $argv {
@@ -165,6 +167,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
     catch {unset ::redis::readraw($id)}
+    catch {unset ::redis::attributes($id)}
     catch {unset ::redis::reconnect($id)}
     catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
@@ -183,6 +186,10 @@ proc ::redis::__method__deferred {id fd val} {
 
 proc ::redis::__method__readraw {id fd val} {
     set ::redis::readraw($id) $val
+}
+
+proc ::redis::__method__attributes {id fd} {
+    set _ $::redis::attributes($id)
 }
 
 proc ::redis::redis_write {fd buf} {
@@ -286,8 +293,8 @@ proc ::redis::redis_read_reply {id fd} {
             * {return [redis_multi_bulk_read $id $fd]}
             % {return [redis_read_map $id $fd]}
             | {
-                # ignore attributes for now (nowhere to store them)
-                redis_read_map $id $fd
+                set attrib [redis_read_map $id $fd]
+                set ::redis::attributes($id) $attrib
                 continue
             }
             default {

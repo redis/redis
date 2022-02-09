@@ -1,20 +1,26 @@
 start_server {tags {"introspection"}} {
+    test "PING" {
+        assert_equal {PONG} [r ping]
+        assert_equal {redis} [r ping redis]
+        assert_error {*wrong number of arguments for 'ping' command} {r ping hello redis}
+    }
+
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
         set cl [split [r client list id $myid] "\r\n"]
-        assert_match "id=$myid*" [lindex $cl 0]
+        assert_match "id=$myid * cmd=client|list *" [lindex $cl 0]
     }
 
     test {CLIENT INFO} {
         r client info
-    } {*addr=*:* fd=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
 
     test {CLIENT KILL with illegal arguments} {
-        assert_error "ERR wrong number*" {r client kill}
+        assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
         assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
 
         assert_error "ERR*greater than 0*" {r client kill id str}
@@ -183,6 +189,7 @@ start_server {tags {"introspection"}} {
             pidfile
             syslog-ident
             appendfilename
+            appenddirname
             supervised
             syslog-facility
             databases
@@ -201,6 +208,12 @@ start_server {tags {"introspection"}} {
             cluster-port
             oom-score-adj
             oom-score-adj-values
+            enable-protected-configs
+            enable-debug-command
+            enable-module-command
+            dbfilename
+            logfile
+            dir
         }
 
         if {!$::tls} {
@@ -322,7 +335,7 @@ start_server {tags {"introspection"}} {
         # Set some value to maxmemory
         assert_equal [r config set maxmemory 10000002] "OK"
         # Set another value to maxmeory together with another invalid config
-        assert_error "ERR Config set failed - percentage argument must be less or equal to 100" {
+        assert_error "ERR CONFIG SET failed (possibly related to argument 'maxmemory-clients') - percentage argument must be less or equal to 100" {
             r config set maxmemory 10000001 maxmemory-clients 200% client-query-buffer-limit invalid
         }
         # Validate we rolled back to original values
@@ -375,7 +388,7 @@ start_server {tags {"introspection"}} {
 
         # Try to listen on the used port, pass some more configs to make sure the
         # returned failure message is for the first bad config and everything is rolled back.
-        assert_error "ERR Config set failed - Unable to listen on this port*" {
+        assert_error "ERR CONFIG SET failed (possibly related to argument 'port') - Unable to listen on this port*" {
             eval "r config set $some_configs"
         }
 
@@ -402,6 +415,83 @@ start_server {tags {"introspection"}} {
         assert_error "ERR*immutable*" {r config set daemonize yes}
     }
 
+    test {CONFIG GET hidden configs} {
+        set hidden_config "key-load-delay"
+
+        # When we use a pattern we shouldn't get the hidden config
+        assert {![dict exists [r config get *] $hidden_config]}
+
+        # When we explicitly request the hidden config we should get it
+        assert {[dict exists [r config get $hidden_config] "$hidden_config"]}
+    }
+
+    test {CONFIG GET multiple args} {
+        set res [r config get maxmemory maxmemory* bind *of]
+        
+        # Verify there are no duplicates in the result
+        assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
+        
+        # Verify we got both name and alias in result
+        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
+
+        # Verify pattern found multiple maxmemory* configs
+        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify we also got the explicit config
+        assert {[dict exists $res bind]}  
+    }
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
+
+start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
+    test {cannot modify protected configuration - no} {
+        assert_error "ERR*protected*" {r config set dir somedir}
+        assert_error "ERR*DEBUG command not allowed*" {r DEBUG HELP}
+    } {} {needs:debug}
+}
+
+start_server {config "minimal.conf" tags {"introspection external:skip"} overrides {protected-mode {no} enable-protected-configs {local} enable-debug-command {local}}} {
+    test {cannot modify protected configuration - local} {
+        # verify that for local connection it doesn't error
+        r config set dbfilename somename
+        r DEBUG HELP
+
+        # Get a non-loopback address of this instance for this test.
+        set myaddr [get_nonloopback_addr]
+        if {$myaddr != "" && ![string match {127.*} $myaddr]} {
+            # Non-loopback client should fail
+            set r2 [get_nonloopback_client]
+            assert_error "ERR*protected*" {$r2 config set dir somedir}
+            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG HELP}
+        }
+    } {} {needs:debug}
+}
+
+test {config during loading} {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
+        # create a big rdb that will take long to load. it is important
+        # for keys to be big since the server processes events only once in 2mb.
+        # 100mb of rdb, 100k keys will load in more than 5 seconds
+        r debug populate 100000 key 1000
+
+        restart_server 0 false false
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # verify some configs are allowed during loading
+        r config set loglevel debug
+        assert_equal [lindex [r config get loglevel] 1] debug
+
+        # verify some configs are forbidden during loading
+        assert_error {LOADING*} {r config set dir asdf}
+
+        # make sure it's still loading
+        assert_equal [s loading] 1
+
+        # no need to keep waiting for loading to complete
+        exec kill [srv 0 pid]
+    }
+} {} {external:skip}
