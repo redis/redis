@@ -4133,8 +4133,7 @@ void sentinelInfoCommand(client *c) {
         sections_dict = cached_all_info_sectoins;
     }
 
-    sds info = sdsempty();
-    info = genRedisInfoString(sections_dict, 0, 0);
+    sds info = genRedisInfoString(sections_dict, 0, 0);
     if (sec_all || (dictFind(sections_dict, "sentinel") != NULL)) {
         dictIterator *di;
         dictEntry *de;
