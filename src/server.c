@@ -2931,6 +2931,21 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+void incrCommandRefCount(struct redisCommand *cmd) {
+    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
+    cmd->refcount++;
+}
+
+void decrCommandRefCount(struct redisCommand *cmd) {
+    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
+    serverAssert(cmd->refcount > 0);
+    if (--cmd->refcount == 0) {
+        sdsfree((sds)cmd->declared_name);
+        sdsfree(cmd->fullname);
+        zfree(cmd);
+    }
+}
+
 static int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;
@@ -3434,7 +3449,9 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    decrCommandRefCount(c->lastcmd);
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
+    incrCommandRefCount(c->lastcmd);
     if (!c->cmd) {
         if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command

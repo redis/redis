@@ -2218,6 +2218,8 @@ struct redisCommand {
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
+    int refcount; /* Only used for safe free of module commands, in case
+                   * the module is unloaded while it is still referenced. */
 };
 
 struct redisError {
@@ -2821,6 +2823,8 @@ struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
+void incrCommandRefCount(struct redisCommand *cmd);
+void decrCommandRefCount(struct redisCommand *cmd);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();

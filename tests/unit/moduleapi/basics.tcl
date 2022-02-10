@@ -32,6 +32,24 @@ start_server {tags {"modules"}} {
     test "Unload the module - test" {
         assert_equal {OK} [r module unload test]
     }
+
+    test "Unload the module in multi - test" {
+        r module load $testmodule
+        r multi
+        r module unload test
+        r test.basics
+        assert_error {*Invalid command: test.basics*} {r exec}
+    }
+
+    test "Unload the module when module command already in multi queue - test" {
+        set rd [redis_deferring_client]
+
+        r module load $testmodule
+        r multi
+        r test.basics
+        $rd module unload test
+        assert_error {*Invalid command: test.basics*} {r exec}
+    }
 }
 
 start_server {tags {"modules external:skip"} overrides {enable-module-command no}} {

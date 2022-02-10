@@ -50,6 +50,7 @@ void freeClientMultiState(client *c) {
 
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
+        decrCommandRefCount(mc->cmd);
         zfree(mc->argv);
     }
     zfree(c->mstate.commands);
@@ -70,6 +71,7 @@ void queueMultiCommand(client *c) {
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
+    incrCommandRefCount(mc->cmd);
     mc->argc = c->argc;
     mc->argv = c->argv;
     mc->argv_len = c->argv_len;
@@ -190,6 +192,12 @@ void execCommand(client *c) {
         c->argv = c->mstate.commands[j].argv;
         c->argv_len = c->mstate.commands[j].argv_len;
         c->cmd = c->mstate.commands[j].cmd;
+
+        if (c->cmd->refcount == 1) {
+            addReplyErrorFormat(c, "Invalid command: %s, the module of this command have been unloaded",
+                                c->cmd->fullname);
+            continue;
+        }
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */

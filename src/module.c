@@ -1039,6 +1039,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
     cp->rediscmd->failed_calls = 0;
+    cp->rediscmd->refcount = 1;
     return cp;
 }
 
@@ -5570,7 +5571,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = ENOENT;
         goto cleanup;
     }
+    decrCommandRefCount(c->lastcmd);
     c->cmd = c->lastcmd = cmd;
+    incrCommandRefCount(c->lastcmd);
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
@@ -10592,9 +10595,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
 
         serverAssert(dictDelete(server.commands, cmd->fullname) == DICT_OK);
         serverAssert(dictDelete(server.orig_commands, cmd->fullname) == DICT_OK);
-        sdsfree((sds)cmd->declared_name);
-        sdsfree(cmd->fullname);
-        zfree(cmd);
+        decrCommandRefCount(cmd);
     }
     dictReleaseIterator(di);
 }
