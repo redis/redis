@@ -4,7 +4,7 @@
 #
 # Example usage:
 #
-# set c [redis_cluster 127.0.0.1 6379 127.0.0.1 6380]
+# set c [redis_cluster {127.0.0.1:6379 127.0.0.1:6380}]
 # $c set foo
 # $c get foo
 # $c close
@@ -13,10 +13,12 @@ package require Tcl 8.5
 package provide redis_cluster 0.1
 
 namespace eval redis_cluster {}
+set ::redis_cluster::internal_id 0
 set ::redis_cluster::id 0
 array set ::redis_cluster::startup_nodes {}
 array set ::redis_cluster::nodes {}
 array set ::redis_cluster::slots {}
+array set ::redis_cluster::tls {}
 
 # List of "plain" commands, which are commands where the sole key is always
 # the first argument.
@@ -24,21 +26,25 @@ set ::redis_cluster::plain_commands {
     get set setnx setex psetex append strlen exists setbit getbit
     setrange getrange substr incr decr rpush lpush rpushx lpushx
     linsert rpop lpop brpop llen lindex lset lrange ltrim lrem
-    sadd srem sismember scard spop srandmember smembers sscan zadd
+    sadd srem sismember smismember scard spop srandmember smembers sscan zadd
     zincrby zrem zremrangebyscore zremrangebyrank zremrangebylex zrange
     zrangebyscore zrevrangebyscore zrangebylex zrevrangebylex zcount
-    zlexcount zrevrange zcard zscore zrank zrevrank zscan hset hsetnx
+    zlexcount zrevrange zcard zscore zmscore zrank zrevrank zscan hset hsetnx
     hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
-    dump bitcount bitpos pfadd pfcount
+    dump bitcount bitpos pfadd pfcount cluster ssubscribe spublish
+    sunsubscribe
 }
 
-proc redis_cluster {nodes} {
+# Create a cluster client. The nodes are given as a list of host:port. The TLS
+# parameter (1 or 0) is optional and defaults to the global $::tls.
+proc redis_cluster {nodes {tls -1}} {
     set id [incr ::redis_cluster::id]
     set ::redis_cluster::startup_nodes($id) $nodes
     set ::redis_cluster::nodes($id) {}
     set ::redis_cluster::slots($id) {}
+    set ::redis_cluster::tls($id) [expr $tls == -1 ? $::tls : $tls]
     set handle [interp alias {} ::redis_cluster::instance$id {} ::redis_cluster::__dispatch__ $id]
     $handle refresh_nodes_map
     return $handle
@@ -60,9 +66,10 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
     foreach start_node $::redis_cluster::startup_nodes($id) {
         set ip_port [lindex [split $start_node @] 0]
         lassign [split $ip_port :] start_host start_port
+        set tls $::redis_cluster::tls($id)
         if {[catch {
             set r {}
-            set r [redis $start_host $start_port]
+            set r [redis $start_host $start_port 0 $tls]
             set nodes_descr [$r cluster nodes]
             $r close
         } e]} {
@@ -107,11 +114,13 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
 
         # Connect to the node
         set link {}
-        catch {set link [redis $host $port]}
+        set tls $::redis_cluster::tls($id)
+        catch {set link [redis $host $port 0 $tls]}
 
         # Build this node description as an hash.
         set node [dict create \
             id $nodeid \
+            internal_id $id \
             addr $addr \
             host $host \
             port $port \
@@ -161,7 +170,30 @@ proc ::redis_cluster::__method__close {id} {
     catch {unset ::redis_cluster::startup_nodes($id)}
     catch {unset ::redis_cluster::nodes($id)}
     catch {unset ::redis_cluster::slots($id)}
+    catch {unset ::redis_cluster::tls($id)}
     catch {interp alias {} ::redis_cluster::instance$id {}}
+}
+
+proc ::redis_cluster::__method__masternode_for_slot {id slot} {
+    # Get the node mapped to this slot.
+    set node_addr [dict get $::redis_cluster::slots($id) $slot]
+    if {$node_addr eq {}} {
+        error "No mapped node for slot $slot."
+    }
+    return [dict get $::redis_cluster::nodes($id) $node_addr]
+}
+
+proc ::redis_cluster::__method__masternode_notfor_slot {id slot} {
+    # Get a node that is not mapped to this slot.
+    set node_addr [dict get $::redis_cluster::slots($id) $slot]
+    set addrs [dict keys $::redis_cluster::nodes($id)]
+    foreach addr [lshuffle $addrs] {
+        set node [dict get $::redis_cluster::nodes($id) $addr]
+        if {$node_addr ne $addr && [dict get $node slaveof] eq "-"} {
+            return $node
+        }
+    }
+    error "Slot $slot is everywhere"
 }
 
 proc ::redis_cluster::__dispatch__ {id method args} {
@@ -186,10 +218,15 @@ proc ::redis_cluster::__dispatch__ {id method args} {
 
         # Execute the command in the node we think is the slot owner.
         set retry 100
+        set asking 0
         while {[incr retry -1]} {
             if {$retry < 5} {after 100}
             set node [dict get $::redis_cluster::nodes($id) $node_addr]
             set link [dict get $node link]
+            if {$asking} {
+                $link ASKING
+                set asking 0
+            }
             if {[catch {$link $method {*}$args} e]} {
                 if {$link eq {} || \
                     [string range $e 0 4] eq {MOVED} || \
@@ -202,6 +239,7 @@ proc ::redis_cluster::__dispatch__ {id method args} {
                 } elseif {[string range $e 0 2] eq {ASK}} {
                     # ASK redirection.
                     set node_addr [lindex $e 2]
+                    set asking 1
                     continue
                 } else {
                     # Non redirecting error.
@@ -230,6 +268,7 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
         mget {return $argv}
         eval {return [lrange $argv 2 1+[lindex $argv 1]]}
         evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
+        spublish {return [list [lindex $argv 1]]}
     }
 
     # All the remaining commands are not handled.
@@ -286,8 +325,29 @@ proc ::redis_cluster::crc16 {s} {
 # Hash a single key returning the slot it belongs to, Implemented hash
 # tags as described in the Redis Cluster specification.
 proc ::redis_cluster::hash {key} {
-    # TODO: Handle hash slots.
-    expr {[::redis_cluster::crc16 $key] & 16383}
+    set keylen [string length $key]
+    set s {}
+    set e {}
+    for {set s 0} {$s < $keylen} {incr s} {
+        if {[string index $key $s] eq "\{"} break
+    }
+
+    if {[expr {$s == $keylen}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    for {set e [expr {$s+1}]} {$e < $keylen} {incr e} {
+        if {[string index $key $e] == "\}"} break
+    }
+
+    if {$e == $keylen || $e == [expr {$s+1}]} {
+        set res [expr {[crc16 $key] & 16383}]
+        return $res
+    }
+
+    set key_sub [string range $key [expr {$s+1}] [expr {$e-1}]]
+    return [expr {[crc16 $key_sub] & 16383}]
 }
 
 # Return the slot the specified keys hash to.

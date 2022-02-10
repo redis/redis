@@ -1,0 +1,58 @@
+{
+    "SRANDMEMBER": {
+        "summary": "Get one or multiple random members from a set",
+        "complexity": "Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "srandmemberCommand",
+        "history": [
+            [
+                "2.6.0",
+                "Added the optional `count` argument."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true,
+                "since": "2.6.0"
+            }
+        ]
+    }
+}

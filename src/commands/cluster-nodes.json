@@ -1,0 +1,17 @@
+{
+    "NODES": {
+        "summary": "Get Cluster config for the node",
+        "complexity": "O(N) where N is the total number of Cluster nodes",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 2,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

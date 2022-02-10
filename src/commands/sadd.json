@@ -1,0 +1,56 @@
+{
+    "SADD": {
+        "summary": "Add one or more members to a set",
+        "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -3,
+        "function": "saddCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple `member` arguments."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -1,10 +1,14 @@
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            after 1000
-            s -1 role
-        } {slave}
+            wait_replica_online r
+            wait_for_condition 50 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
 
         test {If min-slaves-to-write is honored, write is accepted} {
             r config set min-slaves-to-write 1
@@ -13,7 +17,7 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {12345}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
@@ -31,22 +35,24 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {12345}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
         test {No write if min-slaves-max-lag is > of the slave lag} {
-            r -1 deferred 1
             r config set min-slaves-to-write 1
             r config set min-slaves-max-lag 2
-            r -1 debug sleep 6
+            exec kill -SIGSTOP [srv -1 pid]
             assert {[r set foo 12345] eq {OK}}
-            after 4000
+            wait_for_condition 100 100 {
+                [catch {r set foo 12345}] != 0
+            } else {
+                fail "Master didn't become readonly"
+            }
             catch {r set foo 12345} err
-            assert {[r -1 read] eq {OK}}
-            r -1 deferred 0
-            set err
-        } {NOREPLICAS*}
+            assert_match {NOREPLICAS*} $err
+        }
+        exec kill -SIGCONT [srv -1 pid]
 
         test {min-slaves-to-write is ignored by slaves} {
             r config set min-slaves-to-write 1
@@ -57,7 +63,7 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {aaabbb}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
@@ -78,7 +84,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]

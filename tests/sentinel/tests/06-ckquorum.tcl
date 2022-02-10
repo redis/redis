@@ -20,15 +20,23 @@ test "CKQUORUM detects quorum cannot be reached" {
 test "CKQUORUM detects failover authorization cannot be reached" {
     set orig_quorum [expr {$num_sentinels/2+1}]
     S 0 SENTINEL SET mymaster quorum 1
-    kill_instance sentinel 1
-    kill_instance sentinel 2
-    kill_instance sentinel 3
-    after 5000
-    catch {[S 0 SENTINEL CKQUORUM mymaster]} err
-    assert_match "*NOQUORUM*" $err
+    for {set i 0} {$i < $orig_quorum} {incr i} {
+        kill_instance sentinel [expr {$i + 1}]
+    }
+
+    # We need to make sure that other sentinels are in `DOWN` state
+    # from the point of view of S 0 before we executing `CKQUORUM`.
+    wait_for_condition 300 50 {
+        [catch {S 0 SENTINEL CKQUORUM mymaster}] == 1
+    } else {
+        fail "At least $orig_quorum sentinels did not enter the down state."
+    }
+
+    assert_error "*NOQUORUM*" {S 0 SENTINEL CKQUORUM mymaster}
+
     S 0 SENTINEL SET mymaster quorum $orig_quorum
-    restart_instance sentinel 1
-    restart_instance sentinel 2
-    restart_instance sentinel 3
+    for {set i 0} {$i < $orig_quorum} {incr i} {
+        restart_instance sentinel [expr {$i + 1}]
+    }
 }
 

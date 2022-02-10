@@ -1,0 +1,21 @@
+{
+    "LEN": {
+        "summary": "Get the slow log's length",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.2.12",
+        "arity": 2,
+        "container": "SLOWLOG",
+        "function": "slowlogCommand",
+        "command_flags": [
+            "ADMIN",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:AGG_SUM",
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

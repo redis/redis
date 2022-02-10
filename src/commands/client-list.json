@@ -1,0 +1,82 @@
+{
+    "LIST": {
+        "summary": "Get the list of client connections",
+        "complexity": "O(N) where N is the number of client connections",
+        "group": "connection",
+        "since": "2.4.0",
+        "arity": -2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "history": [
+            [
+                "2.8.12",
+                "Added unique client `id` field."
+            ],
+            [
+                "5.0.0",
+                "Added optional `TYPE` filter."
+            ],
+            [
+                "6.2.0",
+                "Added `laddr` field and the optional `ID` filter."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "token": "TYPE",
+                "name": "normal_master_replica_pubsub",
+                "type": "oneof",
+                "optional": true,
+                "since": "5.0.0",
+                "arguments": [
+                    {
+                        "name": "normal",
+                        "type": "pure-token",
+                        "token": "normal"
+                    },
+                    {
+                        "name": "master",
+                        "type": "pure-token",
+                        "token": "master"
+                    },
+                    {
+                        "name": "replica",
+                        "type": "pure-token",
+                        "token": "replica"
+                    },
+                    {
+                        "name": "pubsub",
+                        "type": "pure-token",
+                        "token": "pubsub"
+                    }
+                ]
+            },
+            {
+                "name": "id",
+                "token": "ID",
+                "type": "block",
+                "optional": true,
+                "since": "6.2.0",
+                "arguments": [
+                    {
+                        "name": "client-id",
+                        "type": "integer",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,49 @@
+{
+    "HMGET": {
+        "summary": "Get the values of all the given hash fields",
+        "complexity": "O(N) where N is the number of fields being requested.",
+        "group": "hash",
+        "since": "2.0.0",
+        "arity": -3,
+        "function": "hmgetCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "field",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

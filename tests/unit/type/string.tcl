@@ -102,21 +102,108 @@ start_server {tags {"string"}} {
         assert_equal 20 [r get x]
     }
 
+    test "GETEX EX option" {
+        r del foo
+        r set foo bar
+        r getex foo ex 10
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "GETEX PX option" {
+        r del foo
+        r set foo bar
+        r getex foo px 10000
+        assert_range [r pttl foo] 5000 10000
+    }
+
+    test "GETEX EXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo exat [expr [clock seconds] + 10]
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "GETEX PXAT option" {
+        r del foo
+        r set foo bar
+        r getex foo pxat [expr [clock milliseconds] + 10000]
+        assert_range [r pttl foo] 5000 10000
+    }
+
+    test "GETEX PERSIST option" {
+        r del foo
+        r set foo bar ex 10
+        assert_range [r ttl foo] 5 10
+        r getex foo persist
+        assert_equal -1 [r ttl foo]
+    }
+
+    test "GETEX no option" {
+        r del foo
+        r set foo bar
+        r getex foo
+        assert_equal bar [r getex foo]
+    }
+
+    test "GETEX syntax errors" {
+        set ex {}
+        catch {r getex foo non-existent-option} ex
+        set ex
+    } {*syntax*}
+
+    test "GETEX no arguments" {
+         set ex {}
+         catch {r getex} ex
+         set ex
+     } {*wrong number of arguments for 'getex' command}
+
+    test "GETDEL command" {
+        r del foo
+        r set foo bar
+        assert_equal bar [r getdel foo ]
+        assert_equal {} [r getdel foo ]
+    }
+
+    test {GETDEL propagate as DEL command to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getdel foo
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {GETEX without argument does not propagate to replica} {
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r getex foo
+        r del foo
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+            {del foo}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {MGET} {
         r flushdb
-        r set foo BAR
-        r set bar FOO
-        r mget foo bar
+        r set foo{t} BAR
+        r set bar{t} FOO
+        r mget foo{t} bar{t}
     } {BAR FOO}
 
     test {MGET against non existing key} {
-        r mget foo baazz bar
+        r mget foo{t} baazz{t} bar{t}
     } {BAR {} FOO}
 
     test {MGET against non-string key} {
-        r sadd myset ciao
-        r sadd myset bau
-        r mget foo baazz bar myset
+        r sadd myset{t} ciao
+        r sadd myset{t} bau
+        r mget foo{t} baazz{t} bar{t} myset{t}
     } {BAR {} FOO {}}
 
     test {GETSET (set new value)} {
@@ -130,21 +217,21 @@ start_server {tags {"string"}} {
     } {bar xyz}
 
     test {MSET base case} {
-        r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
-        r mget x y z
+        r mset x{t} 10 y{t} "foo bar" z{t} "x x x x x x x\n\n\r\n"
+        r mget x{t} y{t} z{t}
     } [list 10 {foo bar} "x x x x x x x\n\n\r\n"]
 
-    test {MSET wrong number of args} {
-        catch {r mset x 10 y "foo bar" z} err
-        format $err
-    } {*wrong number*}
+    test {MSET/MSETNX wrong number of args} {
+        assert_error {*wrong number of arguments for 'mset' command} {r mset x{t} 10 y{t} "foo bar" z{t}}
+        assert_error {*wrong number of arguments for 'msetnx' command} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
+    }
 
     test {MSETNX with already existent key} {
-        list [r msetnx x1 xxx y2 yyy x 20] [r exists x1] [r exists y2]
+        list [r msetnx x1{t} xxx y2{t} yyy x{t} 20] [r exists x1{t}] [r exists y2{t}]
     } {0 0 0}
 
     test {MSETNX with not existing keys} {
-        list [r msetnx x1 xxx y2 yyy] [r get x1] [r get y2]
+        list [r msetnx x1{t} xxx y2{t} yyy] [r get x1{t}] [r get y2{t}]
     } {1 xxx yyy}
 
     test "STRLEN against non-existing key" {
@@ -394,6 +481,59 @@ start_server {tags {"string"}} {
         list $v1 $v2 [r get foo]
     } {{} OK 2}
 
+    test {Extended SET GET option} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo bar2 GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar2}
+
+    test {Extended SET GET option with no previous value} {
+        r del foo
+        set old_value [r set foo bar GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET option with XX} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
+    test {Extended SET GET option with XX and no previous value} {
+        r del foo
+        set old_value [r set foo bar GET XX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} {}}
+
+    test {Extended SET GET option with NX} {
+        r del foo
+        set old_value [r set foo bar GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {{} bar}
+
+    test {Extended SET GET option with NX and previous value} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET NX]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar bar}
+
+    test {Extended SET GET with incorrect type should result in wrong type error} {
+      r del foo
+      r rpush foo waffle
+      catch {r set foo bar GET} err1
+      assert_equal "waffle" [r rpop foo]
+      set err1
+    } {*WRONGTYPE*}
+
     test {Extended SET EX option} {
         r del foo
         r set foo bar ex 10
@@ -408,6 +548,17 @@ start_server {tags {"string"}} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test "Extended SET EXAT option" {
+        r del foo
+        r set foo bar exat [expr [clock seconds] + 10]
+        assert_range [r ttl foo] 5 10
+    }
+
+    test "Extended SET PXAT option" {
+        r del foo
+        r set foo bar pxat [expr [clock milliseconds] + 10000]
+        assert_range [r ttl foo] 5 10
+    }
     test {Extended SET using multiple options at once} {
         r set foo val
         assert {[r set foo bar xx px 10000] eq {OK}}
@@ -419,4 +570,32 @@ start_server {tags {"string"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+
+    set rna1 {CACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTTCGTCCGGGTGTG}
+    set rna2 {ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
+    set rnalcs {ACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTGTTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCACGCAGTATAATTAATAACTAATTACTGTCGTTGACAGGACACGAGTAACTCGTCTATCTTCTGCAGGCTGCTTACGGTTTCGTCCGTGTTGCAGCCGATCATCAGCACATCTAGGTTT}
+
+    test {LCS basic} {
+        r set virus1{t} $rna1
+        r set virus2{t} $rna2
+        r LCS virus1{t} virus2{t}
+    } $rnalcs
+
+    test {LCS len} {
+        r set virus1{t} $rna1
+        r set virus2{t} $rna2
+        r LCS virus1{t} virus2{t} LEN
+    } [string length $rnalcs]
+
+    test {LCS indexes} {
+        dict get [r LCS virus1{t} virus2{t} IDX] matches
+    } {{{238 238} {239 239}} {{236 236} {238 238}} {{229 230} {236 237}} {{224 224} {235 235}} {{1 222} {13 234}}}
+
+    test {LCS indexes with match len} {
+        dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN] matches
+    } {{{238 238} {239 239} 1} {{236 236} {238 238} 1} {{229 230} {236 237} 2} {{224 224} {235 235} 1} {{1 222} {13 234} 222}}
+
+    test {LCS indexes with match len and minimum match len} {
+        dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
+    } {{{1 222} {13 234} 222}}
 }

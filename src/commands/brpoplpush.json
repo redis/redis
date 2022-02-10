@@ -1,0 +1,85 @@
+{
+    "BRPOPLPUSH": {
+        "summary": "Pop an element from a list, push it to another list and return it; or block until one is available",
+        "complexity": "O(1)",
+        "group": "list",
+        "since": "2.2.0",
+        "arity": 4,
+        "function": "brpoplpushCommand",
+        "history": [
+            [
+                "6.0.0",
+                "`timeout` is interpreted as a double instead of an integer."
+            ]
+        ],
+        "deprecated_since": "6.2.0",
+        "replaced_by": "`BLMOVE` with the `RIGHT` and `LEFT` arguments",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "NOSCRIPT",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "source",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 1
+            },
+            {
+                "name": "timeout",
+                "type": "double"
+            }
+        ]
+    }
+}

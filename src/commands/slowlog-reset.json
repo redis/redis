@@ -1,0 +1,20 @@
+{
+    "RESET": {
+        "summary": "Clear all entries from the slow log",
+        "complexity": "O(N) where N is the number of entries in the slowlog",
+        "group": "server",
+        "since": "2.2.12",
+        "arity": 2,
+        "container": "SLOWLOG",
+        "function": "slowlogCommand",
+        "command_flags": [
+            "ADMIN",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ]
+    }
+}
