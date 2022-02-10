@@ -1419,8 +1419,9 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
     }
 
     if (err) {
-        addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
-                run_ctx->funcname, lua_tostring(lua,-1));
+        const char* errstr = lua_tostring(lua,-1);
+        addReplyErrorFormat(c,"-%s. Error running script (call to %s)",
+            errstr, run_ctx->funcname);
         lua_pop(lua,1); /* Consume the Lua reply and remove error handler. */
     } else {
         /* On success convert the Lua return value into Redis protocol, and

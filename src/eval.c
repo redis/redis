@@ -247,7 +247,7 @@ void scriptingInit(int setup) {
                                 "    i = dbg.getinfo(3,'nSl')\n"
                                 "  end\n"
                                 "  if i then\n"
-                                "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
+                                "    return err .. '. ' .. i.source .. ':' .. i.currentline\n"
                                 "  else\n"
                                 "    return err\n"
                                 "  end\n"
@@ -392,7 +392,7 @@ sds luaCreateFunction(client *c, robj *body) {
     if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
-                "Error compiling script (new function): %s\n",
+                "Error compiling script (new function): %s",
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
@@ -403,8 +403,9 @@ sds luaCreateFunction(client *c, robj *body) {
 
     if (lua_pcall(lctx.lua,0,0,0)) {
         if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s\n",
-                lua_tostring(lctx.lua,-1));
+            const char* errstr = lua_tostring(lctx.lua,-1);
+            addReplyErrorFormat(c,"-%s. Error running script (new function)",
+                errstr);
         }
         lua_pop(lctx.lua,1);
         return NULL;

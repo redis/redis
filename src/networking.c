@@ -439,6 +439,10 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
+    /* If the script handles the error, it should not be counted, if it'll return the error to the client, then it'll be counted. */
+    if (c->flags & CLIENT_SCRIPT)
+        return;
+
     /* Increment the global error counter */
     server.stat_total_error_replies++;
     /* Increment the error stats

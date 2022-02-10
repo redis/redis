@@ -476,7 +476,7 @@ int luaEngineInitEngine() {
                             "    i = dbg.getinfo(3,'nSl')\n"
                             "  end\n"
                             "  if i then\n"
-                            "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
+                            "    return err .. '. ' .. i.source .. ':' .. i.currentline\n"
                             "  else\n"
                             "    return err\n"
                             "  end\n"
