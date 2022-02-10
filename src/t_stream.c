@@ -1608,7 +1608,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
  * that was consumed by XREADGROUP with the NOACK option: in that case we can't
  * propagate the last ID just using the XCLAIM LASTID option, so we emit
  *
- *  XGROUP SETID <key> <groupname> <id> <offset>
+ *  XGROUP SETID <key> <groupname> <id> <entries_read>
  */
 void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupname) {
     robj *argv[6];
@@ -2497,10 +2497,10 @@ void streamFreeConsumer(streamConsumer *sc) {
 }
 
 /* Create a new consumer group in the context of the stream 's', having the
- * specified name, last server ID and its offset. If a consumer group with the
- * same name already exists NULL is returned, otherwise the pointer to the
+ * specified name, last server ID and reads counter. If a consumer group with
+ * the same name already exists NULL is returned, otherwise the pointer to the
  * consumer group is returned. */
-streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, uint64_t offset) {
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, uint64_t entries_read) {
     if (s->cgroups == NULL) s->cgroups = raxNew();
     if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
         return NULL;
@@ -2509,7 +2509,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, ui
     cg->pel = raxNew();
     cg->consumers = raxNew();
     cg->last_id = *id;
-    cg->entries_read = offset;
+    cg->entries_read = entries_read;
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
 }
@@ -2600,7 +2600,7 @@ void xgroupCommand(client *c) {
     streamCG *cg = NULL;
     char *opt = c->argv[1]->ptr; /* Subcommand name. */
     int mkstream = 0;
-    long long offset = 0;
+    long long entries_read = 0;
     robj *o;
 
     /* CREATE has an MKSTREAM option that creates the stream if it
@@ -2612,11 +2612,11 @@ void xgroupCommand(client *c) {
             if (!strcasecmp(c->argv[i]->ptr,"MKSTREAM")) {
                 mkstream = 1;
                 i++;
-            } else if (!strcasecmp(c->argv[i]->ptr,"OFFSET") && i + 1 < c->argc) {
-                if (getLongLongFromObjectOrReply(c,c->argv[i+1],&offset,NULL) != C_OK) {
+            } else if (!strcasecmp(c->argv[i]->ptr,"ENTRIESREAD") && i + 1 < c->argc) {
+                if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_read,NULL) != C_OK) {
                     return;
-                } else if (offset < 0) {
-                    addReplyError(c,"offset must be positive");
+                } else if (entries_read < 0) {
+                    addReplyError(c,"entries_read must be positive");
                     return;
                 }
                 i = i + 2;
@@ -2669,7 +2669,7 @@ void xgroupCommand(client *c) {
 "    Create a new consumer group. Options are:",
 "    * MKSTREAM",
 "      Create the empty stream if it does not exist.",
-"    * OFFSET offset",
+"    * ENTRIESREAD entries_read",
 "      Set the group's offset (internal use)."
 "CREATECONSUMER <key> <groupname> <consumer>",
 "    Create a new consumer in the specified group.",
@@ -2705,11 +2705,11 @@ NULL
         }
 
         /* Handle missing/invalid read counter for the group. */
-        if (!offset || (uint64_t)offset > s->entries_added) {
-            offset = streamEstimateDistanceFromFirstEverEntry(s,&id);
+        if (!entries_read || (uint64_t)entries_read > s->entries_added) {
+            entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
         }
 
-        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,offset);
+        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
             addReply(c,shared.ok);
             server.dirty++;
@@ -2725,18 +2725,8 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
-        if (c->argc == 6) {
-            if (getLongLongFromObjectOrReply(c,c->argv[5],&offset,NULL) != C_OK) {
-                return;
-            } else if (offset < 0) {
-                addReplyError(c,"offset must be positive");
-                return;
-            }
-        } else {
-            offset = 0;
-        }
         cg->last_id = id;
-        cg->entries_read = (uint64_t)offset;
+        cg->entries_read = (uint64_t)entries_read;
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -3754,7 +3744,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
                 addReplyBulkCString(c,"last-delivered-id");
                 addReplyStreamID(c,&cg->last_id);
 
-                /* Offset of the last delivered ID */
+                /* Read counter of the last delivered ID */
                 addReplyBulkCString(c,"entries-read");
                 addReplyLongLong(c,cg->entries_read);
 

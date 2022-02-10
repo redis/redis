@@ -65,7 +65,7 @@
                 ]
             },
             {
-                "name": "offset",
+                "name": "entries_read",
                 "type": "integer",
                 "optional": true
             }

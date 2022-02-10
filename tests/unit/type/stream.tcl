@@ -762,7 +762,7 @@ start_server {tags {"stream xsetid"}} {
         r XSETID mystream "200-0"
         set reply [r XINFO stream mystream]
         assert_equal [dict get $reply last-generated-id] "200-0"
-        assert_equal [dict get $reply last-offset] 1
+        assert_equal [dict get $reply entries-added] 1
     }
 
     test {XSETID cannot SETID with smaller ID} {
@@ -790,7 +790,7 @@ start_server {tags {"stream xsetid"}} {
     test {XSETID errors on negstive offset} {
         catch {r XSETID stream 1-1 -1 0-0} err
         set _ $err
-    } {ERR offset must be positive}
+    } {ERR*must be positive}
 
     test {XSETID cannot set the maximal tombstone with larger ID} {
         r DEL x
@@ -817,7 +817,7 @@ start_server {tags {"stream offset"}} {
         r XADD x 1-0 data a
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [dict get $reply last-offset] 1
+        assert_equal [dict get $reply entries-added] 1
     }
     
     test {Maxmimum XDEL ID behaves correctly} {
@@ -827,15 +827,15 @@ start_server {tags {"stream offset"}} {
         r XADD x 3-0 data c
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [dict get $reply xdel-max-id] "0-0"
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
 
         r XDEL x 2-0
         set reply [r XINFO STREAM x FULL]
-        assert_equal [dict get $reply xdel-max-id] "2-0"
+        assert_equal [dict get $reply max-deleted-entry-id] "2-0"
 
         r XDEL x 1-0
         set reply [r XINFO STREAM x FULL]
-        assert_equal [dict get $reply xdel-max-id] "2-0"
+        assert_equal [dict get $reply max-deleted-entry-id] "2-0"
     }
 }
 

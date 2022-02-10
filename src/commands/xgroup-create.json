@@ -72,8 +72,8 @@
                 "optional": true
             },
             {
-                "token": "OFFSET",
-                "name": "offset",
+                "token": "ENTRIESREAD",
+                "name": "entries_read",
                 "type": "integer",
                 "optional": true
             }

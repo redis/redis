@@ -2033,7 +2033,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkObject(r,key) ||
                 !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
                 !rioWriteBulkStreamID(r,&group->last_id) ||
-                !rioWriteBulkString(r,"OFFSET",6) ||
+                !rioWriteBulkString(r,"ENTRIESREAD",11) ||
                 !rioWriteBulkLongLong(r,(long long)group->entries_read)) 
             {
                 raxStop(&ri);

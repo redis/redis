@@ -56,11 +56,11 @@
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "offset",
+                        "name": "entries_added",
                         "type": "integer"
                     },
                     {
-                        "name": "max_xdel_id",
+                        "name": "max_deleted_entry_id",
                         "type": "string"
                     }
                 ]
