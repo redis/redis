@@ -1616,8 +1616,14 @@ void logCurrentClient(void) {
         robj *decoded;
 
         decoded = getDecodedObject(cc->argv[j]);
+        size_t repr_len = sdslen(decoded->ptr);
+        if (repr_len > 128) {
+            repr_len = 128;
+        }
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, repr_len);
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)decoded->ptr);
+            (char*)repr);
+        sdsfree(repr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
