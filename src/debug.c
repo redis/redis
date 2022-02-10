@@ -1614,15 +1614,9 @@ void logCurrentClient(void) {
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
-
         decoded = getDecodedObject(cc->argv[j]);
-        size_t repr_len = sdslen(decoded->ptr);
-        if (repr_len > 128) {
-            repr_len = 128;
-        }
-        sds repr = sdscatrepr(sdsempty(),decoded->ptr, repr_len);
-        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)repr);
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
         sdsfree(repr);
         decrRefCount(decoded);
     }
