@@ -705,8 +705,6 @@ start_server {
             set grpinfo [r xinfo groups mystream]
 
             r debug loadaof
-            set foo [r xinfo groups mystream]
-            puts $foo
             assert {[r xinfo groups mystream] == $grpinfo}
             set reply [r xinfo consumers mystream mygroup]
             set consumer_info [lindex $reply 0]

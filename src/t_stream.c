@@ -1465,10 +1465,10 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
         }
     } else {
         /* Attempt to retrieve the group's last ID logical read counter. */
-        uint64_t offset = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
-        if (offset) {
+        uint64_t entries_read = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
+        if (entries_read) {
             /* A valid counter was obtained. */
-            lag = s->entries_added - offset;
+            lag = s->entries_added - entries_read;
         } else {
             valid = 0;
         }
@@ -1537,7 +1537,7 @@ uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
             /* Return the exact counter of the first entry in the stream. */
             return s->entries_added - s->length + 1;
         } else {
-            /* The offset of an arbitrary ID in the stream is unknown. */
+            /* The add counter of an arbitrary ID in the stream is unknown. */
             return 0;
         }
     }
@@ -1661,9 +1661,10 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  *    function will not return it to the client.
  * 3. An entry in the pending list will be created for every entry delivered
  *    for the first time to this consumer.
- * 4. The group's offset is incremented if it is already valid and there are no
- *    future tombstones, or is invalidated (set to 0) otherwise. If the offset
- *    isn't valid to begin with, we try to obtain it for the last delivered ID.
+ * 4. The group's read counter is incremented if it is already valid and there
+ *    are no future tombstones, or is invalidated (set to 0) otherwise. If the
+ *    counter is invalid to begin with, we try to obtain it for the last
+ *    delivered ID.
  *
  * The behavior may be modified passing non-zero flags:
  *
@@ -1722,7 +1723,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             if (group->entries_read && streamRangeDoesNotContainTombstone(s,&id)) {
                 /* A valid (non-zero) counter and no future tombstones mean we
-                 * can increment the offset to keep tracking the group's
+                 * can increment the read counter to keep tracking the group's
                  * progress. */
                 group->entries_read++;
             } else if (s->entries_added) {
@@ -2589,8 +2590,8 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
  * Consumer groups commands
  * ----------------------------------------------------------------------- */
 
-/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [OFFSET offset]
- * XGROUP SETID <key> <groupname> <id or $> [offset]
+/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESADDED entries_added]
+ * XGROUP SETID <key> <groupname> <id or $> [entries_added]
  * XGROUP DESTROY <key> <groupname>
  * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
@@ -2670,15 +2671,15 @@ void xgroupCommand(client *c) {
 "    * MKSTREAM",
 "      Create the empty stream if it does not exist.",
 "    * ENTRIESREAD entries_read",
-"      Set the group's offset (internal use)."
+"      Set the group's entries_read counter (internal use)."
 "CREATECONSUMER <key> <groupname> <consumer>",
 "    Create a new consumer in the specified group.",
 "DELCONSUMER <key> <groupname> <consumer>",
 "    Remove the specified consumer.",
 "DESTROY <key> <groupname>",
 "    Remove the specified group.",
-"SETID <key> <groupname> <id|$> [offset]",
-"    Set the current group ID and offset.",
+"SETID <key> <groupname> <id|$> [entries_read]",
+"    Set the current group ID and entries_read counter.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2725,6 +2726,14 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
+        if (c->argc == 6) {
+            if (getLongLongFromObjectOrReply(c,c->argv[5],&entries_read,NULL) != C_OK) {
+                return;
+            } else if (entries_read < 0) {
+                addReplyError(c,"entries_read must be positive");
+                return;
+            }
+        }
         cg->last_id = id;
         cg->entries_read = (uint64_t)entries_read;
         addReply(c,shared.ok);
@@ -2765,13 +2774,13 @@ NULL
     }
 }
 
-/* XSETID <stream> <id> [added_entries max_deleted_entry_id]
+/* XSETID <stream> <id> [entries_added max_deleted_entry_id]
  *
  * Set the internal "last ID", "added entries" and "maximal deleted entry ID"
  * of a stream. */
 void xsetidCommand(client *c) {
     streamID id, max_xdel_id;
-    long long offset;
+    long long entries_added;
     int ext_form = (c->argc == 5);
 
     if (c->argc != 3 && c->argc != 5) {
@@ -2780,10 +2789,10 @@ void xsetidCommand(client *c) {
     }
     if (streamParseStrictIDOrReply(c,c->argv[2],&id,0,NULL) != C_OK) return;
     if (ext_form) {
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&offset,NULL) != C_OK) {
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&entries_added,NULL) != C_OK) {
             return;
-        } else if (offset < 0) {
-            addReplyError(c,"added_entries must be positive");
+        } else if (entries_added < 0) {
+            addReplyError(c,"entries_added must be positive");
             return;
         }
         if (streamParseStrictIDOrReply(c,c->argv[4],&max_xdel_id,0,NULL) != C_OK) {
@@ -2796,7 +2805,7 @@ void xsetidCommand(client *c) {
     } else {
         max_xdel_id.ms = 0;
         max_xdel_id.seq = 0;
-        offset = 0;
+        entries_added = 0;
     }
 
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
@@ -2816,17 +2825,17 @@ void xsetidCommand(client *c) {
             return;
         }
 
-        /* If an offset was provided, it can't be lower than the length. */
-        if (ext_form && s->length > (uint64_t)offset) {
-            addReplyError(c,"The offset specified in XSETID is smaller than the "
-                            "target stream length");
+        /* If an entries_added was provided, it can't be lower than the length. */
+        if (ext_form && s->length > (uint64_t)entries_added) {
+            addReplyError(c,"The entries_added specified in XSETID is smaller "
+                            "than the target stream length");
             return;
         }
     }
 
     s->last_id = id;
     if (ext_form) {
-        s->entries_added = (uint64_t)offset;
+        s->entries_added = (uint64_t)entries_added;
         s->max_deleted_entry_id = max_xdel_id;
     }
     addReply(c,shared.ok);
