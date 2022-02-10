@@ -47,11 +47,6 @@ void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
-typedef struct luaScript {
-    uint64_t flags;
-    robj *body;
-} luaScript;
-
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */

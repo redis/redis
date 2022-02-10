@@ -3071,6 +3071,11 @@ unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
 
+typedef struct luaScript {
+    uint64_t flags;
+    robj *body;
+} luaScript;
+
 /* Blocked clients */
 void processUnblockedClients(void);
 void blockClient(client *c, int btype);
