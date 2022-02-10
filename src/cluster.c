@@ -118,6 +118,20 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
+/* We use the following dictionary type to store nodeToSlotPair info,
+ * so it's like "node-id" -> list of slot pair numbers. */
+void dictListDestructor(dict *d, void *val);
+
+dictType clusterNodesToSlotDictType = {
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictListDestructor,         /* val destructor */
+        NULL          /* allow to expand */
+};
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -4948,6 +4962,162 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     setDeferredArrayLen(c, nested_replylen, nested_elements);
 }
 
+void addNodeDetailsToShardReply(client *c, clusterNode *node) {
+    /*
+     * Following information regarding a node is returned.
+     *
+     * 1. id (40 char len)
+     * 2. port
+     * 3. ip
+     * 4. hostname
+     * 5. endpoint
+     * 5. role
+     * 6. replication offset (in case of replica only).
+     */
+    int reply_cnt = 0;
+    void *node_replylen = addReplyDeferredLen(c);
+    addReplyBulkCString(c, "id");
+    addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+    reply_cnt++;
+    addReplyBulkCString(c, "port");
+    addReplyLongLong(c, node->port);
+    reply_cnt++;
+    addReplyBulkCString(c, "ip");
+    addReplyBulkCString(c, node->ip);
+    reply_cnt++;
+    if (node->hostname) {
+        addReplyBulkCString(c, "hostname");
+        addReplyBulkCString(c, node->hostname);
+        reply_cnt++;
+    }
+    const char *endpoint = getPreferredEndpoint(node);
+    if (!strcmp(endpoint, "")) {
+        addReplyBulkCString(c, "endpoint");
+        addReplyBulkCString(c, endpoint);
+        reply_cnt++;
+    }
+
+    addReplyBulkCString(c, "role");
+    if (nodeIsSlave(node)) {
+        addReplyBulkCString(c, "replica");
+        addReplyBulkCString(c, "replication-offset");
+        addReplyLongLong(c, node->repl_offset);
+        reply_cnt+=2;
+    } else {
+        addReplyBulkCString(c, "primary");
+        reply_cnt++;
+    }
+
+    addReplyBulkCString(c, "health");
+    const char *health_msg = NULL;
+    if (nodeFailed(node)) {
+        health_msg = "FAIL";
+    } else if (nodeIsSlave(node) && node->repl_offset == 0) {
+        health_msg = "LOADING";
+    } else {
+        health_msg = "ONLINE";
+    }
+    addReplyBulkCString(c, health_msg);
+    reply_cnt++;
+
+    setDeferredMapLen(c, node_replylen, reply_cnt);
+}
+
+void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slotInfo) {
+    addReplyMapLen(c, 2);
+    addReplyBulkCString(c,"slots");
+    uint16_t slotInfoCount = 0;
+    if (slotInfo != NULL) {
+        slotInfoCount = listLength(slotInfo);
+        addReplyArrayLen(c, slotInfoCount);
+        listIter li;
+        listRewind(slotInfo, &li);
+        listNode *ln;
+        while((ln = listNext(&li))) {
+            addReplyBulkSds(c, listNodeValue(ln));
+        }
+    } else {
+        addReplyArrayLen(c, slotInfoCount);
+    }
+    addReplyBulkCString(c,"nodes");
+    list *nodes_for_slot = clusterGetNodesServingMySlots(node);
+    if (nodes_for_slot != NULL) {
+        addReplyArrayLen(c, listLength(nodes_for_slot));
+        if (listLength(nodes_for_slot) != 0) {
+            listIter li;
+            listNode *ln;
+            listRewind(nodes_for_slot, &li);
+            while ((ln = listNext(&li))) {
+                clusterNode *node = listNodeValue(ln);
+                addNodeDetailsToShardReply(c, node);
+            }
+            listRelease(nodes_for_slot);
+        }
+    } else {
+        addReplyArrayLen(c, 0);
+    }
+}
+
+
+void clusterReplyShards(client *c) {
+    clusterNode *n = NULL;
+    int start = -1;
+    void *shard_replylen = addReplyDeferredLen(c);
+    int shard_cnt = 0;
+    dict *nodeToSlotPair = dictCreate(&clusterNodesToSlotDictType);
+    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
+        /* Find start node and slot id. */
+        if (n == NULL) {
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
+            continue;
+        }
+
+        /* Map the node (primary) to the slot (start,end) pair.  */
+        if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
+            sds name = sdsnewlen(n->name, CLUSTER_NAMELEN);
+            dictEntry *de = dictFind(nodeToSlotPair, name);
+            sdsfree(name);
+            list *slotPair;
+            if (de == NULL) {
+                slotPair = listCreate();
+                dictAdd(nodeToSlotPair, sdsnewlen(n->name, CLUSTER_NAMELEN), slotPair);
+            } else {
+                slotPair = dictGetVal(de);
+            }
+            if (start != i-1) {
+                listAddNodeTail(slotPair, sdscatfmt(sdsempty(), "%i-%i", start, i-1));
+            } else {
+                listAddNodeTail(slotPair, sdscatfmt(sdsempty(), "%i", start));
+            }
+            if (i == CLUSTER_SLOTS) break;
+            n = server.cluster->slots[i];
+            start = i;
+        }
+    }
+    dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
+    dictEntry *de;
+    while((de = dictNext(di)) != NULL) {
+        n = dictGetVal(de);
+        if (nodeIsSlave(n)) {
+            continue;
+        }
+        sds name = sdsnewlen(n->name, CLUSTER_NAMELEN);
+        dictEntry *node_to_slot_entry = dictFind(nodeToSlotPair, name);
+        sdsfree(name);
+        shard_cnt++;
+        if (node_to_slot_entry == NULL) {
+            addNodeReplyForClusterShard(c, n, NULL);
+        } else {
+            addNodeReplyForClusterShard(c, n, dictGetVal(node_to_slot_entry));
+        }
+    }
+    dictReleaseIterator(di);
+    dictRelease(nodeToSlotPair);
+    setDeferredArrayLen(c, shard_replylen, shard_cnt);
+}
+
 void clusterReplyMultiBulkSlots(client * c) {
     /* Format: 1) 1) start slot
      *            2) end slot
@@ -5041,6 +5211,8 @@ void clusterCommand(client *c) {
 "SLOTS",
 "    Return information about slots range mappings. Each range is made of:",
 "    start, end, master and replicas IP addresses, ports and ids",
+"SHARDS",
+"    Return information about slots range mappings and the nodes associated to it.",
 "LINKS",
 "    Return information about all network links between this node and its peers.",
 "    Output format is an array where each array element is a map containing attributes of a link",
@@ -5090,6 +5262,9 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"shards") && c->argc == 2) {
+        /* CLUSTER SHARDS */
+        clusterReplyShards(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
         if (dictSize(server.db[0].dict) != 0) {
