@@ -1497,6 +1497,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    decrCommandRefCount(c->lastcmd);
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
