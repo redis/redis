@@ -56,6 +56,8 @@ start_server {tags {"modules"}} {
         r module load $testmodule
         r test.basics
         assert_equal {OK} [$rd module unload test]
+        # Check test.basics command was removed from command list.
+        assert_error {*ERR unknown command 'test.basics'*} {$rd test.basics}
         assert_match "*cmd=test.basics*" [$rd client list]
     }
 }
