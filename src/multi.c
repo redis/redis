@@ -193,8 +193,10 @@ void execCommand(client *c) {
         c->argv_len = c->mstate.commands[j].argv_len;
         c->cmd = c->mstate.commands[j].cmd;
 
+        /* Note that if refcount == 1 means that the module of this
+         * command has been unloaded elsewhere, we need to skip it. */
         if (c->cmd->refcount == 1) {
-            addReplyErrorFormat(c, "Invalid command: %s, the module of this command have been unloaded",
+            addReplyErrorFormat(c, "Invalid command: %s, the module of this command has been unloaded",
                                 c->cmd->fullname);
             continue;
         }
