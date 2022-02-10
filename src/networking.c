@@ -441,7 +441,7 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
     /* Module clients fall into two categories:
-     * Calls to RM_Call, in which case the error isn't being returned to a cleint, so should not be counted.
+     * Calls to RM_Call, in which case the error isn't being returned to a client, so should not be counted.
      * Module thread safe context calls to RM_ReplyWithError, which will be added to a real client by the main thread later. */
     if (c->flags & CLIENT_MODULE) {
         if (!c->deferred_reply_errors) {
