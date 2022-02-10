@@ -101,6 +101,7 @@ set ::all_tests {
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
     unit/cluster/links
+    unit/client
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
