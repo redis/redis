@@ -47,6 +47,12 @@ tags "modules" {
         }
     }
 
+    test {Verify module options info} {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            assert_match "*\[handle-io-errors|handle-repl-async-load\]*" [r info modules]
+        }
+    }
+
     tags {repl} {
         test {diskless loading short read with module} {
             start_server [list overrides [list loadmodule "$testmodule"]] {

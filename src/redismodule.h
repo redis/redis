@@ -242,7 +242,7 @@ typedef uint64_t RedisModuleTimerID;
 /* When set, Redis will not call RedisModule_SignalModifiedKey(), implicitly in
  * RedisModule_CloseKey, and the module needs to do that when manually when keys
  * are modified from the user's sperspective, to invalidate WATCH. */
-#define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
+#define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<2)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
