@@ -1153,6 +1153,7 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     UNUSED(rdbflags);
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
+    int aof_base = (rdbflags & RDBFLAGS_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
     if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
@@ -1169,6 +1170,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
+    if (rdbSaveAuxFieldStrInt(rdb, "aof-base", aof_base) == -1) return -1;
     return 1;
 }
 
@@ -2961,6 +2963,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else if (!strcasecmp(auxkey->ptr,"aof-preamble")) {
                 long long haspreamble = strtoll(auxval->ptr,NULL,10);
                 if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
+            } else if (!strcasecmp(auxkey->ptr, "aof-base")) {
+                long long isbase = strtoll(auxval->ptr, NULL, 10);
+                if (isbase) serverLog(LL_NOTICE, "RDB is base AOF");
             } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
                 /* Just ignored. */
             } else {
