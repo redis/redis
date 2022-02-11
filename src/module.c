@@ -10536,7 +10536,7 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
-/* Free the command registered with the specified module.
+/* Free the module command.
  * On success C_OK is returned, otherwise C_ERR is returned.
  *
  * Note that caller needs to handle the deletion of the command table dict,
