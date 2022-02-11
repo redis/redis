@@ -50,4 +50,14 @@ start_server {tags {"modules"}} {
     test "Unload the module - subcommands" {
         assert_equal {OK} [r module unload subcommands]
     }
+
+    test "Unload the module when module subcommand was referenced by client - test" {
+        set rd [redis_client]
+        r module load $testmodule
+        r subcommands.sub get_fullname
+        assert_equal {OK} [$rd module unload subcommands]
+        # Check subcommand.sub|get_fullname command was removed from command list.
+        assert_error {*ERR unknown command 'subcommands.sub'*} {$rd subcommands.sub get_fullname}
+        assert_match "*cmd=subcommands.sub|get_fullname*" [$rd client list]
+    }
 }

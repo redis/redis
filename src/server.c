@@ -2931,21 +2931,6 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
-void incrCommandRefCount(struct redisCommand *cmd) {
-    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
-    cmd->refcount++;
-}
-
-void decrCommandRefCount(struct redisCommand *cmd) {
-    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
-    serverAssert(cmd->refcount > 0);
-    if (--cmd->refcount == 0) {
-        sdsfree((sds)cmd->declared_name);
-        sdsfree(cmd->fullname);
-        zfree(cmd);
-    }
-}
-
 static int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;

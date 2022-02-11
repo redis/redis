@@ -193,14 +193,6 @@ void execCommand(client *c) {
         c->argv_len = c->mstate.commands[j].argv_len;
         c->cmd = c->mstate.commands[j].cmd;
 
-        /* Note that if refcount == 1 means that the module of this
-         * command has been unloaded elsewhere, we need to skip it. */
-        if (c->cmd->refcount == 1) {
-            addReplyErrorFormat(c, "Invalid command: %s, the module of this command has been unloaded",
-                                c->cmd->fullname);
-            continue;
-        }
-
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
         int acl_errpos;
