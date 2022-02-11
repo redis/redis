@@ -10568,7 +10568,8 @@ void moduleFreeCommand(struct redisCommand *cmd) {
         cmd->latency_histogram = NULL;
     }
     zfree(cmd->args);
-    zfree((void*)(unsigned long)cmd->getkeys_proc);
+    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    zfree(cp);
 
     if (cmd->subcommands_dict) {
         dictEntry *de;
