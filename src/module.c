@@ -1910,7 +1910,7 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
  * -------------------------------------------------------------------------- */
 
 int moduleListConfigMatch(void *config, void *name) {
-    return strcmp(((ModuleConfig *) config)->name, (char *) name) == 0;
+    return strcasecmp(((ModuleConfig *) config)->name, (char *) name) == 0;
 }
 
 void moduleListFree(void *config) {
