@@ -10,7 +10,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added the `OFFSET` argument."
+                "Added the `entries_read` named argument."
             ]
         ],
         "command_flags": [

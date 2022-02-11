@@ -5993,7 +5993,7 @@ struct redisCommandArg XDEL_Args[] = {
 
 /* XGROUP CREATE history */
 commandHistory XGROUP_CREATE_History[] = {
-{"7.0.0","Added the `OFFSET` argument."},
+{"7.0.0","Added the `entries_read` named argument."},
 {0}
 };
 
@@ -6076,7 +6076,7 @@ struct redisCommandArg XGROUP_DESTROY_Args[] = {
 
 /* XGROUP SETID history */
 commandHistory XGROUP_SETID_History[] = {
-{"7.0.0","Added the optional `offset` argument."},
+{"7.0.0","Added the optional `entries_read` argument."},
 {0}
 };
 
@@ -6139,7 +6139,10 @@ struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 /********** XINFO GROUPS ********************/
 
 /* XINFO GROUPS history */
-#define XINFO_GROUPS_History NULL
+commandHistory XINFO_GROUPS_History[] = {
+{"7.0.0","Added the `enries-read` and `lag` fields"},
+{0}
+};
 
 /* XINFO GROUPS tips */
 #define XINFO_GROUPS_tips NULL
@@ -6161,7 +6164,10 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 /********** XINFO STREAM ********************/
 
 /* XINFO STREAM history */
-#define XINFO_STREAM_History NULL
+commandHistory XINFO_STREAM_History[] = {
+{"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `entries-read` and `lag` fields"},
+{0}
+};
 
 /* XINFO STREAM tips */
 #define XINFO_STREAM_tips NULL
@@ -6341,7 +6347,7 @@ struct redisCommandArg XREVRANGE_Args[] = {
 
 /* XSETID history */
 commandHistory XSETID_History[] = {
-{"7.0.0","Added the `offset` and `max_del_id` arguments."},
+{"7.0.0","Added the `entries_added` and `max_deleted_entry_id` arguments."},
 {0}
 };
 

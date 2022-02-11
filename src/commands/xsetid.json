@@ -9,7 +9,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added the `offset` and `max_del_id` arguments."
+                "Added the `entries_added` and `max_deleted_entry_id` arguments."
             ]
         ],
         "command_flags": [
