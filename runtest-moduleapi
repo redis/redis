@@ -20,6 +20,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/fork \
 --single unit/moduleapi/testrdb \
 --single unit/moduleapi/infotest \
+--single unit/moduleapi/moduleconfigs \
 --single unit/moduleapi/infra \
 --single unit/moduleapi/propagate \
 --single unit/moduleapi/hooks \

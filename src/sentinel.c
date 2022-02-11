@@ -391,7 +391,6 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 sentinelRedisInstance *sentinelGetMasterByName(char *name);
 char *sentinelGetSubjectiveLeader(sentinelRedisInstance *master);
 char *sentinelGetObjectiveLeader(sentinelRedisInstance *master);
-int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);

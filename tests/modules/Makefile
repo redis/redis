@@ -53,7 +53,9 @@ TEST_MODULES = \
     subcommands.so \
     reply.so \
     cmdintrospection.so \
-    eventloop.so
+    eventloop.so \
+    moduleconfigs.so \
+    moduleconfigstwo.so
 
 .PHONY: all
 

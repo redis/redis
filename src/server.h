@@ -747,6 +747,7 @@ struct RedisModule {
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
+    list *module_configs; /* List of configurations the module has registered */
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
@@ -1463,6 +1464,7 @@ struct redisServer {
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
+    list *module_configs_queue; /* List that stores module configurations from .conf file until after modules are loaded during startup */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
@@ -2316,7 +2318,8 @@ int populateArgsStructure(struct redisCommandArg *args);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleLoad(const char *path, void **argv, int argc);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+void addModuleConfig(const char* module_name, const char *name, int flags, void *privdata);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
@@ -2928,6 +2931,17 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+                             * config, which is mutable. */
+#define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
+#define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
+#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
+#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
+#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
+#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
+#define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
+#define MODULE_CONFIG (1ULL<<7) /* This config is a module config */
+
 void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
@@ -2935,9 +2949,18 @@ struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
+void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue);
+int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes);
 void initConfigValues();
+void removeConfig(char *name);
+void freeConfigs();
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+
+/* Module Configuration */
+sds moduleConfigGetCommand(const char *parameter, void *privdata);
+int moduleConfigSetCommand(const char *parameter, char **strval, RedisModuleConfigSetContext set_ctx, const char **err, void *privdata);
+void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

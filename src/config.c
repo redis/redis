@@ -266,19 +266,11 @@ typedef struct standardConfig {
     const unsigned int flags; /* Flags for this specific config */
     typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
+    void *privdata; /* privdata for this config, for module configs this is a module ptr */
 } standardConfig;
 
-#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
-                             * config, which is mutable. */
-#define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
-#define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
-#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
-#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
-#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
-#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
-#define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
-
-standardConfig configs[];
+standardConfig *configs;
+size_t num_configs;
 
 /*-----------------------------------------------------------------------------
  * Enum access functions
@@ -407,9 +399,29 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     return 1;
 }
 
-void initConfigValues() {
-    for (standardConfig *config = configs; config->name != NULL; config++) {
-        if (config->interface.init) config->interface.init(config->data);
+/* Suite of config get/set/rewrite controllers.
+ * If the configuration is a module config, we want to call its callback
+ * or in rewrites case call the module config rewrite method.
+ * If not, use the standard interface call */
+sds standardConfigGet(standardConfig *config) {
+    if (config->flags & MODULE_CONFIG) {
+        return moduleConfigGetCommand(config->name, config->privdata);
+    }
+    return config->interface.get(config->data);
+}
+
+int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **errstr) {
+    if (config->flags & MODULE_CONFIG) {
+        return moduleConfigSetCommand(config->name, argv, REDISMODULE_CONFIG_SET_RUNTIME, errstr, config->privdata);
+    }
+    return config->interface.set(config->data, argv, argc, errstr);
+}
+
+void standardConfigRewrite(standardConfig *config, struct rewriteConfigState *state) {
+    if (config->flags & MODULE_CONFIG) {
+        moduleConfigRewriteCommand(config->name, state, config->privdata);
+    } else if (config->interface.rewrite) {
+        config->interface.rewrite(config->data, config->name, state);
     }
 }
 
@@ -470,7 +482,7 @@ void loadServerConfigFromString(char *config) {
                     goto loaderr;
                 }
                 /* Set config using all arguments that follows */
-                if (!config->interface.set(config->data, &argv[1], argc-1, &err)) {
+                if (!standardConfigSet(config, &argv[1], argc-1, &err)) {
                     goto loaderr;
                 }
 
@@ -535,6 +547,8 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
+        } else if (strchr(argv[0], '.')) {
+            server.module_configs_queue = listAddNodeTail(server.module_configs_queue, sdsnew(lines[i]));
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -682,7 +696,7 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
     }
 
     /* Set the config */
-    res = config->interface.set(config->data, argv, argc, errstr);
+    res = standardConfigSet(config, argv, argc, errstr);
     if (config->flags & MULTI_ARG_CONFIG) sdsfreesplitres(argv, argc);
     return res;
 }
@@ -791,7 +805,7 @@ void configSetCommand(client *c) {
 
     /* Backup old values before setting new ones */
     for (i = 0; i < config_count; i++)
-        old_values[i] = set_configs[i]->interface.get(set_configs[i]->data);
+        old_values[i] = standardConfigGet(set_configs[i]);
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
@@ -874,7 +888,7 @@ void configGetCommand(client *c) {
                 (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
                  (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))) {
                 addReplyBulkCString(c, config->name);
-                addReplyBulkSds(c, config->interface.get(config->data));
+                addReplyBulkSds(c, standardConfigGet(config));
                 matches++;
                 matched_conf = 1;
             }
@@ -882,7 +896,7 @@ void configGetCommand(client *c) {
                 (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->alias)) ||
                  (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->alias, 1)))) {
                 addReplyBulkCString(c, config->alias);
-                addReplyBulkSds(c, config->interface.get(config->data));
+                addReplyBulkSds(c, standardConfigGet(config));
                 matches++;
                 matched_alias = 1;
             }
@@ -987,6 +1001,17 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
     if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
 }
 
+/* Is there a config by name already in the configs array? */
+int isConfigNameRegistered(const char *name) {
+    for (size_t i = 0; i < num_configs; i++) {
+        standardConfig config = configs[i];
+        if (!strcasecmp(config.name, name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Read the old file, split it into lines to populate a newly created
  * config rewrite state, and return it to the caller.
  *
@@ -1028,6 +1053,14 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             aux = sdscatsds(aux,line);
             sdsfree(line);
             rewriteConfigAppendLine(state,aux);
+            continue;
+        }
+
+        /* If we have a module config in the config file, but its no longer present: remove it. */
+        if (strchr(argv[0], '.') && !isConfigNameRegistered(argv[0])) {
+            linenum--;
+            sdsfreesplitres(argv, argc);
+            sdsfree(line);
             continue;
         }
 
@@ -1510,7 +1543,7 @@ sds getConfigDebugInfo() {
      * the debug flag. */
     for (standardConfig *config = configs; config->name != NULL; config++) {
         if (!(config->flags & DEBUG_CONFIG)) continue;
-        config->interface.rewrite(config->data, config->name, state);
+        standardConfigRewrite(config, state);
     }
     sds info = rewriteConfigGetContentFromState(state);
     rewriteConfigReleaseState(state);
@@ -1600,7 +1633,7 @@ int rewriteConfig(char *path, int force_write) {
 
     /* Iterate the configs that are standard */
     for (standardConfig *config = configs; config->name != NULL; config++) {
-        if (config->interface.rewrite) config->interface.rewrite(config->data, config->name, state);
+        standardConfigRewrite(config, state);
     }
 
     rewriteConfigUserOption(state);
@@ -2729,7 +2762,7 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(typeData data, cons
     rewriteConfigRewriteLine(state,name,line,1);
 }
 
-standardConfig configs[] = {
+standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
@@ -2933,6 +2966,69 @@ standardConfig configs[] = {
     /* NULL Terminator */
     {NULL}
 };
+
+void initConfigValues() {
+    for (standardConfig *config = static_configs; config->name != NULL; config++) {
+        num_configs++;
+        if (strchr(config->name, '.')) {
+            serverPanic("Standard Configs with '.' in them are not allowed. This is reserved for module configs. Config: %s", config->name);
+        }
+        if (config->interface.init) config->interface.init(config->data);
+    }
+    configs = (standardConfig *) zmalloc(sizeof(standardConfig) * num_configs);
+    memcpy(configs, &static_configs, sizeof(standardConfig) * num_configs);
+}
+
+/* Appends a new standardConfig to the end of the configs array if there is not already a config with that name. */
+void addConfig(standardConfig *new_config) {
+    if (isConfigNameRegistered(new_config->name)) {
+        serverPanic("Attempted to register a configuration with a name that is already registered.");
+    }
+    num_configs += 1;
+    configs = (standardConfig *) zrealloc(configs, sizeof(standardConfig) * num_configs);
+    memcpy(configs + num_configs - 1, new_config, sizeof(standardConfig));
+}
+
+/* Removes a config by index */
+void removeConfigByIndex(size_t index) {
+    for (size_t i = index + 1; i < num_configs + 1; i++) {
+        memcpy(configs + i - 1, configs + i, sizeof(standardConfig));
+    }
+    num_configs--;
+    configs = zrealloc(configs, sizeof(standardConfig) * num_configs);
+}
+
+/* Removes a config by name */
+void removeConfig(char *name) {
+    for (size_t i = 0; i < num_configs; i++) {
+        standardConfig config = configs[i];
+        if (!strcasecmp(config.name, name)) {
+            if (config.flags & MODULE_CONFIG) {
+                sdsfree((sds) config.name);
+            }
+            removeConfigByIndex(i);
+            return;
+        }
+    }
+}
+
+/*-----------------------------------------------------------------------------
+ * Module Config
+ *----------------------------------------------------------------------------*/
+
+/* Create a new skeleton standardConfig object for a module config with just a name, flags, and a pointer to the module */
+standardConfig createModuleStandardConfig(const char *config_name, int flags, void *privdata) {
+    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .privdata = privdata};
+    return module_config;
+}
+
+/* Create and add a skeleton standardConfig for a module config to the configs array */
+void addModuleConfig(const char* module_name, const char* name, int flags, void *privdata) {
+    sds config_name = sdsnew(module_name);
+    config_name = sdscat(sdscat(config_name, "."), name);
+    standardConfig new_module_config = createModuleStandardConfig(config_name, flags, privdata);
+    addConfig(&new_module_config);
+}
 
 /*-----------------------------------------------------------------------------
  * CONFIG HELP

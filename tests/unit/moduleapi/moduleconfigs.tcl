@@ -1,0 +1,159 @@
+set testmodule [file normalize tests/modules/moduleconfigs.so]
+set testmoduletwo [file normalize tests/modules/moduleconfigstwo.so]
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+    test {Config get commands work} {
+        # Make sure config get module config works
+        assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+        assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        # config get * was a difficulty, as the module config get system relies on the config name explicitly
+        assert_equal [r config get moduleconfigs.*] "moduleconfigs.mutable_bool yes moduleconfigs.immutable_bool no moduleconfigs.memory_numeric 1024 moduleconfigs.string log4j moduleconfigs.enum one moduleconfigs.numeric -1"
+    }
+
+    test {Config set commands work} {
+        # Make sure that config sets work during runtime
+        r config set moduleconfigs.mutable_bool no 
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        r config set moduleconfigs.memory_numeric 1mb
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1048576"
+        r config set moduleconfigs.string wafflewednesdays
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string wafflewednesdays"
+        r config set moduleconfigs.enum two
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+        r config set moduleconfigs.numeric -2
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -2"
+    }
+
+    test {Immutable flag works properly} {
+        # Configs flagged immutable should not allow sets
+        catch {[r config set moduleconfigs.immutable_bool yes]} e
+        assert_match {*can't set immutable config*} $e
+    }
+    
+    test {Numeric limits work properly} {
+        # Configs over/under the limit shouldn't be allowed, and memory configs should only take memory values
+        catch {[r config set moduleconfigs.memory_numeric 200gb]} e
+        assert_match {*value is not within range*} $e
+        catch {[r config set moduleconfigs.memory_numeric -5]} e
+        assert_match {*argument must be a memory value*} $e
+        catch {[r config set moduleconfigs.numeric -10]} e
+        assert_match {*value is not within range*} $e
+    }
+
+    test {Enums only able to be set to passed in values} {
+        # Module authors specify what values are valid for enums, check that only those values are ok on a set
+        catch {[r config set moduleconfigs.enum four]} e
+        assert_match {*argument must be one of the following*} $e
+    }
+
+    test {Unload removes module configs} {
+        r module unload moduleconfigs
+        assert_equal [r config get moduleconfigs.*] ""
+        r module load $testmodule
+        # these should have reverted back to their module specified values
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+        assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        r module unload moduleconfigs
+    }
+
+    test {test loadex functionality} {
+        r module loadex $testmodule CONFIG moduleconfigs.mutable_bool no CONFIG moduleconfigs.immutable_bool yes CONFIG moduleconfigs.memory_numeric 2mb CONFIG moduleconfigs.string tclortickle ARGS
+        assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool yes"
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 2097152"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string tclortickle"
+        # Configs that were not changed should still be their module specified value
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        r module unload moduleconfigs
+    }
+
+    test {test loadex rejects bad configs} {
+        # Bad config 200gb is over the limit
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 200gb ARGS]} e
+        assert_match {*Error*} $e
+        # We should completely remove all configs on a failed load
+        assert_equal [r config get moduleconfigs.*] ""
+        # No value for config, should error out
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool CONFIG moduleconfigs.enum two ARGS]} e
+        assert_match {*Error*} $e
+        assert_equal [r config get moduleconfigs.*] ""
+        # No ARGS passed in, should error out.
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.immutable_bool yes]} e
+        assert_match {*Error*} $e
+        assert_equal [r config get moduleconfigs.*] ""
+    }
+
+    test {test config rewrite with dynamic load} {
+        start_server {tags {"modules"}} {
+            r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
+            assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+            r config set moduleconfigs.mutable_bool yes
+            r config set moduleconfigs.memory_numeric 750
+            r config set moduleconfigs.string nice
+            r config set moduleconfigs.enum two
+            r config rewrite
+            restart_server 0 true false
+            # Ensure configs we rewrote are present
+            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+            assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
+            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+            assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        }
+    }
+
+    test {test multiple modules with configs} {
+        start_server {tags {"modules"}} {
+            r module load $testmodule
+            r module loadex $testmoduletwo CONFIG configs.test yes ARGS
+            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+            assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
+            assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
+            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+            assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+            assert_equal [r config get configs.test] "configs.test yes"
+            r config set moduleconfigs.mutable_bool no
+            r config set moduleconfigs.string nice
+            r config set moduleconfigs.enum two
+            r config set configs.test no
+            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+            assert_equal [r config get configs.test] "configs.test no"
+            r config rewrite
+            restart_server 0 true false
+            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+            assert_equal [r config get configs.test] "configs.test no"
+        }
+    }
+
+    test {test 1.module load 2.config rewrite 3.module unload 4.config rewrite works} {
+        # Configs need to be removed from the old config file in this case.
+        start_server {tags {"modules"}} {
+            r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
+            assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+            r config rewrite
+            r module unload moduleconfigs
+            r config rewrite
+            restart_server 0 true false
+            # Ensure configs we rewrote are no longer present
+            assert_equal [r config get moduleconfigs.*] ""
+        }
+    }
+}
+
