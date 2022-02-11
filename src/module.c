@@ -10809,6 +10809,8 @@ sds genModulesInfoStringRenderModuleOptions(struct RedisModule *module) {
         output = sdscat(output,"handle-io-errors|");
     if (module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD)
         output = sdscat(output,"handle-repl-async-load|");
+    if (module->options & REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED)
+        output = sdscat(output,"no-implicit-signal-modified|");
     output = sdstrim(output,"|");
     output = sdscat(output,"]");
     return output;

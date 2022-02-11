@@ -236,13 +236,13 @@ typedef uint64_t RedisModuleTimerID;
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
 
-/* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
-#define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<1)
-
 /* When set, Redis will not call RedisModule_SignalModifiedKey(), implicitly in
  * RedisModule_CloseKey, and the module needs to do that when manually when keys
  * are modified from the user's sperspective, to invalidate WATCH. */
 #define REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED (1<<1)
+
+/* Declare that the module can handle diskless async replication with RedisModule_SetModuleOptions. */
+#define REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD    (1<<2)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
