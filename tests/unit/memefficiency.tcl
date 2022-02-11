@@ -217,7 +217,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 50 100 {
+                wait_for_condition 500 100 {
                     [s active_defrag_running] eq 0
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
