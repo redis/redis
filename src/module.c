@@ -10614,7 +10614,6 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         serverAssert(dictDelete(server.commands, cmd->fullname) == DICT_OK);
         serverAssert(dictDelete(server.orig_commands, cmd->fullname) == DICT_OK);
         cp->func = NULL;
-        // cmd->proc = NULL;
         decrCommandRefCount(cmd);
     }
     dictReleaseIterator(di);
