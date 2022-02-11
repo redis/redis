@@ -184,6 +184,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 $rd read ; # Discard script load replies
                 $rd read ; # Discard set replies
             }
+            after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
                 puts "used [s allocator_allocated]"
                 puts "rss [s allocator_active]"
@@ -196,6 +197,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
             $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
                 puts "used [s allocator_allocated]"
                 puts "rss [s allocator_active]"
