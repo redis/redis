@@ -5690,8 +5690,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
 }
 
 /* Verify that the RDB version of the dump payload matches the one of this Redis
- * instance and that the checksum is ok. When provided with the 'version' arg,
- * it is set to the payload's version.
+ * instance and that the checksum is ok.
  * If the DUMP payload looks valid C_OK is returned, otherwise C_ERR
  * is returned. If rdbver_ptr is not NULL, its populated with the value read
  * from the input buffer. */
