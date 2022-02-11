@@ -56,8 +56,10 @@ start_server {tags {"modules"}} {
         r module load $testmodule
         r subcommands.sub get_fullname
         assert_equal {OK} [$rd module unload subcommands]
-        # Check subcommand.sub|get_fullname command was removed from command list.
+        # Check subcommand.sub|get_fullname subcommand was removed from command list.
         assert_error {*ERR unknown command 'subcommands.sub'*} {$rd subcommands.sub get_fullname}
+        # Check subcommand.sub|get_fullname subcommand is still being referenced.
         assert_match "*cmd=subcommands.sub|get_fullname*" [$rd client list]
+        $rd close
     }
 }
