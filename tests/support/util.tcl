@@ -89,7 +89,7 @@ proc waitForBgsave r {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -103,7 +103,7 @@ proc waitForBgrewriteaof r {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
