@@ -471,7 +471,8 @@ void loadServerConfigFromString(char *config) {
 
         /* Iterate the configs that are standard */
         int match = 0;
-        for (standardConfig *config = configs; config->name != NULL; config++) {
+        for (size_t i = 0; i < num_configs; i++) {
+            standardConfig *config = &configs[i];
             if ((!strcasecmp(argv[0],config->name) ||
                 (config->alias && !strcasecmp(argv[0],config->alias))))
             {
@@ -750,7 +751,8 @@ void configSetCommand(client *c) {
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
-        for (standardConfig *config = configs; config->name != NULL; config++) {
+        for (size_t k = 0; k < num_configs; k++) {
+            standardConfig *config = &configs[k];
             if ((!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
                  (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias)))) {
 
@@ -876,7 +878,8 @@ void configGetCommand(client *c) {
     int matches = 0;
     int i;
 
-    for (standardConfig *config = configs; config->name != NULL; config++) {
+    for (size_t j = 0; j < num_configs; j++) {
+        standardConfig *config = &configs[j];
         int matched_conf = 0;
         int matched_alias = 0;
         for (i = 0; i < c->argc - 2 && (!matched_conf || !matched_alias); i++) {
@@ -1541,7 +1544,8 @@ sds getConfigDebugInfo() {
 
     /* Iterate the configs and "rewrite" the ones that have 
      * the debug flag. */
-    for (standardConfig *config = configs; config->name != NULL; config++) {
+    for (size_t i = 0; i < num_configs; i++) {
+        standardConfig *config = &configs[i];
         if (!(config->flags & DEBUG_CONFIG)) continue;
         standardConfigRewrite(config, state);
     }
@@ -1632,8 +1636,8 @@ int rewriteConfig(char *path, int force_write) {
      * the rewrite state. */
 
     /* Iterate the configs that are standard */
-    for (standardConfig *config = configs; config->name != NULL; config++) {
-        standardConfigRewrite(config, state);
+    for (size_t i = 0; i < num_configs; i++) {
+        standardConfigRewrite(&configs[i], state);
     }
 
     rewriteConfigUserOption(state);
@@ -2963,7 +2967,7 @@ standardConfig static_configs[] = {
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
     createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
 
-    /* NULL Terminator */
+    /* NULL Terminator, this is dropped when we convert to the runtime array. */
     {NULL}
 };
 

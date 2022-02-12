@@ -412,7 +412,7 @@ typedef struct ModuleConfig {
     configType type; /* Type of config BOOL/NUMERIC/STRING/ENUM */
     void *privdata; /* Optional data passed into the module config callbacks */
     unsigned int flags; /* Flags, exposed in redismodule.h. These are necessary for numeric configs */
-    union get_fn { /* The get callback specificed by the module */
+    union get_fn { /* The get callback specified by the module */
         RedisModuleConfigGetStringFunc get_string;
         RedisModuleConfigGetNumericFunc get_numeric;
         RedisModuleConfigGetBoolFunc get_bool;
@@ -11054,7 +11054,7 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
 }
 
 /* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
- * in config.c. The difference here is that we use the set callback specificed by the module
+ * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
 int parseAndSetBoolConfig(ModuleConfig *config, char **strval, RedisModuleConfigSetContext set_ctx, const char **err) {
     int yn = yesnotoi(strval[0]);
@@ -11169,7 +11169,7 @@ int moduleConfigSetCommand(const char *parameter, char **strval, RedisModuleConf
 }
 
 /* This is a series of getAndParse functions for each type that, for the most part, emulate the ones
- * in config.c. The difference here is that we use the get callbacks specificed by the module
+ * in config.c. The difference here is that we use the get callbacks specified by the module
  * to get the value. */
 sds getAndParseBoolConfig(ModuleConfig *module_config) {
     int val = (*module_config->get_fn.get_bool)(module_config->name, module_config->privdata);
@@ -11421,8 +11421,8 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, unsigned int
  * * REDISMODULE_CONFIG_SENSITIVE: The value stored in this config is redacted from all logging.
  * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching. 
  * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the servers protected config value.
- * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifable while the cluster is loading data.
- * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert memory values into their byte equivilant.
+ * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the cluster is loading data.
+ * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert memory values into their byte equivalent.
  * 
  * Example implementation:
  * 
