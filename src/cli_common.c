@@ -371,3 +371,30 @@ void freeCliConnInfo(cliConnInfo connInfo){
     if (connInfo.auth) sdsfree(connInfo.auth);
     if (connInfo.user) sdsfree(connInfo.user);
 }
+
+sds escapeJsonString(hisds s, const char *p, size_t len) {
+    s = hi_sdscatlen(s,"\"",1);
+    while(len--) {
+        switch(*p) {
+        case '/':
+        case '\\':
+        case '"':
+            s = hi_sdscatprintf(s,"\\%c",*p);
+            break;
+        case '\n': s = hi_sdscatlen(s,"\\n",2); break;
+        case '\f': s = hi_sdscatlen(s,"\\f",2); break;
+        case '\r': s = hi_sdscatlen(s,"\\r",2); break;
+        case '\t': s = hi_sdscatlen(s,"\\t",2); break;
+        case '\a': s = hi_sdscatlen(s,"\\a",2); break;
+        case '\b': s = hi_sdscatlen(s,"\\b",2); break;
+        default:
+            if (isprint(*p))
+                s = hi_sdscatprintf(s,"%c",*p);
+            else
+                s = hi_sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
+            break;
+        }
+        p++;
+    }
+    return hi_sdscatlen(s,"\"",1);
+}

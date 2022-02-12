@@ -48,4 +48,6 @@ sds unquoteCString(char *str);
 void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo, int *tls_flag);
 
 void freeCliConnInfo(cliConnInfo connInfo);
+
+sds escapeJsonString(hisds s, const char *p, size_t len);
 #endif /* __CLICOMMON_H */

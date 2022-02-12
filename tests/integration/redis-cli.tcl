@@ -286,6 +286,21 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal "unquoted-val" [r get {"\x41\x41"}]
     }
 
+    test_nontty_cli "Escape character in JSON mode" {
+        # solidus
+        r hset solidus / /
+        assert_equal / / [run_cli hgetall solidus]
+        set escaped_solidus \"\\/\"
+        assert_equal $escaped_solidus $escaped_solidus [run_cli --json hgetall /]
+        # unicode
+        set gclef 𝄞
+        r hset g:clef test $gclef
+        assert_equal $gclef [run_cli hget g:clef test]
+        assert_equal "\xf0\x9d\x84\x9e" [run_cli hget g:clef test]
+        set escaped_gclef \"\\\\xf0\\\\x9d\\\\x84\\\\x9e\"
+        assert_equal $escaped_gclef [run_cli --json hget g:clef test]
+    }
+
     test_nontty_cli "Invalid quoted input arguments" {
         catch {run_cli --quoted-input set {"Unterminated}} err
         assert_match {*exited abnormally*} $err

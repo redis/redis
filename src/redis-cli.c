@@ -1181,10 +1181,10 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     switch (r->type) {
     case REDIS_REPLY_ERROR:
         out = sdscat(out,"error:");
-        out = sdscatrepr(out,r->str,strlen(r->str));
+        out = escapeJsonString(out,r->str,strlen(r->str));
         break;
     case REDIS_REPLY_STATUS:
-        out = sdscatrepr(out,r->str,r->len);
+        out = escapeJsonString(out,r->str,r->len);
         break;
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
@@ -1194,7 +1194,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
-        out = sdscatrepr(out,r->str,r->len);
+        out = escapeJsonString(out,r->str,r->len);
         break;
     case REDIS_REPLY_NIL:
         out = sdscat(out,"null");
@@ -1216,7 +1216,8 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
             redisReply *key = r->element[i];
-            if (key->type == REDIS_REPLY_STATUS ||
+            if (key->type == REDIS_REPLY_ERROR ||
+                key->type == REDIS_REPLY_STATUS ||
                 key->type == REDIS_REPLY_STRING ||
                 key->type == REDIS_REPLY_VERB) {
                 out = cliFormatReplyJson(out, key);
@@ -1224,7 +1225,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
                 /* According to JSON spec, JSON map keys must be strings, */
                 /* and in RESP3, they can be other types. */
                 sds tmp = cliFormatReplyJson(sdsempty(), key);
-                out = sdscatrepr(out,tmp,sdslen(tmp));
+                out = escapeJsonString(out,tmp,sdslen(tmp));
                 sdsfree(tmp);
             }
             out = sdscat(out,":");
