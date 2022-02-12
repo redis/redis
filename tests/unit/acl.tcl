@@ -7,6 +7,11 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser newuser
     }
 
+    test {Usernames can not contain spaces or null characters} {
+        catch {r ACL setuser "a a"} err
+        set err
+    } {*Usernames can't contain spaces or null characters*}
+
     test {New users start disabled} {
         r ACL setuser newuser >passwd1
         catch {r AUTH newuser passwd1} err
@@ -699,6 +704,23 @@ start_server {tags {"acl external:skip"}} {
         catch {[r ping]} e
         assert_match "*I/O error*" $e
     }
+
+    test {ACL GENPASS command failed test} {
+       catch {r ACL genpass -236} err1
+       catch {r ACL genpass 5000} err2
+       assert_match "*ACL GENPASS argument must be the number*" $err1
+       assert_match "*ACL GENPASS argument must be the number*" $err2
+    }
+
+    test {Default user can not be removed} {
+       catch {r ACL deluser default} err
+       set err
+    } {ERR The 'default' user cannot be removed}
+
+    test {ACL load non-existing configured ACL file} {
+       catch {r ACL load} err
+       set err
+    } {*Redis instance is not configured to use an ACL file*}
 }
 
 set server_path [tmpdir "server.acl"]

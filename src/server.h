@@ -272,6 +272,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
                                             * different flags depending on arguments */
 
+/* Key flags for when access type is unknown */
+#define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
+
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
@@ -1639,7 +1642,7 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
-    int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
+    int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
     aofManifest *aof_manifest;       /* Used to track AOFs. */
@@ -1756,10 +1759,6 @@ struct redisServer {
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
-    /* Replication script cache. */
-    dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
-    list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
-    unsigned int repl_scriptcache_size; /* Max number of elements. */
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
@@ -2298,11 +2297,12 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
-extern dictType replScriptCacheDictType;
+extern dictType stringSetDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
@@ -2312,8 +2312,9 @@ extern dict *modules;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
-/* Key arguments specs */
+/* Command metadata */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
+int populateArgsStructure(struct redisCommandArg *args);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -2341,7 +2342,7 @@ int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
 int moduleAllModulesHandleReplAsyncLoad();
-sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections);
+sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
 int moduleTryServeClientBlockedOnKey(client *c, robj *key);
@@ -2381,6 +2382,7 @@ int beforeNextClient(client *c);
 void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
+void freeClientArgv(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
@@ -2936,7 +2938,7 @@ void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
-int rewriteConfig(char *path, int force_all);
+int rewriteConfig(char *path, int force_write);
 void initConfigValues();
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
@@ -3068,6 +3070,11 @@ unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
 
+typedef struct luaScript {
+    uint64_t flags;
+    robj *body;
+} luaScript;
+
 /* Blocked clients */
 void processUnblockedClients(void);
 void blockClient(client *c, int btype);
@@ -3129,6 +3136,7 @@ void commandCountCommand(client *c);
 void commandListCommand(client *c);
 void commandInfoCommand(client *c);
 void commandGetKeysCommand(client *c);
+void commandGetKeysAndFlagsCommand(client *c);
 void commandHelpCommand(client *c);
 void commandDocsCommand(client *c);
 void setCommand(client *c);
@@ -3394,7 +3402,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...);
 void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
-sds genRedisInfoString(const char *section);
+dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);
+void releaseInfoSectionDict(dict *sec);
+sds genRedisInfoString(dict *section_dict, int all_sections, int everything);
 sds genModulesInfoString(sds info);
 void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);

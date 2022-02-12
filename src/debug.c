@@ -825,7 +825,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -926,7 +926,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -1681,13 +1681,19 @@ void logStackTrace(void *eip, int uplevel) {
 void logServerInfo(void) {
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = createStringObject("all", strlen("all"));
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
+    infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    releaseInfoSectionDict(section_dict);
+    decrRefCount(argv[0]);
 }
 
 /* Log certain config values, which can be used for debuggin */
@@ -1723,10 +1729,10 @@ void logCurrentClient(void) {
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
-
         decoded = getDecodedObject(cc->argv[j]);
-        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)decoded->ptr);
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        sdsfree(repr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -1764,7 +1770,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
