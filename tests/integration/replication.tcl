@@ -1240,7 +1240,8 @@ start_server {tags {"repl" "external:skip"}} {
 
         $rd sync
         $rd ping
-        assert_error {I/O error reading reply} {$rd read}
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC _addReplyToBufferOrList: $e" }
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the PING command.
@@ -1257,7 +1258,8 @@ start_server {tags {"repl" "external:skip"}} {
 
         $rd sync
         $rd xinfo help
-        assert_error {I/O error reading reply} {$rd read}
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC addReplyDeferredLen: $e" }
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the XINFO HELP command.
@@ -1275,7 +1277,8 @@ start_server {tags {"repl" "external:skip"}} {
         $rd psync replicationid -1
         assert_match {FULLRESYNC * 0} [$rd read]
         $rd get foo
-        assert_error {I/O error reading reply} {$rd read}
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC _addReplyToBufferOrList: $e" }
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the GET command.
@@ -1295,7 +1298,8 @@ start_server {tags {"repl" "external:skip"}} {
         $rd psync replicationid -1
         assert_match {FULLRESYNC * 0} [$rd read]
         $rd slowlog get
-        assert_error {I/O error reading reply} {$rd read}
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC addReplyDeferredLen: $e" }
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the SLOWLOG GET command.

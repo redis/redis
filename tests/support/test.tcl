@@ -86,7 +86,7 @@ proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        assert_failed "assertion:Expected an error but nothing was caught" $detail
+        assert_failed "Expected an error matching '$pattern' but got '$error'" $detail
     }
 }
 
