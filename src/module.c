@@ -10482,10 +10482,15 @@ void moduleRegisterCoreAPI(void);
 void moduleInitModulesSystemLast(void) {
 }
 
+void listFreeSds(void *val) {
+    sdsfree(val);
+}
+
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = listCreate();
+    listSetFreeMethod(server.module_configs_queue, listFreeSds);
     modules = dictCreate(&modulesDictType);
 
     /* Set up the keyspace notification subscriber list and static client */
@@ -10604,6 +10609,7 @@ void moduleLoadFromQueue(void) {
         exit(1);
     }
     listRelease(server.module_configs_queue);
+    server.module_configs_queue = NULL;
 }
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
@@ -10692,10 +10698,6 @@ void moduleUnregisterCommands(struct RedisModule *module) {
     dictReleaseIterator(di);
 }
 
-void freeSdsLoadexQueue(void *val) {
-    sdsfree(val);
-}
-
 /* We parse argv to add sds NAME VALUE pairs to the ctx list of configs. We also increment the module_argv 
  * pointer to just after ARGS. If there are args, otherwise we set it to NULL */
 int parseLoadexArguments(RedisModuleCtx *ctx, RedisModuleString ***module_argv, int *module_argc) {
@@ -10772,7 +10774,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     if (is_loadex) {
         /* Note: this is the only place this list is created/used */
         ctx.loadex_configs_queue = listCreate();
-        listSetFreeMethod(ctx.loadex_configs_queue, freeSdsLoadexQueue);
+        listSetFreeMethod(ctx.loadex_configs_queue, listFreeSds);
         /* This call will also increment the module_argv pointer to just after ARGS. */
         if (parseLoadexArguments(&ctx, (RedisModuleString ***) &module_argv, &module_argc)) {
             moduleFreeContext(&ctx);
@@ -11056,8 +11058,8 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
 /* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
-int parseAndSetBoolConfig(ModuleConfig *config, char **strval, RedisModuleConfigSetContext set_ctx, const char **err) {
-    int yn = yesnotoi(strval[0]);
+int parseAndSetBoolConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+    int yn = yesnotoi(strval);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
@@ -11070,19 +11072,21 @@ int parseAndSetBoolConfig(ModuleConfig *config, char **strval, RedisModuleConfig
 }
 
 /* Note that for the time being, module configurations are not supporting OCTO and Percent */
-int parseAndSetNumericConfig(ModuleConfig *config, char **strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetNumericConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
     long long ll;
-    sds str_val = sdsnew(strval[0]);
+    sds str_val = sdsnew(strval);
     if (config->flags & REDISMODULE_CONFIG_MEMORY) {
         int memerr;
         ll = memtoull(str_val, &memerr);
         if (memerr || ll < 0) {
             *err = "argument must be a memory value";
+            sdsfree(str_val);
             return 0;
         }
     } else {
         if (!string2ll(str_val, sdslen(str_val), &ll)) {
             *err = "argument couldn't be parsed into an integer";
+            sdsfree(str_val);
             return 0;
         }
     }
@@ -11099,30 +11103,30 @@ int parseAndSetNumericConfig(ModuleConfig *config, char **strval, RedisModuleCon
     return 2;
 }
 
-int parseAndSetStringConfig(ModuleConfig *config, char **strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetStringConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
     RedisModuleString *prev = (*config->get_fn.get_string)(config->name, config->privdata);
-    RedisModuleString *new = createStringObject(strval[0], strlen(strval[0]));
-
-    if (!prev || strcmp(prev->ptr, new->ptr) != 0) {
-        return (*config->set_fn.set_string)(config->name, new, config->privdata, set_ctx, err);
+    if (prev && !strcmp(prev->ptr, strval)) {
+        return 2;
     }
-    return 2;
+
+    RedisModuleString *new = createStringObject(strval, strlen(strval));
+    return (*config->set_fn.set_string)(config->name, new, config->privdata, set_ctx, err);
 }
 
 #define ENUM_ERROR_SIZE 256
 static char enum_error[ENUM_ERROR_SIZE];
 
-int parseAndSetEnumConfig(ModuleConfig *config, char **strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetEnumConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
     RedisModuleString *prev = (*config->get_fn.get_enum)(config->name, config->privdata);
-    RedisModuleString *new = createStringObject(strval[0], strlen(strval[0]));
-    if (prev && !strcmp(prev->ptr, new->ptr)) {
+    if (prev && !strcmp(prev->ptr, strval)) {
         return 2;
     }
-    zfree(prev);
+    RedisModuleString *new = createStringObject(strval, strlen(strval));
+
     sds error = sdsnew("argument must be one of the following: ");
     for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
         char *enum_val = config->type_specific.enums.enum_values[i];
-        if (!strcasecmp(strval[0], enum_val)) {
+        if (!strcasecmp(strval, enum_val)) {
             sdsfree(error);
             return (*config->set_fn.set_enum)(config->name, new, config->privdata, set_ctx, err);
         }
@@ -11134,12 +11138,13 @@ int parseAndSetEnumConfig(ModuleConfig *config, char **strval, RedisModuleConfig
     enum_error[ENUM_ERROR_SIZE - 1] = '\0';
     
     sdsfree(error);
+    decrRefCount(new);
     *err = enum_error;
     return 0;
 }
 
 /* Controller function called from config.c to actually set the value of the config */
-int moduleConfigSetCommand(const char *parameter, char **strval, RedisModuleConfigSetContext set_ctx, const char **err, void *privdata) {
+int moduleConfigSetCommand(const char *parameter, char *strval, RedisModuleConfigSetContext set_ctx, const char **err, void *privdata) {
     char *config_name = strchr(parameter, '.') + 1;
     ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
     
@@ -11222,23 +11227,28 @@ sds moduleConfigGetCommand(const char *parameter, void *privdata) {
 /* Rewrite functions that emulate the ones in config.c. There is one key difference, however.
  * For module configurations we ALWAYS rewrite, as we are not aware of their default value. */
 void moduleBoolConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    sds line = sdscatprintf(sdsempty(),"%s %s", full_name, getAndParseBoolConfig(module_config));
+    sds bool_val = getAndParseBoolConfig(module_config);
+    sds line = sdscatprintf(sdsempty(),"%s %s", full_name, bool_val);
     rewriteConfigRewriteLine(state, full_name, line, 1);
+    sdsfree(bool_val);
 }
 
 void moduleStringConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
     sds string_val = getAndParseStringConfig(module_config);
     rewriteConfigStringOption(state, full_name, string_val, NULL);
+    sdsfree(string_val);
 }
 
 void moduleEnumConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
     sds val = getAndParseEnumConfig(module_config);
     sds line = sdscatprintf(sdsempty(), "%s %s", full_name, val);
     rewriteConfigRewriteLine(state, full_name, line, 1);
+    sdsfree(val);
 }
 
 void moduleNumericConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    long long value = strtoll(getAndParseNumericConfig(module_config), NULL, 10);
+    sds integer_val = getAndParseNumericConfig(module_config);
+    long long value = strtoll(integer_val, NULL, 10);
     sds line;
 
     if (module_config->flags & REDISMODULE_CONFIG_MEMORY) {
@@ -11249,6 +11259,7 @@ void moduleNumericConfigRewrite(ModuleConfig *module_config, const char *full_na
         line = sdscatprintf(sdsempty(), "%s %lld", full_name, value);
     }
     rewriteConfigRewriteLine(state, full_name, line, 1);
+    sdsfree(integer_val);
 }
 
 /* Rewrite functionality for all module configurations. The difference here is that it always rewrites the configs
@@ -11295,10 +11306,12 @@ int loadModuleConfigs(RedisModule *module, list *configs_list) {
         config_pair = sdssplitargs(module_config, &count);
         if (count != 2) {
             serverLog(LL_WARNING, "Couldn't load configuration %s", config_pair[0]);
+            sdsfreesplitres(config_pair, count);
             return REDISMODULE_ERR;
         }
-        if (!moduleConfigSetCommand(config_pair[0], &config_pair[1], REDISMODULE_CONFIG_SET_STARTUP, &err, module)) {
+        if (!moduleConfigSetCommand(config_pair[0], config_pair[1], REDISMODULE_CONFIG_SET_STARTUP, &err, module)) {
             serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", config_pair[0], err);
+            sdsfreesplitres(config_pair, count);
             return REDISMODULE_ERR;
         }
         sdsfreesplitres(config_pair, count);

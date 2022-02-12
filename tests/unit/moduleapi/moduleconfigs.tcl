@@ -18,7 +18,7 @@ start_server {tags {"modules"}} {
 
     test {Config set commands work} {
         # Make sure that config sets work during runtime
-        r config set moduleconfigs.mutable_bool no 
+        r config set moduleconfigs.mutable_bool no
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
         r config set moduleconfigs.memory_numeric 1mb
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1048576"

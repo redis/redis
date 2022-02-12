@@ -412,7 +412,11 @@ sds standardConfigGet(standardConfig *config) {
 
 int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **errstr) {
     if (config->flags & MODULE_CONFIG) {
-        return moduleConfigSetCommand(config->name, argv, REDISMODULE_CONFIG_SET_RUNTIME, errstr, config->privdata);
+        if (argc != 1){
+            *errstr = "wrong number of arguments";
+            return 0;
+        }
+        return moduleConfigSetCommand(config->name, argv[0], REDISMODULE_CONFIG_SET_RUNTIME, errstr, config->privdata);
     }
     return config->interface.set(config->data, argv, argc, errstr);
 }
@@ -2995,7 +2999,7 @@ void addConfig(standardConfig *new_config) {
 
 /* Removes a config by index */
 void removeConfigByIndex(size_t index) {
-    for (size_t i = index + 1; i < num_configs + 1; i++) {
+    for (size_t i = index + 1; i < num_configs; i++) {
         memcpy(configs + i - 1, configs + i, sizeof(standardConfig));
     }
     num_configs--;
@@ -3005,10 +3009,10 @@ void removeConfigByIndex(size_t index) {
 /* Removes a config by name */
 void removeConfig(char *name) {
     for (size_t i = 0; i < num_configs; i++) {
-        standardConfig config = configs[i];
-        if (!strcasecmp(config.name, name)) {
-            if (config.flags & MODULE_CONFIG) {
-                sdsfree((sds) config.name);
+        standardConfig *config = &configs[i];
+        if (!strcasecmp(config->name, name)) {
+            if (config->flags & MODULE_CONFIG) {
+                sdsfree((sds) config->name);
             }
             removeConfigByIndex(i);
             return;

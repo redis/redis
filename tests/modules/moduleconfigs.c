@@ -3,8 +3,8 @@ int mutable_bool_val = 1;
 int immutable_bool_val = 0;
 long long longval = -1;
 long long memval = 1024;
-RedisModuleString *strval;
-RedisModuleString *enumval;
+RedisModuleString *strval = NULL;
+RedisModuleString *enumval = NULL;
 
 /* Series of get and set callbacks for each type of config, these rely on the privdata ptr
  * to point to the config, and they register the configs as such. Note that one could also just
@@ -43,6 +43,7 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(is_startup);
+    RedisModule_Free(*(RedisModuleString **)privdata);
     *(RedisModuleString **)privdata = new;
     return 1;
 }
@@ -56,6 +57,7 @@ int setEnumConfigCommand(const char *name, RedisModuleString *new, void *privdat
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(is_startup);
+    RedisModule_Free(*(RedisModuleString **)privdata);
     *(RedisModuleString **)privdata = new;
     return 1;
 }
@@ -64,9 +66,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "moduleconfigs", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) return REDISMODULE_ERR;
-
-    strval = RedisModule_CreateString(ctx, "log4j", 5);
-    enumval = RedisModule_CreateString(ctx, "one", 3);
     
     /* enum_vals is initialized as a stack variable in order to ensure we're copying them over in the core. */
     const char *enum_vals[3] = {"one", "two", "three"};
@@ -94,5 +93,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_ApplyConfigs(ctx) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+
+    /* Set default values */
+    if (!strval) strval = RedisModule_CreateString(ctx, "log4j", 5);
+    if (!enumval) enumval = RedisModule_CreateString(ctx, "one", 3);
+
     return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    RedisModule_Free(strval);
+    RedisModule_Free(enumval);
 }
