@@ -1237,6 +1237,7 @@ test {replica can handle EINTR if use diskless load} {
 start_server {tags {"repl" "external:skip"}} {
     test "replica do not write the reply to the replication link - SYNC (_addReplyToBufferOrList)" {
         set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
 
         $rd sync
         $rd ping
@@ -1245,8 +1246,7 @@ start_server {tags {"repl" "external:skip"}} {
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the PING command.
-        set logs [exec tail -n 100 < [srv 0 stdout]]
-        assert_match {*Replica generated a reply to command 'ping', disconnecting it: *} $logs
+        verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
 
         $rd close
         catch {exec kill -9 [get_child_pid 0]}
@@ -1255,6 +1255,7 @@ start_server {tags {"repl" "external:skip"}} {
 
     test "replica do not write the reply to the replication link - SYNC (addReplyDeferredLen)" {
         set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
 
         $rd sync
         $rd xinfo help
@@ -1263,8 +1264,7 @@ start_server {tags {"repl" "external:skip"}} {
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the XINFO HELP command.
-        set logs [exec tail -n 100 < [srv 0 stdout]]
-        assert_match {*Replica generated a reply to command 'xinfo|help', disconnecting it: *} $logs
+        verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
 
         $rd close
         catch {exec kill -9 [get_child_pid 0]}
@@ -1273,6 +1273,7 @@ start_server {tags {"repl" "external:skip"}} {
 
     test "replica do not write the reply to the replication link - PSYNC (_addReplyToBufferOrList)" {
         set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
 
         $rd psync replicationid -1
         assert_match {FULLRESYNC * 0} [$rd read]
@@ -1282,10 +1283,9 @@ start_server {tags {"repl" "external:skip"}} {
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the GET command.
-        set logs [exec tail -n 100 < [srv 0 stdout]]
-        assert_match {*Replica generated a reply to command 'get', disconnecting it: *} $logs
-        assert_match {*== CRITICAL == This master is sending an error to its replica: *} $logs
-        assert_match {*Replica can't interact with the keyspace*} $logs
+        verify_log_message 0 "*Replica generated a reply to command 'get', disconnecting it: *" $lines
+        verify_log_message 0 "*== CRITICAL == This master is sending an error to its replica: *" $lines
+        verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
 
         $rd close
         catch {exec kill -9 [get_child_pid 0]}
@@ -1294,6 +1294,7 @@ start_server {tags {"repl" "external:skip"}} {
 
     test "replica do not write the reply to the replication link - PSYNC (addReplyDeferredLen)" {
         set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
 
         $rd psync replicationid -1
         assert_match {FULLRESYNC * 0} [$rd read]
@@ -1303,8 +1304,7 @@ start_server {tags {"repl" "external:skip"}} {
         assert_equal "PONG" [r ping]
 
         # Check we got the warning logs about the SLOWLOG GET command.
-        set logs [exec tail -n 100 < [srv 0 stdout]]
-        assert_match {*Replica generated a reply to command 'slowlog|get', disconnecting it: *} $logs
+        verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
 
         $rd close
         catch {exec kill -9 [get_child_pid 0]}
