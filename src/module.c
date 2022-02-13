@@ -269,6 +269,7 @@ typedef struct RedisModuleCallReply {
         long long ll;    /* Reply value for integer reply. */
         struct RedisModuleCallReply *array; /* Array of sub-reply elements. */
     } val;
+    list *deferred_error_list;   /* list of errors in sds form or NULL */
 } RedisModuleCallReply;
 
 /* Structure representing a blocked client. We get a pointer to such
@@ -1702,6 +1703,15 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     if (c == NULL) return REDISMODULE_OK;
     sds proto = sdsnewlen(reply->proto, reply->protolen);
     addReplySds(c,proto);
+
+    /* Propagate the error list from that reply to the other client, to do some
+     * post error reply handling, like statistics.
+     * Note that if the original reply had an array with errors, and the module
+     * replied with just a portion of the original reply, and not the entire
+     * reply, the errors are currently not propagated and the errors stats
+     * will not get propagated. */
+    if (reply->deferred_error_list)
+        deferredAfterErrorReply(c, reply->deferred_error_list);
     return REDISMODULE_OK;
 }
 
@@ -3753,12 +3763,16 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
 /* Create a new RedisModuleCallReply object. The processing of the reply
  * is lazy, the object is just populated with the raw protocol and later
  * is processed as needed. Initially we just make sure to set the right
- * reply type, which is extremely cheap to do. */
-RedisModuleCallReply *moduleCreateCallReplyFromProto(RedisModuleCtx *ctx, sds proto) {
+ * reply type, which is extremely cheap to do.
+ * The deferred_error_list is an optional list of errors that are present
+ * in the reply blob, if given, this function will take ownership on it.
+ */
+RedisModuleCallReply *moduleCreateCallReplyFromProto(RedisModuleCtx *ctx, sds proto, list *deferred_error_list) {
     RedisModuleCallReply *reply = zmalloc(sizeof(*reply));
     reply->ctx = ctx;
     reply->proto = proto;
     reply->protolen = sdslen(proto);
+    reply->deferred_error_list = deferred_error_list;
     reply->flags = REDISMODULE_REPLYFLAG_TOPARSE; /* Lazy parsing. */
     switch(proto[0]) {
     case '$':
@@ -3876,11 +3890,14 @@ void moduleFreeCallReplyRec(RedisModuleCallReply *reply, int freenested){
         }
     }
 
+
     /* For nested replies, we don't free reply->proto (which if not NULL
      * references the parent reply->proto buffer), nor the structure
      * itself which is allocated as an array of structures, and is freed
      * when the array value is released. */
     if (!(reply->flags & REDISMODULE_REPLYFLAG_NESTED)) {
+        if (reply->deferred_error_list)
+            listRelease(reply->deferred_error_list);
         if (reply->proto) sdsfree(reply->proto);
         zfree(reply);
     }
@@ -4202,7 +4219,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));
     }
-    reply = moduleCreateCallReplyFromProto(ctx,proto);
+    reply = moduleCreateCallReplyFromProto(ctx,proto,c->deferred_reply_errors);
+    c->deferred_reply_errors = NULL; /* now the responsibility of the reply object. */
     autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
