@@ -79,8 +79,10 @@ set slot4 [list 0-1000 1002-5459 5461 10926]
 # 2. Single slot(s) + multi slot range owner
 # 3. multi slot range + multi slot range owner
 test "Verify cluster shards response" {
+    # Sleep for 5 sec to let the replica sync
     after 5000
     set shards [R 0 CLUSTER SHARDS]
+    set validation_cnt 0
     foreach shard $shards {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
@@ -89,32 +91,38 @@ test "Verify cluster shards response" {
             dict_setup_for_verification replica 7
             dict_shard_cmp [lindex $nodes 0] $primary
             dict_shard_cmp [lindex $nodes 1] $replica
+            incr validation_cnt
         }
         if { $slots == $slot2 } {
             dict_setup_for_verification primary 2
             dict_setup_for_verification replica 6
             dict_shard_cmp [lindex $nodes 0] $primary
             dict_shard_cmp [lindex $nodes 1] $replica
+            incr validation_cnt
         }
         if { $slots == $slot3 } {
             dict_setup_for_verification primary 1
             dict_setup_for_verification replica 5
             dict_shard_cmp [lindex $nodes 0] $primary
             dict_shard_cmp [lindex $nodes 1] $replica
+            incr validation_cnt
         }
         if { $slots == $slot4 } {
             dict_setup_for_verification primary 0
             dict_setup_for_verification replica 4
             dict_shard_cmp [lindex $nodes 0] $primary
             dict_shard_cmp [lindex $nodes 1] $replica
+            incr validation_cnt
        }
     }
+    assert_equal $validation_cnt 4
 }
 
 # Remove the only slot owned by primary 3, slots array should be empty.
 test "Verify no slots shard" {
     R 3 cluster DELSLOTSRANGE 1001 1001
-    set shards [R 0 CLUSTER SHARDS]
+    set shards [R 3 CLUSTER SHARDS]
+    set validation_cnt 0
     foreach shard $shards {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
@@ -123,8 +131,10 @@ test "Verify no slots shard" {
                 dict_setup_for_verification replica 7
                 dict_shard_cmp [lindex $nodes 0] $primary
                 dict_shard_cmp [lindex $nodes 1] $replica
+                incr validation_cnt 1
         }
     }
+    assert_equal $validation_cnt 1
 }
 
 set id0 [R 0 CLUSTER MYID]
@@ -140,6 +150,7 @@ test "Cluster should be down now" {
 # Primary 0 node should report as fail.
 test "Verify health as fail for killed node" {
     set shards [R 1 CLUSTER SHARDS]
+    set validation_cnt 0
     foreach shard $shards {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
@@ -149,6 +160,8 @@ test "Verify health as fail for killed node" {
             dict set primary port 30000
             dict set primary health FAIL
             dict_shard_cmp [lindex $nodes 0] $primary
+            incr validation_cnt 1
         }
     }
+    assert_equal $validation_cnt 1
 }
