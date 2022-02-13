@@ -119,7 +119,7 @@ dictType clusterNodesBlackListDictType = {
 };
 
 /* We use the following dictionary type to store nodeToSlotPair info,
- * so it's like "node-id" -> list of slot pair numbers. */
+ * so it's like "node-id" -> list of slot/slot range numbers. */
 void dictListDestructor(dict *d, void *val);
 
 dictType clusterNodesToSlotDictType = {
@@ -129,7 +129,7 @@ dictType clusterNodesToSlotDictType = {
         dictSdsKeyCompare,          /* key compare */
         dictSdsDestructor,          /* key destructor */
         dictListDestructor,         /* val destructor */
-        NULL          /* allow to expand */
+        NULL             /* allow to expand */
 };
 
 /* -----------------------------------------------------------------------------
@@ -4973,6 +4973,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
      * 5. endpoint
      * 5. role
      * 6. replication offset (in case of replica only).
+     * 7. health
      */
     int reply_cnt = 0;
     void *node_replylen = addReplyDeferredLen(c);
