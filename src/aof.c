@@ -1550,6 +1550,7 @@ cleanup:
 int loadAppendOnlyFiles(aofManifest *am) {
     serverAssert(am != NULL);
     int ret = C_OK;
+    int aof_loaded = 0;
     long long start;
     off_t total_size = 0;
     sds aof_name;
@@ -1595,6 +1596,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
         if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            aof_loaded = 1;
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
@@ -1625,6 +1627,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
             if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+                aof_loaded = 1;
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
@@ -1642,6 +1645,10 @@ int loadAppendOnlyFiles(aofManifest *am) {
     server.aof_current_size = total_size;
     server.aof_rewrite_base_size = server.aof_current_size;
     server.aof_fsync_offset = server.aof_current_size;
+
+    /* If we succeeded to load one of the AOF files, and the last AOF file is empty,
+     * the result is AOF_OK (and not AOF_EMPTY) */
+    if (aof_loaded && ret == AOF_EMPTY) ret = AOF_OK;
 
 cleanup:
     stopLoading(ret == AOF_OK);
