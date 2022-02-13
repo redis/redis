@@ -134,8 +134,8 @@ typedef struct clusterNode {
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
-    char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    char *hostname;           /* The known hostname for this node */
+    char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
+    sds hostname;               /* The known hostname for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
