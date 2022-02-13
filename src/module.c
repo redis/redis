@@ -2918,6 +2918,12 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     size_t proto_len;
     const char *proto = callReplyGetProto(reply, &proto_len);
     addReplyProto(c, proto, proto_len);
+    /* Propagate the error list from that reply to the other client, to do some
+     * post error reply handling, like statistics.
+     * Note that if the original reply had an array with errors, and the module
+     * replied with just a portion of the original reply, and not the entire
+     * reply, the errors are currently not propagated and the errors stats
+     * will not get propagated. */
     list *errors = callReplyDeferredErrorList(reply);
     if (errors)
         deferredAfterErrorReply(c, errors);
