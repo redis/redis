@@ -90,4 +90,28 @@ start_server {tags {"modules"}} {
         set clients [r client list]
         assert_no_match "*name=myclient*" $clients
     }
+
+    test {module client error stats} {
+        r config resetstat
+
+        assert_error "NULL reply returned" {r do_rm_call hgetalllll}
+        assert_equal [errorrstat NULL r] {count=1}
+
+        assert_error "NULL reply returned" {r do_bg_rm_call hgetalllll}
+        assert_equal [errorrstat NULL r] {count=2}
+
+        r do_rm_call set x x
+        assert_error "ERR wrong number of arguments for 'do_rm_call' command" {r do_rm_call}
+        assert_equal [errorrstat ERR r] {count=1}
+
+        assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
+        assert_equal [errorrstat WRONGTYPE r] {count=1}
+
+        assert_error "WRONGTYPE*" {r do_bg_rm_call hgetall x}
+        assert_equal [errorrstat WRONGTYPE r] {count=2}
+    }
+
+    test "Unload the module - blockedclient" {
+        assert_equal {OK} [r module unload blockedclient]
+    }
 }
