@@ -1338,26 +1338,35 @@ int loadSingleAppendOnlyFile(char *filename) {
     client *old_client = server.current_client;
     fakeClient = server.current_client = createAOFClient();
 
-    /* Check if this AOF file has an RDB preamble. In that case we need to
-     * load the RDB file and later continue loading the AOF tail. */
+    /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
+     * or old style RDB-preamble AOF). In that case we need to load the RDB file 
+     * and later continue loading the AOF tail if it is an old style RDB-preamble AOF. */
     char sig[5]; /* "REDIS" */
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
-        /* No RDB preamble, seek back at 0 offset. */
+        /* Not in RDB format, seek back at 0 offset. */
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
     } else {
-        /* RDB preamble. Pass loading the RDB functions. */
+        /* RDB format. Pass loading the RDB functions. */
         rio rdb;
+        int old_style = !strcmp(filename, server.aof_filename);
+        if (old_style)
+            serverLog(LL_NOTICE, "Reading RDB preamble from AOF file...");
+        else 
+            serverLog(LL_NOTICE, "Reading RDB base file on AOF loading..."); 
 
-        serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
         if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
-            serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
+            if (old_style)
+                serverLog(LL_WARNING, "Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
+            else
+                serverLog(LL_WARNING, "Error reading the RDB base file %s, AOF loading aborted", filename);
+
             goto readerr;
         } else {
             loadingAbsProgress(ftello(fp));
             last_progress_report_size = ftello(fp);
-            serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
+            if (old_style) serverLog(LL_NOTICE, "Reading the remaining AOF tail...");
         }
     }
 
@@ -2113,8 +2122,8 @@ static int rewriteFunctions(rio *aof) {
         } else {
             if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
         }
-        char fucntion_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
-        if (rioWrite(aof, fucntion_load, sizeof(fucntion_load) - 1) == 0) goto werr;
+        char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
+        if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
         if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
         if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
         if (li->desc) {
@@ -2328,9 +2337,7 @@ int rewriteAppendOnlyFileBackground(void) {
     }
 
     /* We set aof_selected_db to -1 in order to force the next call to the
-     * feedAppendOnlyFile() to issue a SELECT command, so the differences
-     * accumulated by the parent into server.aof_rewrite_buf will start
-     * with a SELECT statement and it will be safe to merge. */
+     * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
     if (openNewIncrAofForAppend() != C_OK) return C_ERR;

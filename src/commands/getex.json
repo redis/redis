@@ -15,6 +15,7 @@
         ],
         "key_specs": [
             {
+                "notes": "RW and UPDATE because it changes the TTL",
                 "flags": [
                     "RW",
                     "ACCESS",
@@ -56,13 +57,13 @@
                         "token": "PX"
                     },
                     {
-                        "name": "unix-time",
-                        "type": "integer",
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
                         "token": "EXAT"
                     },
                     {
-                        "name": "unix-time",
-                        "type": "integer",
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
                         "token": "PXAT"
                     },
                     {

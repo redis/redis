@@ -36,6 +36,7 @@
 #include "rio.h"
 #include "atomicvar.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -264,6 +265,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_CHANNEL (1ULL<<8)     /* PUBSUB shard channel */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
+#define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
+                                            * different flags depending on arguments */
+
+/* Key flags for when access type is unknown */
+#define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1618,7 +1624,6 @@ struct redisServer {
     off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
-    list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
@@ -1635,7 +1640,7 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
-    int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
+    int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
     aofManifest *aof_manifest;       /* Used to track AOFs. */
@@ -1752,10 +1757,6 @@ struct redisServer {
     char master_replid[CONFIG_RUN_ID_SIZE+1];  /* Master PSYNC runid. */
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
-    /* Replication script cache. */
-    dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
-    list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
-    unsigned int repl_scriptcache_size; /* Max number of elements. */
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
@@ -1895,7 +1896,7 @@ struct redisServer {
 
 typedef struct {
     int pos; /* The position of the key within the client array */
-    int flags; /* The flags associted with the key access, see
+    int flags; /* The flags associated with the key access, see
                   CMD_KEY_* for more information */
 } keyReference;
 
@@ -1917,7 +1918,7 @@ typedef struct {
  * which is limited and doesn't fit many commands.
  *
  * There are two steps:
- * 1. begin_search (BS): in which index should we start seacrhing for keys?
+ * 1. begin_search (BS): in which index should we start searching for keys?
  * 2. find_keys (FK): relative to the output of BS, how can we will which args are keys?
  *
  * There are two types of BS:
@@ -1947,6 +1948,7 @@ typedef enum {
 
 typedef struct {
     /* Declarative data */
+    const char *notes;
     uint64_t flags;
     kspec_bs_type begin_search_type;
     union {
@@ -1959,7 +1961,7 @@ typedef struct {
             const char *keyword;
             /* An index in argv from which to start searching.
              * Can be negative, which means start search from the end, in reverse
-             * (Example: -2 means to start in reverse from the panultimate arg) */
+             * (Example: -2 means to start in reverse from the penultimate arg) */
             int startfrom;
         } keyword;
     } bs;
@@ -1998,7 +2000,7 @@ typedef enum {
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
     ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY,
+    ARG_TYPE_KEY, /* A string, but represents a keyname */
     ARG_TYPE_PATTERN,
     ARG_TYPE_UNIX_TIME,
     ARG_TYPE_PURE_TOKEN,
@@ -2293,11 +2295,12 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
-extern dictType replScriptCacheDictType;
+extern dictType stringSetDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
@@ -2307,8 +2310,9 @@ extern dict *modules;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
-/* Key arguments specs */
+/* Command metadata */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
+int populateArgsStructure(struct redisCommandArg *args);
 
 /* Modules */
 void moduleInitModulesSystem(void);
@@ -2336,7 +2340,7 @@ int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
 int moduleAllDatatypesHandleErrors();
 int moduleAllModulesHandleReplAsyncLoad();
-sds modulesCollectInfo(sds info, const char *section, int for_crash_report, int sections);
+sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
 int moduleTryServeClientBlockedOnKey(client *c, robj *key);
@@ -2376,6 +2380,7 @@ int beforeNextClient(client *c);
 void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
+void freeClientArgv(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
@@ -2931,7 +2936,7 @@ void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
-int rewriteConfig(char *path, int force_all);
+int rewriteConfig(char *path, int force_write);
 void initConfigValues();
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
@@ -3022,6 +3027,8 @@ int lmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -3060,6 +3067,11 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
+
+typedef struct luaScript {
+    uint64_t flags;
+    robj *body;
+} luaScript;
 
 /* Blocked clients */
 void processUnblockedClients(void);
@@ -3122,6 +3134,7 @@ void commandCountCommand(client *c);
 void commandListCommand(client *c);
 void commandInfoCommand(client *c);
 void commandGetKeysCommand(client *c);
+void commandGetKeysAndFlagsCommand(client *c);
 void commandHelpCommand(client *c);
 void commandDocsCommand(client *c);
 void setCommand(client *c);
@@ -3387,7 +3400,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...);
 void serverLogObjectDebugInfo(const robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
-sds genRedisInfoString(const char *section);
+dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);
+void releaseInfoSectionDict(dict *sec);
+sds genRedisInfoString(dict *section_dict, int all_sections, int everything);
 sds genModulesInfoString(sds info);
 void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);

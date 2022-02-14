@@ -10,7 +10,7 @@ source "../../../tests/support/cli.tcl"
 # Create a cluster with 5 master and 15 slaves, to make sure there are no
 # empty masters and make rebalancing simpler to handle during the test.
 test "Create a 5 nodes cluster" {
-    create_cluster 5 15
+    cluster_create_with_continuous_slots 5 15
 }
 
 test "Cluster is up" {

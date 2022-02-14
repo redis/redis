@@ -20,6 +20,7 @@ set ::all_tests {
     unit/keyspace
     unit/scan
     unit/info
+    unit/info-command
     unit/type/string
     unit/type/incr
     unit/type/list

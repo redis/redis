@@ -5226,6 +5226,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
+                return;
+            }
             /* If this hash slot was served by 'myself' before to switch
              * make sure there are no longer local keys for this hash slot. */
             if (server.cluster->slots[slot] == myself && n != myself) {
