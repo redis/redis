@@ -1,6 +1,6 @@
 source "../tests/includes/init-tests.tcl"
 
-proc cluster_allocate_with_split_slots {n} {
+proc cluster_allocate_with_split_slots {} {
     R 0 cluster ADDSLOTSRANGE 0 1000 1002 5459 5461 5461 10926 10926
     R 1 cluster ADDSLOTSRANGE 5460 5460 5462 10922 10925 10925
     R 2 cluster ADDSLOTSRANGE 10923 10924 10927 16383
@@ -8,13 +8,12 @@ proc cluster_allocate_with_split_slots {n} {
 }
 
 proc cluster_create_with_split_slots {masters replicas} {
-    cluster_allocate_with_split_slots $masters
+    cluster_allocate_with_split_slots
     if {$replicas} {
         cluster_allocate_slaves $masters $replicas
     }
     set ::cluster_master_nodes $masters
     set ::cluster_replica_nodes $replicas
-    assert_cluster_state ok
 }
 
 test "Create a 4 nodes cluster" {
@@ -23,6 +22,10 @@ test "Create a 4 nodes cluster" {
 
 test "Cluster should start ok" {
     assert_cluster_state ok
+}
+
+test "Cluster is writable" {
+    cluster_write_test 0
 }
 
 proc dict_shard_cmp {actual expected} {
@@ -135,16 +138,27 @@ test "Verify no slots shard" {
         }
     }
     assert_equal $validation_cnt 1
+    R 3 cluster ADDSLOTSRANGE 1001 1001
 }
 
 set id0 [R 0 CLUSTER MYID]
 
-test "Killing one master node" {
+set current_epoch [CI 2 cluster_current_epoch]
+
+test "Killing one primary node" {
     kill_instance redis 0
 }
 
-test "Cluster should be down now" {
-    assert_cluster_state fail
+test "Wait for failover" {
+    wait_for_condition 1000 50 {
+        [CI 2 cluster_current_epoch] > $current_epoch
+    } else {
+        fail "No failover detected"
+    }
+}
+
+test "Cluster should eventually be up again" {
+    assert_cluster_state ok
 }
 
 # Primary 0 node should report as fail.
@@ -154,12 +168,67 @@ test "Verify health as fail for killed node" {
     foreach shard $shards {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
-        if { $slots == $slot4 } {
+        set slot_len [llength $slots]
+        if {$slot_len == 0 && [dict get [lindex $nodes 0] id] == $id0} {
             dict set primary id $id0
             dict set primary hostname "host-0.com"
             dict set primary port 30000
             dict set primary health FAIL
             dict_shard_cmp [lindex $nodes 0] $primary
+            incr validation_cnt 1
+        }
+    }
+    assert_equal $validation_cnt 1
+}
+
+test "Cluster is writable" {
+    cluster_write_test 1
+}
+
+test "Restarting primary node" {
+    restart_instance redis 0
+}
+
+set primary_id 4
+set replica_id 0
+
+test "Instance #0 gets converted into a replica" {
+    wait_for_condition 1000 50 {
+        [RI $replica_id role] eq {slave}
+    } else {
+        fail "Old master was not converted into replica"
+    }
+}
+
+test "Instance #0 synced with the master" {
+    wait_for_condition 1000 50 {
+        [RI $replica_id master_link_status] eq {up}
+    } else {
+        fail "Instance #$replica_id master link status is not up"
+    }
+}
+
+test "Kill the replication link and fill up primary with data" {
+    # kill the replication link
+    R $primary_id client kill type replica
+    # Set 1 MB of data
+    R $primary_id debug populate 1000 key 1000
+}
+
+test "Verify health as loading of replica" {
+    set shards [R $primary_id CLUSTER SHARDS]
+    set validation_cnt 0
+    foreach shard $shards {
+        set slots [dict get $shard slots]
+        set nodes [dict get $shard nodes]
+        set slot_len [llength $slots]
+        if {$slots == $slot4} {
+            dict_setup_for_verification primary $primary_id
+            dict_setup_for_verification replica $replica_id
+            dict set primary health ONLINE
+            dict set replica health LOADING
+            dict_shard_cmp [lindex $nodes 0] $primary
+            dict_shard_cmp [lindex $nodes 1] $replica
             incr validation_cnt 1
         }
     }
