@@ -17,11 +17,11 @@ branches:
     - /^release\/.*$/
 
 install:
-    - if [ "$BITS" == "64" ]; then
+    - if [ "$TRAVIS_COMPILER" != "mingw" ]; then
         wget https://github.com/redis/redis/archive/6.0.6.tar.gz;
         tar -xzvf 6.0.6.tar.gz;
         pushd redis-6.0.6 && BUILD_TLS=yes make && export PATH=$PWD/src:$PATH && popd;
-      fi
+      fi;
 
 before_script:
     - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
@@ -33,8 +33,6 @@ before_script:
 
 addons:
   apt:
-    sources:
-    - sourceline: 'ppa:chris-lea/redis-server'
     packages:
     - libc6-dbg
     - libc6-dev
@@ -46,17 +44,13 @@ addons:
     - libssl-dev
     - libssl-dev:i386
     - valgrind
-    - redis
 
 env:
   - BITS="32"
   - BITS="64"
 
 script:
-  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON";
-    if [ "$BITS" == "64" ]; then
-      EXTRA_CMAKE_OPTS="$EXTRA_CMAKE_OPTS -DENABLE_SSL_TESTS:BOOL=ON";
-    fi;
+  - EXTRA_CMAKE_OPTS="-DENABLE_EXAMPLES:BOOL=ON -DENABLE_SSL:BOOL=ON -DENABLE_SSL_TESTS:BOOL=ON";
     if [ "$TRAVIS_OS_NAME" == "osx" ]; then
       if [ "$BITS" == "32" ]; then
         CFLAGS="-m32 -Werror";

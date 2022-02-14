@@ -1,8 +1,9 @@
-/* SDSLib 2.0 -- A C dynamic strings library
+/*
+ * Copyright (c) 2020, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2020, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2020, Matt Stancliff <matt at genges dot com>,
+ *                     Jan-Erik Rediger <janerik at fnordig dot com>
  *
- * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2015, Oran Agra
- * Copyright (c) 2015, Redis Labs, Inc
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,15 +31,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* SDS allocator selection.
- *
- * This file is used in order to change the SDS allocator at compile time.
- * Just define the following defines to what you want to use. Also add
- * the include of your alternate allocator if needed (not needed in order
- * to use the default libc allocator). */
+#include <stdlib.h>
+#include <string.h>
+#include "hiredis.h"
 
-#include "alloc.h"
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    char *new_str, *cmd;
 
-#define s_malloc hi_malloc
-#define s_realloc hi_realloc
-#define s_free hi_free
+    if (size < 3)
+        return 0;
+
+    new_str = malloc(size+1);
+    if (new_str == NULL)
+        return 0;
+
+    memcpy(new_str, data, size);
+    new_str[size] = '\0';
+
+    redisFormatCommand(&cmd, new_str);
+
+    if (cmd != NULL)
+        hi_free(cmd);
+    free(new_str);
+    return 0;
+}
