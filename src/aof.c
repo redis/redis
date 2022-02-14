@@ -1645,7 +1645,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
     /* If the last status is AOF_EMPTY but total_size > 0, it means
      * that we succeeded to load (at least) one of the AOF files */
-    if (ret == AOF_EMPTY && total_size > 0) AOF_OK;
+    if (ret == AOF_EMPTY && total_size > 0) ret = AOF_OK;
 
 cleanup:
     stopLoading(ret == AOF_OK || ret == AOF_TRUNCATED || ret == AOF_EMPTY);
