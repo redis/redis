@@ -295,7 +295,6 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         # unicode
         set gclef 𝄞
         r hset g:clef test $gclef
-        assert_equal $gclef [run_cli hget g:clef test]
         assert_equal "\xf0\x9d\x84\x9e" [run_cli hget g:clef test]
         set escaped_gclef \"\\\\xf0\\\\x9d\\\\x84\\\\x9e\"
         assert_equal $escaped_gclef [run_cli --json hget g:clef test]

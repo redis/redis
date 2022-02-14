@@ -372,29 +372,45 @@ void freeCliConnInfo(cliConnInfo connInfo){
     if (connInfo.user) sdsfree(connInfo.user);
 }
 
-sds escapeJsonString(hisds s, const char *p, size_t len) {
-    s = hi_sdscatlen(s,"\"",1);
+/*
+ * Escape a string for JSON output(--json)
+ * Following characters should be escaped with '\' in JSON
+ * " (quotation mark)
+ * \ (reverse solidus)
+ * / (solidus)
+ * b (backspace)
+ * f (form feed)
+ * n (line feed)
+ * r (carriage return)
+ * t (tab)
+ * not printable character (0x00~0x19, 0x80~) should be escaped
+ * with two double quotes, whereas they are escaped with 'one'
+ * double quote in sdscatrepr()
+ * 
+ * ref: https://datatracker.ietf.org/doc/html/rfc7159#section-7
+*/
+sds escapeJsonString(sds s, const char *p, size_t len) {
+    s = sdscatlen(s,"\"",1);
     while(len--) {
         switch(*p) {
         case '/':
         case '\\':
         case '"':
-            s = hi_sdscatprintf(s,"\\%c",*p);
+            s = sdscatprintf(s,"\\%c",*p);
             break;
-        case '\n': s = hi_sdscatlen(s,"\\n",2); break;
-        case '\f': s = hi_sdscatlen(s,"\\f",2); break;
-        case '\r': s = hi_sdscatlen(s,"\\r",2); break;
-        case '\t': s = hi_sdscatlen(s,"\\t",2); break;
-        case '\a': s = hi_sdscatlen(s,"\\a",2); break;
-        case '\b': s = hi_sdscatlen(s,"\\b",2); break;
+        case '\n': s = sdscatlen(s,"\\n",2); break;
+        case '\f': s = sdscatlen(s,"\\f",2); break;
+        case '\r': s = sdscatlen(s,"\\r",2); break;
+        case '\t': s = sdscatlen(s,"\\t",2); break;
+        case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
             if (isprint(*p))
-                s = hi_sdscatprintf(s,"%c",*p);
+                s = sdscatprintf(s,"%c",*p);
             else
-                s = hi_sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
+                s = sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
             break;
         }
         p++;
     }
-    return hi_sdscatlen(s,"\"",1);
+    return sdscatlen(s,"\"",1);
 }

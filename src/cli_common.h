@@ -49,5 +49,5 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
 
 void freeCliConnInfo(cliConnInfo connInfo);
 
-sds escapeJsonString(hisds s, const char *p, size_t len);
+char* escapeJsonString(sds s, const char *p, size_t len);
 #endif /* __CLICOMMON_H */
