@@ -1651,7 +1651,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     if (aof_loaded && ret == AOF_EMPTY) ret = AOF_OK;
 
 cleanup:
-    stopLoading(ret == AOF_OK);
+    stopLoading(ret == AOF_OK || ret == AOF_TRUNCATED || ret == AOF_EMPTY);
     return ret;
 }
 
