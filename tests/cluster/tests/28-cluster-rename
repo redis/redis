@@ -15,8 +15,8 @@ catch {unset nodefrom}
 $cluster refresh_nodes_map
 
 test "Try to rename key that does not exist" {
-    set key "DNE"
-    set updated_key "newDNE"
+    set key "DoesNotExist"
+    set updated_key "DoesNotExistNew"
 
     catch {$nodefrom(link) rename $key  $updated_key} e
     if {![string match "*no such*" $e]} {
