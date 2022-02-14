@@ -31,7 +31,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hiredis.h>
-#include <win32.h>
 
 #define KEY_COUNT 5
 

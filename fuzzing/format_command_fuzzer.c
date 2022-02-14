@@ -1,5 +1,8 @@
 /*
- * Copyright (c) 2020, Michael Grunder <michael dot grunder at gmail dot com>
+ * Copyright (c) 2020, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2020, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2020, Matt Stancliff <matt at genges dot com>,
+ *                     Jan-Erik Rediger <janerik at fnordig dot com>
  *
  * All rights reserved.
  *
@@ -28,63 +31,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "fmacros.h"
-#include "alloc.h"
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+#include "hiredis.h"
 
-hiredisAllocFuncs hiredisAllocFns = {
-    .mallocFn = malloc,
-    .callocFn = calloc,
-    .reallocFn = realloc,
-    .strdupFn = strdup,
-    .freeFn = free,
-};
+int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+    char *new_str, *cmd;
 
-/* Override hiredis' allocators with ones supplied by the user */
-hiredisAllocFuncs hiredisSetAllocators(hiredisAllocFuncs *override) {
-    hiredisAllocFuncs orig = hiredisAllocFns;
+    if (size < 3)
+        return 0;
 
-    hiredisAllocFns = *override;
+    new_str = malloc(size+1);
+    if (new_str == NULL)
+        return 0;
 
-    return orig;
+    memcpy(new_str, data, size);
+    new_str[size] = '\0';
+
+    redisFormatCommand(&cmd, new_str);
+
+    if (cmd != NULL)
+        hi_free(cmd);
+    free(new_str);
+    return 0;
 }
-
-/* Reset allocators to use libc defaults */
-void hiredisResetAllocators(void) {
-    hiredisAllocFns = (hiredisAllocFuncs) {
-        .mallocFn = malloc,
-        .callocFn = calloc,
-        .reallocFn = realloc,
-        .strdupFn = strdup,
-        .freeFn = free,
-    };
-}
-
-#ifdef _WIN32
-
-void *hi_malloc(size_t size) {
-    return hiredisAllocFns.mallocFn(size);
-}
-
-void *hi_calloc(size_t nmemb, size_t size) {
-    /* Overflow check as the user can specify any arbitrary allocator */
-    if (SIZE_MAX / size < nmemb)
-        return NULL;
-
-    return hiredisAllocFns.callocFn(nmemb, size);
-}
-
-void *hi_realloc(void *ptr, size_t size) {
-    return hiredisAllocFns.reallocFn(ptr, size);
-}
-
-char *hi_strdup(const char *str) {
-    return hiredisAllocFns.strdupFn(str);
-}
-
-void hi_free(void *ptr) {
-    hiredisAllocFns.freeFn(ptr);
-}
-
-#endif
