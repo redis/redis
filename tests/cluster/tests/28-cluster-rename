@@ -1,0 +1,60 @@
+source "../tests/includes/init-tests.tcl"
+source "../tests/includes/utils.tcl"
+
+test "Create a 4 nodes cluster" {
+    cluster_create_with_continuous_slots 4 0
+    config_set_all_nodes cluster-allow-replica-migration no 
+}
+
+test "Cluster is up" {
+    assert_cluster_state ok
+}
+
+set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+catch {unset nodefrom}
+$cluster refresh_nodes_map
+
+test "Try to rename key that does not exist" {
+    set key "DNE"
+    set updated_key "newDNE"
+
+    catch {$nodefrom(link) rename $key  $updated_key} e
+    if {![string match "*no such*" $e]} {
+        fail "Should state that key does not exist"
+    }
+
+}
+test "Rename slot to another cluster" {
+    set key "testKey"
+    set updated_key "newKey"
+    #Slot number 5203
+    set slot [$cluster cluster keyslot $key]
+    #slot number 85
+    set slot_on_other_cluster [$cluster cluster keyslot $updated_key]
+
+    array set nodefrom [$cluster masternode_for_slot $slot]
+    array set nodeother [$cluster masternode_for_slot $slot_on_other_cluster]
+
+    $nodefrom(link) set $key "Val"
+    after 1000
+
+    # key is on cluster 1 which handles slots from 4096 to 8191
+    # updated_key is on cluster 1 which handles slots from 0 to 4095
+    catch {$nodefrom(link) rename $key  $updated_key} e
+    if {![string match "*CROSSSLOT*" $e]} {
+        fail "Should contain CROSSSLOT error when trying to rename"
+    }
+
+    # Both keys should be in the same slot
+    catch {$nodefrom(link) rename $key "abc{$key}"} f
+    if {[string match "*CROSSSLOT*" $f]} {
+        fail "Should contain CROSSSLOT error when trying to rename"
+    }
+
+    after 1000
+    # Check if key was renamed
+    catch {$nodefrom(link) get "abc{$key}"} g
+    if {[string match "*Val*" $e]} {
+        fail "Key not renamed to abc{testKey}"
+    }
+}
