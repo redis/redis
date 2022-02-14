@@ -296,11 +296,12 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<9)
 #define REDISMODULE_CMD_KEY_VARIABLE_FLAGS (1ULL<<10)
 
-/* Channel flags. */
-#define REDISMODULE_CMD_CHANNEL_PATTERN (1ULL<<11)
-#define REDISMODULE_CMD_CHANNEL_PUBLISH (1ULL<<12)
-#define REDISMODULE_CMD_CHANNEL_SUBSCRIBE (1ULL<<13)
-#define REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE (1ULL<<14)
+/* Channel flags, for details see the documentation of
+ * RedisModule_ChannelAtPosWithFlags. */
+#define REDISMODULE_CMD_CHANNEL_PATTERN (1ULL<<0)
+#define REDISMODULE_CMD_CHANNEL_PUBLISH (1ULL<<1)
+#define REDISMODULE_CMD_CHANNEL_SUBSCRIBE (1ULL<<2)
+#define REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE (1ULL<<3)
 
 typedef struct RedisModuleCommandArg {
     const char *name;

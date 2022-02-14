@@ -1864,11 +1864,14 @@ int doesCommandHaveKeys(struct redisCommand *cmd) {
         (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NON_KEY);        /* has at least one key-spec not marked as CHANNEL */
 }
 
+/* A simplified channel spec table that contains all of the redis commands
+ * and which channels they have and how they are accessed. */
 typedef struct ChannelSpecs {
-    redisCommandProc *proc;
-    uint64_t flags;
-    int start;
-    int count;
+    redisCommandProc *proc; /* Command procedure to match against */
+    uint64_t flags;         /* CMD_CHANNEL_* flags for this command */
+    int start;              /* The initial position of the first key */
+    int count;              /* The number of channels, or -1 if all remaining
+                             * arguments are channels. */
 } ChannelSpecs;
 
 ChannelSpecs commands_with_channels[] = {
@@ -1883,6 +1886,8 @@ ChannelSpecs commands_with_channels[] = {
     {NULL,0} /* Terminator. */
 };
 
+/* Returns 1 if the command may access any channels matched by the flags
+ * argument. */
 int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
     /* If a module declares get channels, we are just going to assume
      * has channels. This API is allowed to return false positives. */
@@ -1897,8 +1902,20 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
     return 0;
 }
 
+/* Return all the arguments that are channels in the command passed via argc / argv. 
+ * This function behaves similar to getKeysFromCommandWithSpecs, but with channels 
+ * instead of keys.
+ * 
+ * The command returns the positions of all the channel arguments inside the array,
+ * so the actual return value is a heap allocated array of integers. The
+ * length of the array is returned by reference into *numkeys.
+ * 
+ * Along with the position, this command also returns the flags that are
+ * associated with how Redis will access the channel.
+ *
+ * 'cmd' must be point to the corresponding entry into the redisCommand
+ * table, according to the command name in argv[0]. */
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    UNUSED(argv);
     keyReference *keys;
     /* If a module declares get channels, use that. */
     if (cmd->flags & CMD_MODULE_GETCHANNELS) {

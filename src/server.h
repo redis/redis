@@ -1909,7 +1909,8 @@ typedef struct {
 } keyReference;
 
 /* A result structure for the various getkeys function calls. It lists the
- * keys as indices to the provided argv.
+ * keys as indices to the provided argv. This functionality is also re-used
+ * for returning channel information.
  */
 typedef struct {
     keyReference keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */

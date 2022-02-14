@@ -1,4 +1,3 @@
-
 #include "redismodule.h"
 #include <strings.h>
 #include <assert.h>

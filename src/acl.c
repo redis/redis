@@ -1531,7 +1531,9 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
-/* Checks a channel against a provide list of channels. */
+/* Checks a channel against a provide list of channels. The literal 
+ * argument controls whether the selector's ACL channels are 
+ * evaluated as literal values or matched as glob-like patterns. */
 static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
     listIter li;
     listNode *ln;
