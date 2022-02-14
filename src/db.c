@@ -1692,7 +1692,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 /* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
  * There are several flags that can be used to modify how this function finds keys in a command.
  * 
- * GET_KEYSPEC_INCLUDE_CHANNELS: Return channels as if they were keys.
+ * GET_KEYSPEC_INCLUDE_NON_KEYS: Return non keys as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
  *                               found in other valid keyspecs. 
  */
@@ -1703,8 +1703,8 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
-        /* Skip specs that represent channels instead of keys */
-        if ((spec->flags & CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
+        /* Skip specs that represent 'fake' keys */
+        if ((spec->flags & CMD_KEY_NON_KEY) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
             continue;
         }
 
@@ -1823,8 +1823,8 @@ invalid_spec:
  * 'cmd' must be point to the corresponding entry into the redisCommand
  * table, according to the command name in argv[0]. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    /* The command has at least one key-spec not marked as CHANNEL */
-    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);
+    /* The command has at least one key-spec not marked as NON_KEY */
+    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NON_KEY);
     /* The command has at least one key-spec marked as VARIABLE_FLAGS */
     int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
 
@@ -1861,7 +1861,66 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 int doesCommandHaveKeys(struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
-        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);        /* has at least one key-spec not marked as CHANNEL */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NON_KEY);        /* has at least one key-spec not marked as CHANNEL */
+}
+
+typedef struct ChannelSpecs {
+    redisCommandProc *proc;
+    uint64_t flags;
+    int start;
+    int count;
+} ChannelSpecs;
+
+ChannelSpecs commands_with_channels[] = {
+    {subscribeCommand, CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {ssubscribeCommand, CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {unsubscribeCommand, CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {sunsubscribeCommand, CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {psubscribeCommand, CMD_CHANNEL_PATTERN | CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {punsubscribeCommand, CMD_CHANNEL_PATTERN | CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {publishCommand, CMD_CHANNEL_PUBLISH, 1, 1},
+    {spublishCommand, CMD_CHANNEL_PUBLISH, 1, 1},
+    {NULL,0} /* Terminator. */
+};
+
+int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
+    /* If a module declares get channels, we are just going to assume
+     * has channels. This API is allowed to return false positives. */
+    if (cmd->flags & CMD_MODULE_GETCHANNELS) {
+        return 1;
+    }
+    for (ChannelSpecs *spec = commands_with_channels; spec->proc != NULL; spec += 1) {
+        if (cmd->proc == spec->proc && (spec->flags & flags)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(argv);
+    keyReference *keys;
+    /* If a module declares get channels, use that. */
+    if (cmd->flags & CMD_MODULE_GETCHANNELS) {
+        return moduleGetCommandChannelsViaAPI(cmd, argv, argc, result);
+    }
+    /* Otherwise check the internal commands */
+    for (ChannelSpecs *spec = commands_with_channels; spec != NULL; spec += 1) {
+        if (cmd->proc == spec->proc) {
+            int start = spec->start;
+            int stop = (spec->count == -1) ? argc : start + spec->count;
+            if (stop > argc) stop = argc;
+            int count = 0;
+            keys = getKeysPrepareResult(result, stop - start);
+            for (int i = start; i < stop; i++ ) {
+                keys[count].pos = i;
+                keys[count++].flags = spec->flags;
+            }
+            result->numkeys = count;
+            return count;
+        }
+    }
+    return 0;
 }
 
 /* The base case is to use the keys position as given in the command table

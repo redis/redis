@@ -23,7 +23,7 @@
     "key_specs": [
       {
         "flags": [
-          "CHANNEL"
+          "NON_KEY"
         ],
         "begin_search": {
           "index": {
