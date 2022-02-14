@@ -4963,41 +4963,34 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
 }
 
 void addNodeDetailsToShardReply(client *c, clusterNode *node) {
-    /*
-     * Following information regarding a node is returned.
-     *
-     * 1. id (40 char len)
-     * 2. port
-     * 3. ip
-     * 4. hostname
-     * 5. endpoint
-     * 5. role
-     * 6. replication offset (in case of replica only).
-     * 7. health
-     */
     int reply_cnt = 0;
     void *node_replylen = addReplyDeferredLen(c);
     addReplyBulkCString(c, "id");
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
     reply_cnt++;
-    addReplyBulkCString(c, "port");
-    addReplyLongLong(c, node->port);
-    reply_cnt++;
+    int port = server.cluster_announce_port ? server.cluster_announce_port : server.port;
+    if (port) {
+        addReplyBulkCString(c, "port");
+        addReplyLongLong(c, node->port);
+        reply_cnt++;
+    }
+    int tls_port = server.cluster_announce_tls_port ? server.cluster_announce_tls_port : server.tls_port;
+    if (tls_port) {
+        addReplyBulkCString(c, "port");
+        addReplyLongLong(c, tls_port);
+        reply_cnt++;
+    }
     addReplyBulkCString(c, "ip");
     addReplyBulkCString(c, node->ip);
+    reply_cnt++;
+    addReplyBulkCString(c, "endpoint");
+    addReplyBulkCString(c,  getPreferredEndpoint(node));
     reply_cnt++;
     if (node->hostname) {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCString(c, node->hostname);
         reply_cnt++;
     }
-    const char *endpoint = getPreferredEndpoint(node);
-    if (!strcmp(endpoint, "")) {
-        addReplyBulkCString(c, "endpoint");
-        addReplyBulkCString(c, endpoint);
-        reply_cnt++;
-    }
-
     addReplyBulkCString(c, "role");
     if (nodeIsSlave(node)) {
         addReplyBulkCString(c, "replica");
@@ -5005,10 +4998,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
         addReplyLongLong(c, node->repl_offset);
         reply_cnt+=2;
     } else {
-        addReplyBulkCString(c, "primary");
+        addReplyBulkCString(c, "master");
         reply_cnt++;
     }
-
     addReplyBulkCString(c, "health");
     const char *health_msg = NULL;
     if (nodeFailed(node)) {

@@ -60,8 +60,8 @@ test "Set cluster hostnames and verify they are propagated" {
 }
 
 # Fixed values
-set primary [dict create id id port port ip 127.0.0.1 role primary health ONLINE]
-set replica [dict create id id port port ip 127.0.0.1 role replica health ONLINE]
+set primary [dict create id id port port endpoint 127.0.0.1 ip 127.0.0.1 role master health ONLINE]
+set replica [dict create id id port port endpoint 127.0.0.1 ip 127.0.0.1 role replica health ONLINE]
 
 proc dict_setup_for_verification {node i} {
     upvar $node node_ref
@@ -90,6 +90,7 @@ test "Verify cluster shards response" {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
         if { $slots == $slot1 } {
+            assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 3
             dict_setup_for_verification replica 7
             dict_shard_cmp [lindex $nodes 0] $primary
@@ -97,6 +98,7 @@ test "Verify cluster shards response" {
             incr validation_cnt
         }
         if { $slots == $slot2 } {
+            assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 2
             dict_setup_for_verification replica 6
             dict_shard_cmp [lindex $nodes 0] $primary
@@ -104,6 +106,7 @@ test "Verify cluster shards response" {
             incr validation_cnt
         }
         if { $slots == $slot3 } {
+            assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 1
             dict_setup_for_verification replica 5
             dict_shard_cmp [lindex $nodes 0] $primary
@@ -111,6 +114,7 @@ test "Verify cluster shards response" {
             incr validation_cnt
         }
         if { $slots == $slot4 } {
+            assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 0
             dict_setup_for_verification replica 4
             dict_shard_cmp [lindex $nodes 0] $primary
@@ -185,26 +189,18 @@ test "Cluster is writable" {
     cluster_write_test 1
 }
 
-test "Restarting primary node" {
-    restart_instance redis 0
-}
-
 set primary_id 4
 set replica_id 0
+
+test "Restarting primary node" {
+    restart_instance redis $replica_id
+}
 
 test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
         [RI $replica_id role] eq {slave}
     } else {
         fail "Old master was not converted into replica"
-    }
-}
-
-test "Instance #0 synced with the master" {
-    wait_for_condition 1000 50 {
-        [RI $replica_id master_link_status] eq {up}
-    } else {
-        fail "Instance #$replica_id master link status is not up"
     }
 }
 
@@ -215,22 +211,35 @@ test "Kill the replication link and fill up primary with data" {
     R $primary_id debug populate 1000 key 1000
 }
 
-test "Verify health as loading of replica" {
-    set shards [R $primary_id CLUSTER SHARDS]
-    set validation_cnt 0
-    foreach shard $shards {
-        set slots [dict get $shard slots]
-        set nodes [dict get $shard nodes]
-        set slot_len [llength $slots]
-        if {$slots == $slot4} {
-            dict_setup_for_verification primary $primary_id
-            dict_setup_for_verification replica $replica_id
-            dict set primary health ONLINE
-            dict set replica health LOADING
-            dict_shard_cmp [lindex $nodes 0] $primary
-            dict_shard_cmp [lindex $nodes 1] $replica
-            incr validation_cnt 1
+# Need to finalize the definition of loading
+if {false} {
+    test "Verify health as loading of replica" {
+        # Verify prefer hostname behavior
+        R $primary_id config set cluster-preferred-endpoint-type hostname
+        R $primary_id CLUSTER NODES
+        set shards [R $primary_id CLUSTER SHARDS]
+        set validation_cnt 0
+        foreach shard $shards {
+            set slots [dict get $shard slots]
+            set nodes [dict get $shard nodes]
+            set slot_len [llength $slots]
+            if {$slots == $slot4} {
+                assert_equal [llength $nodes] 2
+                puts $shard
+                dict_setup_for_verification primary $primary_id
+                dict set primary health ONLINE
+                dict set primary endpoint [dict get $primary hostname]
+
+                dict_setup_for_verification replica $replica_id
+                dict set replica health LOADING
+                # After restart of replica, hostname is missing.
+                dict remove $replica hostname
+                dict set replica endpoint ?
+                dict_shard_cmp [lindex $nodes 0] $primary
+                dict_shard_cmp [lindex $nodes 1] $replica
+                incr validation_cnt 1
+            }
         }
+        assert_equal $validation_cnt 1
     }
-    assert_equal $validation_cnt 1
 }
