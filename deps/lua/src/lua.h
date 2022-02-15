@@ -359,6 +359,7 @@ struct lua_Debug {
 };
 
 LUA_API void lua_enablereadonlytable (lua_State *L, int index, int enabled);
+LUA_API int lua_isreadonlytable (lua_State *L, int index);
 
 /* }====================================================================== */
 

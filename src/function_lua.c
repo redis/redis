@@ -436,16 +436,17 @@ int luaEngineInitEngine() {
     luaRegisterLogFunction(lua_engine_ctx->lua);
     luaRegisterVersion(lua_engine_ctx->lua);
 
-    luaSetGlobalProtection(lua_engine_ctx->lua); /* protect redis */
-
+    luaSetErrorMetatable(lua_engine_ctx->lua);
     lua_setfield(lua_engine_ctx->lua, -2, REDIS_API_NAME);
 
-    luaSetGlobalProtection(lua_engine_ctx->lua); /* protect load library globals */
+    luaSetErrorMetatable(lua_engine_ctx->lua);
+    luaSetTableProtectionRecursively(lua_engine_ctx->lua); /* protect load library globals */
     lua_setfield(lua_engine_ctx->lua, LUA_REGISTRYINDEX, LIBRARY_API_NAME);
 
     /* Save error handler to registry */
     lua_pushstring(lua_engine_ctx->lua, REGISTRY_ERROR_HANDLER_NAME);
     char *errh_func =       "local dbg = debug\n"
+                            "debug = nil\n"
                             "local error_handler = function (err)\n"
                             "  local i = dbg.getinfo(2,'nSl')\n"
                             "  if i and i.what == 'C' then\n"
@@ -466,7 +467,8 @@ int luaEngineInitEngine() {
     lua_settable(lua_engine_ctx->lua, LUA_REGISTRYINDEX);
 
     lua_pushvalue(lua_engine_ctx->lua, LUA_GLOBALSINDEX);
-    luaSetGlobalProtection(lua_engine_ctx->lua);
+    luaSetErrorMetatable(lua_engine_ctx->lua);
+    luaSetTableProtectionRecursively(lua_engine_ctx->lua); /* protect globals */
     lua_pop(lua_engine_ctx->lua, 1);
 
     /* Save default globals to registry */

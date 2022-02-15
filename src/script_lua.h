@@ -68,7 +68,9 @@ typedef struct errorInfo {
 void luaRegisterRedisAPI(lua_State* lua);
 sds luaGetStringSds(lua_State *lua, int index);
 void luaRegisterGlobalProtectionFunction(lua_State *lua);
-void luaSetGlobalProtection(lua_State *lua);
+void luaSetErrorMetatable(lua_State *lua);
+void luaSetAllowListProtection(lua_State *lua);
+void luaSetTableProtectionRecursively(lua_State *lua);
 void luaRegisterLogFunction(lua_State* lua);
 void luaRegisterVersion(lua_State* lua);
 void luaPushErrorBuff(lua_State *lua, sds err_buff);

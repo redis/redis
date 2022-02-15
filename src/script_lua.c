@@ -41,6 +41,97 @@
 #include <ctype.h>
 #include <math.h>
 
+/* Globals that are added by the Lua libraries */
+static char *libraries_allow_list[] = {
+    "string",
+    "cjson",
+    "bit",
+    "cmsgpack",
+    "math",
+    "table",
+    "struct",
+    NULL,
+};
+
+/* Redis Lua API globals */
+static char *redis_api_allow_list[] = {
+    "redis",
+    "__redis__err__handler", /* error handler for eval, currently located on globals.
+                                Should move to registry. */
+    NULL,
+};
+
+/* Lua builtins */
+static char *lua_builtins_allow_list[] = {
+    "xpcall",
+    "tostring",
+    "getfenv",
+    "setmetatable",
+    "next",
+    "assert",
+    "tonumber",
+    "rawequal",
+    "collectgarbage",
+    "getmetatable",
+    "rawset",
+    "pcall",
+    "coroutine",
+    "type",
+    "_G",
+    "select",
+    "unpack",
+    "gcinfo",
+    "pairs",
+    "rawget",
+    "loadstring",
+    "ipairs",
+    "_VERSION",
+    "setfenv",
+    "load",
+    "error",
+    NULL,
+};
+
+/* Lua builtins which are not documented on the Lua documentation */
+static char *lua_builtins_not_documented_allow_list[] = {
+    "newproxy",
+    NULL,
+};
+
+/* Lua builtins which are allowed on initialization but will be removed right after */
+static char *lua_builtins_removed_after_initialization_allow_list[] = {
+    "debug", /* debug will be set to nil after the error handler will be created */
+    NULL,
+};
+
+/* Those allow lists was created from the globals that was
+ * available to the user when the allow lists was first introduce.
+ * Because we do not want to break backward compatibility we keep
+ * all the globals. The allow lists will prevent us from accidentally
+ * creating unwanted globals in the future.
+ *
+ * Also notice that the allow list is only checked on start time,
+ * after that the global table is locked so not need to check anything.*/
+static char **allow_lists[] = {
+    libraries_allow_list,
+    redis_api_allow_list,
+    lua_builtins_allow_list,
+    lua_builtins_not_documented_allow_list,
+    lua_builtins_removed_after_initialization_allow_list,
+    NULL,
+};
+
+/* Deny list contains elements which we know we do not want to add to globals
+ * and there is no need to print a warning message form them. We will print a
+ * log message only if an element was added to the globals and the element is
+ * not on the allow list nor on the back list. */
+static char *deny_list[] = {
+    "dofile",
+    "loadfile",
+    "print",
+    NULL,
+};
+
 static int redis_math_random (lua_State *L);
 static int redis_math_randomseed (lua_State *L);
 static void redisProtocolToLuaType_Int(void *ctx, long long val, const char *proto, size_t proto_len);
@@ -1113,15 +1204,6 @@ static void luaLoadLibraries(lua_State *lua) {
 #endif
 }
 
-/* Remove a functions that we don't want to expose to the Redis scripting
- * environment. */
-static void luaRemoveUnsupportedFunctions(lua_State *lua) {
-    lua_pushnil(lua);
-    lua_setglobal(lua,"loadfile");
-    lua_pushnil(lua);
-    lua_setglobal(lua,"dofile");
-}
-
 /* Return sds of the string value located on stack at the given index.
  * Return NULL if the value is not a string. */
 sds luaGetStringSds(lua_State *lua, int index) {
@@ -1144,30 +1226,111 @@ static int luaProtectedTableError(lua_State *lua) {
     if (!lua_isstring(lua, -1) && !lua_isnumber(lua, -1)) {
         luaL_error(lua, "Second argument to luaProtectedTableError must be a string or number");
     }
-    const char* variable_name = lua_tostring(lua, -1);
+    const char *variable_name = lua_tostring(lua, -1);
     luaL_error(lua, "Script attempted to access nonexistent global variable '%s'", variable_name);
     return 0;
 }
 
-/* Set global protection on table on the top of the stack.
- * After called, it will no longer be possible to set
- * new items on the table. Any attempt to access a protected
- * table for write will result in an error. Any attempt to
- * get a none existing element from a locked table will result
- * in an error.
+/* Set a special metatable on the table on the top of the stack.
+ * The metatable will raise an error if the user tries to fetch
+ * an un-existing value.
  *
  * The function assumes the Lua stack have a least enough
  * space to push 2 element, its up to the caller to verify
  * this before calling this function. */
-void luaSetGlobalProtection(lua_State *lua) {
+void luaSetErrorMetatable(lua_State *lua) {
     lua_newtable(lua); /* push metatable */
     lua_pushcfunction(lua, luaProtectedTableError); /* push get error handler */
     lua_setfield(lua, -2, "__index");
-    lua_enablereadonlytable(lua, -1, 1); /* protect the metatable */
-
     lua_setmetatable(lua, -2);
+}
 
+static int luaNewIndexAllowList(lua_State *lua) {
+    int argc = lua_gettop(lua);
+    if (argc != 3) {
+        serverLog(LL_WARNING, "malicious code trying to call luaProtectedTableError with wrong arguments");
+        luaL_error(lua, "Wrong number of arguments to luaNewIndexAllowList");
+    }
+    if (!lua_istable(lua, -3)) {
+        luaL_error(lua, "first argument to luaNewIndexAllowList must be a table");
+    }
+    if (!lua_isstring(lua, -2) && !lua_isnumber(lua, -2)) {
+        luaL_error(lua, "Second argument to luaNewIndexAllowList must be a string or number");
+    }
+    const char *variable_name = lua_tostring(lua, -2);
+    /* check if the key is in our allow list */
+
+    char ***allow_l = allow_lists;
+    for (; *allow_l ; ++allow_l){
+        char **c = *allow_l;
+        for (; *c ; ++c) {
+            if (strcmp(*c, variable_name) == 0) {
+                break;
+            }
+        }
+        if (*c) {
+            break;
+        }
+    }
+    if (!*allow_l) {
+        /* Search the value on the back list, if its there we know that it was removed
+         * on purpose and there is no need to print a warning. */
+        char **c = deny_list;
+        for ( ; *c ; ++c) {
+            if (strcmp(*c, variable_name) == 0) {
+                break;
+            }
+        }
+        if (!*c) {
+            serverLog(LL_WARNING, "A key '%s' was added to Lua globals which is not on the globals allow list nor listed on the deny list.", variable_name);
+        }
+    } else {
+        lua_rawset(lua, -3);
+    }
+    return 0;
+}
+
+/* Set a metatable with '__newindex' function that verify that
+ * the new index appears on our globals while list.
+ *
+ * The metatable is set on the table which located on the top
+ * of the stack.
+ */
+void luaSetAllowListProtection(lua_State *lua) {
+    lua_newtable(lua); /* push metatable */
+    lua_pushcfunction(lua, luaNewIndexAllowList); /* push get error handler */
+    lua_setfield(lua, -2, "__newindex");
+    lua_setmetatable(lua, -2);
+}
+
+/* Set the readonly flag on the table located on the top of the stack
+ * and recursively call this function on each table located on the original
+ * table.  Also, recursively call this function on the metatables.*/
+void luaSetTableProtectionRecursively(lua_State *lua) {
+    /* This protect us from a loop in case we already visited the table
+     * For example, globals has '_G' key which is pointing back to globals. */
+    if (lua_isreadonlytable(lua, -1)) {
+        return;
+    }
+
+    /* protect the current table */
     lua_enablereadonlytable(lua, -1, 1);
+
+    lua_checkstack(lua, 2);
+    lua_pushnil(lua); /* Use nil to start iteration. */
+    while (lua_next(lua,-2)) {
+        /* Stack now: table, key, value */
+        if (lua_istable(lua, -1)) {
+            luaSetTableProtectionRecursively(lua);
+        }
+        lua_pop(lua, 1);
+    }
+
+    /* protect the metatable if exists */
+    if (lua_getmetatable(lua, -1)) {
+        luaSetTableProtectionRecursively(lua);
+        lua_pop(lua, 1); /* pop the metatable */
+    }
 }
 
 void luaRegisterVersion(lua_State* lua) {
@@ -1204,8 +1367,11 @@ void luaRegisterLogFunction(lua_State* lua) {
 }
 
 void luaRegisterRedisAPI(lua_State* lua) {
+    lua_pushvalue(lua, LUA_GLOBALSINDEX);
+    luaSetAllowListProtection(lua);
+    lua_pop(lua, 1);
+
     luaLoadLibraries(lua);
-    luaRemoveUnsupportedFunctions(lua);
 
     lua_pushcfunction(lua,luaRedisPcall);
     lua_setglobal(lua, "pcall");

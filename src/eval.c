@@ -218,24 +218,13 @@ void scriptingInit(int setup) {
 
     lua_setglobal(lua,"redis");
 
-    /* Add a helper function that we use to sort the multi bulk output of non
-     * deterministic commands, when containing 'false' elements. */
-    {
-        char *compare_func =    "function __redis__compare_helper(a,b)\n"
-                                "  if a == false then a = '' end\n"
-                                "  if b == false then b = '' end\n"
-                                "  return a<b\n"
-                                "end\n";
-        luaL_loadbuffer(lua,compare_func,strlen(compare_func),"@cmp_func_def");
-        lua_pcall(lua,0,0,0);
-    }
-
     /* Add a helper function we use for pcall error reporting.
      * Note that when the error is in the C function we want to report the
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
         char *errh_func =       "local dbg = debug\n"
+                                "debug = nil\n"
                                 "function __redis__err__handler(err)\n"
                                 "  local i = dbg.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
@@ -268,7 +257,9 @@ void scriptingInit(int setup) {
 
     /* Lock the global table from any changes */
     lua_pushvalue(lua, LUA_GLOBALSINDEX);
-    luaSetGlobalProtection(lua);
+    luaSetErrorMetatable(lua);
+    /* Recursively lock all tables that can be reached from the global table */
+    luaSetTableProtectionRecursively(lua);
     lua_pop(lua, 1);
 
     lctx.lua = lua;
