@@ -4174,7 +4174,7 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_UPDATE,          "update"},
         {CMD_KEY_INSERT,          "insert"},
         {CMD_KEY_DELETE,          "delete"},
-        {CMD_KEY_NON_KEY,         "non_key"},
+        {CMD_KEY_NOT_KEY,         "non_key"},
         {CMD_KEY_INCOMPLETE,      "incomplete"},
         {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
         {0,NULL}

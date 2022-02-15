@@ -263,7 +263,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
                                   * from the value of the key. */
 /* Other flags: */
-#define CMD_KEY_NON_KEY (1ULL<<8)     /* A 'fake' key that should be routed
+#define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
                                        * like a key but is excluded from other
                                        * key checks */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
@@ -3016,7 +3016,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 /* API to get key arguments from commands */
 #define GET_KEYSPEC_DEFAULT 0
-#define GET_KEYSPEC_INCLUDE_CHANNELS (1<<0) /* Consider channels as keys */
+#define GET_KEYSPEC_INCLUDE_NOT_KEYS (1<<0) /* Consider 'fake' keys as keys */
 #define GET_KEYSPEC_RETURN_PARTIAL (1<<1) /* Return all keys that can be found */
 
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);

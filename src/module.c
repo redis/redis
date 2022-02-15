@@ -1434,9 +1434,8 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *
  *     Other flags:
  *
- *     * `REDISMODULE_CMD_KEY_NON_KEY`: The key is not actually a key, but a
- *       shard channel as used by sharded pubsub commands like `SSUBSCRIBE` and
- *       `SPUBLISH` commands.
+ *     * `REDISMODULE_CMD_KEY_NOT_KEY`: The key is not actually a key, but 
+ *       should be routed in cluster mode as if it was a key.
  *
  *     * `REDISMODULE_CMD_KEY_INCOMPLETE`: The keyspec might not point out all
  *       the keys it should cover.
@@ -1778,7 +1777,7 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api) {
         {REDISMODULE_CMD_KEY_INSERT, CMD_KEY_INSERT},
         {REDISMODULE_CMD_KEY_UPDATE, CMD_KEY_UPDATE},
         {REDISMODULE_CMD_KEY_DELETE, CMD_KEY_DELETE},
-        {REDISMODULE_CMD_KEY_NON_KEY, CMD_KEY_NON_KEY},
+        {REDISMODULE_CMD_KEY_NOT_KEY, CMD_KEY_NOT_KEY},
         {REDISMODULE_CMD_KEY_INCOMPLETE, CMD_KEY_INCOMPLETE},
         {REDISMODULE_CMD_KEY_VARIABLE_FLAGS, CMD_KEY_VARIABLE_FLAGS},
         {0,0}};
@@ -8465,8 +8464,8 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
  *
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
-int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
+int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, flags) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

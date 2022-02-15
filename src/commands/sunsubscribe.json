@@ -23,7 +23,7 @@
     "key_specs": [
       {
         "flags": [
-          "NON_KEY"
+          "NOT_KEY"
         ],
         "begin_search": {
           "index": {

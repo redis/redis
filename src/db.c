@@ -1692,7 +1692,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 /* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
  * There are several flags that can be used to modify how this function finds keys in a command.
  * 
- * GET_KEYSPEC_INCLUDE_NON_KEYS: Return non keys as if they were keys.
+ * GET_KEYSPEC_INCLUDE_NOT_KEYS: Return 'fake' keys as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
  *                               found in other valid keyspecs. 
  */
@@ -1704,7 +1704,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
         /* Skip specs that represent 'fake' keys */
-        if ((spec->flags & CMD_KEY_NON_KEY) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
+        if ((spec->flags & CMD_KEY_NOT_KEY) && !(search_flags & GET_KEYSPEC_INCLUDE_NOT_KEYS)) {
             continue;
         }
 
@@ -1823,8 +1823,8 @@ invalid_spec:
  * 'cmd' must be point to the corresponding entry into the redisCommand
  * table, according to the command name in argv[0]. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    /* The command has at least one key-spec not marked as NON_KEY */
-    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NON_KEY);
+    /* The command has at least one key-spec not marked as NOT_KEY */
+    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);
     /* The command has at least one key-spec marked as VARIABLE_FLAGS */
     int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
 
@@ -1861,7 +1861,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 int doesCommandHaveKeys(struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
-        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NON_KEY);        /* has at least one key-spec not marked as CHANNEL */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);        /* has at least one key-spec not marked as CHANNEL */
 }
 
 /* A simplified channel spec table that contains all of the redis commands
