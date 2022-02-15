@@ -2443,7 +2443,7 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status) {
         serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
 
         size += getAppendOnlyFileSize(am->base_aof_info->file_name, status);
-        if (status != AOF_OK) return 0;
+        if (*status != AOF_OK) return 0;
     }
 
     listRewind(am->incr_aof_list, &li);
@@ -2451,7 +2451,7 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status) {
         aofInfo *ai = (aofInfo*)ln->value;
         serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
         size += getAppendOnlyFileSize(ai->file_name, status);
-        if (status != AOF_OK) return 0;
+        if (*status != AOF_OK) return 0;
     }
 
     return size;
