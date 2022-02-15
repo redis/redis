@@ -228,6 +228,19 @@ start_server {tags {"cli"}} {
         file delete $tmpfile
     }
 
+    test_tty_cli "Escape character in JSON mode" {
+        # solidus
+        r hset solidus / /
+        assert_equal / / [run_cli hgetall solidus]
+        set escaped_solidus \"\\/\"
+        assert_equal $escaped_solidus $escaped_solidus [run_cli --json hgetall /]
+        # non printable (ğ is 0xF0 in ISO 8859-1, not UTF-8(0xC3 0xB0))
+        set eth ğ
+        r hset eth test $eth
+        assert_equal \"\\xf0\" [run_cli hget eth test]
+        assert_equal \"\\\\xf0\" [run_cli --json hget eth test]
+    }
+
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]
@@ -284,20 +297,6 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         run_cli set {"\x41\x41"} unquoted-val
         assert_equal "quoted-val" [r get AA]
         assert_equal "unquoted-val" [r get {"\x41\x41"}]
-    }
-
-    test_nontty_cli "Escape character in JSON mode" {
-        # solidus
-        r hset solidus / /
-        assert_equal / / [run_cli hgetall solidus]
-        set escaped_solidus \"\\/\"
-        assert_equal $escaped_solidus $escaped_solidus [run_cli --json hgetall /]
-        # unicode
-        set gclef ğ„
-        r hset g:clef test $gclef
-        assert_equal "\xf0\x9d\x84\x9e" [run_cli hget g:clef test]
-        set escaped_gclef \"\\\\xf0\\\\x9d\\\\x84\\\\x9e\"
-        assert_equal $escaped_gclef [run_cli --json hget g:clef test]
     }
 
     test_nontty_cli "Invalid quoted input arguments" {
