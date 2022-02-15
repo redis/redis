@@ -1585,6 +1585,9 @@ int loadAppendOnlyFiles(aofManifest *am) {
      * advance, it will be set to `server.loading_total_bytes`. */
     total_size = getBaseAndIncrAppendOnlyFilesSize(am, &status);
     if (status != AOF_OK) {
+        /* If an AOF exists in the manifest but not on the disk, we consider this to be a fatal error. */
+        if (status == AOF_NOT_EXIST) status = AOF_FAILED;
+
         return status;
     } else if (total_size == 0) {
         return AOF_EMPTY;
@@ -1605,9 +1608,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
-        /* If an AOF exists in the manifest but not on the disk, Or the truncated
-         * file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+        /* If the truncated file is not the last file, we consider this to be a fatal error. */
+        if (ret == AOF_TRUNCATED && !last_file) {
             ret = AOF_FAILED;
         }
 
@@ -1639,7 +1641,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
              * so empty incr AOF file doesn't count as a AOF_EMPTY result */
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
-            if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+            if (ret == AOF_TRUNCATED && !last_file) {
                 ret = AOF_FAILED;
             }
 
