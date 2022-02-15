@@ -1628,6 +1628,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
         getKeysResult channels = (getKeysResult) GETKEYS_RESULT_INIT;
         getChannelsFromCommand(cmd, argv, argc, &channels);
         keyReference *channelref = channels.keys;
+        int ret = ACL_OK;
         for (int j = 0; j < channels.numkeys; j++) {
             int idx = channelref[j].pos;
             if (!(channelref[j].flags & channel_flags)) continue;
@@ -1635,9 +1636,11 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
             int ret = ACLCheckChannelAgainstList(selector->channels, argv[idx]->ptr, sdslen(argv[idx]->ptr), is_pattern);
             if (ret != ACL_OK) {
                 if (keyidxptr) *keyidxptr = channelref[j].pos;
-                return ret;
+                break;
             }
         }
+        getKeysFreeResult(&channels);
+        if (ret != ACL_OK) return ret;
     }
     return ACL_OK;
 }

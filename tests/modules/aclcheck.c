@@ -58,7 +58,7 @@ int publish_aclcheck_channel(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     /* Check that the pubsub channel can be accessed */
     RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
     RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-    int ret = RedisModule_ACLCheckChannelPermissions(user, argv[1], 1);
+    int ret = RedisModule_ACLCheckChannelPermissions(user, argv[1], REDISMODULE_CMD_CHANNEL_SUBSCRIBE);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED CHANNEL");
         RedisModule_FreeModuleUser(user);

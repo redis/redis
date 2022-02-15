@@ -11,7 +11,10 @@ int getChannels_subscribe(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         return REDISMODULE_OK;
     }
     char *err = NULL;
-    /* Handle getkeys-channels introspection */
+    
+    /* getchannels.command [[subscribe|unsubscribe|publish] [pattern|literal] <channel> ...
+     * This command marks the given channel is accessed based on the
+     * provided modifiers. */
     for (int i = 1; i < argc; i += 3) {
         const char *operation = RedisModule_StringPtrLen(argv[i], NULL);
         const char *type = RedisModule_StringPtrLen(argv[i+1], NULL);

@@ -6,7 +6,7 @@ start_server {tags {"modules"}} {
     # Channels are currently used to just validate ACLs, so test them here
     r ACL setuser testuser +@all resetchannels &channel &pattern*
 
-    test "module getkeys-channels with literals - ACL" {
+    test "module getchannels-api with literals - ACL" {
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command subscribe literal channel subscribe literal pattern1]
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command publish literal channel publish literal pattern1]
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command unsubscribe literal channel unsubscribe literal pattern1]
@@ -20,7 +20,7 @@ start_server {tags {"modules"}} {
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command unsubscribe literal otherchannel unsubscribe literal pattern1]
     }
 
-    test "module getkeys-channels with patterns - ACL" {
+    test "module getchannels-api with patterns - ACL" {
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command subscribe pattern pattern*]
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command publish pattern pattern*]
         assert_equal "OK" [r ACL DRYRUN testuser getchannels.command unsubscribe pattern pattern*]

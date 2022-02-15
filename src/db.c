@@ -1861,7 +1861,7 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 int doesCommandHaveKeys(struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
-        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);        /* has at least one key-spec not marked as CHANNEL */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);        /* has at least one key-spec not marked as NOT_KEY */
 }
 
 /* A simplified channel spec table that contains all of the redis commands
@@ -1869,7 +1869,7 @@ int doesCommandHaveKeys(struct redisCommand *cmd) {
 typedef struct ChannelSpecs {
     redisCommandProc *proc; /* Command procedure to match against */
     uint64_t flags;         /* CMD_CHANNEL_* flags for this command */
-    int start;              /* The initial position of the first key */
+    int start;              /* The initial position of the first channel */
     int count;              /* The number of channels, or -1 if all remaining
                              * arguments are channels. */
 } ChannelSpecs;
@@ -1895,8 +1895,8 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
         return 1;
     }
     for (ChannelSpecs *spec = commands_with_channels; spec->proc != NULL; spec += 1) {
-        if (cmd->proc == spec->proc && (spec->flags & flags)) {
-            return 1;
+        if (cmd->proc == spec->proc) {
+            return !!(spec->flags & flags);
         }
     }
     return 0;

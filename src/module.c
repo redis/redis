@@ -891,8 +891,8 @@ int RM_IsChannelsPositionRequest(RedisModuleCtx *ctx) {
  *
  * Note: One usage of declaring channels is for evaluating ACL permissions. In this context,
  * unsubscribing is always allowed, so commands will only be checked against subscribe and
- * publish permissions.
- */
+ * publish permissions. This is preferred over using RM_ACLCheckChannelPermissions, since
+ * it allows the ACLs to be checked before the command is executed. */
 void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     if (!(ctx->flags & REDISMODULE_CTX_CHANNELS_POS_REQUEST) || !ctx->keys_result) return;
     if (pos <= 0) return;
@@ -1022,6 +1022,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * * **"allow-busy"**: Permit the command while the server is blocked either by
  *                     a script or by a slow module command, see
  *                     RM_Yield.
+ * * **"getchannels-api"**: The command implements the interface to return
+ *                          the arguments that are channels.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -8458,14 +8460,19 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
     return REDISMODULE_OK;
 }
 
-/* Check if the pubsub channel can be accessed by the user, according to the ACLs associated with it.
- * Glob-style pattern matching is employed, unless the literal flag is
- * set.
+/* Check if the pubsub channel can be accessed by the user based off of the given
+ * access flags. See RM_ChannelAtPosWithFlags for more information about the
+ * possible flags that can be passed in.
  *
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
-int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
+int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
+    /* Unsubscribe permissions are not verified. */
+    if (flags & REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE){
+        return REDISMODULE_OK;
+    }
+    int is_pattern = flags & REDISMODULE_CMD_CHANNEL_PATTERN;
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, is_pattern) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
