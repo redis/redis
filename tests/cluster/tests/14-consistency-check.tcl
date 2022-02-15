@@ -18,12 +18,18 @@ proc find_non_empty_master {} {
     foreach_redis_id id {
         if {[RI $id role] eq {master} && [R $id dbsize] > 0} {
             set master_id_no $id
+            break
         }
     }
     return $master_id_no
 }
 
 proc get_one_of_my_replica {id} {
+    wait_for_condition 1000 50 {
+        [llength [lindex [R $id role] 2]] > 0
+    } else {
+        fail "replicas didn't connect"
+    }
     set replica_port [lindex [lindex [lindex [R $id role] 2] 0] 1]
     set replica_id_num [get_instance_id_by_port redis $replica_port]
     return $replica_id_num

@@ -20,6 +20,7 @@ set ::all_tests {
     unit/keyspace
     unit/scan
     unit/info
+    unit/info-command
     unit/type/string
     unit/type/incr
     unit/type/list
@@ -37,6 +38,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/acl-v2
     unit/latency-monitor
     integration/block-repl
     integration/replication

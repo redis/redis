@@ -3112,7 +3112,7 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
 void clusterSendModule(clusterLink *link, uint64_t module_id, uint8_t type,
-                       unsigned char *payload, uint32_t len) {
+                       const char *payload, uint32_t len) {
     unsigned char *heapbuf;
     clusterMsg buf[1];
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -3151,7 +3151,7 @@ void clusterSendModule(clusterLink *link, uint64_t module_id, uint8_t type,
  *
  * The function returns C_OK if the target is valid, otherwise C_ERR is
  * returned. */
-int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len) {
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len) {
     clusterNode *node = NULL;
 
     if (target != NULL) {
@@ -5131,8 +5131,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslotsrange") ||
                !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
         if (c->argc % 2 == 1) {
-            addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+            addReplyErrorArity(c);
             return;
         }
         /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
@@ -5225,6 +5224,10 @@ NULL
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
                     (char*)c->argv[4]->ptr);
+                return;
+            }
+            if (nodeIsSlave(n)) {
+                addReplyError(c,"Target node is not a master");
                 return;
             }
             /* If this hash slot was served by 'myself' before to switch
@@ -6423,7 +6426,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     for (i = 0; i < ms->count; i++) {
         struct redisCommand *mcmd;
         robj **margv;
-        int margc, *keyindex, numkeys, j;
+        int margc, numkeys, j;
+        keyReference *keyindex;
 
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
@@ -6434,7 +6438,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         keyindex = result.keys;
 
         for (j = 0; j < numkeys; j++) {
-            robj *thiskey = margv[keyindex[j]];
+            robj *thiskey = margv[keyindex[j].pos];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
                                        sdslen(thiskey->ptr));
 

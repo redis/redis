@@ -15,16 +15,16 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function create LUA test replace [lindex $args 0]
+        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function create LUA test replace [lindex $args 0]
+        r function load LUA test replace [format "redis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function create LUA test replace [lindex $args 1]
+        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
         # read the ok reply of function create
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
@@ -36,19 +36,16 @@ if {$is_eval == 1} {
 
 start_server {tags {"scripting"}} {
 
+    if {$is_eval eq 1} {
     test {Script - disallow write on OOM} {
-        r FUNCTION create lua f1 replace { return redis.call('set', 'x', '1') }
-
         r config set maxmemory 1
-
-        catch {[r fcall f1 1 k]} e
-        assert_match {*command not allowed when used memory*} $e
 
         catch {[r eval "redis.call('set', 'x', 1)" 0]} e
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
     }
+    } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
         run_script {return 'hello'} 0
@@ -601,6 +598,11 @@ start_server {tags {"scripting"}} {
         set e
     } {ERR Number of keys can't be negative}
 
+    test {Scripts can handle commands with incorrect arity} {
+        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('set','invalid')" 0}
+        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('incr')" 0}
+    }
+
     test {Correct handling of reused argv (issue #1939)} {
         run_script {
               for i = 0, 10 do
@@ -676,10 +678,55 @@ start_server {tags {"scripting"}} {
             local a = {}
             for i=1,7999 do
                 a[i] = 1
-            end 
+            end
             return redis.call("lpush", "l", unpack(a))
         } 0
     } {7999}
+
+    test "Script read key with expiration set" {
+        r SET key value EX 10
+        assert_equal [run_script {
+             if redis.call("EXISTS", "key") then
+                 return redis.call("GET", "key")
+             else
+                 return redis.call("EXISTS", "key")
+             end
+        } 0] "value"
+    }
+
+    test "Script del key with expiration set" {
+        r SET key value EX 10
+        assert_equal [run_script {
+             redis.call("DEL", "key")
+             return redis.call("EXISTS", "key")
+        } 0] 0
+    }
+    
+    test "Script ACL check" {
+        r acl setuser bob on {>123} {+@scripting} {+set} {~x*}
+        assert_equal [r auth bob 123] {OK}
+        
+        # Check permission granted
+        assert_equal [run_script {
+            return redis.acl_check_cmd('set','xx',1)
+        } 1 xx] 1
+
+        # Check permission denied unauthorised command
+        assert_equal [run_script {
+            return redis.acl_check_cmd('hset','xx','f',1)
+        } 1 xx] {}
+        
+        # Check permission denied unauthorised key
+        # Note: we don't pass the "yy" key as an argument to the script so key acl checks won't block the script
+        assert_equal [run_script {
+            return redis.acl_check_cmd('set','yy',1)
+        } 0] {}
+
+        # Check error due to invalid command
+        assert_error {ERR *Invalid command passed to redis.acl_check_cmd()} {run_script {
+            return redis.acl_check_cmd('invalid-cmd','arg')
+        } 0}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -702,7 +749,7 @@ start_server {tags {"scripting"}} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
         run_script_on_connection $rd {local f = function() while 1 do redis.call('ping') end end while 1 do pcall(f) end} 0
-        
+
         wait_for_condition 50 100 {
             [catch {r ping} e] == 1
         } else {
@@ -723,7 +770,7 @@ start_server {tags {"scripting"}} {
         catch {$rd read} res
         $rd close
 
-        assert_match {*killed by user*} $res        
+        assert_match {*killed by user*} $res
     }
 
     test {Timedout script does not cause a false dead client} {
@@ -737,7 +784,7 @@ start_server {tags {"scripting"}} {
             set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         } else {
-            set buf "*6\r\n\$8\r\nfunction\r\n\$6\r\ncreate\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n"
+            set buf "*6\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$81\r\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
             append buf "*3\r\n\$5\r\nfcall\r\n\$4\r\ntest\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         }
@@ -769,7 +816,7 @@ start_server {tags {"scripting"}} {
         assert_match {*killed by user*} $res
 
         set res [$rd read]
-        assert_match {*PONG*} $res        
+        assert_match {*PONG*} $res
 
         $rd close
     }
@@ -1051,17 +1098,19 @@ start_server {tags {"scripting needs:debug external:skip"}} {
 }
 } ;# is_eval
 
-start_server {tags {"scripting resp3 needs:debug"}} {
+start_server {tags {"scripting needs:debug"}} {
     r debug set-disable-deny-scripts 1
+
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            set extra "RESP$i/$client_proto"
             r hello $client_proto
             r readraw 1
 
-            test {test resp3 big number protocol parsing} {
+            test "test $extra big number protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'bignum')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$37}
                     assert_equal [r read] {1234567999999999999999999999999999999}
                 } else {
@@ -1069,10 +1118,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 malformed big number protocol parsing} {
-                set ret [r eval "return {big_number='123\\r\\n123'}" 0]
+            test "test $extra malformed big number protocol parsing" {
+                set ret [run_script "return {big_number='123\\r\\n123'}" 0]
                 if {$client_proto == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$8}
                     assert_equal [r read] {123  123}
                 } else {
@@ -1080,10 +1129,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 map protocol parsing} {
+            test "test $extra map protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'map')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {*6}
                 } else {
                     assert_equal $ret {%3}
@@ -1093,10 +1142,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 set protocol parsing} {
+            test "test $extra set protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'set')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {*3}
                 } else {
                     assert_equal $ret {~3}
@@ -1106,10 +1155,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 double protocol parsing} {
+            test "test $extra double protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'double')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$5}
                     assert_equal [r read] {3.141}
                 } else {
@@ -1117,7 +1166,7 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 null protocol parsing} {
+            test "test $extra null protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'null')" 0]
                 if {$client_proto == 2} {
                     # null is a special case in which a Lua client format does not effect the reply to the client
@@ -1127,10 +1176,10 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             } {}
 
-            test {test resp3 verbatim protocol parsing} {
+            test "test $extra verbatim protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'verbatim')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {$25}
                     assert_equal [r read] {This is a verbatim}
                     assert_equal [r read] {string}
@@ -1141,20 +1190,20 @@ start_server {tags {"scripting resp3 needs:debug"}} {
                 }
             }
 
-            test {test resp3 true protocol parsing} {
+            test "test $extra true protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'true')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {:1}
                 } else {
                     assert_equal $ret {#t}
                 }
             }
 
-            test {test resp3 false protocol parsing} {
+            test "test $extra false protocol parsing" {
                 set ret [run_script "redis.setresp($i);return redis.call('debug', 'protocol', 'false')" 0]
                 if {$client_proto == 2 || $i == 2} {
-                    # if either Lua or the clien is RESP2 the reply will be RESP2
+                    # if either Lua or the client is RESP2 the reply will be RESP2
                     assert_equal $ret {:0}
                 } else {
                     assert_equal $ret {#f}
@@ -1172,6 +1221,254 @@ start_server {tags {"scripting resp3 needs:debug"}} {
         run_script "redis.setresp(3);return redis.call('debug', 'protocol', 'attrib')" 0
     } {Some real reply following the attribute}
 
+    test "Script block the time during execution" {
+        assert_equal [run_script {
+            redis.call("SET", "key", "value", "PX", "1")
+            redis.call("DEBUG", "SLEEP", 0.01)
+            return redis.call("EXISTS", "key")
+        } 0] 1
+
+        assert_equal 0 [r EXISTS key]
+    }
+
+    test "Script delete the expired key" {
+        r DEBUG set-active-expire 0
+        r SET key value PX 1
+        after 2
+
+        # use DEBUG OBJECT to make sure it doesn't error (means the key still exists)
+        r DEBUG OBJECT key
+
+        assert_equal [run_script "return redis.call('EXISTS', 'key')" 0] 0
+        assert_equal 0 [r EXISTS key]
+        r DEBUG set-active-expire 1
+    }
+
     r debug set-disable-deny-scripts 0
 }
 } ;# foreach is_eval
+
+
+# Scripting "shebang" notation tests
+start_server {tags {"scripting"}} {
+    test "Shebang support for lua engine" {
+        catch {
+            r eval {#!not-lua
+                return 1
+            } 0
+        } e
+        assert_match {*Unexpected engine in script shebang*} $e
+
+        assert_equal [r eval {#!lua
+            return 1
+        } 0] 1
+    }
+
+    test "Unknown shebang option" {
+        catch {
+            r eval {#!lua badger=data
+                return 1
+            } 0
+        } e
+        assert_match {*Unknown lua shebang option*} $e
+    }
+
+    test "Unknown shebang flag" {
+        catch {
+            r eval {#!lua flags=allow-oom,what?
+                return 1
+            } 0
+        } e
+        assert_match {*Unexpected flag in script shebang*} $e
+    }
+
+    test "allow-oom shebang flag" {
+        r set x 123
+    
+        r config set maxmemory 1
+
+        # Fail to execute deny-oom command in OOM condition (backwards compatibility mode without flags)
+        assert_error {ERR Error running script *OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+        # Can execute non deny-oom commands in OOM condition (backwards compatibility mode without flags)
+        assert_equal [
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        ] {123}
+
+        # Fail to execute regardless of script content when we use default flags in OOM condition
+        assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
+            r eval {#!lua flags=
+                return 1
+            } 0
+        }
+
+        assert_equal [
+            r eval {#!lua flags=allow-oom
+                redis.call('set','x',1)
+                return 1
+            } 0
+        ] 1
+
+        r config set maxmemory 0
+    }
+
+    test "no-writes shebang flag" {
+        assert_error {ERR Error running script *Write commands are not allowed from read-only scripts.} {
+            r eval {#!lua flags=no-writes
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+    }
+    
+    start_server {tags {"external:skip"}} {
+        r -1 set x "some value"
+        test "no-writes shebang flag on replica" {
+            r replicaof [srv -1 host] [srv -1 port]
+            wait_for_condition 50 100 {
+                [s role] eq {slave} &&
+                [string match {*master_link_status:up*} [r info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal [
+                r eval {#!lua flags=no-writes
+                    return redis.call('get','x')
+                } 1 x
+            ] "some value"
+
+            assert_error {ERR Can not run script with write flag on readonly replica} {
+                r eval {#!lua
+                    return redis.call('get','x')
+                } 1 x
+            }
+        }
+    }
+
+    test "allow-stale shebang flag" {
+        r config set replica-serve-stale-data no
+        r replicaof 127.0.0.1 1
+
+        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        }
+
+        assert_error {*'allow-stale' flag is not set on the script*} {
+            r eval {#!lua flags=no-writes
+                return 1
+            } 0
+        }
+
+        assert_equal [
+            r eval {#!lua flags=allow-stale,no-writes
+                return 1
+            } 0
+        ] 1
+
+
+        assert_error {*Can not execute the command on a stale replica*} {
+            r eval {#!lua flags=allow-stale,no-writes
+                return redis.call('get','x')
+            } 1 x
+        }
+        
+        assert_match {*redis_version*} [
+            r eval {#!lua flags=allow-stale,no-writes
+                return redis.call('info','server')
+            } 0
+        ]
+        
+        # Test again with EVALSHA
+        set sha [
+            r script load {#!lua flags=allow-stale,no-writes
+                return redis.call('info','server')
+            }
+        ]
+        assert_match {*redis_version*} [r evalsha $sha 0]
+        
+        r replicaof no one
+        r config set replica-serve-stale-data yes
+        set _ {}
+    } {} {external:skip}
+}
+
+# Additional eval only tests
+start_server {tags {"scripting"}} {
+    test "Consistent eval error reporting" {
+        r config set maxmemory 1
+        # Script aborted due to Redis state (OOM) should report script execution error with detailed internal error
+        assert_error {ERR Error running script (call to *): @user_script:*: OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval {return redis.call('set','x','y')} 1 x
+        }
+        # redis.pcall() failure due to Redis state (OOM) returns lua error table with Redis error message without '-' prefix
+        assert_equal [
+            r eval {
+                local t = redis.pcall('set','x','y')
+                if t['err'] == "OOM command not allowed when used memory > 'maxmemory'." then
+                    return 1
+                else
+                    return 0
+                end
+            } 1 x
+        ] 1
+        # Returning an error object from lua is handled as a valid RESP error result.
+        assert_error {OOM command not allowed when used memory > 'maxmemory'.} {
+            r eval { return redis.pcall('set','x','y') } 1 x
+        }
+        r config set maxmemory 0
+        # Script aborted due to error result of Redis command
+        assert_error {ERR Error running script (call to *): @user_script:*: ERR DB index is out of range} {
+            r eval {return redis.call('select',99)} 0
+        }
+        # redis.pcall() failure due to error in Redis command returns lua error table with redis error message without '-' prefix
+        assert_equal [
+            r eval {
+                local t = redis.pcall('select',99)
+                if t['err'] == "ERR DB index is out of range" then
+                    return 1
+                else
+                    return 0
+                end
+            } 0
+        ] 1
+        # Script aborted due to scripting specific error state (write cmd with eval_ro) should report script execution error with detailed internal error
+        assert_error {ERR Error running script (call to *): @user_script:*: ERR Write commands are not allowed from read-only scripts.} {
+            r eval_ro {return redis.call('set','x','y')} 1 x
+        }
+        # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
+        assert_equal [
+            r eval_ro {
+                local t = redis.pcall('set','x','y')
+                if t['err'] == "ERR Write commands are not allowed from read-only scripts." then
+                    return 1
+                else
+                    return 0
+                end
+            } 1 x
+        ] 1
+    } {} {cluster:skip}
+    
+    test "LUA redis.error_reply API" {
+        assert_error {MY_ERR_CODE custom msg} {
+            r eval {return redis.error_reply("MY_ERR_CODE custom msg")} 0
+        }
+    }
+
+    test "LUA redis.status_reply API" {
+        r readraw 1
+        assert_equal [
+            r eval {return redis.status_reply("MY_OK_CODE custom msg")} 0
+        ] {+MY_OK_CODE custom msg}
+        r readraw 0
+    }
+}
+

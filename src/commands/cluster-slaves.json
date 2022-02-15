@@ -11,8 +11,10 @@
         "replaced_by": "`CLUSTER REPLICAS`",
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

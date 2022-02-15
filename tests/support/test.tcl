@@ -24,10 +24,10 @@ proc assert_no_match {pattern value} {
     }
 }
 
-proc assert_match {pattern value} {
+proc assert_match {pattern value {detail ""}} {
     if {![string match $pattern $value]} {
         set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to match '$pattern' $context"
+        error "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }
 
@@ -38,6 +38,12 @@ proc assert_failed {expected_err detail} {
         set detail "(context: [info frame -2])"
      }
      error "assertion:$expected_err $detail"
+}
+
+proc assert_not_equal {value expected {detail ""}} {
+    if {!($expected ne $value)} {
+        assert_failed "Expected '$value' not equal to '$expected'" $detail
+    }
 }
 
 proc assert_equal {value expected {detail ""}} {
@@ -78,9 +84,9 @@ proc assert_range {value min max {detail ""}} {
 
 proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
-        assert_match $pattern $error
+        assert_match $pattern $error $detail
     } else {
-        assert_failed "assertion:Expected an error but nothing was caught" $detail
+        assert_failed "Expected an error matching '$pattern' but got '$error'" $detail
     }
 }
 
@@ -120,10 +126,11 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-proc search_pattern_list {value pattern_list} {
+# try to match a value to a list of patterns that is either regex, or plain sub-string
+proc search_pattern_list {value pattern_list {substr false}} {
     set n 0
     foreach el $pattern_list {
-        if {[string length $el] > 0 && [regexp -- $el $value]} {
+        if {[string length $el] > 0 && ((!$substr && [regexp -- $el $value]) || ($substr && [string match $el $value]))} {
             return $n
         }
         incr n

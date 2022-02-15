@@ -162,7 +162,7 @@ client *createClient(connection *conn) {
     c->ctime = c->lastinteraction = server.unixtime;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
-    c->repl_put_online_on_ack = 0;
+    c->repl_start_cmd_stream_on_ack = 0;
     c->reploff = 0;
     c->read_reploff = 0;
     c->repl_ack_off = 0;
@@ -173,6 +173,7 @@ client *createClient(connection *conn) {
     c->slave_capa = SLAVE_CAPA_NONE;
     c->slave_req = SLAVE_REQ_NONE;
     c->reply = listCreate();
+    c->deferred_reply_errors = NULL;
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
@@ -194,7 +195,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
-    c->paused_list_node = NULL;
+    c->postponed_list_node = NULL;
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
@@ -225,7 +226,7 @@ void clientInstallWriteHandler(client *c) {
      * writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
-         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
+         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_start_cmd_stream_on_ack)))
     {
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
@@ -362,9 +363,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        serverLog(LL_WARNING, "Replica generated a reply to command %s, disconnecting it",
-                  c->lastcmd ? c->lastcmd->name : "<unknown>");
-        freeClientAsync(c);
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
+                                        cmdname ? cmdname : "<unknown>");
         return;
     }
 
@@ -439,6 +440,18 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
 void afterErrorReply(client *c, const char *s, size_t len) {
+    /* Module clients fall into two categories:
+     * Calls to RM_Call, in which case the error isn't being returned to a client, so should not be counted.
+     * Module thread safe context calls to RM_ReplyWithError, which will be added to a real client by the main thread later. */
+    if (c->flags & CLIENT_MODULE) {
+        if (!c->deferred_reply_errors) {
+            c->deferred_reply_errors = listCreate();
+            listSetFreeMethod(c->deferred_reply_errors, (void (*)(void*))sdsfree);
+        }
+        listAddNodeTail(c->deferred_reply_errors, sdsnewlen(s, len));
+        return;
+    }
+
     /* Increment the global error counter */
     server.stat_total_error_replies++;
     /* Increment the error stats
@@ -483,10 +496,10 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         }
 
         if (len > 4096) len = 4096;
-        const char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%.*s' after processing the command "
-                             "'%s'", from, to, (int)len, s, cmdname);
+                             "'%s'", from, to, (int)len, s, cmdname ? cmdname : "<unknown>");
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
             server.repl_backlog->histlen > 0)
         {
@@ -549,6 +562,16 @@ void addReplyErrorFormat(client *c, const char *fmt, ...) {
     sdsfree(s);
 }
 
+void addReplyErrorArity(client *c) {
+    addReplyErrorFormat(c, "wrong number of arguments for '%s' command",
+                        c->cmd->fullname);
+}
+
+void addReplyErrorExpireTime(client *c) {
+    addReplyErrorFormat(c, "invalid expire time in '%s' command",
+                        c->cmd->fullname);
+}
+
 void addReplyStatusLength(client *c, const char *s, size_t len) {
     addReplyProto(c,"+",1);
     addReplyProto(c,s,len);
@@ -603,6 +626,18 @@ void *addReplyDeferredLen(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredAggregateLen() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
+
+    /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
+     * replication link that caused a reply to be generated we'll simply disconnect it.
+     * Note this is the simplest way to check a command added a response. Replication links are used to write data but
+     * not for responses, so we should normally never get here on a replica client. */
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
+        logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
+                                        cmdname ? cmdname : "<unknown>");
+        return NULL;
+    }
+
     trimReplyUnusedTailSpace(c);
     listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
@@ -962,7 +997,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     sdstoupper(cmd);
     addReplyErrorFormat(c,
-        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
+        "Unknown subcommand or wrong number of arguments for '%.128s'. Try %s HELP.",
         (char*)c->argv[1]->ptr,cmd);
     sdsfree(cmd);
 }
@@ -1002,8 +1037,26 @@ void AddReplyFromClient(client *dst, client *src) {
     src->reply_bytes = 0;
     src->bufpos = 0;
 
+    if (src->deferred_reply_errors) {
+        deferredAfterErrorReply(dst, src->deferred_reply_errors);
+        listRelease(src->deferred_reply_errors);
+        src->deferred_reply_errors = NULL;
+    }
+
     /* Check output buffer limits */
     closeClientOnOutputBufferLimitReached(dst, 1);
+}
+
+/* Append the listed errors to the server error statistics. the input
+ * list is not modified and remains the responsibility of the caller. */
+void deferredAfterErrorReply(client *c, list *errors) {
+    listIter li;
+    listNode *ln;
+    listRewind(errors,&li);
+    while((ln = listNext(&li))) {
+        sds err = ln->value;
+        afterErrorReply(c, err, sdslen(err));
+    }
 }
 
 /* Logically copy 'src' replica client buffers info to 'dst' replica.
@@ -1360,6 +1413,45 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
+/* Clear the client state to resemble a newly connected client. */
+void clearClientConnectionState(client *c) {
+    listNode *ln;
+
+    /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
+     * distinguish between the two.
+     */
+    if (c->flags & CLIENT_MONITOR) {
+        ln = listSearchKey(server.monitors,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.monitors,ln);
+
+        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
+    }
+
+    serverAssert(!(c->flags &(CLIENT_SLAVE|CLIENT_MASTER)));
+
+    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    selectDb(c,0);
+    c->resp = 2;
+
+    clientSetDefaultAuth(c);
+    moduleNotifyUserChanged(c);
+    discardTransaction(c);
+
+    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c,0);
+
+    if (c->name) {
+        decrRefCount(c->name);
+        c->name = NULL;
+    }
+
+    /* Selectively clear state flags not covered above */
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
+                  CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
+}
+
 void freeClient(client *c) {
     listNode *ln;
 
@@ -1436,6 +1528,8 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    if (c->deferred_reply_errors)
+        listRelease(c->deferred_reply_errors);
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -1526,6 +1620,22 @@ void freeClientAsync(client *c) {
     pthread_mutex_lock(&async_free_queue_mutex);
     listAddNodeTail(server.clients_to_close,c);
     pthread_mutex_unlock(&async_free_queue_mutex);
+}
+
+/* Log errors for invalid use and free the client in async way.
+ * We will add additional information about the client to the message. */
+void logInvalidUseAndFreeClientAsync(client *c, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    sds info = sdscatvprintf(sdsempty(), fmt, ap);
+    va_end(ap);
+
+    sds client = catClientInfoString(sdsempty(), c);
+    serverLog(LL_WARNING, "%s, disconnecting it: %s", info, client);
+
+    sdsfree(info);
+    sdsfree(client);
+    freeClientAsync(c);
 }
 
 /* Perform processing of the client before moving on to processing the next client
@@ -1785,6 +1895,10 @@ void resetClient(client *c) {
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
+
+    if (c->deferred_reply_errors)
+        listRelease(c->deferred_reply_errors);
+    c->deferred_reply_errors = NULL;
 
     /* We clear the ASKING flag as well if we are not inside a MULTI, and
      * if what we just executed is not the ASKING command itself. */
@@ -2478,7 +2592,6 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    sds cmdname = client->lastcmd ? getFullCommandName(client->lastcmd) : NULL;
     sds ret = sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
@@ -2502,12 +2615,10 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
         (unsigned long long) total_mem,
         events,
-        cmdname ? cmdname : "NULL",
+        client->lastcmd ? client->lastcmd->fullname : "NULL",
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp);
-    if (cmdname)
-        sdsfree(cmdname);
     return ret;
 }
 
@@ -2568,45 +2679,18 @@ int clientSetNameOrReply(client *c, robj *name) {
 /* Reset the client state to resemble a newly connected client.
  */
 void resetCommand(client *c) {
-    listNode *ln;
-
     /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
      * distinguish between the two.
      */
-    if (c->flags & CLIENT_MONITOR) {
-        ln = listSearchKey(server.monitors,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.monitors,ln);
+    uint64_t flags = c->flags;
+    if (flags & CLIENT_MONITOR) flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
 
-        c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
-    }
-
-    if (c->flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
+    if (flags & (CLIENT_SLAVE|CLIENT_MASTER|CLIENT_MODULE)) {
         addReplyError(c,"can only reset normal client connections");
         return;
     }
 
-    if (c->flags & CLIENT_TRACKING) disableTracking(c);
-    selectDb(c,0);
-    c->resp = 2;
-
-    clientSetDefaultAuth(c);
-    moduleNotifyUserChanged(c);
-    discardTransaction(c);
-
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-
-    if (c->name) {
-        decrRefCount(c->name);
-        c->name = NULL;
-    }
-
-    /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
-            CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
-
+    clearClientConnectionState(c);
     addReplyStatus(c,"RESET");
 }
 
@@ -3546,7 +3630,7 @@ void flushSlavesOutputBuffers(void) {
          */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
             can_receive_writes &&
-            !slave->repl_put_online_on_ack &&
+            !slave->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))
         {
             writeToClient(slave,0);
@@ -3586,13 +3670,19 @@ static void updateClientPauseTypeAndEndTime(void) {
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
     if (type < old_type) {
-        listNode *ln;
-        listIter li;
-        listRewind(server.paused_clients, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            client *c = listNodeValue(ln);
-            unblockClient(c);
-        }
+        unblockPostponedClients();
+    }
+}
+
+/* Unblock all paused clients (ones that where blocked by BLOCKED_POSTPONE (possibly in processCommand).
+ * This means they'll get re-processed in beforeSleep, and may get paused again if needed. */
+void unblockPostponedClients() {
+    listNode *ln;
+    listIter li;
+    listRewind(server.postponed_clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        unblockClient(c);
     }
 }
 

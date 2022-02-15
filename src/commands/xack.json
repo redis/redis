@@ -8,7 +8,6 @@
         "function": "xackCommand",
         "command_flags": [
             "WRITE",
-            "RANDOM",
             "FAST"
         ],
         "acl_categories": [
@@ -17,7 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

@@ -289,6 +289,33 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
+/* Dict hash function for null terminated string */
+uint64_t distCStrHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict hash function for null terminated string */
+uint64_t distCStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict compare function for null terminated string */
+int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+    int l1,l2;
+    UNUSED(d);
+
+    l1 = strlen((char*)key1);
+    l2 = strlen((char*)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
+}
+
+/* Dict case insensitive compare function for null terminated string */
+int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return strcasecmp(key1, key2) == 0;
+}
+
 int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
@@ -407,17 +434,6 @@ dictType dbDictType = {
     dictEntryMetadataSize       /* size of entry metadata in bytes */
 };
 
-/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
-dictType shaScriptObjectDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
 /* Db->expires */
 dictType dbExpiresDictType = {
     dictSdsHash,                /* hash function */
@@ -498,14 +514,13 @@ dictType migrateCacheDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Replication cached script dict (server.repl_scriptcache_dict).
- * Keys are sds SHA1 strings, while values are not used at all in the current
- * implementation. */
-dictType replScriptCacheDictType = {
-    dictSdsCaseHash,            /* hash function */
+/* Dict for for case-insensitive search using null terminated C strings.
+ * The keys stored in dict are sds though. */
+dictType stringSetDictType = {
+    distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    distCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -1245,7 +1260,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
     /* Just for the sake of defensive programming, to avoid forgetting to
-     * call this function when need. */
+     * call this function when needed. */
     updateDictResizePolicy();
 
 
@@ -1318,6 +1333,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         rsiptr = rdbPopulateSaveInfo(&rsi);
         if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
+    }
+
+    run_with_period(100) {
+        if (moduleCount()) modulesCron();
     }
 
     /* Fire the cron loop modules event. */
@@ -1477,7 +1496,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
-    if (moduleCount()) moduleHandleBlockedClients();
+    if (moduleCount()) {
+        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                              REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
+                              NULL);
+        moduleHandleBlockedClients();
+    }
 
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
@@ -1557,7 +1581,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyStartMonitor(latency);
 
             moduleAcquireGIL();
-
+            moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                                  REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
+                                  NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
@@ -1602,10 +1628,12 @@ void createSharedObjects(void) {
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call FUNCTION KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.slowmoduleerr = createObject(OBJ_STRING,sdsnew(
+        "-BUSY Redis is busy running a module command.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
-        "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
+        "-MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
     shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
         "-READONLY You can't write against a read only replica.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
@@ -1782,7 +1810,6 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
 
-    server.latency_tracking_enabled = 1;
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
     server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
@@ -1890,7 +1917,7 @@ int restartServer(int flags, mstime_t delay) {
         rewriteConfig(server.configfile, 0) == -1)
     {
         serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
-                             "failed");
+                             "failed: %s", strerror(errno));
         return C_ERR;
     }
 
@@ -2118,6 +2145,10 @@ void checkTcpBacklogSettings(void) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
+#elif defined(SOMAXCONN)
+    if (SOMAXCONN < server.tcp_backlog) {
+        serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because SOMAXCONN is set to the lower value of %d.", server.tcp_backlog, SOMAXCONN);
+    }
 #endif
 }
 
@@ -2310,7 +2341,7 @@ void initServer(void) {
     server.client_pause_end_time = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
-    server.paused_clients = listCreate();
+    server.postponed_clients = listCreate();
     server.events_processed_while_blocked = 0;
     server.system_memory_size = zmalloc_get_memory_size();
     server.blocked_last_cron = 0;
@@ -2397,6 +2428,8 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_script = 0;
     server.in_exec = 0;
+    server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+    server.busy_module_yield_reply = NULL;
     server.core_propagates = 0;
     server.propagate_no_multi = 0;
     server.module_ctx_nesting = 0;
@@ -2468,12 +2501,11 @@ void initServer(void) {
 
 
     /* Register a readable event for the pipe used to awake the event loop
-     * when a blocked client in a module needs attention. */
-    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
-        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+     * from module threads. */
+    if (aeCreateFileEvent(server.el, server.module_pipe[0], AE_READABLE,
+        modulePipeReadable,NULL) == AE_ERR) {
             serverPanic(
-                "Error registering the readable event for the module "
-                "blocked clients subsystem.");
+                "Error registering the readable event for the module pipe.");
     }
 
     /* Register before and after sleep handlers (note this needs to be done
@@ -2539,7 +2571,7 @@ void InitServerLast() {
  *
  * If this functions fails it means that the legacy (first,last,step)
  * spec used by COMMAND will show 0,0,0. This is not a dire situation
- * because anyway the legacy (first,last,step) spec is to be dperecated
+ * because anyway the legacy (first,last,step) spec is to be deprecated
  * and one should use the new key specs scheme.
  */
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
@@ -2590,21 +2622,23 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     c->legacy_range_key_spec.fk.range.limit = 0;
 }
 
-void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand) {
+sds catSubCommandFullname(const char *parent_name, const char *sub_name) {
+    return sdscatfmt(sdsempty(), "%s|%s", parent_name, sub_name);
+}
+
+void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subcommand, const char *declared_name) {
     if (!parent->subcommands_dict)
         parent->subcommands_dict = dictCreate(&commandTableDictType);
 
     subcommand->parent = parent; /* Assign the parent command */
-    sds fullname = getFullCommandName(subcommand);
-    subcommand->id = ACLGetCommandID(fullname); /* Assign the ID used for ACL. */
-    sdsfree(fullname);
+    subcommand->id = ACLGetCommandID(subcommand->fullname); /* Assign the ID used for ACL. */
 
-    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(subcommand->name), subcommand) == DICT_OK);
+    serverAssert(dictAdd(parent->subcommands_dict, sdsnew(declared_name), subcommand) == DICT_OK);
 }
 
 /* Set implicit ACl categories (see comment above the definition of
  * struct redisCommand). */
-void setImplictACLCategories(struct redisCommand *c) {
+void setImplicitACLCategories(struct redisCommand *c) {
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
     if (c->flags & CMD_READONLY)
@@ -2615,12 +2649,30 @@ void setImplictACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_PUBSUB;
     if (c->flags & CMD_FAST)
         c->acl_categories |= ACL_CATEGORY_FAST;
+    if (c->flags & CMD_BLOCKING)
+        c->acl_categories |= ACL_CATEGORY_BLOCKING;
 
     /* If it's not @fast is @slow in this binary world. */
     if (!(c->acl_categories & ACL_CATEGORY_FAST))
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
+int populateArgsStructure(struct redisCommandArg *args) {
+    if (!args)
+        return 0;
+    int count = 0;
+    while (args->name) {
+        serverAssert(count < INT_MAX);
+        args->num_args = populateArgsStructure(args->subargs);
+        count++;
+        args++;
+    }
+    return count;
+}
+
+/* Recursively populate the command structure. */
 void populateCommandStructure(struct redisCommand *c) {
     /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
      * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
@@ -2637,44 +2689,52 @@ void populateCommandStructure(struct redisCommand *c) {
         c->key_specs_num++;
     }
 
+    /* Count things so we don't have to use deferred reply in COMMAND reply. */
+    while (c->history && c->history[c->num_history].since)
+        c->num_history++;
+    while (c->tips && c->tips[c->num_tips])
+        c->num_tips++;
+    c->num_args = populateArgsStructure(c->args);
+
     populateCommandLegacyRangeSpec(c);
 
     /* Handle the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandMovableKeys(c);
 
     /* Assign the ID used for ACL. */
-    c->id = ACLGetCommandID(c->name);
+    c->id = ACLGetCommandID(c->fullname);
 
     /* Handle subcommands */
     if (c->subcommands) {
-        for (int j = 0; c->subcommands[j].name; j++) {
+        for (int j = 0; c->subcommands[j].declared_name; j++) {
             struct redisCommand *sub = c->subcommands+j;
 
             /* Translate the command string flags description into an actual
              * set of flags. */
-            setImplictACLCategories(sub);
+            setImplicitACLCategories(sub);
+            sub->fullname = catSubCommandFullname(c->declared_name, sub->declared_name);
             populateCommandStructure(sub);
-            commandAddSubcommand(c,sub);
+            commandAddSubcommand(c, sub, sub->declared_name);
         }
     }
 }
 
 extern struct redisCommand redisCommandTable[];
 
-/* Populates the Redis Command Table starting from the hard coded list
- * we have on top of server.c file. */
+/* Populates the Redis Command Table dict from from the static table in commands.c
+ * which is auto generated from the json files in the commands folder. */
 void populateCommandTable(void) {
     int j;
     struct redisCommand *c;
 
     for (j = 0;; j++) {
         c = redisCommandTable + j;
-        if (c->name == NULL)
+        if (c->declared_name == NULL)
             break;
 
         int retval1, retval2;
 
-        setImplictACLCategories(c);
+        setImplicitACLCategories(c);
 
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
@@ -2682,12 +2742,13 @@ void populateCommandTable(void) {
         if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
             continue;
 
+        c->fullname = sdsnew(c->declared_name);
         populateCommandStructure(c);
 
-        retval1 = dictAdd(server.commands, sdsnew(c->name), c);
+        retval1 = dictAdd(server.commands, sdsdup(c->fullname), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
-        retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
+        retval2 = dictAdd(server.orig_commands, sdsdup(c->fullname), c);
         serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
     }
 }
@@ -2712,7 +2773,6 @@ void resetCommandTableStats(dict* commands) {
             resetCommandTableStats(c->subcommands_dict);
     }
     dictReleaseIterator(di);
-
 }
 
 void resetErrorTableStats(void) {
@@ -2766,20 +2826,42 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
-struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc) {
+int isContainerCommandBySds(sds s) {
+    struct redisCommand *base_cmd = dictFetchValue(server.commands, s);
+    int has_subcommands = base_cmd && base_cmd->subcommands_dict;
+    return has_subcommands;
+}
+
+struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name) {
+    return dictFetchValue(container->subcommands_dict, sub_name);
+}
+
+/* Look up a command by argv and argc
+ *
+ * If `strict` is not 0 we expect argc to be exact (i.e. argc==2
+ * for a subcommand and argc==1 for a top-level command)
+ * `strict` should be used every time we want to look up a command
+ * name (e.g. in COMMAND INFO) rather than to find the command
+ * a user requested to execute (in processCommand).
+ */
+struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc, int strict) {
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     if (argc == 1 || !has_subcommands) {
+        if (strict && argc != 1)
+            return NULL;
         /* Note: It is possible that base_cmd->proc==NULL (e.g. CONFIG) */
         return base_cmd;
-    } else {
+    } else { /* argc > 1 && has_subcommands */
+        if (strict && argc != 2)
+            return NULL;
         /* Note: Currently we support just one level of subcommands */
-        return dictFetchValue(base_cmd->subcommands_dict, argv[1]->ptr);
+        return lookupSubcommand(base_cmd, argv[1]->ptr);
     }
 }
 
 struct redisCommand *lookupCommand(robj **argv, int argc) {
-    return lookupCommandLogic(server.commands,argv,argc);
+    return lookupCommandLogic(server.commands,argv,argc,0);
 }
 
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
@@ -2800,7 +2882,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         argv[j] = &objects[j];
     }
 
-    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc);
+    struct redisCommand *cmd = lookupCommandLogic(commands,argv,argc,1);
     sdsfreesplitres(strings,argc);
     return cmd;
 }
@@ -2830,9 +2912,9 @@ struct redisCommand *lookupCommandByCString(const char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
-    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc);
+    struct redisCommand *cmd = lookupCommandLogic(server.commands, argv, argc, 0);
 
-    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc);
+    if (!cmd) cmd = lookupCommandLogic(server.orig_commands, argv, argc, 0);
     return cmd;
 }
 
@@ -3297,7 +3379,8 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
         }
     }
 
-    cmd->movablekeys = movablekeys;
+    if (movablekeys)
+        cmd->flags |= CMD_MOVABLE_KEYS;
 }
 
 /* If this function gets called we already read a whole
@@ -3326,14 +3409,28 @@ int processCommand(client *c) {
         return C_ERR;
     }
 
+    /* If we're inside a module blocked context yielding that wants to avoid
+     * processing clients, postpone the command. */
+    if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
+        !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
+    {
+        c->bpop.timeout = 0;
+        blockClient(c,BLOCKED_POSTPONE);
+        return C_OK;
+    }
+
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
-        if (lookupCommandBySds(c->argv[0]->ptr)) {
+        if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command
              * it means we're dealing with an invalid subcommand. Print Help. */
-            addReplySubcommandSyntaxError(c);
+            sds cmd = sdsnew((char *)c->argv[0]->ptr);
+            sdstoupper(cmd);
+            rejectCommandFormat(c, "Unknown subcommand '%.128s'. Try %s HELP.",
+                                (char *)c->argv[1]->ptr, cmd);
+            sdsfree(cmd);
             return C_OK;
         }
         sds args = sdsempty();
@@ -3347,8 +3444,7 @@ int processCommand(client *c) {
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity))
     {
-        rejectCommandFormat(c,"wrong number of arguments for '%s' command or subcommand",
-            c->cmd->name);
+        rejectCommandFormat(c,"wrong number of arguments for '%s' command", c->cmd->fullname);
         return C_OK;
     }
 
@@ -3404,10 +3500,12 @@ int processCommand(client *c) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         switch (acl_retval) {
         case ACL_DENIED_CMD:
+        {
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to run "
-                "the '%s' command or its subcommand", c->cmd->name);
+                "the '%s' command", c->cmd->fullname);
             break;
+        }
         case ACL_DENIED_KEY:
             rejectCommandFormat(c,
                 "-NOPERM this user has no permissions to access "
@@ -3433,7 +3531,7 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_SCRIPT &&
           server.script_caller->flags & CLIENT_MASTER) &&
-        !(!c->cmd->movablekeys && c->cmd->key_specs_num == 0 &&
+        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
         int hashslot;
@@ -3504,7 +3602,8 @@ int processCommand(client *c) {
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand ||
             c->cmd->proc == evalShaCommand ||
-            c->cmd->proc == fcallCommand)
+            c->cmd->proc == fcallCommand ||
+            c->cmd->proc == fcallroCommand)
         {
             server.script_oom = out_of_memory;
         }
@@ -3567,7 +3666,7 @@ int processCommand(client *c) {
         rejectCommandFormat(c,
             "Can't execute '%s': only (P|S)SUBSCRIBE / "
             "(P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-            c->cmd->name);
+            c->cmd->fullname);
         return C_OK;
     }
 
@@ -3595,30 +3694,19 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Lua script too slow? Only allow a limited number of commands.
+    /* when a busy job is being done (script / module)
+     * Only allow a limited number of commands.
      * Note that we need to allow the transactions commands, otherwise clients
      * sending a transaction with pipelining without error checking, may have
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if (scriptIsTimedout() &&
-          c->cmd->proc != authCommand &&
-          c->cmd->proc != helloCommand &&
-          c->cmd->proc != replconfCommand &&
-          c->cmd->proc != multiCommand &&
-          c->cmd->proc != discardCommand &&
-          c->cmd->proc != watchCommand &&
-          c->cmd->proc != unwatchCommand &&
-          c->cmd->proc != quitCommand &&
-          c->cmd->proc != resetCommand &&
-          c->cmd->proc != shutdownCommand && /* more checks in shutdownCommand */
-        !(c->cmd->proc == scriptCommand &&
-          c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'k') &&
-        !(c->cmd->proc == functionKillCommand) &&
-        !(c->cmd->proc == functionStatsCommand))
-    {
-        if (scriptIsEval()) {
+    if ((scriptIsTimedout() || server.busy_module_yield_flags) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+        if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
+            rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
+        } else if (server.busy_module_yield_flags) {
+            rejectCommand(c, shared.slowmoduleerr);
+        } else if (scriptIsEval()) {
             rejectCommand(c, shared.slowevalerr);
         } else {
             rejectCommand(c, shared.slowscripterr);
@@ -3641,7 +3729,7 @@ int processCommand(client *c) {
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_PAUSE);
+        blockClient(c,BLOCKED_POSTPONE);
         return C_OK;       
     }
 
@@ -3978,8 +4066,7 @@ int writeCommandsDeniedByDiskError(void) {
 void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
     if (c->argc > 2) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -4013,64 +4100,86 @@ void timeCommand(client *c) {
     addReplyBulkLongLong(c,tv.tv_usec);
 }
 
-/* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, uint64_t flags, uint64_t f, char *reply) {
-    if (flags & f) {
-        addReplyStatus(c, reply);
-        return 1;
+typedef struct replyFlagNames {
+    uint64_t flag;
+    const char *name;
+} replyFlagNames;
+
+/* Helper function to output flags. */
+void addReplyCommandFlags(client *c, uint64_t flags, replyFlagNames *replyFlags) {
+    int count = 0, j=0;
+    /* Count them so we don't have to use deferred reply. */
+    while (replyFlags[j].name) {
+        if (flags & replyFlags[j].flag)
+            count++;
+        j++;
     }
-    return 0;
+
+    addReplySetLen(c, count);
+    j = 0;
+    while (replyFlags[j].name) {
+        if (flags & replyFlags[j].flag)
+            addReplyStatus(c, replyFlags[j].name);
+        j++;
+    }
 }
 
 void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_WRITE, "write");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_READONLY, "readonly");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_DENYOOM, "denyoom");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MODULE, "module");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ADMIN, "admin");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PUBSUB, "pubsub");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NOSCRIPT, "noscript");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_RANDOM, "random");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SORT_FOR_SCRIPT,"sort_for_script");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_LOADING, "loading");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_STALE, "stale");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SKIP_MONITOR, "skip_monitor");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_SKIP_SLOWLOG, "skip_slowlog");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_ASKING, "asking");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_FAST, "fast");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_AUTH, "no_auth");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_MAY_REPLICATE, "may_replicate");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MANDATORY_KEYS, "no_mandatory_keys");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_PROTECTED, "protected");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_ASYNC_LOADING, "no_async_loading");
-    flagcount += addReplyCommandFlag(c,cmd->flags,CMD_NO_MULTI, "no_multi");
-
-    /* "sentinel" and "only-sentinel" are hidden on purpose. */
-    if (cmd->movablekeys) {
-        addReplyStatus(c, "movablekeys");
-        flagcount += 1;
-    }
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames flagNames[] = {
+        {CMD_WRITE,             "write"},
+        {CMD_READONLY,          "readonly"},
+        {CMD_DENYOOM,           "denyoom"},
+        {CMD_MODULE,            "module"},
+        {CMD_ADMIN,             "admin"},
+        {CMD_PUBSUB,            "pubsub"},
+        {CMD_NOSCRIPT,          "noscript"},
+        {CMD_BLOCKING,          "blocking"},
+        {CMD_LOADING,           "loading"},
+        {CMD_STALE,             "stale"},
+        {CMD_SKIP_MONITOR,      "skip_monitor"},
+        {CMD_SKIP_SLOWLOG,      "skip_slowlog"},
+        {CMD_ASKING,            "asking"},
+        {CMD_FAST,              "fast"},
+        {CMD_NO_AUTH,           "no_auth"},
+        {CMD_MAY_REPLICATE,     "may_replicate"},
+        /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
+        /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
+        {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
+        /* {CMD_PROTECTED,         "protected"}, Hidden on purpose */
+        {CMD_NO_ASYNC_LOADING,  "no_async_loading"},
+        {CMD_NO_MULTI,          "no_multi"},
+        {CMD_MOVABLE_KEYS,      "movablekeys"},
+        {CMD_ALLOW_BUSY,        "allow_busy"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, cmd->flags, flagNames);
 }
 
 void addReplyDocFlagsForCommand(client *c, struct redisCommand *cmd) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_DEPRECATED, "deprecated");
-    flagcount += addReplyCommandFlag(c,cmd->doc_flags,CMD_DOC_SYSCMD, "syscmd");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames docFlagNames[] = {
+        {CMD_DOC_DEPRECATED,         "deprecated"},
+        {CMD_DOC_SYSCMD,             "syscmd"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, cmd->doc_flags, docFlagNames);
 }
 
 void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_WRITE, "write");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_READ, "read");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_SHARD_CHANNEL, "shard_channel");
-    flagcount += addReplyCommandFlag(c,flags,CMD_KEY_INCOMPLETE, "incomplete");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames docFlagNames[] = {
+        {CMD_KEY_RO,              "RO"},
+        {CMD_KEY_RW,              "RW"},
+        {CMD_KEY_OW,              "OW"},
+        {CMD_KEY_RM,              "RM"},
+        {CMD_KEY_ACCESS,          "access"},
+        {CMD_KEY_UPDATE,          "update"},
+        {CMD_KEY_INSERT,          "insert"},
+        {CMD_KEY_DELETE,          "delete"},
+        {CMD_KEY_CHANNEL,         "channel"},
+        {CMD_KEY_INCOMPLETE,      "incomplete"},
+        {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, flags, docFlagNames);
 }
 
 /* Must match redisCommandArgType */
@@ -4087,60 +4196,60 @@ const char *ARG_TYPE_STR[] = {
 };
 
 void addReplyFlagsForArg(client *c, uint64_t flags) {
-    int flagcount = 0;
-    void *flaglen = addReplyDeferredLen(c);
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_OPTIONAL, "optional");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE, "multiple");
-    flagcount += addReplyCommandFlag(c,flags,CMD_ARG_MULTIPLE_TOKEN, "multiple_token");
-    setDeferredSetLen(c, flaglen, flagcount);
+    replyFlagNames argFlagNames[] = {
+        {CMD_ARG_OPTIONAL,          "optional"},
+        {CMD_ARG_MULTIPLE,          "multiple"},
+        {CMD_ARG_MULTIPLE_TOKEN,    "multiple_token"},
+        {0,NULL}
+    };
+    addReplyCommandFlags(c, flags, argFlagNames);
 }
 
-void addReplyCommandArgList(client *c, struct redisCommandArg *args) {
-    int j;
+void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_args) {
+    addReplyArrayLen(c, num_args);
+    for (int j = 0; j<num_args; j++) {
+        /* Count our reply len so we don't have to use deferred reply. */
+        long maplen = 2;
+        if (args[j].key_spec_index != -1) maplen++;
+        if (args[j].token) maplen++;
+        if (args[j].summary) maplen++;
+        if (args[j].since) maplen++;
+        if (args[j].flags) maplen++;
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK)
+            maplen++;
+        addReplyMapLen(c, maplen);
 
-    void *setreply = addReplyDeferredLen(c);
-    for (j = 0; args && args[j].name != NULL; j++) {
-        long maplen = 0;
-        void *mapreply = addReplyDeferredLen(c);
         addReplyBulkCString(c, "name");
         addReplyBulkCString(c, args[j].name);
-        maplen++;
+
         addReplyBulkCString(c, "type");
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
-        maplen++;
-        if (args[j].type == ARG_TYPE_KEY) {
+
+        if (args[j].key_spec_index != -1) {
             addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);
-            maplen++;
         }
         if (args[j].token) {
             addReplyBulkCString(c, "token");
             addReplyBulkCString(c, args[j].token);
-            maplen++;
         }
         if (args[j].summary) {
             addReplyBulkCString(c, "summary");
             addReplyBulkCString(c, args[j].summary);
-            maplen++;
         }
         if (args[j].since) {
             addReplyBulkCString(c, "since");
             addReplyBulkCString(c, args[j].since);
-            maplen++;
         }
         if (args[j].flags) {
             addReplyBulkCString(c, "flags");
             addReplyFlagsForArg(c, args[j].flags);
-            maplen++;
         }
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
             addReplyBulkCString(c, "arguments");
-            addReplyCommandArgList(c, args[j].subargs);
-            maplen++;
+            addReplyCommandArgList(c, args[j].subargs, args[j].num_args);
         }
-        setDeferredMapLen(c, mapreply, maplen);
     }
-    setDeferredSetLen(c, setreply, j);
 }
 
 /* Must match redisCommandRESP2Type */
@@ -4169,31 +4278,33 @@ const char *RESP3_TYPE_STR[] = {
 };
 
 void addReplyCommandHistory(client *c, struct redisCommand *cmd) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->history && cmd->history[j].since != NULL; j++) {
+    addReplySetLen(c, cmd->num_history);
+    for (int j = 0; j<cmd->num_history; j++) {
         addReplyArrayLen(c, 2);
         addReplyBulkCString(c, cmd->history[j].since);
         addReplyBulkCString(c, cmd->history[j].changes);
     }
-    setDeferredSetLen(c, array, j);
 }
 
-void addReplyCommandHints(client *c, struct redisCommand *cmd) {
-    int j;
-
-    void *array = addReplyDeferredLen(c);
-    for (j = 0; cmd->hints && cmd->hints[j] != NULL; j++) {
-        addReplyBulkCString(c, cmd->hints[j]);
+void addReplyCommandTips(client *c, struct redisCommand *cmd) {
+    addReplySetLen(c, cmd->num_tips);
+    for (int j = 0; j<cmd->num_tips; j++) {
+        addReplyBulkCString(c, cmd->tips[j]);
     }
-    setDeferredSetLen(c, array, j);
 }
 
 void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     addReplySetLen(c, cmd->key_specs_num);
     for (int i = 0; i < cmd->key_specs_num; i++) {
-        addReplyMapLen(c, 3);
+        int maplen = 3;
+        if (cmd->key_specs[i].notes) maplen++;
+
+        addReplyMapLen(c, maplen);
+
+        if (cmd->key_specs[i].notes) {
+            addReplyBulkCString(c, "notes");
+            addReplyBulkCString(c,cmd->key_specs[i].notes);
+        }
 
         addReplyBulkCString(c, "flags");
         addReplyFlagsForKeyArgs(c,cmd->key_specs[i].flags);
@@ -4278,20 +4389,24 @@ void addReplyCommandKeySpecs(client *c, struct redisCommand *cmd) {
     }
 }
 
-void addReplyCommand(client *c, struct redisCommand *cmd);
-
-void addReplyCommandSubCommands(client *c, struct redisCommand *cmd) {
+/* Reply with an array of sub-command using the provided reply callback. */
+void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*reply_function)(client*, struct redisCommand*), int use_map) {
     if (!cmd->subcommands_dict) {
         addReplySetLen(c, 0);
         return;
     }
 
-    addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
+    if (use_map)
+        addReplyMapLen(c, dictSize(cmd->subcommands_dict));
+    else
+        addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
     while((de = dictNext(di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
-        addReplyCommand(c,sub);
+        if (use_map)
+            addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
+        reply_function(c, sub);
     }
     dictReleaseIterator(di);
 }
@@ -4318,8 +4433,8 @@ const char *COMMAND_GROUP_STR[] = {
     "module"
 };
 
-/* Output the representation of a Redis command. Used by the COMMAND command. */
-void addReplyCommand(client *c, struct redisCommand *cmd) {
+/* Output the representation of a Redis command. Used by the COMMAND command and COMMAND INFO. */
+void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
@@ -4332,79 +4447,80 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             keystep = cmd->legacy_range_key_spec.fk.range.keystep;
         }
 
-        /* We are adding: command name, arg count, flags, first, last, offset, categories, additional information (map) */
-        addReplyArrayLen(c, 8);
-        addReplyBulkCString(c, cmd->name);
+        addReplyArrayLen(c, 10);
+        addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
         addReplyLongLong(c, cmd->arity);
         addReplyFlagsForCommand(c, cmd);
         addReplyLongLong(c, firstkey);
         addReplyLongLong(c, lastkey);
         addReplyLongLong(c, keystep);
         addReplyCommandCategories(c, cmd);
-        long maplen = 0;
-        void *mapreply = addReplyDeferredLen(c);
-        addReplyBulkCString(c, "summary");
-        addReplyBulkCString(c, cmd->summary);
-        maplen++;
-        addReplyBulkCString(c, "since");
-        addReplyBulkCString(c, cmd->since);
-        maplen++;
-        addReplyBulkCString(c, "group");
-        addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
-        maplen++;
-        if (cmd->complexity) {
-            addReplyBulkCString(c, "complexity");
-            addReplyBulkCString(c, cmd->complexity);
-            maplen++;
-        }
-        if (cmd->doc_flags) {
-            addReplyBulkCString(c, "doc_flags");
-            addReplyDocFlagsForCommand(c, cmd);
-            maplen++;
-        }
-        if (cmd->deprecated_since) {
-            addReplyBulkCString(c, "deprecated_since");
-            addReplyBulkCString(c, cmd->deprecated_since);
-            maplen++;
-        }
-        if (cmd->replaced_by) {
-            addReplyBulkCString(c, "replaced_by");
-            addReplyBulkCString(c, cmd->replaced_by);
-            maplen++;
-        }
-        if (cmd->history) {
-            addReplyBulkCString(c, "history");
-            addReplyCommandHistory(c, cmd);
-            maplen++;
-        }
-        if (cmd->hints) {
-            addReplyBulkCString(c, "hints");
-            addReplyCommandHints(c, cmd);
-            maplen++;
-        }
-        if (cmd->args) {
-            addReplyBulkCString(c, "arguments");
-            addReplyCommandArgList(c, cmd->args);
-            maplen++;
-        }
-        if (cmd->key_specs_num) {
-            addReplyBulkCString(c, "key_specs");
-            addReplyCommandKeySpecs(c, cmd);
-            maplen++;
-        }
-        if (cmd->subcommands_dict) {
-            addReplyBulkCString(c, "subcommands");
-            addReplyCommandSubCommands(c, cmd);
-            maplen++;
-        }
-        setDeferredMapLen(c, mapreply, maplen);
+        addReplyCommandTips(c, cmd);
+        addReplyCommandKeySpecs(c, cmd);
+        addReplyCommandSubCommands(c, cmd, addReplyCommandInfo, 0);
     }
 }
 
-/* Helper for COMMAND(S) command
- *
- * COMMAND(S) GETKEYS arg0 arg1 arg2 ... */
-void getKeysSubcommand(client *c) {
+/* Output the representation of a Redis command. Used by the COMMAND DOCS. */
+void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
+    /* Count our reply len so we don't have to use deferred reply. */
+    long maplen = 1;
+    if (cmd->summary) maplen++;
+    if (cmd->since) maplen++;
+    if (cmd->complexity) maplen++;
+    if (cmd->doc_flags) maplen++;
+    if (cmd->deprecated_since) maplen++;
+    if (cmd->replaced_by) maplen++;
+    if (cmd->history) maplen++;
+    if (cmd->args) maplen++;
+    if (cmd->subcommands_dict) maplen++;
+    addReplyMapLen(c, maplen);
+
+    if (cmd->summary) {
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, cmd->summary);
+    }
+    if (cmd->since) {
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, cmd->since);
+    }
+
+    /* Always have the group, for module commands the group is always "module". */
+    addReplyBulkCString(c, "group");
+    addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
+
+    if (cmd->complexity) {
+        addReplyBulkCString(c, "complexity");
+        addReplyBulkCString(c, cmd->complexity);
+    }
+    if (cmd->doc_flags) {
+        addReplyBulkCString(c, "doc_flags");
+        addReplyDocFlagsForCommand(c, cmd);
+    }
+    if (cmd->deprecated_since) {
+        addReplyBulkCString(c, "deprecated_since");
+        addReplyBulkCString(c, cmd->deprecated_since);
+    }
+    if (cmd->replaced_by) {
+        addReplyBulkCString(c, "replaced_by");
+        addReplyBulkCString(c, cmd->replaced_by);
+    }
+    if (cmd->history) {
+        addReplyBulkCString(c, "history");
+        addReplyCommandHistory(c, cmd);
+    }
+    if (cmd->args) {
+        addReplyBulkCString(c, "arguments");
+        addReplyCommandArgList(c, cmd->args, cmd->num_args);
+    }
+    if (cmd->subcommands_dict) {
+        addReplyBulkCString(c, "subcommands");
+        addReplyCommandSubCommands(c, cmd, addReplyCommandDocs, 1);
+    }
+}
+
+/* Helper for COMMAND GETKEYS and GETKEYSANDFLAGS */
+void getKeysSubcommandImpl(client *c, int with_flags) {
     struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
     getKeysResult result = GETKEYS_RESULT_INIT;
     int j;
@@ -4422,7 +4538,7 @@ void getKeysSubcommand(client *c) {
         return;
     }
 
-    if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
+    if (!getKeysFromCommandWithSpecs(cmd,c->argv+2,c->argc-2,GET_KEYSPEC_DEFAULT,&result)) {
         if (cmd->flags & CMD_NO_MANDATORY_KEYS) {
             addReplyArrayLen(c,0);
         } else {
@@ -4430,9 +4546,27 @@ void getKeysSubcommand(client *c) {
         }
     } else {
         addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j]+2]);
+        for (j = 0; j < result.numkeys; j++) {
+            if (!with_flags) {
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+            } else {
+                addReplyArrayLen(c,2);
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+                addReplyFlagsForKeyArgs(c,result.keys[j].flags);
+            }
+        }
     }
     getKeysFreeResult(&result);
+}
+
+/* COMMAND GETKEYSANDFLAGS cmd arg1 arg2 ... */
+void commandGetKeysAndFlagsCommand(client *c) {
+    getKeysSubcommandImpl(c, 1);
+}
+
+/* COMMAND GETKEYS cmd arg1 arg2 ... */
+void getKeysSubcommand(client *c) {
+    getKeysSubcommandImpl(c, 0);
 }
 
 /* COMMAND (no args) */
@@ -4443,7 +4577,7 @@ void commandCommand(client *c) {
     addReplyArrayLen(c, dictSize(server.commands));
     di = dictGetIterator(server.commands);
     while ((de = dictNext(di)) != NULL) {
-        addReplyCommand(c, dictGetVal(de));
+        addReplyCommandInfo(c, dictGetVal(de));
     }
     dictReleaseIterator(di);
 }
@@ -4491,10 +4625,46 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
             break;
         }
         case (COMMAND_LIST_FILTER_PATTERN):
-            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->name, strlen(cmd->name), 1);
+            return !stringmatchlen(filter->arg, sdslen(filter->arg), cmd->fullname, sdslen(cmd->fullname), 1);
         default:
             serverPanic("Invalid filter type %d", filter->type);
     }
+}
+
+/* COMMAND LIST FILTERBY (MODULE <module-name>|ACLCAT <cat>|PATTERN <pattern>) */
+void commandListWithFilter(client *c, dict *commands, commandListFilter filter, int *numcmds) {
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(commands);
+
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (!shouldFilterFromCommandList(cmd,&filter)) {
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            (*numcmds)++;
+        }
+
+        if (cmd->subcommands_dict) {
+            commandListWithFilter(c, cmd->subcommands_dict, filter, numcmds);
+        }
+    }
+    dictReleaseIterator(di);
+}
+
+/* COMMAND LIST */
+void commandListWithoutFilter(client *c, dict *commands, int *numcmds) {
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(commands);
+
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+        (*numcmds)++;
+
+        if (cmd->subcommands_dict) {
+            commandListWithoutFilter(c, cmd->subcommands_dict, numcmds);
+        }
+    }
+    dictReleaseIterator(di);
 }
 
 /* COMMAND LIST [FILTERBY (MODULE <module-name>|ACLCAT <cat>|PATTERN <pattern>)] */
@@ -4527,37 +4697,67 @@ void commandListCommand(client *c) {
         }
     }
 
-    dictIterator *di;
-    dictEntry *de;
+    int numcmds = 0;
+    void *replylen = addReplyDeferredLen(c);
 
-    di = dictGetIterator(server.commands);
-    if (!got_filter) {
-        addReplySetLen(c, dictSize(server.commands));
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            addReplyBulkCString(c,cmd->name);
-        }
+    if (got_filter) {
+        commandListWithFilter(c, server.commands, filter, &numcmds);
     } else {
-        int numcmds = 0;
-        void *replylen = addReplyDeferredLen(c);
-        while ((de = dictNext(di)) != NULL) {
-            struct redisCommand *cmd = dictGetVal(de);
-            if (!shouldFilterFromCommandList(cmd,&filter)) {
-                addReplyBulkCString(c,cmd->name);
-                numcmds++;
-            }
-        }
-        setDeferredArrayLen(c,replylen,numcmds);
+        commandListWithoutFilter(c, server.commands, &numcmds);
     }
-    dictReleaseIterator(di);
+
+    setDeferredArrayLen(c,replylen,numcmds);
 }
 
-/* COMMAND INFO <command-name> [<command-name> ...] */
+/* COMMAND INFO [<command-name> ...] */
 void commandInfoCommand(client *c) {
     int i;
-    addReplyArrayLen(c, c->argc-2);
-    for (i = 2; i < c->argc; i++) {
-        addReplyCommand(c, lookupCommandBySds(c->argv[i]->ptr));
+
+    if (c->argc == 2) {
+        dictIterator *di;
+        dictEntry *de;
+        addReplyArrayLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommandInfo(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    } else {
+        addReplyArrayLen(c, c->argc-2);
+        for (i = 2; i < c->argc; i++) {
+            addReplyCommandInfo(c, lookupCommandBySds(c->argv[i]->ptr));
+        }
+    }
+}
+
+/* COMMAND DOCS [<command-name> ...] */
+void commandDocsCommand(client *c) {
+    int i;
+    if (c->argc == 2) {
+        /* Reply with an array of all commands */
+        dictIterator *di;
+        dictEntry *de;
+        addReplyMapLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            addReplyCommandDocs(c, cmd);
+        }
+        dictReleaseIterator(di);
+    } else {
+        /* Reply with an array of the requested commands (if we find them) */
+        int numcmds = 0;
+        void *replylen = addReplyDeferredLen(c);
+        for (i = 2; i < c->argc; i++) {
+            struct redisCommand *cmd = lookupCommandBySds(c->argv[i]->ptr);
+            if (!cmd)
+                continue;
+            addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
+            addReplyCommandDocs(c, cmd);
+            numcmds++;
+        }
+        setDeferredMapLen(c,replylen,numcmds);
     }
 }
 
@@ -4575,10 +4775,18 @@ void commandHelpCommand(client *c) {
 "    Return the total number of commands in this Redis server.",
 "LIST",
 "    Return a list of all commands in this Redis server.",
-"INFO <command-name> [<command-name> ...]",
+"INFO [<command-name> ...]",
 "    Return details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
+"DOCS [<command-name> ...]",
+"    Return documentation details about multiple Redis commands.",
+"    If no command names are given, documentation details for all",
+"    commands are returned.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
+"GETKEYSANDFLAGS <full-command>",
+"    Return the keys and the access flags from a full Redis command.",
 NULL
     };
 
@@ -4618,21 +4826,16 @@ void bytesToHuman(char *s, unsigned long long n) {
 sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
     for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-        info = sdscatprintf(info,"p%f=%.3f", server.latency_tracking_info_percentiles[j],
+        char fbuf[128];
+        size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+        len = trimDoubleString(fbuf, len);
+        info = sdscatprintf(info,"p%s=%.3f", fbuf,
             ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
         if (j != server.latency_tracking_info_percentiles_len-1)
             info = sdscatlen(info,",",1);
         }
     info = sdscatprintf(info,"\r\n");
     return info;
-}
-
-sds getFullCommandName(struct redisCommand *cmd) {
-    if (!cmd->parent) {
-        return sdsnew(cmd->name);
-    } else {
-        return sdscatfmt(sdsempty(),"%s|%s",cmd->parent->name,cmd->name);
-    }
 }
 
 const char *replstateToString(int replstate) {
@@ -4677,16 +4880,13 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->calls || c->failed_calls || c->rejected_calls) {
-            sds cmdnamesds = getFullCommandName(c);
-
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
                 ",rejected_calls=%lld,failed_calls=%lld\r\n",
-                getSafeInfoString(cmdnamesds, sdslen(cmdnamesds), &tmpsafe), c->calls, c->microseconds,
+                getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe), c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
                 c->rejected_calls, c->failed_calls);
             if (tmpsafe != NULL) zfree(tmpsafe);
-            sdsfree(cmdnamesds);
         }
         if (c->subcommands_dict) {
             info = genRedisInfoStringCommandStats(info, c->subcommands_dict);
@@ -4697,25 +4897,101 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     return info;
 }
 
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
+    di = dictGetSafeIterator(commands);
+    while((de = dictNext(di)) != NULL) {
+        char *tmpsafe;
+        c = (struct redisCommand *) dictGetVal(de);
+        if (c->latency_histogram) {
+            info = fillPercentileDistributionLatencies(info,
+                getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
+                c->latency_histogram);
+            if (tmpsafe != NULL) zfree(tmpsafe);
+        }
+        if (c->subcommands_dict) {
+            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
+        }
+    }
+    dictReleaseIterator(di);
+
+    return info;
+}
+
+/* Takes a null terminated sections list, and adds them to the dict. */
+void addInfoSectionsToDict(dict *section_dict, char **sections) {
+    while (*sections) {
+        sds section = sdsnew(*sections);
+        if (dictAdd(section_dict, section, NULL)==DICT_ERR)
+            sdsfree(section);
+        sections++;
+    }
+}
+
+/* Cached copy of the default sections, as an optimization. */
+static dict *cached_default_info_sections = NULL;
+
+void releaseInfoSectionDict(dict *sec) {
+    if (sec != cached_default_info_sections)
+        dictRelease(sec);
+}
+
+/* Create a dictionary with unique section names to be used by genRedisInfoString.
+ * 'argv' and 'argc' are list of arguments for INFO.
+ * 'defaults' is an optional null terminated list of default sections.
+ * 'out_all' and 'out_everything' are optional.
+ * The resulting dictionary should be released with releaseInfoSectionDict. */
+dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything) {
+    char *default_sections[] = {
+        "server", "clients", "memory", "persistence", "stats", "replication",
+        "cpu", "module_list", "errorstats", "cluster", "keyspace", NULL};
+    if (!defaults)
+        defaults = default_sections;
+
+    if (argc == 0) {
+        /* In this case we know the dict is not gonna be modified, so we cache
+         * it as an optimization for a common case. */
+        if (cached_default_info_sections)
+            return cached_default_info_sections;
+        cached_default_info_sections = dictCreate(&stringSetDictType);
+        dictExpand(cached_default_info_sections, 16);
+        addInfoSectionsToDict(cached_default_info_sections, defaults);
+        return cached_default_info_sections;
+    }
+
+    dict *section_dict = dictCreate(&stringSetDictType);
+    dictExpand(section_dict, min(argc,16));
+    for (int i = 0; i < argc; i++) {
+        if (!strcasecmp(argv[i]->ptr,"default")) {
+            addInfoSectionsToDict(section_dict, defaults);
+        } else if (!strcasecmp(argv[i]->ptr,"all")) {
+            if (out_all) *out_all = 1;
+        } else if (!strcasecmp(argv[i]->ptr,"everything")) {
+            if (out_everything) *out_everything = 1;
+            if (out_all) *out_all = 1;
+        } else {
+            sds section = sdsnew(argv[i]->ptr);
+            if (dictAdd(section_dict, section, NULL) != DICT_OK)
+                sdsfree(section);
+        }
+    }
+    return section_dict;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(const char *section) {
+sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    int allsections = 0, defsections = 0, everything = 0, modules = 0;
     int sections = 0;
-
-    if (section == NULL) section = "default";
-    allsections = strcasecmp(section,"all") == 0;
-    defsections = strcasecmp(section,"default") == 0;
-    everything = strcasecmp(section,"everything") == 0;
-    modules = strcasecmp(section,"modules") == 0;
-    if (everything) allsections = 1;
+    if (everything) all_sections = 1;
 
     /* Server */
-    if (allsections || defsections || !strcasecmp(section,"server")) {
+    if (all_sections || (dictFind(section_dict,"server") != NULL)) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
@@ -4805,7 +5081,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Clients */
-    if (allsections || defsections || !strcasecmp(section,"clients")) {
+    if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
         getExpansiveClientsInfo(&maxin,&maxout);
         if (sections++) info = sdscat(info,"\r\n");
@@ -4829,7 +5105,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Memory */
-    if (allsections || defsections || !strcasecmp(section,"memory")) {
+    if (all_sections || (dictFind(section_dict,"memory") != NULL)) {
         char hmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
@@ -4886,6 +5162,7 @@ sds genRedisInfoString(const char *section) {
             "used_memory_scripts_eval:%lld\r\n"
             "number_of_cached_scripts:%lu\r\n"
             "number_of_functions:%lu\r\n"
+            "number_of_libraries:%lu\r\n"
             "used_memory_vm_functions:%lld\r\n"
             "used_memory_vm_total:%lld\r\n"
             "used_memory_vm_total_human:%s\r\n"
@@ -4936,6 +5213,7 @@ sds genRedisInfoString(const char *section) {
             (long long) mh->lua_caches,
             dictSize(evalScriptsDict()),
             functionsNum(),
+            functionsLibNum(),
             memory_functions,
             memory_functions + memory_lua,
             used_memory_vm_total_hmem,
@@ -4972,7 +5250,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Persistence */
-    if (allsections || defsections || !strcasecmp(section,"persistence")) {
+    if (all_sections || (dictFind(section_dict,"persistence") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         double fork_perc = 0;
         if (server.stat_module_progress) {
@@ -5101,7 +5379,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Stats */
-    if (allsections || defsections || !strcasecmp(section,"stats")) {
+    if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
@@ -5205,7 +5483,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Replication */
-    if (allsections || defsections || !strcasecmp(section,"replication")) {
+    if (all_sections || (dictFind(section_dict,"replication") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Replication\r\n"
@@ -5341,7 +5619,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* CPU */
-    if (allsections || defsections || !strcasecmp(section,"cpu")) {
+    if (all_sections || (dictFind(section_dict,"cpu") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
 
         struct rusage self_ru, c_ru;
@@ -5369,20 +5647,21 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Modules */
-    if (allsections || defsections || !strcasecmp(section,"modules")) {
+    if (all_sections || (dictFind(section_dict,"module_list") != NULL) || (dictFind(section_dict,"modules") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,"# Modules\r\n");
         info = genModulesInfoString(info);
     }
 
     /* Command statistics */
-    if (allsections || !strcasecmp(section,"commandstats")) {
+    if (all_sections || (dictFind(section_dict,"commandstats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
         info = genRedisInfoStringCommandStats(info, server.commands);
     }
+
     /* Error statistics */
-    if (allsections || defsections || !strcasecmp(section,"errorstats")) {
+    if (all_sections || (dictFind(section_dict,"errorstats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscat(info, "# Errorstats\r\n");
         raxIterator ri;
@@ -5401,28 +5680,16 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Latency by percentile distribution per command */
-    if (allsections || !strcasecmp(section,"latencystats")) {
+    if (all_sections || (dictFind(section_dict,"latencystats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
-            struct redisCommand *c;
-            dictEntry *de;
-            dictIterator *di;
-            di = dictGetSafeIterator(server.commands);
-            while((de = dictNext(di)) != NULL) {
-                char *tmpsafe;
-                c = (struct redisCommand *) dictGetVal(de);
-                if (!c->latency_histogram)
-                    continue;
-                info = fillPercentileDistributionLatencies(info,getSafeInfoString(c->name, strlen(c->name), &tmpsafe),c->latency_histogram);
-                if (tmpsafe != NULL) zfree(tmpsafe);
-            }
-            dictReleaseIterator(di);
+            info = genRedisInfoStringLatencyStats(info, server.commands);
         }
     }
 
     /* Cluster */
-    if (allsections || defsections || !strcasecmp(section,"cluster")) {
+    if (all_sections || (dictFind(section_dict,"cluster") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
@@ -5431,7 +5698,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Key space */
-    if (allsections || defsections || !strcasecmp(section,"keyspace")) {
+    if (all_sections || (dictFind(section_dict,"keyspace") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
@@ -5450,10 +5717,10 @@ sds genRedisInfoString(const char *section) {
     /* Get info from modules.
      * if user asked for "everything" or "modules", or a specific section
      * that's not found yet. */
-    if (everything || modules ||
-        (!allsections && !defsections && sections==0)) {
+    if (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict)) {
+
         info = modulesCollectInfo(info,
-                                  everything || modules ? NULL: section,
+                                  everything || dictFind(section_dict, "modules") != NULL ? NULL: section_dict,
                                   0, /* not a crash report */
                                   sections);
     }
@@ -5465,16 +5732,14 @@ void infoCommand(client *c) {
         sentinelInfoCommand(c);
         return;
     }
-
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    }
-    sds info = genRedisInfoString(section);
+    int all_sections = 0;
+    int everything = 0;
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, NULL, &all_sections, &everything);
+    sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
+    releaseInfoSectionDict(sections_dict);
+    return;
 }
 
 void monitorCommand(client *c) {
@@ -5937,8 +6202,10 @@ void closeChildUnusedResourceAfterFork() {
 /* purpose is one of CHILD_TYPE_ types */
 int redisFork(int purpose) {
     if (isMutuallyExclusiveChildType(purpose)) {
-        if (hasActiveChildProcess())
+        if (hasActiveChildProcess()) {
+            errno = EEXIST;
             return -1;
+        }
 
         openChildInfoPipe();
     }
@@ -6423,9 +6690,12 @@ int main(int argc, char **argv) {
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
-    srand(time(NULL)^getpid());
-    srandom(time(NULL)^getpid());
+
+    /* To achieve entropy, in case of containers, their time() and getpid() can
+     * be the same. But value of tv_usec is fast enough to make the difference */
     gettimeofday(&tv,NULL);
+    srand(time(NULL)^getpid()^tv.tv_usec);
+    srandom(time(NULL)^getpid()^tv.tv_usec);
     init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
     crc64_init();
 

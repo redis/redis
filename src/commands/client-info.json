@@ -9,12 +9,14 @@
         "function": "clientCommand",
         "command_flags": [
             "NOSCRIPT",
-            "RANDOM",
             "LOADING",
             "STALE"
         ],
         "acl_categories": [
             "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

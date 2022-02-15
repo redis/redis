@@ -68,4 +68,7 @@ start_server {tags {"modules"}} {
         assert_equal [r acl whoami] "default"
     }
 
+    test "Unload the module - testacl" {
+        assert_equal {OK} [r module unload testacl]
+    }
 }
