@@ -1,4 +1,4 @@
-start_server {tags {"Client Caching"}} {
+start_server {tags {"client caching test suites"}} {
     test {CLIENT Caching wrong number of arguments} {
         catch {r client caching} err
         set _ $err
@@ -32,12 +32,7 @@ start_server {tags {"Client Caching"}} {
     } {ERR*when the client is in tracking mode*}
 }
 
-start_server {tags {"Client Kill"}} {
-    test {CLIENT kill wrong number of arguments} {
-        catch {r client kill} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
+start_server {tags {"client kill test suites"}} {
     test {CLIENT kill wrong address} {
         catch {r client kill 000.123.321.567:0000} err
         set _ $err
@@ -49,12 +44,7 @@ start_server {tags {"Client Kill"}} {
     } {ERR*No such*}
 }
 
-start_server {tags {"Client No-evict"}} {
-    test {CLIENT no-evict wrong number of arguments} {
-        catch {r client no-evict ok x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
+start_server {tags {"client no-evict test suites"}} {
     test {CLIENT no-evict wrong argument} {
         catch {r client no-evict wrongInput} err
         set _ $err
@@ -62,12 +52,7 @@ start_server {tags {"Client No-evict"}} {
 }
 
 
-start_server {tags {"Client pause"}} {
-    test {CLIENT pause wrong number of arguments} {
-        catch {r client pause} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
+start_server {tags {"client pause test suites"}} {
     test {CLIENT pause wrong timeout type} {
         catch {r client pause abc} err
         set _ $err
@@ -79,23 +64,14 @@ start_server {tags {"Client pause"}} {
     } {ERR timeout is negative}
 }
 
-start_server {tags {"Client reply"}} {
-    test {CLIENT reply wrong number of arguments} {
-        catch {r client reply on x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
+start_server {tags {"client reply test suites"}} {
     test {CLIENT reply wrong argument} {
         catch {r client reply wrongInput} err
         set _ $err
     } {ERR*syntax*}
 }
 
-start_server {tags {"Client tracking"}} {
-    test {CLIENT tracking wrong number of arguments} {
-        catch {r client tracking} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
+start_server {tags {"client tracking test suites"}} {
 
     test {CLIENT tracking wrong argument} {
         catch {r client tracking wrongInput} err
@@ -108,51 +84,9 @@ start_server {tags {"Client tracking"}} {
     } {ERR*syntax*}
 }
 
-start_server {tags {"Client setname getname"}} {
-    test {CLIENT setname wrong number of arguments} {
-        catch {r client setname on x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
+start_server {tags {"client setname getname test suites"}} {
     test {CLIENT getname check if name set correctly} {
         r client setname testName
         r client getName
     } {testName}
-}
-
-start_server {tags {"Client _ wrong arguments"}} {
-    test {CLIENT getredir wrong number of arguments} {
-        catch {r client getredir x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
-    test {CLIENT id wrong number of arguments} {
-        catch {r client id x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
-    test {CLIENT info wrong number of arguments} {
-        catch {r client info x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
-    test {CLIENT info wrong number of arguments} {
-        catch {r client info x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
-    test {CLIENT list wrong number of arguments} {
-        catch {r client list x} err
-        set _ $err
-    } {ERR*syntax*}
-
-    test {CLIENT trackinginfo wrong number of arguments} {
-        catch {r client trackinginfo x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
-
-    test {CLIENT unpause wrong number of arguments} {
-        catch {r client unpause x} err
-        set _ $err
-    } {ERR*wrong number of arguments*}
 }
