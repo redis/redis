@@ -796,7 +796,7 @@ int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int ar
     ctx.keys_result = result;
 
     cp->func(&ctx,(void**)argv,argc);
-    /* We currently always use the array allocated by RM_GetChannel() and don't try
+    /* We currently always use the array allocated by RM_RM_ChannelAtPosWithFlags() and don't try
      * to optimize for the pre-allocated buffer. */
     moduleFreeContext(&ctx);
     return result->numkeys;
@@ -8464,8 +8464,8 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
  *
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
-int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
-    if (ACLUserCheckChannelPerm(user->user, ch->ptr, flags) != ACL_OK)
+int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

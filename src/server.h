@@ -264,8 +264,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                   * from the value of the key. */
 /* Other flags: */
 #define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
-                                       * like a key but is excluded from other
-                                       * key checks */
+                                       * like a key in cluster mode but is 
+                                       * excluded from other key checks. */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
@@ -275,10 +275,10 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
 
 /* Channel flags share the same flag space as the key flags */
-#define CMD_CHANNEL_PATTERN (1ULL<<11)
-#define CMD_CHANNEL_SUBSCRIBE (1ULL<<12)
-#define CMD_CHANNEL_UNSUBSCRIBE (1ULL<<13)
-#define CMD_CHANNEL_PUBLISH (1ULL<<14)
+#define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
+#define CMD_CHANNEL_SUBSCRIBE (1ULL<<12)   /* The command subscribes to channels */
+#define CMD_CHANNEL_UNSUBSCRIBE (1ULL<<13) /* The command unsubscribes to channels */
+#define CMD_CHANNEL_PUBLISH (1ULL<<14)     /* The command publishes to channels. */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */

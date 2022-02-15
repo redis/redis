@@ -1921,7 +1921,7 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
     if (cmd->flags & CMD_MODULE_GETCHANNELS) {
         return moduleGetCommandChannelsViaAPI(cmd, argv, argc, result);
     }
-    /* Otherwise check the internal commands */
+    /* Otherwise check the channel spec table */
     for (ChannelSpecs *spec = commands_with_channels; spec != NULL; spec += 1) {
         if (cmd->proc == spec->proc) {
             int start = spec->start;
