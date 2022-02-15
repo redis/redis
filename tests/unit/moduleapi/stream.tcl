@@ -152,4 +152,8 @@ start_server {tags {"modules"}} {
         assert_equal 100   [r stream.trim mystream minid ~ +]
         assert_equal 0     [r xlen mystream]
     }
+
+    test "Unload the module - stream" {
+        assert_equal {OK} [r module unload stream]
+    }
 }

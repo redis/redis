@@ -52,6 +52,12 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    test "XADD wrong number of args" {
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
+        assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream * field}
+    }
+
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
@@ -210,6 +216,15 @@ start_server {
         assert_equal [r XRANGE mystream - +] {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}}}
     }
 
+    test {XTRIM with MINID option, big delta from master record} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 1641544570597-0 f v
+        r XADD mystream 1641544570597-1 f v
+        r XTRIM mystream MINID 1641544570597-0
+        assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
+    }
+
     proc insert_into_stream_key {key {count 10000}} {
         r multi
         for {set j 0} {$j < $count} {incr j} {
@@ -351,6 +366,31 @@ start_server {
         $rd XREAD BLOCK 10 STREAMS s1 666
         after 20
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {s1 {}}
+        $rd close
+    }
+
+    test "Blocking XREAD for stream that ran dry (issue #5299)" {
+        set rd [redis_deferring_client]
+
+        # Add a entry then delete it, now stream's last_id is 666.
+        r DEL mystream
+        r XADD mystream 666 key value
+        r XDEL mystream 666
+
+        # Pass a ID smaller than stream's last_id, released on timeout.
+        $rd XREAD BLOCK 10 STREAMS mystream 665
+        assert_equal [$rd read] {}
+
+        # Throw an error if the ID equal or smaller than the last_id.
+        assert_error ERR*equal*smaller* {r XADD mystream 665 key value}
+        assert_error ERR*equal*smaller* {r XADD mystream 666 key value}
+
+        # Entered blocking state and then release because of the new entry.
+        $rd XREAD BLOCK 0 STREAMS mystream 665
+        wait_for_blocked_clients_count 1
+        r XADD mystream 667 key value
+        assert_equal [$rd read] {{mystream {{667-0 {key value}}}}}
+
         $rd close
     }
 
@@ -763,11 +803,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xgroup|help' command" $e
     }
 
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
-        assert_match "*wrong number of arguments*" $e
+        assert_match "*wrong number of arguments for 'xinfo|help' command" $e
     }
 }

@@ -84,12 +84,12 @@ proc status {r property} {
 
 proc waitForBgsave r {
     while 1 {
-        if {[status r rdb_bgsave_in_progress] eq 1} {
+        if {[status $r rdb_bgsave_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -98,12 +98,12 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status r aof_rewrite_in_progress] eq 1} {
+        if {[status $r aof_rewrite_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -113,6 +113,14 @@ proc waitForBgrewriteaof r {
 proc wait_for_sync r {
     wait_for_condition 50 100 {
         [status $r master_link_status] eq "up"
+    } else {
+        fail "replica didn't sync in time"
+    }
+}
+
+proc wait_replica_online r {
+    wait_for_condition 50 100 {
+        [string match "*slave0:*,state=online*" [$r info replication]]
     } else {
         fail "replica didn't sync in time"
     }
@@ -591,8 +599,11 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc populate {num {prefix key:} {size 3}} {
-    set rd [redis_deferring_client]
+# Write num keys with the given key prefix and value size (in bytes). If idx is
+# given, it's the index (AKA level) used with the srv procedure and it specifies
+# to which Redis instance to write the keys.
+proc populate {num {prefix key:} {size 3} {idx 0}} {
+    set rd [redis_deferring_client $idx]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
     }
@@ -628,9 +639,15 @@ proc errorrstat {cmd r} {
     }
 }
 
+proc latencyrstat_percentiles {cmd r} {
+    if {[regexp "\r\nlatency_percentiles_usec_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
+        set _ $value
+    }
+}
+
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
-    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
     set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
@@ -822,11 +839,17 @@ proc punsubscribe {client {channels {}}} {
 }
 
 proc debug_digest_value {key} {
-    if {!$::ignoredigest} {
-        r debug digest-value $key
-    } else {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest-value"
     }
+    r debug digest-value $key
+}
+
+proc debug_digest {{level 0}} {
+    if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
+        return "dummy-digest"
+    }
+    r $level debug digest
 }
 
 proc wait_for_blocked_client {} {
@@ -906,4 +929,103 @@ proc delete_lines_with_pattern {filename tmpfilename pattern} {
     close $fh_in
     close $fh_out
     file rename -force $tmpfilename $filename
+}
+
+proc get_nonloopback_addr {} {
+    set addrlist [list {}]
+    catch { set addrlist [exec hostname -I] }
+    return [lindex $addrlist 0]
+}
+
+proc get_nonloopback_client {} {
+    return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
+}
+
+# The following functions and variables are used only when running large-memory
+# tests. We avoid defining them when not running large-memory tests because the 
+# global variables takes up lots of memory.
+proc init_large_mem_vars {} {
+    if {![info exists ::str500]} {
+        set ::str500 [string repeat x 500000000] ;# 500mb
+        set ::str500_len [string length $::str500]
+    }
+}
+
+# Utility function to write big argument into redis client connection
+proc write_big_bulk {size {prefix ""} {skip_read no}} {
+    init_large_mem_vars
+
+    assert {[string length prefix] <= $size}
+    r write "\$$size\r\n"
+    r write $prefix
+    incr size -[string length $prefix]
+    while {$size >= 500000000} {
+        r write $::str500
+        incr size -500000000
+    }
+    if {$size > 0} {
+        r write [string repeat x $size]
+    }
+    r write "\r\n"
+    if {!$skip_read} {
+        r flush
+        r read
+    }
+}
+
+# Utility to read big bulk response (work around Tcl limitations)
+proc read_big_bulk {code {compare no} {prefix ""}} {
+    init_large_mem_vars
+
+    r readraw 1
+    set resp_len [uplevel 1 $code] ;# get the first line of the RESP response
+    assert_equal [string range $resp_len 0 0] "$"
+    set resp_len [string range $resp_len 1 end]
+    set prefix_len [string length $prefix]
+    if {$compare} {
+        assert {$prefix_len <= $resp_len}
+        assert {$prefix_len <= $::str500_len}
+    }
+
+    set remaining $resp_len
+    while {$remaining > 0} {
+        set l $remaining
+        if {$l > $::str500_len} {set l $::str500_len} ; # can't read more than 2gb at a time, so read 500mb so we can easily verify read data
+        set read_data [r rawread $l]
+        set nbytes [string length $read_data]
+        if {$compare} {
+            set comp_len $nbytes
+            # Compare prefix part
+            if {$remaining == $resp_len} {
+                assert_equal $prefix [string range $read_data 0 [expr $prefix_len - 1]]
+                set read_data [string range $read_data $prefix_len $nbytes]
+                incr comp_len -$prefix_len
+            }
+            # Compare rest of data, evaluate and then assert to avoid huge print in case of failure
+            set data_equal [expr {$read_data == [string range $::str500 0 [expr $comp_len - 1]]}]
+            assert $data_equal
+        }
+        incr remaining -$nbytes
+    }
+    assert_equal [r rawread 2] "\r\n"
+    r readraw 0
+    return $resp_len
+}
+
+proc prepare_value {size} {
+    set _v "c"
+    for {set i 1} {$i < $size} {incr i} {
+        append _v 0
+    }
+    return $_v
+}
+
+proc memory_usage {key} {
+    set usage [r memory usage $key]
+    if {![string match {*jemalloc*} [s mem_allocator]]} {
+        # libc allocator can sometimes return a different size allocation for the same requested size
+        # this makes tests that rely on MEMORY USAGE unreliable, so instead we return a constant 1
+        set usage 1
+    }
+    return $usage
 }

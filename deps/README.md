@@ -43,7 +43,7 @@ the following additional steps:
 
 #### Updating/upgrading jemalloc
 
-The jemalloc directory is pulled as a subtee from the upstream jemalloc github repo. To update it you should run from the project root:
+The jemalloc directory is pulled as a subtree from the upstream jemalloc github repo. To update it you should run from the project root:
 
 1. `git subtree pull --prefix deps/jemalloc https://github.com/jemalloc/jemalloc.git <version-tag> --squash`<br>
 This should hopefully merge the local changes into the new version.

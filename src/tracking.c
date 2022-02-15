@@ -228,11 +228,17 @@ void trackingRememberKeys(client *c) {
         getKeysFreeResult(&result);
         return;
     }
+    /* Shard channels are treated as special keys for client
+     * library to rely on `COMMAND` command to discover the node
+     * to connect to. These channels doesn't need to be tracked. */
+    if (c->cmd->flags & CMD_PUBSUB) {
+        return;
+    }
 
-    int *keys = result.keys;
+    keyReference *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
-        int idx = keys[j];
+        int idx = keys[j].pos;
         sds sdskey = c->argv[idx]->ptr;
         rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
         if (ids == raxNotFound) {

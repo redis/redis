@@ -41,7 +41,7 @@ start_server {tags {"hash"}} {
         assert_encoding $type myhash
 
         # coverage for objectComputeSize
-        assert_morethan [r memory usage myhash] 0
+        assert_morethan [memory_usage myhash] 0
 
         test "HRANDFIELD - $type" {
             unset -nocomplain myhash
@@ -98,10 +98,7 @@ start_server {tags {"hash"}} {
             assert_encoding $type myhash
 
             # create a dict for easy lookup
-            unset -nocomplain mydict
-            foreach {k v} [r hgetall myhash] {
-                dict append mydict $k $v
-            }
+            set mydict [dict create {*}[r hgetall myhash]]
 
             # We'll stress different parts of the code, see the implementation
             # of HRANDFIELD for more information, but basically there are
@@ -313,10 +310,10 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
-    test {HMSET wrong number of args} {
-        catch {r hmset smallhash key1 val1 key2} err
-        format $err
-    } {*wrong number*}
+    test {HSET/HMSET wrong number of args} {
+        assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
+    }
 
     test {HMSET - small hash} {
         set args {}

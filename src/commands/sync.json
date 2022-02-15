@@ -1,0 +1,15 @@
+{
+    "SYNC": {
+        "summary": "Internal command used for replication",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "syncCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NO_MULTI",
+            "NOSCRIPT"
+        ]
+    }
+}

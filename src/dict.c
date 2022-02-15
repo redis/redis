@@ -83,11 +83,11 @@ uint8_t *dictGetHashFunctionSeed(void) {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-uint64_t dictGenHashFunction(const void *key, int len) {
+uint64_t dictGenHashFunction(const void *key, size_t len) {
     return siphash(key,len,dict_hash_function_seed);
 }
 
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
     return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
@@ -1154,8 +1154,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
         if (clvector[i] == 0) continue;
         if (l >= bufsize) break;
         l += snprintf(buf+l,bufsize-l,
-            "   %s%ld: %ld (%.02f%%)\n",
-            (i == DICT_STATS_VECTLEN-1)?">= ":"",
+            "   %ld: %ld (%.02f%%)\n",
             i, clvector[i], ((float)clvector[i]/DICTHT_SIZE(d->ht_size_exp[htidx]))*100);
     }
 

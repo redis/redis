@@ -73,7 +73,7 @@ start_server {tags {"repl external:skip"}} {
         test {INCRBYFLOAT replication, should not remove expire} {
             r set test 1 EX 100
             r incrbyfloat test 0.1
-            after 1000
+            wait_for_ofs_sync $A $B
             assert_equal [$A debug digest] [$B debug digest]
         }
 
@@ -255,7 +255,8 @@ foreach mdl {no yes} {
         start_server {tags {"repl external:skip"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
-            $master config set repl-diskless-sync-delay 1
+            $master config set repl-diskless-sync-delay 5
+            $master config set repl-diskless-sync-max-replicas 3
             set master_host [srv 0 host]
             set master_port [srv 0 port]
             set slaves {}
@@ -317,7 +318,7 @@ foreach mdl {no yes} {
                             stop_write_load $load_handle4
 
                             # Make sure no more commands processed
-                            wait_load_handlers_disconnected
+                            wait_load_handlers_disconnected -3
 
                             wait_for_ofs_sync $master [lindex $slaves 0]
                             wait_for_ofs_sync $master [lindex $slaves 1]
@@ -427,7 +428,7 @@ foreach testType {Successful Aborted} {
                         } else {
                             fail "Replica didn't get into loading mode"
                         }
-                        
+
                         assert_equal [s -1 async_loading] 0
                     }
 
@@ -443,7 +444,7 @@ foreach testType {Successful Aborted} {
                     } else {
                         fail "Replica didn't disconnect"
                     }
-                    
+
                     test {Diskless load swapdb (different replid): old database is exposed after replication fails} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
@@ -515,17 +516,17 @@ foreach testType {Successful Aborted} {
             # Put different data sets on the master and replica
             # We need to put large keys on the master since the replica replies to info only once in 2mb
             $replica debug populate 2000 slave 10
-            $master debug populate 1000 master 100000
+            $master debug populate 2000 master 100000
             $master config set rdbcompression no
 
             # Set a key value on replica to check status during loading, on failure and after swapping db
             $replica set mykey myvalue
 
             # Set a function value on replica to check status during loading, on failure and after swapping db
-            $replica function create LUA test {return 'hello1'}
+            $replica function load LUA test {redis.register_function('test', function() return 'hello1' end)}
 
             # Set a function value on master to check it reaches the replica when replication ends
-            $master function create LUA test {return 'hello2'}
+            $master function load LUA test {redis.register_function('test', function() return 'hello2' end)}
 
             # Force the replica to try another full sync (this time it will have matching master replid)
             $master multi
@@ -540,7 +541,7 @@ foreach testType {Successful Aborted} {
             switch $testType {
                 "Aborted" {
                     # Set master with a slow rdb generation, so that we can easily intercept loading
-                    # 10ms per key, with 1000 keys is 10 seconds
+                    # 10ms per key, with 2000 keys is 20 seconds
                     $master config set rdb-key-save-delay 10000
 
                     test {Diskless load swapdb (async_loading): replica enter async_loading} {
@@ -550,10 +551,10 @@ foreach testType {Successful Aborted} {
                         } else {
                             fail "Replica didn't get into async_loading mode"
                         }
-                        
+
                         assert_equal [s -1 loading] 0
                     }
-                    
+
                     test {Diskless load swapdb (async_loading): old database is exposed while async replication is in progress} {
                         # Ensure we still see old values while async_loading is in progress and also not LOADING status
                         assert_equal [$replica get mykey] "myvalue"
@@ -568,6 +569,23 @@ foreach testType {Successful Aborted} {
                         assert_equal [$replica dbsize] 2001
                     }
 
+                    test {Busy script during async loading} {
+                        set rd_replica [redis_deferring_client -1]
+                        $replica config set lua-time-limit 10
+                        $rd_replica eval {while true do end} 0
+                        after 200
+                        assert_error {BUSY*} {$replica ping}
+                        $replica script kill
+                        after 200 ; # Give some time to Lua to call the hook again...
+                        assert_equal [$replica ping] "PONG"
+                        $rd_replica close
+                    }
+
+                    test {Blocked commands and configs during async-loading} {
+                        assert_error {LOADING*} {$replica config set appendonly no}
+                        assert_error {LOADING*} {$replica REPLICAOF no one}
+                    }
+
                     # Make sure that next sync will not start immediately so that we can catch the replica in between syncs
                     $master config set repl-diskless-sync-delay 5
 
@@ -580,7 +598,7 @@ foreach testType {Successful Aborted} {
                     } else {
                         fail "Replica didn't disconnect"
                     }
-                    
+
                     test {Diskless load swapdb (async_loading): old database is exposed after async replication fails} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
@@ -611,7 +629,7 @@ foreach testType {Successful Aborted} {
                         assert_equal [$replica fcall test 0] "hello2"
 
                         # Make sure amount of keys matches master
-                        assert_equal [$replica dbsize] 1010
+                        assert_equal [$replica dbsize] 2010
                     }
                 }
             }
@@ -641,7 +659,7 @@ test {diskless loading short read} {
             set start [clock clicks -milliseconds]
 
             # Set a function value to check short read handling on functions
-            r function create LUA test {return 'hello1'}
+            r function load LUA test {redis.register_function('test', function() return 'hello1' end)}
 
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
@@ -763,7 +781,8 @@ proc compute_cpu_usage {start end} {
 start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
-    $master config set repl-diskless-sync-delay 1
+    $master config set repl-diskless-sync-delay 5
+    $master config set repl-diskless-sync-max-replicas 2
     set master_host [srv 0 host]
     set master_port [srv 0 port]
     set master_pid [srv 0 pid]
@@ -927,6 +946,7 @@ test "diskless replication child being killed is collected" {
             set loglines [count_log_lines 0]
             $replica config set repl-diskless-load swapdb
             $replica config set key-load-delay 1000000
+            $replica config set loading-process-events-interval-bytes 1024
             $replica replicaof $master_host $master_port
 
             # wait for the replicas to start reading the rdb
@@ -945,6 +965,9 @@ test "diskless replication child being killed is collected" {
             } else {
                 fail "rdb child didn't terminate"
             }
+
+            # Speed up shutdown
+            $replica config set key-load-delay 0
         }
     }
 } {} {external:skip}
@@ -1199,14 +1222,100 @@ test {replica can handle EINTR if use diskless load} {
             # Wait for the replica to start reading the rdb
             set res [wait_for_log_messages -1 {"*Loading DB in memory*"} 0 200 10]
             set loglines [lindex $res 1]
-            
+
             # Wait till we see the watchgod log line AFTER the loading started
             wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 200 10
-            
+
             # Make sure we're still loading, and that there was just one full sync attempt
-            assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]            
+            assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]
             assert_equal 1 [s 0 sync_full]
             assert_equal 1 [s -1 loading]
         }
     }
 } {} {external:skip}
+
+start_server {tags {"repl" "external:skip"}} {
+    test "replica do not write the reply to the replication link - SYNC (_addReplyToBufferOrList)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd sync
+        $rd ping
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC _addReplyToBufferOrList: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the PING command.
+        verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - SYNC (addReplyDeferredLen)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd sync
+        $rd xinfo help
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC addReplyDeferredLen: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the XINFO HELP command.
+        verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - PSYNC (_addReplyToBufferOrList)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd psync replicationid -1
+        assert_match {FULLRESYNC * 0} [$rd read]
+        $rd get foo
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC _addReplyToBufferOrList: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the GET command.
+        verify_log_message 0 "*Replica generated a reply to command 'get', disconnecting it: *" $lines
+        verify_log_message 0 "*== CRITICAL == This master is sending an error to its replica: *" $lines
+        verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - PSYNC (addReplyDeferredLen)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd psync replicationid -1
+        assert_match {FULLRESYNC * 0} [$rd read]
+        $rd slowlog get
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC addReplyDeferredLen: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the SLOWLOG GET command.
+        verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "PSYNC with wrong offset should throw error" {
+        # It used to accept the FULL SYNC, but also replied with an error.
+        assert_error {ERR value is not an integer or out of range} {r psync replicationid offset_str}
+        set logs [exec tail -n 100 < [srv 0 stdout]]
+        assert_match {*Replica * asks for synchronization but with a wrong offset} $logs
+        assert_equal "PONG" [r ping]
+    }
+}

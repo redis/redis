@@ -1,0 +1,20 @@
+{
+    "RANDOMKEY": {
+        "summary": "Return a random key from the keyspace",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "randomkeyCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

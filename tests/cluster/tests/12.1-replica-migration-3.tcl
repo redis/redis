@@ -4,11 +4,12 @@
 # migrate when master becomes empty.
 
 source "../tests/includes/init-tests.tcl"
+source "../tests/includes/utils.tcl"
 
 # Create a cluster with 5 master and 15 slaves, to make sure there are no
 # empty masters and make rebalancing simpler to handle during the test.
 test "Create a 5 nodes cluster" {
-    create_cluster 5 15
+    cluster_create_with_continuous_slots 5 15
 }
 
 test "Cluster is up" {
@@ -19,7 +20,7 @@ test "Each master should have at least two replicas attached" {
     foreach_redis_id id {
         if {$id < 5} {
             wait_for_condition 1000 50 {
-                [llength [lindex [R 0 role] 2]] >= 2
+                [llength [lindex [R $id role] 2]] >= 2
             } else {
                 fail "Master #$id does not have 2 slaves as expected"
             }
@@ -43,14 +44,7 @@ test "Resharding all the master #0 slots away from it" {
 }
 
 test "Wait cluster to be stable" {
-    wait_for_condition 1000 50 {
-        [catch {exec ../../../src/redis-cli --cluster \
-            check 127.0.0.1:[get_instance_attrib redis 0 port] \
-            {*}[rediscli_tls_config "../../../tests"] \
-            }] == 0
-    } else {
-        fail "Cluster doesn't stabilize"
-    }
+    wait_cluster_stable
 }
 
 test "Master #0 still should have its replicas" {
@@ -61,7 +55,7 @@ test "Each master should have at least two replicas attached" {
     foreach_redis_id id {
         if {$id < 5} {
             wait_for_condition 1000 50 {
-                [llength [lindex [R 0 role] 2]] >= 2
+                [llength [lindex [R $id role] 2]] >= 2
             } else {
                 fail "Master #$id does not have 2 slaves as expected"
             }

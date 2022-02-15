@@ -1,0 +1,48 @@
+{
+    "GEOHASH": {
+        "summary": "Returns members of a geospatial index as standard geohash strings",
+        "complexity": "O(log(N)) for each member requested, where N is the number of elements in the sorted set.",
+        "group": "geo",
+        "since": "3.2.0",
+        "arity": -2,
+        "function": "geohashCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "GEO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

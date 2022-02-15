@@ -1,6 +1,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "functions.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -42,6 +43,15 @@ void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
     long long len = dictSize(lua_scripts);
     dictRelease(lua_scripts);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
+/* Release the functions ctx. */
+void lazyFreeFunctionsCtx(void *args[]) {
+    functionsLibCtx *functions_lib_ctx = args[0];
+    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
+    functionsLibCtxFree(functions_lib_ctx);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -190,6 +200,16 @@ void freeLuaScriptsAsync(dict *lua_scripts) {
         bioCreateLazyFreeJob(lazyFreeLuaScripts,1,lua_scripts);
     } else {
         dictRelease(lua_scripts);
+    }
+}
+
+/* Free functions ctx, if the functions ctx contains enough functions, free it in async way. */
+void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
+    if (functionsLibCtxfunctionsLen(functions_lib_ctx) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,functionsLibCtxfunctionsLen(functions_lib_ctx));
+        bioCreateLazyFreeJob(lazyFreeFunctionsCtx,1,functions_lib_ctx);
+    } else {
+        functionsLibCtxFree(functions_lib_ctx);
     }
 }
 

@@ -47,14 +47,34 @@ void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
+static void dictLuaScriptDestructor(dict *d, void *val) {
+    UNUSED(d);
+    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
+    decrRefCount(((luaScript*)val)->body);
+    zfree(val);
+}
+
+static uint64_t dictStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* server.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
+dictType shaScriptObjectDictType = {
+        dictStrCaseHash,            /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCaseCompare,      /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictLuaScriptDestructor,    /* val destructor */
+        NULL                        /* allow to expand */
+};
+
 /* Lua context */
 struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
-    char *lua_cur_script; /* SHA1 of the script currently running, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-    int lua_replicate_commands; /* True if we are doing single commands repl. */
 } lctx;
 
 /* Debugger shared state is stored inside this global structure. */
@@ -140,23 +160,13 @@ int luaRedisDebugCommand(lua_State *lua) {
 
 /* redis.replicate_commands()
  *
+ * DEPRECATED: Now do nothing and always return true.
  * Turn on single commands replication if the script never called
  * a write command so far, and returns true. Otherwise if the script
  * already started to write, returns false and stick to whole scripts
  * replication, which is our default. */
 int luaRedisReplicateCommandsCommand(lua_State *lua) {
-    scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    if (rctx->flags & SCRIPT_WRITE_DIRTY) {
-        lua_pushboolean(lua,0);
-    } else {
-        lctx.lua_replicate_commands = 1;
-        rctx->flags &= ~SCRIPT_EVAL_REPLICATION;
-        /* When we switch to single commands replication, we can provide
-         * different math.random() sequences at every call, which is what
-         * the user normally expects. */
-        redisSrand48(rand());
-        lua_pushboolean(lua,1);
-    }
+    lua_pushboolean(lua,1);
     return 1;
 }
 
@@ -176,7 +186,6 @@ void scriptingInit(int setup) {
     if (setup) {
         lctx.lua_client = NULL;
         server.script_caller = NULL;
-        lctx.lua_cur_script = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
@@ -302,22 +311,77 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
+    uint64_t script_flags = SCRIPT_FLAG_EVAL_COMPAT_MODE;
 
     funcname[0] = 'f';
     funcname[1] = '_';
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
-    sds sha = sdsnewlen(funcname+2,40);
-    if ((de = dictFind(lctx.lua_scripts,sha)) != NULL) {
-        sdsfree(sha);
+    if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
         return dictGetKey(de);
     }
 
+    /* Handle shebang header in script code */
+    ssize_t shebang_len = 0;
+    if (!strncmp(body->ptr, "#!", 2)) {
+        int numparts,j;
+        char *shebang_end = strchr(body->ptr, '\n');
+        if (shebang_end == NULL) {
+            addReplyError(c,"Invalid script shebang");
+            return NULL;
+        }
+        shebang_len = shebang_end - (char*)body->ptr;
+        sds shebang = sdsnewlen(body->ptr, shebang_len);
+        sds *parts = sdssplitargs(shebang, &numparts);
+        sdsfree(shebang);
+        if (!parts || numparts == 0) {
+            addReplyError(c,"Invalid engine in script shebang");
+            sdsfreesplitres(parts, numparts);
+            return NULL;
+        }
+        /* Verify lua interpreter was specified */
+        if (strcmp(parts[0], "#!lua")) {
+            addReplyErrorFormat(c,"Unexpected engine in script shebang: %s", parts[0]);
+            sdsfreesplitres(parts, numparts);
+            return NULL;
+        }
+        script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
+        for (j = 1; j < numparts; j++) {
+            if (!strncmp(parts[j], "flags=", 6)) {
+                sdsrange(parts[j], 6, -1);
+                int numflags, jj;
+                sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
+                for (jj = 0; jj < numflags; jj++) {
+                    scriptFlag *sf;
+                    for (sf = scripts_flags_def; sf->flag; sf++) {
+                        if (!strcmp(flags[jj], sf->str)) break;
+                    }
+                    if (!sf->flag) {
+                        addReplyErrorFormat(c,"Unexpected flag in script shebang: %s", flags[jj]);
+                        sdsfreesplitres(flags, numflags);
+                        sdsfreesplitres(parts, numparts);
+                        return NULL;
+                    }
+                    script_flags |= sf->flag;
+                }
+                sdsfreesplitres(flags, numflags);
+            } else {
+                /* We only support function flags options for lua scripts */
+                addReplyErrorFormat(c,"Unknown lua shebang option: %s", parts[j]);
+                sdsfreesplitres(parts, numparts);
+                return NULL;
+            }
+        }
+        sdsfreesplitres(parts, numparts);
+    }
+
+    /* Build the lua function to be loaded */
     sds funcdef = sdsempty();
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
     funcdef = sdscatlen(funcdef,"() ",3);
-    funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
+    /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
+    funcdef = sdscatlen(funcdef,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len);
     funcdef = sdscatlen(funcdef,"\nend",4);
 
     if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
@@ -327,7 +391,6 @@ sds luaCreateFunction(client *c, robj *body) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(sha);
         sdsfree(funcdef);
         return NULL;
     }
@@ -339,14 +402,17 @@ sds luaCreateFunction(client *c, robj *body) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
-        sdsfree(sha);
         return NULL;
     }
 
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
-    int retval = dictAdd(lctx.lua_scripts,sha,body);
+    luaScript *l = zcalloc(sizeof(luaScript));
+    l->body = body;
+    l->flags = script_flags;
+    sds sha = sdsnewlen(funcname+2,40);
+    int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
@@ -373,13 +439,6 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = lctx.lua;
     char funcname[43];
     long long numkeys;
-    long long initial_server_dirty = server.dirty;
-
-    /* When we replicate whole scripts, we want the same PRNG sequence at
-     * every call so that our PRNG is not affected by external state. */
-    redisSrand48(0);
-
-    lctx.lua_replicate_commands = server.lua_always_replicate_commands;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -439,61 +498,21 @@ void evalGenericCommand(client *c, int evalsha) {
         serverAssert(!lua_isnil(lua,-1));
     }
 
-    lctx.lua_cur_script = funcname + 2;
+    char *lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    luaScript *l = dictGetVal(de);
+    int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
-    scriptPrepareForRun(&rctx, lctx.lua_client, c, lctx.lua_cur_script);
-    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as legacy so we
-                                    will get legacy error messages and logs */
-    if (!lctx.lua_replicate_commands) rctx.flags |= SCRIPT_EVAL_REPLICATION;
-    /* This check is for EVAL_RO, EVALSHA_RO. We want to allow only read only commands */
-    if ((server.script_caller->cmd->proc == evalRoCommand ||
-         server.script_caller->cmd->proc == evalShaRoCommand)) {
-        rctx.flags |= SCRIPT_READ_ONLY;
+    if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
+        return;
     }
+    rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
+                                      get appropriate error messages and logs */
 
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
-
-    lctx.lua_cur_script = NULL;
-
-    /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
-     * we are sure that the script was already in the context of all the
-     * attached slaves *and* the current AOF file if enabled.
-     *
-     * To do so we use a cache of SHA1s of scripts that we already propagated
-     * as full EVAL, that's called the Replication Script Cache.
-     *
-     * For replication, every time a new slave attaches to the master, we need to
-     * flush our cache of scripts that can be replicated as EVALSHA, while
-     * for AOF we need to do so every time we rewrite the AOF file. */
-    if (evalsha && !lctx.lua_replicate_commands) {
-        if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
-            /* This script is not in our script cache, replicate it as
-             * EVAL, then add it into the script cache, as from now on
-             * slaves and AOF know about it. */
-            robj *script = dictFetchValue(lctx.lua_scripts,c->argv[1]->ptr);
-
-            replicationScriptCacheAdd(c->argv[1]->ptr);
-            serverAssertWithInfo(c,NULL,script != NULL);
-
-            /* If the script did not produce any changes in the dataset we want
-             * just to replicate it as SCRIPT LOAD, otherwise we risk running
-             * an aborted script on slaves (that may then produce results there)
-             * or just running a CPU costly read-only script on the slaves. */
-            if (server.dirty == initial_server_dirty) {
-                rewriteClientCommandVector(c,3,
-                    shared.script,
-                    shared.load,
-                    script);
-            } else {
-                rewriteClientCommandArgument(c,0,shared.eval);
-                rewriteClientCommandArgument(c,1,script);
-            }
-            forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
-        }
-    }
 }
 
 void evalCommand(client *c) {
@@ -568,8 +587,6 @@ NULL
         }
         scriptingReset(async);
         addReply(c,shared.ok);
-        replicationScriptCacheFlush();
-        server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
@@ -584,7 +601,6 @@ NULL
         sds sha = luaCreateFunction(c,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
-        forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         scriptKill(c, 1);
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"debug")) {
@@ -621,15 +637,9 @@ dict* evalScriptsDict() {
 
 unsigned long evalScriptsMemory() {
     return lctx.lua_scripts_mem +
-            dictSize(lctx.lua_scripts) * sizeof(dictEntry) +
+            dictSize(lctx.lua_scripts) * (sizeof(dictEntry) + sizeof(luaScript)) +
             dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
 }
-
-/* Returns the time when the script invocation started */
-mstime_t evalTimeSnapshot() {
-    return scriptTimeSnapshot();
-}
-
 
 /* ---------------------------------------------------------------------------
  * LDB: Redis Lua debugging facilities
@@ -1389,7 +1399,7 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
  * implementation, with ldb.step enabled, so as a side effect the Redis command
  * and its reply are logged. */
 void ldbRedis(lua_State *lua, sds *argv, int argc) {
-    int j, saved_rc = lctx.lua_replicate_commands;
+    int j;
 
     if (!lua_checkstack(lua, argc + 1)) {
         /* Increase the Lua stack if needed to make sure there is enough room
@@ -1408,10 +1418,8 @@ void ldbRedis(lua_State *lua, sds *argv, int argc) {
     for (j = 1; j < argc; j++)
         lua_pushlstring(lua,argv[j],sdslen(argv[j]));
     ldb.step = 1;               /* Force redis.call() to log. */
-    lctx.lua_replicate_commands = 1;
     lua_pcall(lua,argc-1,1,0);  /* Stack: redis, result */
     ldb.step = 0;               /* Disable logging. */
-    lctx.lua_replicate_commands = saved_rc;
     lua_pop(lua,2);             /* Discard the result and clean the stack. */
 }
 
@@ -1601,8 +1609,8 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
         mstime_t elapsed = elapsedMs(rctx->start_time);
-        mstime_t timelimit = server.script_time_limit ?
-                             server.script_time_limit : 5000;
+        mstime_t timelimit = server.busy_reply_threshold ?
+                             server.busy_reply_threshold : 5000;
         if (elapsed >= timelimit) {
             timeout = 1;
             ldb.step = 1;

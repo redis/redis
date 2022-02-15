@@ -793,13 +793,13 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
              * update it after (and if) we actually remove the entry */
             unsigned char *pcopy = p;
 
-            int flags = lpGetInteger(p);
+            int64_t flags = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip flags. */
-            int to_skip;
+            int64_t to_skip;
 
-            int ms_delta = lpGetInteger(p);
+            int64_t ms_delta = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip ID ms delta */
-            int seq_delta = lpGetInteger(p);
+            int64_t seq_delta = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip ID seq delta */
 
             streamID currid = {0}; /* For MINID */
@@ -1135,7 +1135,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * the first entry emitted for this listpack, then we already
              * emitted the current entry, and have to go back to the previous
              * one. */
-            int lp_count = lpGetInteger(si->lp_ele);
+            int64_t lp_count = lpGetInteger(si->lp_ele);
             while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
@@ -1165,7 +1165,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
 
             /* Get the flags entry. */
             si->lp_flags = si->lp_ele;
-            int flags = lpGetInteger(si->lp_ele);
+            int64_t flags = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek ID. */
 
             /* Get the ID: it is encoded as difference between the master
@@ -1274,7 +1274,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
      * deleted entries in the listpack header.
      *
      * We start flagging: */
-    int flags = lpGetInteger(si->lp_flags);
+    int64_t flags = lpGetInteger(si->lp_flags);
     flags |= STREAM_ITEM_FLAG_DELETED;
     lp = lpReplaceInteger(lp,&si->lp_flags,flags);
 
@@ -1323,6 +1323,20 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
  * allocated. */
 void streamIteratorStop(streamIterator *si) {
     raxStop(&si->ri);
+}
+
+/* Return 1 if `id` exists in `s` (and not marked as deleted) */
+int streamEntryExists(stream *s, streamID *id) {
+    streamIterator si;
+    streamIteratorStart(&si,s,id,id,0);
+    streamID myid;
+    int64_t numfields;
+    int found = streamIteratorGetID(&si,&myid,&numfields);
+    streamIteratorStop(&si);
+    if (!found)
+        return 0;
+    serverAssert(streamCompareID(id,&myid) == 0);
+    return 1;
 }
 
 /* Delete the specified item ID from the stream, returning 1 if the item
@@ -1399,11 +1413,8 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[12] = shared.lastid;
     argv[13] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[3]);
     decrRefCount(argv[7]);
     decrRefCount(argv[9]);
@@ -1424,11 +1435,8 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 
@@ -1446,11 +1454,8 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    /* We use propagate() because this code path is not always called from
-     * the command execution context. Moreover this will just alter the
-     * consumer group state, and we don't need MULTI/EXEC wrapping because
-     * there is no message state cross-message atomicity required. */
-    propagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+
     decrRefCount(argv[4]);
 }
 
@@ -1819,7 +1824,7 @@ void xaddCommand(client *c) {
 
     /* Check arity. */
     if ((c->argc - field_pos) < 2 || ((c->argc-field_pos) % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for XADD");
+        addReplyErrorArity(c);
         return;
     }
 
@@ -2989,23 +2994,28 @@ void xclaimCommand(client *c) {
         /* Lookup the ID in the group PEL. */
         streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
 
+        /* Item must exist for us to transfer it to another consumer. */
+        if (!streamEntryExists(o->ptr,&id)) {
+            /* Clear this entry from the PEL, it no longer exists */
+            if (nack != raxNotFound) {
+                /* Propagate this change (we are going to delete the NACK). */
+                streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
+                propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
+                server.dirty++;
+                /* Release the NACK */
+                raxRemove(group->pel,buf,sizeof(buf),NULL);
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                streamFreeNACK(nack);
+            }
+            continue;
+        }
+
         /* If FORCE is passed, let's check if at least the entry
          * exists in the Stream. In such case, we'll create a new
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
         if (force && nack == raxNotFound) {
-            streamIterator myiterator;
-            streamIteratorStart(&myiterator,o->ptr,&id,&id,0);
-            int64_t numfields;
-            int found = 0;
-            streamID item_id;
-            if (streamIteratorGetID(&myiterator,&item_id,&numfields)) found = 1;
-            streamIteratorStop(&myiterator);
-
-            /* Item must exist for us to create a NACK for it. */
-            if (!found) continue;
-
             /* Create the NACK. */
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
@@ -3022,6 +3032,7 @@ void xclaimCommand(client *c) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
+
             if (consumer == NULL &&
                 (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
             {
@@ -3051,9 +3062,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,
-                                    NULL,NULL,STREAM_RWR_RAWENTRIES,NULL);
-                if (!emitted) addReplyNull(c);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
             }
             arraylen++;
 
@@ -3147,9 +3156,9 @@ void xautoclaimCommand(client *c) {
     streamConsumer *consumer = NULL;
     long long attempts = count*10;
 
-    addReplyArrayLen(c, 2);
-    void *endidptr = addReplyDeferredLen(c);
-    void *arraylenptr = addReplyDeferredLen(c);
+    addReplyArrayLen(c, 3); /* We add another reply later */
+    void *endidptr = addReplyDeferredLen(c); /* reply[0] */
+    void *arraylenptr = addReplyDeferredLen(c); /* reply[1] */
 
     unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
@@ -3159,17 +3168,36 @@ void xautoclaimCommand(client *c) {
     size_t arraylen = 0;
     mstime_t now = mstime();
     sds name = c->argv[3]->ptr;
+    streamID *deleted_ids = zmalloc(count * sizeof(streamID));
+    int deleted_id_num = 0;
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
+
+        streamID id;
+        streamDecodeID(ri.key, &id);
+
+        /* Item must exist for us to transfer it to another consumer. */
+        if (!streamEntryExists(o->ptr,&id)) {
+            /* Propagate this change (we are going to delete the NACK). */
+            robj *idstr = createObjectFromStreamID(&id);
+            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
+            decrRefCount(idstr);
+            server.dirty++;
+            /* Clear this entry from the PEL, it no longer exists */
+            raxRemove(group->pel,ri.key,ri.key_len,NULL);
+            raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+            streamFreeNACK(nack);
+            /* Remember the ID for later */
+            deleted_ids[deleted_id_num++] = id;
+            raxSeek(&ri,">=",ri.key,ri.key_len);
+            continue;
+        }
 
         if (minidle) {
             mstime_t this_idle = now - nack->delivery_time;
             if (this_idle < minidle)
                 continue;
         }
-
-        streamID id;
-        streamDecodeID(ri.key, &id);
 
         if (consumer == NULL &&
             (consumer = streamLookupConsumer(group,name,SLC_DEFAULT)) == NULL)
@@ -3200,11 +3228,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            size_t emitted =
-                streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
-            if (!emitted)
-                addReplyNull(c);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
         }
         arraylen++;
         count--;
@@ -3229,6 +3253,12 @@ void xautoclaimCommand(client *c) {
 
     setDeferredArrayLen(c,arraylenptr,arraylen);
     setDeferredReplyStreamID(c,endidptr,&endid);
+
+    addReplyArrayLen(c, deleted_id_num); /* reply[2] */
+    for (int i = 0; i < deleted_id_num; i++) {
+        addReplyStreamID(c, &deleted_ids[i]);
+    }
+    zfree(deleted_ids);
 
     preventCommandPropagation(c);
 }

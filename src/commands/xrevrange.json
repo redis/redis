@@ -1,0 +1,63 @@
+{
+    "XREVRANGE": {
+        "summary": "Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE",
+        "complexity": "O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -4,
+        "function": "xrevrangeCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added exclusive ranges."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "end",
+                "type": "string"
+            },
+            {
+                "name": "start",
+                "type": "string"
+            },
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

@@ -49,4 +49,8 @@ start_server {tags {"modules"}} {
         r sadd ss 3
         lsort [r scan.scan_key ss]
     } {{1 {}} {2 {}} {3 {}}}
+
+    test "Unload the module - scan" {
+        assert_equal {OK} [r module unload scan]
+    }
 }

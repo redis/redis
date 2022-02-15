@@ -2,6 +2,9 @@ set testmodule [file normalize tests/modules/hooks.so]
 
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule" appendonly yes]] {
+        test {Test module aof save on server start from empty} {
+            assert {[r hooks.event_count persistence-syncaof-start] == 1}
+        }
 
         test {Test clients connection / disconnection hooks} {
             for {set j 0} {$j < 2} {incr j} {
@@ -89,11 +92,7 @@ tags "modules" {
             set replica_port [srv 0 port]
             $replica replicaof $master_host $master_port
 
-            wait_for_condition 50 100 {
-                [string match {*master_link_status:up*} [r info replication]]
-            } else {
-                fail "Can't turn the instance into a replica"
-            }
+            wait_replica_online $master
 
             test {Test master link up hook} {
                 assert_equal [r hooks.event_count masterlink-up] 1

@@ -90,16 +90,16 @@ void blockClient(client *c, int btype) {
     /* Master client should never be blocked unless pause or module */
     serverAssert(!(c->flags & CLIENT_MASTER &&
                    btype != BLOCKED_MODULE &&
-                   btype != BLOCKED_PAUSE));
+                   btype != BLOCKED_POSTPONE));
 
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
     addClientToTimeoutTable(c);
-    if (btype == BLOCKED_PAUSE) {
-        listAddNodeTail(server.paused_clients, c);
-        c->paused_list_node = listLast(server.paused_clients);
+    if (btype == BLOCKED_POSTPONE) {
+        listAddNodeTail(server.postponed_clients, c);
+        c->postponed_list_node = listLast(server.postponed_clients);
         /* Mark this client to execute its command */
         c->flags |= CLIENT_PENDING_COMMAND;
     }
@@ -111,7 +111,8 @@ void blockClient(client *c, int btype) {
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
-
+    if (server.latency_tracking_enabled)
+        updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
     /* Log the command into the Slow log if needed. */
     slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
     /* Log the reply duration event. */
@@ -188,9 +189,11 @@ void unblockClient(client *c) {
     } else if (c->btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
-    } else if (c->btype == BLOCKED_PAUSE) {
-        listDelNode(server.paused_clients,c->paused_list_node);
-        c->paused_list_node = NULL;
+    } else if (c->btype == BLOCKED_POSTPONE) {
+        listDelNode(server.postponed_clients,c->postponed_list_node);
+        c->postponed_list_node = NULL;
+    } else if (c->btype == BLOCKED_SHUTDOWN) {
+        /* No special cleanup. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
@@ -199,7 +202,7 @@ void unblockClient(client *c) {
      * we do not do it immediately after the command returns (when the
      * client got blocked) in order to be still able to access the argument
      * vector from module callbacks and updateStatsOnUnblock. */
-    if (c->btype != BLOCKED_PAUSE) {
+    if (c->btype != BLOCKED_POSTPONE) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -231,6 +234,22 @@ void replyToBlockedClientTimedOut(client *c) {
     }
 }
 
+/* If one or more clients are blocked on the SHUTDOWN command, this function
+ * sends them an error reply and unblocks them. */
+void replyToClientsBlockedOnShutdown(void) {
+    if (server.blocked_clients_by_type[BLOCKED_SHUTDOWN] == 0) return;
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients, &li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        if (c->flags & CLIENT_BLOCKED && c->btype == BLOCKED_SHUTDOWN) {
+            addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
+            unblockClient(c);
+        }
+    }
+}
+
 /* Mass-unblock clients because something changed in the instance that makes
  * blocking no longer safe. For example clients blocked in list operations
  * in an instance which turns from master to slave is unsafe, so this function
@@ -247,11 +266,11 @@ void disconnectAllBlockedClients(void) {
         client *c = listNodeValue(ln);
 
         if (c->flags & CLIENT_BLOCKED) {
-            /* PAUSED clients are an exception, when they'll be unblocked, the
+            /* POSTPONEd clients are an exception, when they'll be unblocked, the
              * command processing will start from scratch, and the command will
              * be either executed or rejected. (unlike LIST blocked clients for
              * which the command is already in progress in a way. */
-            if (c->btype == BLOCKED_PAUSE)
+            if (c->btype == BLOCKED_POSTPONE)
                 continue;
 
             addReplyError(c,
@@ -352,10 +371,6 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             monotime replyTimer;
             elapsedStart(&replyTimer);
             genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
-            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-            unblockClient(receiver);
-            afterCommand(receiver);
-            server.current_client = old_client;
 
             /* Replicate the command. */
             int argc = 2;
@@ -369,9 +384,14 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
                 argv[2] = count_obj;
                 argc++;
             }
-            propagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
+            alsoPropagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(argv[1]);
             if (count != -1) decrRefCount(argv[2]);
+
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
+            unblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
 
             /* The zset is empty and has been deleted. */
             if (deleted) break;
@@ -474,7 +494,6 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
                                      receiver->bpop.xread_count,
                                      0, group, consumer, noack, &pi);
                 updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-
                 /* Note that after we unblock the client, 'gt'
                  * and other receiver->bpop stuff are no longer
                  * valid, so we must do the setup above before
@@ -532,7 +551,6 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
             elapsedStart(&replyTimer);
             if (!moduleTryServeClientBlockedOnKey(receiver, rl->key)) continue;
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer));
-
             moduleUnblockClient(receiver);
             afterCommand(receiver);
             server.current_client = old_client;
@@ -562,6 +580,11 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
  * be used only for a single type, like virtually any Redis application will
  * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
+    /* This function is called only when also_propagate is in its basic state
+     * (i.e. not from call(), module context, etc.) */
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -603,6 +626,11 @@ void handleClientsBlockedOnKeys(void) {
                  * regardless of the object type: we don't know what the
                  * module is trying to accomplish right now. */
                 serveClientsBlockedOnKeyByModule(rl);
+            } else {
+                /* Edge case: If lookupKeyReadWithFlags decides to expire the key we have to
+                 * take care of the propagation here, because afterCommand wasn't called */
+                if (server.also_propagate.numops > 0)
+                    propagatePendingCommands();
             }
             server.fixed_time_expire--;
 
@@ -613,6 +641,10 @@ void handleClientsBlockedOnKeys(void) {
         }
         listRelease(l); /* We have the new list on place at this point. */
     }
+
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    server.core_propagates = 0;
 }
 
 /* This is how the current blocking lists/sorted sets/streams work, we use

@@ -1,0 +1,17 @@
+{
+    "LINKS": {
+        "summary": "Returns a list of all TCP links to and from peer nodes in cluster",
+        "complexity": "O(N) where N is the total number of Cluster nodes",
+        "group": "cluster",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

@@ -1,0 +1,21 @@
+{
+    "DBSIZE": {
+        "summary": "Return the number of keys in the selected database",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": 1,
+        "function": "dbsizeCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_SUM"
+        ]
+    }
+}
