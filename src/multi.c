@@ -260,7 +260,8 @@ void execCommand(client *c) {
  * DB */
 typedef struct watchedKey {
     robj *key;
-    redisDb *db;
+    unsigned expired:1; /* Flag that we're watching an already expired key. */
+    unsigned dbid:31;
 } watchedKey;
 
 /* Watch for the specified key */
@@ -274,7 +275,8 @@ void watchForKey(client *c, robj *key) {
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
         wk = listNodeValue(ln);
-        if (wk->db == c->db && equalStringObjects(key,wk->key))
+        redisDb *db = &server.db[wk->dbid];
+        if (db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
@@ -288,9 +290,8 @@ void watchForKey(client *c, robj *key) {
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
-    wk->db = c->db;
-    /* Use the lru field to flag that we're watching an already expired key. */
-    key->lru = keyIsExpired(c->db, key);
+    wk->dbid = c->db->id;
+    wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
 }
@@ -310,12 +311,13 @@ void unwatchAllKeys(client *c) {
         /* Lookup the watched key -> clients list and remove the client
          * from the list */
         wk = listNodeValue(ln);
-        clients = dictFetchValue(wk->db->watched_keys, wk->key);
+        redisDb *db = &server.db[wk->dbid];
+        clients = dictFetchValue(db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,c));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
-            dictDelete(wk->db->watched_keys, wk->key);
+            dictDelete(db->watched_keys, wk->key);
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
@@ -333,8 +335,9 @@ int isWatchedKeyExpired(client *c) {
     listRewind(c->watched_keys,&li);
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
-        if (wk->key->lru == 1) continue; /* was expired when WATCH was called */
-        if (keyIsExpired(wk->db, wk->key)) return 1;
+        if (wk->expired) continue; /* was expired when WATCH was called */
+        redisDb *db = &server.db[wk->dbid];
+        if (keyIsExpired(db, wk->key)) return 1;
     }
 
     return 0;
@@ -367,12 +370,13 @@ void touchWatchedKey(redisDb *db, robj *key) {
             listRewind(c->watched_keys, &wk_li);
             while ((wk_ln = listNext(&wk_li))) {
                 watchedKey *wk = listNodeValue(wk_ln);
-                if (wk->db == c->db && equalStringObjects(key, wk->key)) {
+                redisDb *db = &server.db[wk->dbid];
+                if (db == c->db && equalStringObjects(key, wk->key)) {
                     /* Found the key. */
-                    if (wk->key->lru == 1) {
+                    if (wk->expired) {
                         /* The key was already expired when WATCH was called.
                          * Now the key is explicitly deleted. */
-                        wk->key->lru = 0;
+                        wk->expired = 0;
                         goto skip_client;
                     }
                     break;
