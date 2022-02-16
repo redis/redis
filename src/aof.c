@@ -247,6 +247,7 @@ void aofLoadManifestFromDisk(void) {
     sdsfree(am_filepath);
 }
 
+/* Generic manifest loading function, used in `aofLoadManifestFromDisk` and redis-check-aof tool. */
 #define MANIFEST_MAX_LINE 1024
 aofManifest *aofLoadManifestFromFile(sds am_filepath) {
     const char *err = NULL;
