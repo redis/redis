@@ -1531,10 +1531,10 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
-/* Checks a channel against a provide list of channels. The literal 
- * argument controls whether the selector's ACL channels are 
- * evaluated as literal values or matched as glob-like patterns. */
-static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
+/* Checks a channel against a provided list of channels. The is_pattern 
+ * argument controls whether the input channel is evaluated as a channel pattern
+ * (like in PSUBSCRIBE) or a single channel (like in SUBSCRIBE). */
+static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern) {
     listIter li;
     listNode *ln;
 
@@ -1542,8 +1542,10 @@ static int ACLCheckChannelAgainstList(list *reference, const char *channel, int 
     while((ln = listNext(&li))) {
         sds pattern = listNodeValue(ln);
         size_t plen = sdslen(pattern);
-        if ((literal && !strcmp(pattern,channel)) || 
-            (!literal && stringmatchlen(pattern,plen,channel,channellen,0)))
+        /* Channel patterns are matched literally against the channels in
+         * the list. Regular channels perform pattern matching. */
+        if ((is_pattern && !strcmp(pattern,channel)) || 
+            (!is_pattern && stringmatchlen(pattern,plen,channel,channellen,0)))
         {
             return ACL_OK;
         }
@@ -1672,7 +1674,7 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
  *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_CHANNEL is returned. */
-int ACLUserCheckChannelPerm(user *u, sds channel, int literal) {
+int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
     listIter li;
     listNode *ln;
 
@@ -1687,7 +1689,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int literal) {
         if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return ACL_OK;
 
         /* Otherwise, loop over the selectors list and check each channel */
-        if (ACLCheckChannelAgainstList(s->channels, channel, sdslen(channel), literal) == ACL_OK) {
+        if (ACLCheckChannelAgainstList(s->channels, channel, sdslen(channel), is_pattern) == ACL_OK) {
             return ACL_OK;
         }
     }

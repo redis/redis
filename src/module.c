@@ -8467,10 +8467,11 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
  * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned. */
 int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
-    /* Unsubscribe permissions are not verified. */
+    /* Unsubscribe permissions are currently always allowed. */
     if (flags & REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE){
         return REDISMODULE_OK;
     }
+
     int is_pattern = flags & REDISMODULE_CMD_CHANNEL_PATTERN;
     if (ACLUserCheckChannelPerm(user->user, ch->ptr, is_pattern) != ACL_OK)
         return REDISMODULE_ERR;
