@@ -1696,7 +1696,7 @@ client *lookupClientByID(uint64_t id) {
  * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
  * and 'nwritten' is an output parameter, it means how many bytes server write
  * to client. */
-int _writevToClient(client *c, ssize_t *nwritten) {
+static int _writevToClient(client *c, ssize_t *nwritten) {
     struct iovec iov[IOV_MAX];
     int iovcnt = 0;
     size_t iov_bytes_len = 0;
