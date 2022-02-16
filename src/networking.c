@@ -2949,7 +2949,7 @@ NULL
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
-        if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
+        if (target && target->flags & CLIENT_BLOCKED && (unblock_error || moduleBlockedClientMayTimeout(target))) {
             if (unblock_error)
                 addReplyError(target,
                     "-UNBLOCKED client unblocked via CLIENT UNBLOCK");

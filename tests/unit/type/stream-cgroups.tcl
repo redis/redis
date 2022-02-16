@@ -205,6 +205,30 @@ start_server {
         $rd close
     }
 
+    test {Blocking XREADGROUP of a deleted stream} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r DEL mystream
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    }
+
+    test {Blocking XREAD of a deleted stream} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 0 STREAMS mystream "$"
+        r DEL mystream
+        r XADD mystream 667 f v
+        set res [$rd read]
+        assert_equal [lindex $res 0 1 0] {667-0 {f v}}
+        $rd close
+    }
+
     test {Blocking XREADGROUP for stream that ran dry (issue #5299)} {
         set rd [redis_deferring_client]
 

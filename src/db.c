@@ -218,9 +218,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
         val->lru = old->lru;
     }
     /* Although the key is not really deleted from the database, we regard 
-    overwrite as two steps of unlink+add, so we still need to call the unlink 
-    callback of the module. */
+     * overwrite as two steps of unlink+add, so we still need to call the unlink
+     * callback of the module. */
     moduleNotifyKeyUnlink(key,old,db->id);
+    /* We want to try to unblock any client using a blocking XREADGROUP */
+    if (old->type == OBJ_STREAM)
+        signalKeyAsReady(db,key,old->type);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -311,6 +314,9 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (val->type == OBJ_STREAM)
+            signalKeyAsReady(db,key,val->type);
         if (async) {
             freeObjAsync(key, val, db->id);
             dictSetVal(db->dict, de, NULL);
