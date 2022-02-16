@@ -257,9 +257,11 @@ void execCommand(client *c) {
 
 /* In the client->watched_keys list we need to use watchedKey structures
  * as in order to identify a key in Redis we need both the key name and the
- * DB */
+ * DB. This struct is also referenced from db->watched_keys dict, where the
+ * values are lists of watchedKey pointers. */
 typedef struct watchedKey {
     robj *key;
+    client *client;
     unsigned expired:1; /* Flag that we're watching an already expired key. */
     unsigned dbid:31;
 } watchedKey;
@@ -286,14 +288,15 @@ void watchForKey(client *c, robj *key) {
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
-    listAddNodeTail(clients,c);
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
+    wk->client = c;
     wk->dbid = c->db->id;
     wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
+    listAddNodeTail(clients,wk);
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
@@ -308,13 +311,13 @@ void unwatchAllKeys(client *c) {
         list *clients;
         watchedKey *wk;
 
-        /* Lookup the watched key -> clients list and remove the client
+        /* Lookup the watched key -> clients list and remove the client's wk
          * from the list */
         wk = listNodeValue(ln);
         redisDb *db = &server.db[wk->dbid];
         clients = dictFetchValue(db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,c));
+        listDelNode(clients,listSearchKey(clients,wk));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(db->watched_keys, wk->key);
@@ -354,34 +357,25 @@ void touchWatchedKey(redisDb *db, robj *key) {
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
-    int key_exists = dictFind(db->dict, key->ptr) != NULL;
-
     /* Mark all the clients watching this key as CLIENT_DIRTY_CAS */
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
+        watchedKey *wk = listNodeValue(ln);
+        client *c = wk->client;
 
-        if (!key_exists) {
-            /* Was the key expired already when the client watched it? If so,
-             * there is no logical change regarding the key's existence. */
-            listIter wk_li;
-            listNode *wk_ln;
-            listRewind(c->watched_keys, &wk_li);
-            while ((wk_ln = listNext(&wk_li))) {
-                watchedKey *wk = listNodeValue(wk_ln);
-                redisDb *db = &server.db[wk->dbid];
-                if (db == c->db && equalStringObjects(key, wk->key)) {
-                    /* Found the key. */
-                    if (wk->expired) {
-                        /* The key was already expired when WATCH was called.
-                         * Now the key is explicitly deleted. */
-                        wk->expired = 0;
-                        goto skip_client;
-                    }
-                    break;
-                }
+        if (wk->expired) {
+            /* The key was already expired when WATCH was called. */
+            redisDb *wk_db = &server.db[wk->dbid];
+            if (db == wk_db &&
+                equalStringObjects(key, wk->key) &&
+                dictFind(db->dict, key->ptr) == NULL)
+            {
+                /* Already expired key is deleted, so logically no change. */
+                wk->expired = 0;
+                goto skip_client;
             }
+            break;
         }
 
         c->flags |= CLIENT_DIRTY_CAS;
@@ -419,7 +413,8 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             if (!clients) continue;
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
-                client *c = listNodeValue(ln);
+                watchedKey *wk = listNodeValue(ln);
+                client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
                 /* As the client is marked as dirty, there is no point in getting here
                  * again for others keys (or keep the memory overhead till EXEC). */
