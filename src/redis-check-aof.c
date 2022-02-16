@@ -38,10 +38,11 @@
 #define AOF_CHECK_EMPTY 1
 #define AOF_CHECK_TRUNCATED 2
 #define AOF_CHECK_TIMESTAMP_TRUNCATED 3
+
 typedef enum {
-    RAW_AOF,
-    RDB_PREAMBLE,
-    MULTI_PART,
+    RESP_AOF,
+    RDB_PREAMBLE_AOF,
+    MULTI_PART_AOF,
 } input_file_type;
 
 aofManifest *aofManifestCreate(void);
@@ -67,7 +68,6 @@ int consumeNewline(char *buf) {
     line += 1;
     return 1;
 }
-
 
 int readLong(FILE *fp, char prefix, long *target) {
     char buf[128], *eptr;
@@ -413,20 +413,20 @@ int fileIsManifest(char *filepath) {
 }
 
 /* Get the format of the file to be checked. It can be:
- * RAW_AOF: Old-style AOF
- * RDB_PREAMBLE: Old-style RDB-preamble AOF
- * MULTI_PART: manifest in Multi Part AOF 
+ * RESP_AOF: Old-style AOF
+ * RDB_PREAMBLE_AOF: Old-style RDB-preamble AOF
+ * MULTI_PART_AOF: manifest in Multi Part AOF 
  * 
  * redis-check-aof tool will automatically perform different 
  * verification logic according to different file formats.
  * */
 input_file_type getInputFileType(char *filepath) {
     if (fileIsManifest(filepath)) {
-        return MULTI_PART;
+        return MULTI_PART_AOF;
     } else if (fileIsRDB(filepath)) {
-        return RDB_PREAMBLE;
+        return RDB_PREAMBLE_AOF;
     } else {
-        return RAW_AOF;
+        return RESP_AOF;
     }
 }
 
@@ -561,13 +561,13 @@ int redis_check_aof_main(int argc, char **argv) {
     /* Select the corresponding verification method according to the input file type. */
     input_file_type type = getInputFileType(filepath);
     switch (type) {
-    case MULTI_PART:
+    case MULTI_PART_AOF:
         checkMultiPartAof(dirpath, filepath, fix);
         break;
-    case RAW_AOF:
+    case RESP_AOF:
         checkOldStyleAof(filepath, fix, 0);
         break;
-    case RDB_PREAMBLE:
+    case RDB_PREAMBLE_AOF:
         checkOldStyleAof(filepath, fix, 1);
         break;
     }
