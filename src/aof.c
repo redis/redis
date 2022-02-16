@@ -48,6 +48,7 @@ int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
+void aofManifestFreeAndUpdate(aofManifest *am);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -228,6 +229,7 @@ sds getAofManifestAsString(aofManifest *am) {
  * use them.
  */
 void aofLoadManifestFromDisk(void) {
+    server.aof_manifest = aofManifestCreate();
     if (!dirExists(server.aof_dirname)) {
         serverLog(LL_NOTICE, "The AOF directory %s doesn't exist", server.aof_dirname);
         return;
@@ -242,7 +244,8 @@ void aofLoadManifestFromDisk(void) {
         return;
     }
 
-    server.aof_manifest = aofLoadManifestFromFile(am_filepath);
+    aofManifest *am = aofLoadManifestFromFile(am_filepath);
+    if (am) aofManifestFreeAndUpdate(am);
     sdsfree(am_name);
     sdsfree(am_filepath);
 }
