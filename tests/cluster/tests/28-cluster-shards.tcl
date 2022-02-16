@@ -72,10 +72,10 @@ proc dict_setup_for_verification {node i} {
 }
 
 # Initial slot distribution.
-set slot1 [list 1001]
-set slot2 [list 10923-10924 10927-16383]
-set slot3 [list 5460 5462-10922 10925]
-set slot4 [list 0-1000 1002-5459 5461 10926]
+set slot1 [list 1001 1001]
+set slot2 [list 10923 10924 10927 16383]
+set slot3 [list 5460 5460 5462 10922 10925 10925]
+set slot4 [list 0 1000 1002 5459 5461 5461 10926 10926]
 
 # Verify various combinations of `CLUSTER SHARDS` response
 # 1. Single slot owner
@@ -225,7 +225,6 @@ if {false} {
             set slot_len [llength $slots]
             if {$slots == $slot4} {
                 assert_equal [llength $nodes] 2
-                puts $shard
                 dict_setup_for_verification primary $primary_id
                 dict set primary health ONLINE
                 dict set primary endpoint [dict get $primary hostname]

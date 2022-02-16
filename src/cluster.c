@@ -74,6 +74,7 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 sds representClusterNodeFlags(sds ci, uint16_t flags);
+sds representSlotInfo(sds ci, list *slot_info_pair);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
@@ -962,7 +963,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->configEpoch = 0;
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
-    node->slots_info = NULL;
+    node->slot_info_pair = NULL;
     node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
@@ -4581,6 +4582,30 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
     return ci;
 }
 
+sds representSlotInfo(sds ci, list *slot_info_pair) {
+    if (slot_info_pair == NULL)
+        return ci;
+    uint16_t slot_info_count = 0;
+    slot_info_count = listLength(slot_info_pair);
+    serverAssert((slot_info_count % 2) == 0);
+    listIter li;
+    listRewind(slot_info_pair, &li);
+    listNode *ln;
+    while(slot_info_count > 0) {
+        ln = listNext(&li);
+        unsigned long start = (unsigned long)ln->value;
+        ln = listNext(&li);
+        unsigned long end = (unsigned long)ln->value;
+        slot_info_count-=2;
+        if (start == end) {
+            ci = sdscatfmt(ci, " %i", start);
+        } else {
+            ci = sdscatfmt(ci, " %i-%i", start, end);
+        }
+    }
+    return ci;
+}
+
 /* Generate a csv-alike representation of the specified cluster node.
  * See clusterGenNodesDescription() top comment for more information.
  *
@@ -4629,8 +4654,8 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
 
     /* Slots served by this instance. If we already have slots info,
      * append it directly, otherwise, generate slots only if it has. */
-    if (node->slots_info) {
-        ci = sdscatsds(ci, node->slots_info);
+    if (node->slot_info_pair) {
+        ci = representSlotInfo(ci, node->slot_info_pair);
     } else if (node->numslots > 0) {
         start = -1;
         for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -4690,12 +4715,11 @@ void clusterGenNodesSlotsInfo(int filter) {
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
             if (!(n->flags & filter)) {
-                if (n->slots_info == NULL) n->slots_info = sdsempty();
-                if (start == i-1) {
-                    n->slots_info = sdscatfmt(n->slots_info," %i",start);
-                } else {
-                    n->slots_info = sdscatfmt(n->slots_info," %i-%i",start,i-1);
+                if (n->slot_info_pair == NULL) {
+                    n->slot_info_pair = listCreate();
                 }
+                listAddNodeTail(n->slot_info_pair, (void *)(unsigned long)start);
+                listAddNodeTail(n->slot_info_pair, (void *)(unsigned long)(i-1));
             }
             if (i == CLUSTER_SLOTS) break;
             n = server.cluster->slots[i];
@@ -4738,9 +4762,9 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
         ci = sdscatlen(ci,"\n",1);
 
         /* Release slots info. */
-        if (node->slots_info) {
-            sdsfree(node->slots_info);
-            node->slots_info = NULL;
+        if (node->slot_info_pair != NULL) {
+            listRelease(node->slot_info_pair);
+            node->slot_info_pair = NULL;
         }
     }
     dictReleaseIterator(di);
@@ -5016,21 +5040,24 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     setDeferredMapLen(c, node_replylen, reply_cnt);
 }
 
-void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slotInfo) {
+void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_pair) {
     addReplyMapLen(c, 2);
     addReplyBulkCString(c,"slots");
-    uint16_t slotInfoCount = 0;
-    if (slotInfo != NULL) {
-        slotInfoCount = listLength(slotInfo);
-        addReplyArrayLen(c, slotInfoCount);
+    uint16_t slot_pair_count = 0;
+    if (slot_info_pair != NULL) {
+        slot_pair_count = listLength(slot_info_pair);
+        serverAssert((slot_pair_count % 2) == 0);
+        addReplyArrayLen(c, slot_pair_count);
         listIter li;
-        listRewind(slotInfo, &li);
+        listRewind(slot_info_pair, &li);
         listNode *ln;
         while((ln = listNext(&li))) {
-            addReplyBulkSds(c, listNodeValue(ln));
+            addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
+            ln = listNext(&li);
+            addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
         }
     } else {
-        addReplyArrayLen(c, slotInfoCount);
+        addReplyArrayLen(c, slot_pair_count);
     }
     addReplyBulkCString(c,"nodes");
     list *nodes_for_slot = clusterGetNodesServingMySlots(node);
@@ -5051,63 +5078,27 @@ void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slotInfo) {
     }
 }
 
-
 void clusterReplyShards(client *c) {
-    clusterNode *n = NULL;
-    int start = -1;
     void *shard_replylen = addReplyDeferredLen(c);
     int shard_cnt = 0;
-    dict *nodeToSlotPair = dictCreate(&clusterNodesToSlotDictType);
-    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
-        /* Find start node and slot id. */
-        if (n == NULL) {
-            if (i == CLUSTER_SLOTS) break;
-            n = server.cluster->slots[i];
-            start = i;
-            continue;
-        }
-
-        /* Map the node (primary) to the slot (start,end) pair.  */
-        if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
-            sds name = sdsnewlen(n->name, CLUSTER_NAMELEN);
-            dictEntry *de = dictFind(nodeToSlotPair, name);
-            sdsfree(name);
-            list *slotPair;
-            if (de == NULL) {
-                slotPair = listCreate();
-                dictAdd(nodeToSlotPair, sdsnewlen(n->name, CLUSTER_NAMELEN), slotPair);
-            } else {
-                slotPair = dictGetVal(de);
-            }
-            if (start != i-1) {
-                listAddNodeTail(slotPair, sdscatfmt(sdsempty(), "%i-%i", start, i-1));
-            } else {
-                listAddNodeTail(slotPair, sdscatfmt(sdsempty(), "%i", start));
-            }
-            if (i == CLUSTER_SLOTS) break;
-            n = server.cluster->slots[i];
-            start = i;
-        }
-    }
+    clusterGenNodesSlotsInfo(0);
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
     while((de = dictNext(di)) != NULL) {
-        n = dictGetVal(de);
+        clusterNode *n = dictGetVal(de);
         if (nodeIsSlave(n)) {
             continue;
         }
-        sds name = sdsnewlen(n->name, CLUSTER_NAMELEN);
-        dictEntry *node_to_slot_entry = dictFind(nodeToSlotPair, name);
-        sdsfree(name);
         shard_cnt++;
-        if (node_to_slot_entry == NULL) {
-            addNodeReplyForClusterShard(c, n, NULL);
+        if (n->slot_info_pair) {
+            addNodeReplyForClusterShard(c, n, n->slot_info_pair);
+            listRelease(n->slot_info_pair);
+            n->slot_info_pair = NULL;
         } else {
-            addNodeReplyForClusterShard(c, n, dictGetVal(node_to_slot_entry));
+            addNodeReplyForClusterShard(c, n, NULL);
         }
     }
     dictReleaseIterator(di);
-    dictRelease(nodeToSlotPair);
     setDeferredArrayLen(c, shard_replylen, shard_cnt);
 }
 
