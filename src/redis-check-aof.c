@@ -46,6 +46,7 @@ typedef enum {
 
 aofManifest *aofManifestCreate(void);
 void aofManifestFree(aofManifest *am);
+aofManifest *aofLoadManifestFromFile(sds am_filepath);
 
 #define ERROR(...) { \
     char __buf[1024]; \
@@ -67,146 +68,6 @@ int consumeNewline(char *buf) {
     return 1;
 }
 
-#define AOF_MANIFEST_KEY_FILE_NAME   "file"
-#define AOF_MANIFEST_KEY_FILE_SEQ    "seq"
-#define AOF_MANIFEST_KEY_FILE_TYPE   "type"
-#define AOF_MANIFEST_MAX_LINE        1024
-static aofManifest *loadManifestFromFile(char *am_filepath) {
-    const char *err = NULL;
-    long long maxseq = 0;
-
-    aofManifest *am = aofManifestCreate();
-
-    if (!fileExist(am_filepath)) {
-        printf("The AOF manifest file %s doesn't exist\n", am_filepath);
-        exit(1);
-    }
-
-    FILE *fp = fopen(am_filepath, "r");
-    if (fp == NULL) {
-        printf("Fatal error: can't open the AOF manifest "
-            "file %s for reading: %s\n", am_filepath, strerror(errno));
-        exit(1);
-    }
-
-    char buf[AOF_MANIFEST_MAX_LINE+1];
-    sds *argv = NULL;
-    int argc;
-    aofInfo *ai = NULL;
-
-    sds line = NULL;
-    int linenum = 0;
-
-    while (1) {
-        if (fgets(buf, AOF_MANIFEST_MAX_LINE+1, fp) == NULL) {
-            if (feof(fp)) {
-                if (linenum == 0) {
-                    err = "Found an empty AOF manifest";
-                    goto loaderr;
-                } else {
-                    break;
-                }
-            } else {
-                err = "Read AOF manifest failed";
-                goto loaderr;
-            }
-        }
-
-        linenum++;
-
-        /* Skip comments lines */
-        if (buf[0] == '#') continue;
-
-        if (strchr(buf, '\n') == NULL) {
-            err = "The AOF manifest file contains too long line";
-            goto loaderr;
-        }
-
-        line = sdstrim(sdsnew(buf), " \t\r\n");
-        if (!sdslen(line)) {
-            err = "Invalid AOF manifest file format";
-            goto loaderr;
-        }
-
-        argv = sdssplitargs(line, &argc);
-        /* 'argc < 6' was done for forward compatibility. */
-        if (argv == NULL || argc < 6 || (argc % 2)) {
-            err = "Invalid AOF manifest file format";
-            goto loaderr;
-        }
-
-        ai = zcalloc(sizeof(aofInfo));
-        for (int i = 0; i < argc; i += 2) {
-            if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_NAME)) {
-                ai->file_name = sdsnew(argv[i+1]);
-                if (!pathIsBaseName(ai->file_name)) {
-                    err = "File can't be a path, just a filename";
-                    goto loaderr;
-                }
-            } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_SEQ)) {
-                char *endptr;
-                errno = 0;
-                ai->file_seq = strtoll(argv[i+1], &endptr, 10);
-                if (errno != 0 || *endptr != '\0') {
-                    err = "Invalid AOF manifest file format";
-                    goto loaderr;
-                }
-            } else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_FILE_TYPE)) {
-                ai->file_type = (argv[i+1])[0];
-            }
-            /* else if (!strcasecmp(argv[i], AOF_MANIFEST_KEY_OTHER)) {} */
-        }
-
-        if (!ai->file_name || !ai->file_seq || !ai->file_type) {
-            err = "Invalid AOF manifest file format";
-            goto loaderr;
-        }
-
-        sdsfreesplitres(argv, argc);
-        argv = NULL;
-
-        if (ai->file_type == AOF_FILE_TYPE_BASE) {
-            if (am->base_aof_info) {
-                err = "Found duplicate base file information";
-                goto loaderr;
-            }
-            am->base_aof_info = ai;
-            am->curr_base_file_seq = ai->file_seq;
-        } else if (ai->file_type == AOF_FILE_TYPE_HIST) {
-            listAddNodeTail(am->history_aof_list, ai);
-        } else if (ai->file_type == AOF_FILE_TYPE_INCR) {
-            if (ai->file_seq <= maxseq) {
-                err = "Found a non-monotonic sequence number";
-                goto loaderr;
-            }
-            listAddNodeTail(am->incr_aof_list, ai);
-            am->curr_incr_file_seq = ai->file_seq;
-            maxseq = ai->file_seq;
-        } else {
-            err = "Unknown AOF file type";
-            goto loaderr;
-        }
-
-        sdsfree(line);
-        line = NULL;
-        ai = NULL;
-    }
-
-    fclose(fp);
-    return am;
-
-loaderr:
-    fclose(fp);
-    if (am) aofManifestFree(am);
-    if (ai) zfree(ai);
-    printf("\n*** FATAL AOF MANIFEST FILE ERROR ***\n");
-    if (line) {
-        printf("Reading the manifest file, at line %d\n", linenum);
-        printf(">>> '%s'\n", line);
-    }
-    printf("%s\n", err);
-    exit(1);
-}
 
 int readLong(FILE *fp, char prefix, long *target) {
     char buf[128], *eptr;
@@ -585,7 +446,7 @@ void checkMultiPartAof(char *dirpath, char *manifest_filepath, int fix) {
     int ret;
 
     printf("Start checking Multi Part AOF\n");
-    aofManifest *am = loadManifestFromFile(manifest_filepath);
+    aofManifest *am = aofLoadManifestFromFile(manifest_filepath);
 
     if (am->base_aof_info) total_num++;
     if (am->incr_aof_list) total_num += listLength(am->incr_aof_list);
