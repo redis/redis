@@ -627,7 +627,7 @@ void aofUpgradePrepare(aofManifest *am) {
             server.aof_dirname,
             strerror(errno));
         sdsfree(aof_filepath);
-        exit(1);;
+        exit(1);
     }
     sdsfree(aof_filepath);
 
