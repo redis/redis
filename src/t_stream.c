@@ -3692,7 +3692,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 8 : 9);
+    addReplyMapLen(c,full ? 9 : 10);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -3705,6 +3705,8 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyStreamID(c,&s->max_deleted_entry_id);
     addReplyBulkCString(c,"entries-added");
     addReplyLongLong(c,s->entries_added);
+    addReplyBulkCString(c,"recorded-first-entry-id");
+    addReplyStreamID(c,&s->first_id);
 
     if (!full) {
         /* XINFO STREAM <key> */

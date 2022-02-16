@@ -9,7 +9,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added the `max-deleted-entry-id`, `entries-added`, `entries-read` and `lag` fields"
+                "Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"
             ]
         ],
         "function": "xinfoCommand",

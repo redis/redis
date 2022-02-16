@@ -812,14 +812,45 @@ start_server {tags {"stream xsetid"}} {
 }
 
 start_server {tags {"stream offset"}} {
-    test {XADD advances the offset} {
+    test {XADD advances the entries-added counter and sets the recorded-first-entry-id} {
         r DEL x
         r XADD x 1-0 data a
 
         set reply [r XINFO STREAM x FULL]
         assert_equal [dict get $reply entries-added] 1
+        assert_equal [dict get $reply recorded-first-entry-id] "1-0"
+
+        r XADD x 2-0 data a
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply entries-added] 2
+        assert_equal [dict get $reply recorded-first-entry-id] "1-0"
     }
-    
+
+    test {XDEL/TRIM are reflected by recorded first entry} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data a
+        r XADD x 3-0 data a
+        r XADD x 4-0 data a
+        r XADD x 5-0 data a
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply entries-added] 5
+        assert_equal [dict get $reply recorded-first-entry-id] "1-0"
+
+        r XDEL x 2-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply recorded-first-entry-id] "1-0"
+
+        r XDEL x 1-0
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply recorded-first-entry-id] "3-0"
+
+        r XTRIM x MAXLEN = 2
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply recorded-first-entry-id] "4-0"
+    }
+
     test {Maxmimum XDEL ID behaves correctly} {
         r DEL x
         r XADD x 1-0 data a
