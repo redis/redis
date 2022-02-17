@@ -40,9 +40,9 @@
 #define AOF_CHECK_TIMESTAMP_TRUNCATED 3
 
 typedef enum {
-    RESP_AOF,
-    RDB_PREAMBLE_AOF,
-    MULTI_PART_AOF,
+    AOF_RESP,
+    AOF_RDB_PREAMBLE,
+    AOF_MULTI_PART,
 } input_file_type;
 
 aofManifest *aofManifestCreate(void);
@@ -129,9 +129,8 @@ int readArgc(FILE *fp, long *target) {
 
 /* Used to decode a RESP record in the AOF file to obtain the original 
  * redis command, and also check whether the command is MULTI/EXEC. If the 
- * command is MULTI, the out_multi variable will be incremented by one, and 
- * If the command is MULTI, the out_multi parameter will be incremented by 
- * one, and if the command is EXEC, the parameter out_multi will be decremented 
+ * command is MULTI, the parameter out_multi will be incremented by one, and 
+ * if the command is EXEC, the parameter out_multi will be decremented 
  * by one. The parameter out_multi will be used by the upper caller to determine 
  * whether the AOF file contains unclosed transactions.
  **/
@@ -413,20 +412,20 @@ int fileIsManifest(char *filepath) {
 }
 
 /* Get the format of the file to be checked. It can be:
- * RESP_AOF: Old-style AOF
- * RDB_PREAMBLE_AOF: Old-style RDB-preamble AOF
- * MULTI_PART_AOF: manifest in Multi Part AOF 
+ * AOF_RESP: Old-style AOF
+ * AOF_RDB_PREAMBLE: Old-style RDB-preamble AOF
+ * AOF_MULTI_PART: manifest in Multi Part AOF 
  * 
  * redis-check-aof tool will automatically perform different 
  * verification logic according to different file formats.
  * */
 input_file_type getInputFileType(char *filepath) {
     if (fileIsManifest(filepath)) {
-        return MULTI_PART_AOF;
+        return AOF_MULTI_PART;
     } else if (fileIsRDB(filepath)) {
-        return RDB_PREAMBLE_AOF;
+        return AOF_RDB_PREAMBLE;
     } else {
-        return RESP_AOF;
+        return AOF_RESP;
     }
 }
 
@@ -561,13 +560,13 @@ int redis_check_aof_main(int argc, char **argv) {
     /* Select the corresponding verification method according to the input file type. */
     input_file_type type = getInputFileType(filepath);
     switch (type) {
-    case MULTI_PART_AOF:
+    case AOF_MULTI_PART:
         checkMultiPartAof(dirpath, filepath, fix);
         break;
-    case RESP_AOF:
+    case AOF_RESP:
         checkOldStyleAof(filepath, fix, 0);
         break;
-    case RDB_PREAMBLE_AOF:
+    case AOF_RDB_PREAMBLE:
         checkOldStyleAof(filepath, fix, 1);
         break;
     }
