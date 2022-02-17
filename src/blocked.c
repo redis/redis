@@ -108,10 +108,10 @@ void blockClient(client *c, int btype) {
 /* This function is called after a client has finished a blocking operation
  * in order to update the total command duration, log the command into
  * the Slow log if needed, and log the reply duration event if needed. */
-void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int errors){
+void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors){
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
-    if (errors)
+    if (had_errors)
         c->lastcmd->failed_calls++;
     if (server.latency_tracking_enabled)
         updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
