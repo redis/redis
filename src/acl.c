@@ -1532,8 +1532,13 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
 }
 
 /* Checks a channel against a provided list of channels. The is_pattern 
- * argument controls whether the input channel is evaluated as a channel pattern
- * (like in PSUBSCRIBE) or a single channel (like in SUBSCRIBE). */
+ * argument should only be used when subscribing (not when publishing)
+ * and controls whether the input channel is evaluated as a channel pattern
+ * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE). 
+ * 
+ * Note that a plain channel name like in PUBLISH or SUBSCRIBE can be
+ * matched against ACL channel patterns, but the pattern provided in PSUBSCRIBE
+ * can only be matched as a literal against an ACL pattern (using plain string compare). */
 static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern) {
     listIter li;
     listNode *ln;

@@ -880,7 +880,10 @@ int RM_IsChannelsPositionRequest(RedisModuleCtx *ctx) {
  * * REDISMODULE_CMD_CHANNEL_SUBSCRIBE: This command will subscribe to the channel.
  * * REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE: This command will unsubscribe from this channel.
  * * REDISMODULE_CMD_CHANNEL_PUBLISH: This command will publish to this channel.
- * * REDISMODULE_CMD_CHANNEL_PATTERN: Instead of acting on a specific channel, this command will act on any channel specified by the pattern.
+ * * REDISMODULE_CMD_CHANNEL_PATTERN: Instead of acting on a specific channel, will act on any 
+ *                                    channel specified by the pattern. This is the same access
+ *                                    used by the PSUBSCRIBE and PUNSUBSCRIBE commands availabe 
+ *                                    in Redis. Not intended to be used with PUBLISH permissions.
  *
  * The following is an example of how it could be used:
  *
