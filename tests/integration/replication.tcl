@@ -318,7 +318,7 @@ foreach mdl {no yes} {
                             stop_write_load $load_handle4
 
                             # Make sure no more commands processed
-                            wait_load_handlers_disconnected
+                            wait_load_handlers_disconnected -3
 
                             wait_for_ofs_sync $master [lindex $slaves 0]
                             wait_for_ofs_sync $master [lindex $slaves 1]
@@ -428,7 +428,7 @@ foreach testType {Successful Aborted} {
                         } else {
                             fail "Replica didn't get into loading mode"
                         }
-                        
+
                         assert_equal [s -1 async_loading] 0
                     }
 
@@ -444,7 +444,7 @@ foreach testType {Successful Aborted} {
                     } else {
                         fail "Replica didn't disconnect"
                     }
-                    
+
                     test {Diskless load swapdb (different replid): old database is exposed after replication fails} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
@@ -551,10 +551,10 @@ foreach testType {Successful Aborted} {
                         } else {
                             fail "Replica didn't get into async_loading mode"
                         }
-                        
+
                         assert_equal [s -1 loading] 0
                     }
-                    
+
                     test {Diskless load swapdb (async_loading): old database is exposed while async replication is in progress} {
                         # Ensure we still see old values while async_loading is in progress and also not LOADING status
                         assert_equal [$replica get mykey] "myvalue"
@@ -598,7 +598,7 @@ foreach testType {Successful Aborted} {
                     } else {
                         fail "Replica didn't disconnect"
                     }
-                    
+
                     test {Diskless load swapdb (async_loading): old database is exposed after async replication fails} {
                         # Ensure we see old values from replica
                         assert_equal [$replica get mykey] "myvalue"
@@ -1222,14 +1222,100 @@ test {replica can handle EINTR if use diskless load} {
             # Wait for the replica to start reading the rdb
             set res [wait_for_log_messages -1 {"*Loading DB in memory*"} 0 200 10]
             set loglines [lindex $res 1]
-            
+
             # Wait till we see the watchgod log line AFTER the loading started
             wait_for_log_messages -1 {"*WATCHDOG TIMER EXPIRED*"} $loglines 200 10
-            
+
             # Make sure we're still loading, and that there was just one full sync attempt
-            assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]            
+            assert ![log_file_matches [srv -1 stdout] "*Reconnecting to MASTER*"]
             assert_equal 1 [s 0 sync_full]
             assert_equal 1 [s -1 loading]
         }
     }
 } {} {external:skip}
+
+start_server {tags {"repl" "external:skip"}} {
+    test "replica do not write the reply to the replication link - SYNC (_addReplyToBufferOrList)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd sync
+        $rd ping
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC _addReplyToBufferOrList: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the PING command.
+        verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - SYNC (addReplyDeferredLen)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd sync
+        $rd xinfo help
+        catch {$rd read} e
+        if {$::verbose} { puts "SYNC addReplyDeferredLen: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the XINFO HELP command.
+        verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - PSYNC (_addReplyToBufferOrList)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd psync replicationid -1
+        assert_match {FULLRESYNC * 0} [$rd read]
+        $rd get foo
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC _addReplyToBufferOrList: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the GET command.
+        verify_log_message 0 "*Replica generated a reply to command 'get', disconnecting it: *" $lines
+        verify_log_message 0 "*== CRITICAL == This master is sending an error to its replica: *" $lines
+        verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "replica do not write the reply to the replication link - PSYNC (addReplyDeferredLen)" {
+        set rd [redis_deferring_client]
+        set lines [count_log_lines 0]
+
+        $rd psync replicationid -1
+        assert_match {FULLRESYNC * 0} [$rd read]
+        $rd slowlog get
+        catch {$rd read} e
+        if {$::verbose} { puts "PSYNC addReplyDeferredLen: $e" }
+        assert_equal "PONG" [r ping]
+
+        # Check we got the warning logs about the SLOWLOG GET command.
+        verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
+
+        $rd close
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+    }
+
+    test "PSYNC with wrong offset should throw error" {
+        # It used to accept the FULL SYNC, but also replied with an error.
+        assert_error {ERR value is not an integer or out of range} {r psync replicationid offset_str}
+        set logs [exec tail -n 100 < [srv 0 stdout]]
+        assert_match {*Replica * asks for synchronization but with a wrong offset} $logs
+        assert_equal "PONG" [r ping]
+    }
+}

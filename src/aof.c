@@ -47,6 +47,8 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
+aofManifest *aofLoadManifestFromFile(sds am_filepath);
+void aofManifestFreeAndUpdate(aofManifest *am);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -226,13 +228,8 @@ sds getAofManifestAsString(aofManifest *am) {
  * in order to support seamless upgrades from previous versions which did not
  * use them.
  */
-#define MANIFEST_MAX_LINE 1024
 void aofLoadManifestFromDisk(void) {
-    const char *err = NULL;
-    long long maxseq = 0;
-
     server.aof_manifest = aofManifestCreate();
-
     if (!dirExists(server.aof_dirname)) {
         serverLog(LL_NOTICE, "The AOF directory %s doesn't exist", server.aof_dirname);
         return;
@@ -247,15 +244,25 @@ void aofLoadManifestFromDisk(void) {
         return;
     }
 
+    aofManifest *am = aofLoadManifestFromFile(am_filepath);
+    if (am) aofManifestFreeAndUpdate(am);
+    sdsfree(am_name);
+    sdsfree(am_filepath);
+}
+
+/* Generic manifest loading function, used in `aofLoadManifestFromDisk` and redis-check-aof tool. */
+#define MANIFEST_MAX_LINE 1024
+aofManifest *aofLoadManifestFromFile(sds am_filepath) {
+    const char *err = NULL;
+    long long maxseq = 0;
+
+    aofManifest *am = aofManifestCreate();
     FILE *fp = fopen(am_filepath, "r");
     if (fp == NULL) {
         serverLog(LL_WARNING, "Fatal error: can't open the AOF manifest "
-            "file %s for reading: %s", am_name, strerror(errno));
+            "file %s for reading: %s", am_filepath, strerror(errno));
         exit(1);
     }
-
-    sdsfree(am_name);
-    sdsfree(am_filepath);
 
     char buf[MANIFEST_MAX_LINE+1];
     sds *argv = NULL;
@@ -292,14 +299,14 @@ void aofLoadManifestFromDisk(void) {
 
         line = sdstrim(sdsnew(buf), " \t\r\n");
         if (!sdslen(line)) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
         argv = sdssplitargs(line, &argc);
         /* 'argc < 6' was done for forward compatibility. */
         if (argv == NULL || argc < 6 || (argc % 2)) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
@@ -321,7 +328,7 @@ void aofLoadManifestFromDisk(void) {
 
         /* We have to make sure we load all the information. */
         if (!ai->file_name || !ai->file_seq || !ai->file_type) {
-            err = "The AOF manifest file is invalid format";
+            err = "Invalid AOF manifest file format";
             goto loaderr;
         }
 
@@ -329,21 +336,21 @@ void aofLoadManifestFromDisk(void) {
         argv = NULL;
 
         if (ai->file_type == AOF_FILE_TYPE_BASE) {
-            if (server.aof_manifest->base_aof_info) {
+            if (am->base_aof_info) {
                 err = "Found duplicate base file information";
                 goto loaderr;
             }
-            server.aof_manifest->base_aof_info = ai;
-            server.aof_manifest->curr_base_file_seq = ai->file_seq;
+            am->base_aof_info = ai;
+            am->curr_base_file_seq = ai->file_seq;
         } else if (ai->file_type == AOF_FILE_TYPE_HIST) {
-            listAddNodeTail(server.aof_manifest->history_aof_list, ai);
+            listAddNodeTail(am->history_aof_list, ai);
         } else if (ai->file_type == AOF_FILE_TYPE_INCR) {
             if (ai->file_seq <= maxseq) {
                 err = "Found a non-monotonic sequence number";
                 goto loaderr;
             }
-            listAddNodeTail(server.aof_manifest->incr_aof_list, ai);
-            server.aof_manifest->curr_incr_file_seq = ai->file_seq;
+            listAddNodeTail(am->incr_aof_list, ai);
+            am->curr_incr_file_seq = ai->file_seq;
             maxseq = ai->file_seq;
         } else {
             err = "Unknown AOF file type";
@@ -356,7 +363,7 @@ void aofLoadManifestFromDisk(void) {
     }
 
     fclose(fp);
-    return;
+    return am;
 
 loaderr:
     /* Sanitizer suppression: may report a false positive if we goto loaderr
@@ -627,7 +634,7 @@ void aofUpgradePrepare(aofManifest *am) {
             server.aof_dirname,
             strerror(errno));
         sdsfree(aof_filepath);
-        exit(1);;
+        exit(1);
     }
     sdsfree(aof_filepath);
 
@@ -1338,26 +1345,35 @@ int loadSingleAppendOnlyFile(char *filename) {
     client *old_client = server.current_client;
     fakeClient = server.current_client = createAOFClient();
 
-    /* Check if this AOF file has an RDB preamble. In that case we need to
-     * load the RDB file and later continue loading the AOF tail. */
+    /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
+     * or old style RDB-preamble AOF). In that case we need to load the RDB file 
+     * and later continue loading the AOF tail if it is an old style RDB-preamble AOF. */
     char sig[5]; /* "REDIS" */
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
-        /* No RDB preamble, seek back at 0 offset. */
+        /* Not in RDB format, seek back at 0 offset. */
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
     } else {
-        /* RDB preamble. Pass loading the RDB functions. */
+        /* RDB format. Pass loading the RDB functions. */
         rio rdb;
+        int old_style = !strcmp(filename, server.aof_filename);
+        if (old_style)
+            serverLog(LL_NOTICE, "Reading RDB preamble from AOF file...");
+        else 
+            serverLog(LL_NOTICE, "Reading RDB base file on AOF loading..."); 
 
-        serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
         if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
-            serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
+            if (old_style)
+                serverLog(LL_WARNING, "Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
+            else
+                serverLog(LL_WARNING, "Error reading the RDB base file %s, AOF loading aborted", filename);
+
             goto readerr;
         } else {
             loadingAbsProgress(ftello(fp));
             last_progress_report_size = ftello(fp);
-            serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
+            if (old_style) serverLog(LL_NOTICE, "Reading the remaining AOF tail...");
         }
     }
 
@@ -1517,15 +1533,15 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
-    serverLog(LL_WARNING,"Unexpected end of file reading the append only file %s. You can: \
-        1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>.    \
-        2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.", filename);
+    serverLog(LL_WARNING, "Unexpected end of file reading the append only file %s. You can: "
+        "1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>. "
+        "2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.", filename);
     ret = AOF_FAILED;
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING,"Bad file format reading the append only file %s: \
-        make a backup of your AOF file, then use ./redis-check-aof --fix <filename>", filename);
+    serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
+        "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 

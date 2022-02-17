@@ -47,11 +47,6 @@ void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
-typedef struct luaScript {
-    uint64_t flags;
-    robj *body;
-} luaScript;
-
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
@@ -63,7 +58,7 @@ static uint64_t dictStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
+/* server.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
 dictType shaScriptObjectDictType = {
         dictStrCaseHash,            /* hash function */
         NULL,                       /* key dup */

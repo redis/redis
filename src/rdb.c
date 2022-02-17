@@ -1151,8 +1151,9 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 
 /* Save a few default AUX fields with information about the RDB generated. */
 int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
+    UNUSED(rdbflags);
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
-    int aof_preamble = (rdbflags & RDBFLAGS_AOF_PREAMBLE) != 0;
+    int aof_base = (rdbflags & RDBFLAGS_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
     if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
@@ -1169,7 +1170,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
-    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb, "aof-base", aof_base) == -1) return -1;
     return 1;
 }
 
@@ -2962,6 +2963,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else if (!strcasecmp(auxkey->ptr,"aof-preamble")) {
                 long long haspreamble = strtoll(auxval->ptr,NULL,10);
                 if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
+            } else if (!strcasecmp(auxkey->ptr, "aof-base")) {
+                long long isbase = strtoll(auxval->ptr, NULL, 10);
+                if (isbase) serverLog(LL_NOTICE, "RDB is base AOF");
             } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
                 /* Just ignored. */
             } else {
@@ -3049,9 +3053,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave.
-         * Similarly if the RDB is the preamble of an AOF file, we want to
-         * load all the keys as they are, since the log of operations later
-         * assume to work in an exact keyspace state. */
+         * Similarly, if the base AOF is RDB format, we want to load all 
+         * the keys they are, since the log of operations in the incr AOF 
+         * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
