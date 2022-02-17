@@ -9976,6 +9976,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_FORK_CHILD */
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
+    -1, /* REDISMODULE_EVENT_CONFOG_CHANGE */
 };
 
 /* Register to be notified, via a callback, when the specified server event

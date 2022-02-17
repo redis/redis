@@ -824,6 +824,7 @@ void configSetCommand(client *c) {
             goto err;
         }
     }
+    moduleFireServerEvent(REDISMODULE_EVENT_CONFIG_CHANGE, 0, NULL);
     addReply(c,shared.ok);
     goto end;
 
