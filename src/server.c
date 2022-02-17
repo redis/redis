@@ -716,6 +716,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 int clientsCronResizeOutputBuffer(client *c) {
 
     size_t new_buffer_size = 0;
+    char *oldbuf = NULL;
     const size_t buffer_target_shrink_size = c->buf_usable_size/2;
     const size_t buffer_target_expend_size = c->buf_usable_size*2;
 
@@ -740,15 +741,10 @@ int clientsCronResizeOutputBuffer(client *c) {
     }
 
     if (new_buffer_size) {
-        /* In case the buffer position in 0 we can just delete and realloc the buffer with the new size
-         * no memmove is needed.
-         */
-        if (c->bufpos == 0) {
-            zfree(c->buf);
-            c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
-        } else {
-            c->buf = zrealloc_usable(c->buf,new_buffer_size,&c->buf_usable_size);
-        }
+        oldbuf = c->buf;
+        c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
+        memcpy(c->buf,oldbuf,c->bufpos);
+        zfree(oldbuf);
     }
     return 0;
 }
