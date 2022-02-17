@@ -45,6 +45,10 @@ proc mb {v} {
     return [expr $v * 1024 * 1024]
 }
 
+proc kb {v} {
+    return [expr $v * 1024]
+}
+
 start_server {} {
     set maxmemory_clients 3000000
     r config set maxmemory-clients $maxmemory_clients
@@ -441,7 +445,7 @@ start_server {} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
         # because of how the client-eviction size bucktting works
-        set sizes [list 100000 [mb 1] [mb 3]]
+        set sizes [list [kb 128] [mb 1] [mb 3]]
         set clients_per_size 3
         r client setname control
         r client no-evict on
@@ -456,11 +460,16 @@ start_server {} {
             for {set j 0} {$j < $clients_per_size} {incr j} {
                 set rr [redis_client]
                 lappend rrs $rr
-                $rr client setname client-$i
+                $rr client setname client-$i-$j
+                wait_for_condition 500 10 {
+                    [client_field client-$i-$j rbs] < [kb 2]
+                } else {
+                    fail "client client-$i-$j failed to shrink reply buffer after 5 seconds"
+                }
                 $rr write [join [list "*2\r\n\$$size\r\n" [string repeat v $size]] ""]
                 $rr flush
             }
-            set client_mem [client_field client-$i tot-mem]
+            set client_mem [client_field client-$i-0 tot-mem]
     
             # Update our size list based on actual used up size (this is usually 
             # slightly more than expected because of allocator bins
@@ -470,24 +479,24 @@ start_server {} {
             # Account total client memory usage
             incr total_mem [expr $clients_per_size * $client_mem]
         }
-        incr total_mem [client_field control tot-mem]
         
         # Make sure all clients are connected
         set clients [split [string trim [r client list]] "\r\n"]
         for {set i 0} {$i < [llength $sizes]} {incr i} {
-            assert_equal [llength [lsearch -all $clients "*name=client-$i *"]] $clients_per_size        
+            assert_equal [llength [lsearch -all $clients "*name=client-$i-*"]] $clients_per_size        
         }
         
         # For each size reduce maxmemory-clients so relevant clients should be evicted
         # do this from largest to smallest
         foreach size [lreverse $sizes] {
+            set control_mem [client_field control tot-mem]
             set total_mem [expr $total_mem - $clients_per_size * $size]
-            r config set maxmemory-clients $total_mem
+            r config set maxmemory-clients [expr $total_mem + $control_mem]
             set clients [split [string trim [r client list]] "\r\n"]
             # Verify only relevant clients were evicted
             for {set i 0} {$i < [llength $sizes]} {incr i} {
                 set verify_size [lindex $sizes $i]
-                set count [llength [lsearch -all $clients "*name=client-$i *"]]
+                set count [llength [lsearch -all $clients "*name=client-$i-*"]]
                 if {$verify_size < $size} {
                     assert_equal $count $clients_per_size
                 } else {
