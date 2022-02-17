@@ -2282,6 +2282,8 @@ void resetServerStats(void) {
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
+    server.stat_aof_rewrites = 0;
+    server.stat_rdb_saves = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
@@ -5277,6 +5279,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "rdb_last_bgsave_status:%s\r\n"
             "rdb_last_bgsave_time_sec:%jd\r\n"
             "rdb_current_bgsave_time_sec:%jd\r\n"
+            "rdb_saves:%lld\r\n"
             "rdb_last_cow_size:%zu\r\n"
             "rdb_last_load_keys_expired:%lld\r\n"
             "rdb_last_load_keys_loaded:%lld\r\n"
@@ -5286,6 +5289,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "aof_last_rewrite_time_sec:%jd\r\n"
             "aof_current_rewrite_time_sec:%jd\r\n"
             "aof_last_bgrewrite_status:%s\r\n"
+            "aof_rewrites:%lld\r\n"
             "aof_last_write_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
@@ -5305,6 +5309,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (intmax_t)server.rdb_save_time_last,
             (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
+            server.stat_rdb_saves,
             server.stat_rdb_cow_bytes,
             server.rdb_last_load_keys_expired,
             server.rdb_last_load_keys_loaded,
@@ -5315,6 +5320,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
+            server.stat_aof_rewrites,
             (server.aof_last_write_status == C_OK &&
                 aof_bio_fsync_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
