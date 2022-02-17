@@ -2319,7 +2319,7 @@ void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-void addModuleConfig(const char* module_name, const char *name, int flags, void *privdata);
+void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
