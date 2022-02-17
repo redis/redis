@@ -261,9 +261,9 @@ void execCommand(client *c) {
  * values are lists of watchedKey pointers. */
 typedef struct watchedKey {
     robj *key;
+    redisDb *db;
     client *client;
     unsigned expired:1; /* Flag that we're watching an already expired key. */
-    unsigned dbid:31;
 } watchedKey;
 
 /* Watch for the specified key */
@@ -277,8 +277,7 @@ void watchForKey(client *c, robj *key) {
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
         wk = listNodeValue(ln);
-        redisDb *db = &server.db[wk->dbid];
-        if (db == c->db && equalStringObjects(key,wk->key))
+        if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
@@ -292,7 +291,7 @@ void watchForKey(client *c, robj *key) {
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->client = c;
-    wk->dbid = c->db->id;
+    wk->db = c->db;
     wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
@@ -314,7 +313,7 @@ void unwatchAllKeys(client *c) {
         /* Lookup the watched key -> clients list and remove the client's wk
          * from the list */
         wk = listNodeValue(ln);
-        redisDb *db = &server.db[wk->dbid];
+        redisDb *db = wk->db;
         clients = dictFetchValue(db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,wk));
@@ -339,8 +338,7 @@ int isWatchedKeyExpired(client *c) {
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
         if (wk->expired) continue; /* was expired when WATCH was called */
-        redisDb *db = &server.db[wk->dbid];
-        if (keyIsExpired(db, wk->key)) return 1;
+        if (keyIsExpired(wk->db, wk->key)) return 1;
     }
 
     return 0;
@@ -366,8 +364,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
         if (wk->expired) {
             /* The key was already expired when WATCH was called. */
-            redisDb *wk_db = &server.db[wk->dbid];
-            if (db == wk_db &&
+            if (db == wk->db &&
                 equalStringObjects(key, wk->key) &&
                 dictFind(db->dict, key->ptr) == NULL)
             {
@@ -406,7 +403,8 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (dictFind(emptied->dict, key->ptr) ||
+        int exists_in_emptied = dictFind(emptied->dict, key->ptr) != NULL;
+        if (exists_in_emptied ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
         {
             list *clients = dictGetVal(de);
@@ -414,6 +412,17 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
                 watchedKey *wk = listNodeValue(ln);
+                if (wk->expired &&
+                    (!exists_in_emptied ||
+                     keyIsExpired(emptied, key)) &&
+                    (!replaced_with ||
+                     !dictFind(replaced_with->dict, key->ptr) ||
+                     keyIsExpired(replaced_with, key)))
+                {
+                    /* The watched key was expired when WATCH was called and now
+                     * it's expired or deleted, i.e. no logical change. */
+                    continue;
+                }
                 client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
                 /* As the client is marked as dirty, there is no point in getting here
