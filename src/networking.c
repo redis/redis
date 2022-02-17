@@ -2956,6 +2956,7 @@ NULL
             else
                 replyToBlockedClientTimedOut(target);
             unblockClient(target);
+            updateStatsOnUnblock(target, 0, 0, 1);
             addReply(c,shared.cone);
         } else {
             addReply(c,shared.czero);

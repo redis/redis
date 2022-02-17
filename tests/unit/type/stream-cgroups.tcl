@@ -281,14 +281,20 @@ start_server {
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
+        r config resetstat
         r del mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         wait_for_blocked_clients_count 1
         r XGROUP DESTROY mystream mygroup
-        assert_error "*NOGROUP*" {$rd read}
+        assert_error "NOGROUP*" {$rd read}
         $rd close
+
+        # verify command stats, error stats and error counter work on failed blocked command
+        assert_match {*count=1*} [errorrstat NOGROUP r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat xreadgroup r]
+        assert_equal [s total_error_replies] 1
     }
 
     test {RENAME can unblock XREADGROUP with data} {
