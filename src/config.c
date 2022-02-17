@@ -2999,9 +2999,7 @@ void addConfig(standardConfig *new_config) {
 
 /* Removes a config by index */
 void removeConfigByIndex(size_t index) {
-    for (size_t i = index + 1; i < num_configs; i++) {
-        memcpy(configs + i - 1, configs + i, sizeof(standardConfig));
-    }
+    memmove(configs + index, configs + index + 1, sizeof(standardConfig) * (num_configs - index - 1));
     num_configs--;
     configs = zrealloc(configs, sizeof(standardConfig) * num_configs);
 }
@@ -3031,9 +3029,8 @@ standardConfig createModuleStandardConfig(const char *config_name, int flags, vo
 }
 
 /* Create and add a skeleton standardConfig for a module config to the configs array */
-void addModuleConfig(const char* module_name, const char* name, int flags, void *privdata) {
-    sds config_name = sdsnew(module_name);
-    config_name = sdscat(sdscat(config_name, "."), name);
+void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata) {
+    sds config_name = sdscatfmt("%s.%s", module_name, name);
     standardConfig new_module_config = createModuleStandardConfig(config_name, flags, privdata);
     addConfig(&new_module_config);
 }
