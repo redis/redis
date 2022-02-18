@@ -313,13 +313,12 @@ void unwatchAllKeys(client *c) {
         /* Lookup the watched key -> clients list and remove the client's wk
          * from the list */
         wk = listNodeValue(ln);
-        redisDb *db = wk->db;
-        clients = dictFetchValue(db->watched_keys, wk->key);
+        clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,wk));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
-            dictDelete(db->watched_keys, wk->key);
+            dictDelete(wk->db->watched_keys, wk->key);
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
