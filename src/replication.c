@@ -2720,7 +2720,7 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC. */
+    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC but is %d",
