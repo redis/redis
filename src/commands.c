@@ -4592,7 +4592,7 @@ struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
 struct redisCommandArg MODULE_LOADEX_Args[] = {
 {"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_configs_Subargs},
-{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
+{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
 

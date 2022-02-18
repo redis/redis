@@ -30,10 +30,12 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -2"
     }
 
-    test {Immutable flag works properly} {
+    test {Immutable flag works properly and rejected strings dont leak} {
         # Configs flagged immutable should not allow sets
         catch {[r config set moduleconfigs.immutable_bool yes]} e
         assert_match {*can't set immutable config*} $e
+        catch {[r config set moduleconfigs.string rejectisfreed]} e
+        assert_match {*ERR*} $e
     }
     
     test {Numeric limits work properly} {
@@ -76,7 +78,19 @@ start_server {tags {"modules"}} {
         # Configs that were not changed should still be their module specified value
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+    }
+
+    test {apply function works} {
+        catch {[r config set moduleconfigs.mutable_bool yes]} e
+        assert_match {*Bool configs*} $e
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        catch {[r config set moduleconfigs.memory_numeric 1000 moduleconfigs.numeric 1000]} e
+        assert_match {*cannot equal*} $e
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 2097152"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool yes CONFIG moduleconfigs.immutable_bool yes CONFIG moduleconfigs.memory_numeric 2mb CONFIG moduleconfigs.string tclortickle ARGS]} e
+        assert_match {*Error*} $e
     }
 
     test {test loadex rejects bad configs} {
@@ -87,10 +101,6 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.*] ""
         # No value for config, should error out
         catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool CONFIG moduleconfigs.enum two ARGS]} e
-        assert_match {*Error*} $e
-        assert_equal [r config get moduleconfigs.*] ""
-        # No ARGS passed in, should error out.
-        catch {[r module loadex $testmodule CONFIG moduleconfigs.immutable_bool yes]} e
         assert_match {*Error*} $e
         assert_equal [r config get moduleconfigs.*] ""
     }
@@ -117,7 +127,7 @@ start_server {tags {"modules"}} {
     test {test multiple modules with configs} {
         start_server {tags {"modules"}} {
             r module load $testmodule
-            r module loadex $testmoduletwo CONFIG configs.test yes ARGS
+            r module loadex $testmoduletwo CONFIG configs.test yes
             assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
             assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
             assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"

@@ -4,7 +4,8 @@ int immutable_bool_val = 0;
 long long longval = -1;
 long long memval = 1024;
 RedisModuleString *strval = NULL;
-RedisModuleString *enumval = NULL;
+int enumval = 0;
+const char *enum_vals[3] = {"one", "two", "three"};
 
 /* Series of get and set callbacks for each type of config, these rely on the privdata ptr
  * to point to the config, and they register the configs as such. Note that one could also just
@@ -43,22 +44,46 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(is_startup);
-    RedisModule_Free(*(RedisModuleString **)privdata);
+    /* This reject should not pass Address Sanitizer if we're not properly freeing rejected strings */
+    RedisModuleString *reject = RedisModule_CreateString(NULL, "rejectisfreed", 13);
+    if (!RedisModule_StringCompare(new, reject)) {
+        RedisModule_FreeString(NULL, reject);
+        return 0;
+    }
+    RedisModule_FreeString(NULL, reject);
     *(RedisModuleString **)privdata = new;
     return 1;
 }
 
-RedisModuleString *getEnumConfigCommand(const char *name, void *privdata) {
+int getEnumConfigCommand(const char *name, void *privdata) {
     REDISMODULE_NOT_USED(name);
-    return (*(RedisModuleString **) privdata);
+    REDISMODULE_NOT_USED(privdata);
+    return enumval;
 }
 
-int setEnumConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
+    REDISMODULE_NOT_USED(privdata);
     REDISMODULE_NOT_USED(is_startup);
-    RedisModule_Free(*(RedisModuleString **)privdata);
-    *(RedisModuleString **)privdata = new;
+    // We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide
+    enumval = val;
+    return 1;
+}
+
+int boolApplyFunc(const char **err) {
+    if (mutable_bool_val && immutable_bool_val) {
+        *err = "Bool configs cannot both be yes.";
+        return 0;
+    }
+    return 1;
+}
+
+int longlongApplyFunc(const char **err) {
+    if (longval == memval) {
+        *err = "These configs cannot equal each other.";
+        return 0;
+    }
     return 1;
 }
 
@@ -66,42 +91,42 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "moduleconfigs", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) return REDISMODULE_ERR;
-    
-    /* enum_vals is initialized as a stack variable in order to ensure we're copying them over in the core. */
-    const char *enum_vals[3] = {"one", "two", "three"};
 
-    if (RedisModule_RegisterBoolConfig(ctx, "mutable_bool", REDISMODULE_CONFIG_MODIFIABLE, &getBoolConfigCommand, &setBoolConfigCommand, &mutable_bool_val) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterBoolConfig(ctx, "mutable_bool", 1, REDISMODULE_CONFIG_DEFAULT, &getBoolConfigCommand, &setBoolConfigCommand, &boolApplyFunc, &mutable_bool_val) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     /* Immutable config here. */
-    if (RedisModule_RegisterBoolConfig(ctx, "immutable_bool", REDISMODULE_CONFIG_IMMUTABLE, &getBoolConfigCommand, &setBoolConfigCommand, &immutable_bool_val) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterBoolConfig(ctx, "immutable_bool", 0, REDISMODULE_CONFIG_IMMUTABLE, &getBoolConfigCommand, &setBoolConfigCommand, &boolApplyFunc, &immutable_bool_val) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     /* Memory config here. */
-    if (RedisModule_RegisterNumericConfig(ctx, "memory_numeric", REDISMODULE_CONFIG_MODIFIABLE | REDISMODULE_CONFIG_MEMORY, 0, 3000000, &getNumericConfigCommand, &setNumericConfigCommand, &memval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterNumericConfig(ctx, "memory_numeric", 1024, REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_MEMORY, 0, 3000000, &getNumericConfigCommand, &setNumericConfigCommand, &longlongApplyFunc, &memval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_RegisterStringConfig(ctx, "string", REDISMODULE_CONFIG_MODIFIABLE, &getStringConfigCommand, &setStringConfigCommand, &strval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, &getStringConfigCommand, &setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_RegisterEnumConfig(ctx, "enum", REDISMODULE_CONFIG_MODIFIABLE, enum_vals, 3, &getEnumConfigCommand, &setEnumConfigCommand, &enumval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, 3, &getEnumConfigCommand, &setEnumConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_RegisterNumericConfig(ctx, "numeric", REDISMODULE_CONFIG_MODIFIABLE, -5, 2000, &getNumericConfigCommand, &setNumericConfigCommand, &longval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterNumericConfig(ctx, "numeric", 100, REDISMODULE_CONFIG_DEFAULT, -5, 2000, &getNumericConfigCommand, &setNumericConfigCommand, &longlongApplyFunc, &longval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_ApplyConfigs(ctx) == REDISMODULE_ERR) {
+    if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+        if (strval) {
+            RedisModule_Free(strval);
+        }
         return REDISMODULE_ERR;
     }
 
     /* Set default values */
     if (!strval) strval = RedisModule_CreateString(ctx, "log4j", 5);
-    if (!enumval) enumval = RedisModule_CreateString(ctx, "one", 3);
 
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
     RedisModule_Free(strval);
-    RedisModule_Free(enumval);
+    return REDISMODULE_OK;
 }

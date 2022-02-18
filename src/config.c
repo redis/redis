@@ -399,19 +399,26 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     return 1;
 }
 
+int isModuleStandardConfig(standardConfig *config) {
+    if (config->flags & MODULE_CONFIG) {
+        return 1;
+    }
+    return 0;
+}
+
 /* Suite of config get/set/rewrite controllers.
  * If the configuration is a module config, we want to call its callback
  * or in rewrites case call the module config rewrite method.
  * If not, use the standard interface call */
 sds standardConfigGet(standardConfig *config) {
-    if (config->flags & MODULE_CONFIG) {
+    if (isModuleStandardConfig(config)) {
         return moduleConfigGetCommand(config->name, config->privdata);
     }
     return config->interface.get(config->data);
 }
 
 int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **errstr) {
-    if (config->flags & MODULE_CONFIG) {
+    if (isModuleStandardConfig(config)) {
         if (argc != 1){
             *errstr = "wrong number of arguments";
             return 0;
@@ -422,7 +429,7 @@ int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **
 }
 
 void standardConfigRewrite(standardConfig *config, struct rewriteConfigState *state) {
-    if (config->flags & MODULE_CONFIG) {
+    if (isModuleStandardConfig(config)) {
         moduleConfigRewriteCommand(config->name, state, config->privdata);
     } else if (config->interface.rewrite) {
         config->interface.rewrite(config->data, config->name, state);
@@ -2978,9 +2985,6 @@ standardConfig static_configs[] = {
 void initConfigValues() {
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
         num_configs++;
-        if (strchr(config->name, '.')) {
-            serverPanic("Standard Configs with '.' in them are not allowed. This is reserved for module configs. Config: %s", config->name);
-        }
         if (config->interface.init) config->interface.init(config->data);
     }
     configs = (standardConfig *) zmalloc(sizeof(standardConfig) * num_configs);
@@ -3009,7 +3013,7 @@ void removeConfig(char *name) {
     for (size_t i = 0; i < num_configs; i++) {
         standardConfig *config = &configs[i];
         if (!strcasecmp(config->name, name)) {
-            if (config->flags & MODULE_CONFIG) {
+            if (isModuleStandardConfig(config)) {
                 sdsfree((sds) config->name);
             }
             removeConfigByIndex(i);
@@ -3022,16 +3026,16 @@ void removeConfig(char *name) {
  * Module Config
  *----------------------------------------------------------------------------*/
 
-/* Create a new skeleton standardConfig object for a module config with just a name, flags, and a pointer to the module */
-standardConfig createModuleStandardConfig(const char *config_name, int flags, void *privdata) {
-    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .privdata = privdata};
+/* Create a new skeleton standardConfig object for a module config with just a name, flags, apply function, and a pointer to the module */
+standardConfig createModuleStandardConfig(const char *config_name, int flags, apply_fn applyfn, void *privdata) {
+    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .interface.apply = applyfn, .privdata = privdata};
     return module_config;
 }
 
 /* Create and add a skeleton standardConfig for a module config to the configs array */
-void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata) {
-    sds config_name = sdscatfmt("%s.%s", module_name, name);
-    standardConfig new_module_config = createModuleStandardConfig(config_name, flags, privdata);
+void addModuleConfig(const char *module_name, const char *name, int flags, apply_fn applyfn, void *privdata) {
+    sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
+    standardConfig new_module_config = createModuleStandardConfig(config_name, flags, applyfn, privdata);
     addConfig(&new_module_config);
 }
 

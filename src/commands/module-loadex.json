@@ -40,6 +40,7 @@
                 "token": "ARGS",
                 "type": "block",
                 "multiple": true,
+                "optional": true,
                 "arguments": [
                     {
                         "name": "arg",
