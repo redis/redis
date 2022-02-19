@@ -15,11 +15,13 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *flags = RedisModule_StringPtrLen(argv[1], NULL);
 
     if (!strcasecmp(flags, "W")) {
-        permissions = REDISMODULE_KEY_PERMISSION_WRITE;
+        permissions = REDISMODULE_CMD_KEY_UPDATE;
     } else if (!strcasecmp(flags, "R")) {
-        permissions = REDISMODULE_KEY_PERMISSION_READ;
+        permissions = REDISMODULE_CMD_KEY_ACCESS;
     } else if (!strcasecmp(flags, "*")) {
-        permissions = REDISMODULE_KEY_PERMISSION_ALL;
+        permissions = REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_ACCESS;
+    } else if (!strcasecmp(flags, "~")) {
+        permissions = 0; /* Requires either read or write */
     } else {
         RedisModule_ReplyWithError(ctx, "INVALID FLAGS");
         return REDISMODULE_OK;

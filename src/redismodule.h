@@ -403,12 +403,6 @@ typedef struct {
     RedisModuleCommandArg *args;
 } RedisModuleCommandInfo;
 
-/* Redis ACL key permission flags, which specify which permissions a module
- * needs on a key. */
-#define REDISMODULE_KEY_PERMISSION_READ (1<<0) 
-#define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
-#define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)
-
 /* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
 #define REDISMODULE_EVENTLOOP_WRITABLE 2

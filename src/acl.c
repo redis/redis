@@ -1652,7 +1652,8 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
 }
 
 /* Check if the key can be accessed by the client according to
- * the ACLs associated with the specified user.
+ * the ACLs associated with the specified user according to the
+ * keyspec access flags.
  *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
