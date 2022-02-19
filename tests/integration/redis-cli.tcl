@@ -229,16 +229,18 @@ start_server {tags {"cli"}} {
     }
 
     test_tty_cli "Escape character in JSON mode" {
-        # solidus
-        r hset solidus / /
-        assert_equal / / [run_cli hgetall solidus]
-        set escaped_solidus \"\\/\"
-        assert_equal $escaped_solidus $escaped_solidus [run_cli --json hgetall /]
-        # non printable (ð is 0xF0 in ISO 8859-1, not UTF-8(0xC3 0xB0))
+        # reverse solidus
+        r hset solidus \/ \/
+        assert_equal \/ \/ [run_cli hgetall solidus]
+        set escaped_reverse_solidus \"\\"
+        assert_equal $escaped_reverse_solidus $escaped_reverse_solidus [run_cli --json hgetall \/]
+        # non printable (ð is 0xF0 in ISO-8859-1, not UTF-8(0xC3 0xB0))
+        # set ð by ISO-8859-1, not UTF-8, to edit this character please reopen this file with ISO-8859-1
         set eth ð
         r hset eth test $eth
         assert_equal \"\\xf0\" [run_cli hget eth test]
-        assert_equal \"\\\\xf0\" [run_cli --json hget eth test]
+        assert_equal \"ð\" [run_cli --json hget eth test]
+        assert_equal \"\\\\xf0\" [run_cli --json --json-binary-encoding hget eth test]
     }
 
     test_nontty_cli "Status reply" {

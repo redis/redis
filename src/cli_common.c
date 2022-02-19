@@ -377,15 +377,11 @@ void freeCliConnInfo(cliConnInfo connInfo){
  * Following characters should be escaped with '\' in JSON
  * " (quotation mark)
  * \ (reverse solidus)
- * / (solidus)
  * b (backspace)
  * f (form feed)
  * n (line feed)
  * r (carriage return)
  * t (tab)
- * not printable character (0x00~0x19, 0x80~) should be escaped
- * with two double quotes, whereas they are escaped with 'one'
- * double quote in sdscatrepr()
  * 
  * ref: https://datatracker.ietf.org/doc/html/rfc7159#section-7
 */
@@ -393,7 +389,6 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
     while(len--) {
         switch(*p) {
-        case '/':
         case '\\':
         case '"':
             s = sdscatprintf(s,"\\%c",*p);
@@ -404,12 +399,17 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
         case '\t': s = sdscatlen(s,"\\t",2); break;
         case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
-            if (isprint(*p))
-                s = sdscatprintf(s,"%c",*p);
-            else
-                s = sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
-            break;
+            s = sdscatprintf(s,"%c",*p);
         }
+        p++;
+    }
+    return sdscatlen(s,"\"",1);
+}
+
+sds convertBinaryInJson(sds s, const char *p, size_t len) {
+    s = sdscatlen(s,"\"",1);
+    while(len--) {
+        s = sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
         p++;
     }
     return sdscatlen(s,"\"",1);
