@@ -8443,7 +8443,7 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
  * If no flags are supplied, the user is still required to have some access to the key for
  * this command to return successfully.
  *
- * If the user is able to acess the key then REDISMODULE_OK is returned, otherwise
+ * If the user is able to access the key then REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to one of the following values:
  * 
  * * EINVAL: The provided flags are invalid.
