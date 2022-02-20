@@ -106,7 +106,7 @@ dictType clusterNodesDictType = {
 };
 
 /* Cluster re-addition blacklist. This maps node IDs to the time
- * we can re-add this node. The goal is to avoid readding a removed
+ * we can re-add this node. The goal is to avoid reading a removed
  * node for some time. */
 dictType clusterNodesBlackListDictType = {
         dictSdsCaseHash,            /* hash function */
@@ -5283,7 +5283,7 @@ NULL
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
-        char *statestr[] = {"ok","fail","needhelp"};
+        char *statestr[] = {"ok","fail"};
         int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
         uint64_t myepoch;
         int j;
