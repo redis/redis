@@ -12,7 +12,7 @@ start_server {tags {"replybufsize"} overrides {enable-debug-command {local}}} {
     
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
-        r debug replybuffer-peak-reset-time 0
+        r debug replybuffer-peak-reset-time 100
         
         # Create a simple idle test client
         variable tc [redis_client]

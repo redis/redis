@@ -732,14 +732,14 @@ int clientsCronResizeOutputBuffer(client *c) {
         server.stat_reply_buffer_expends++;
     }
 
-    /* reset the peak value each 5 seconds. in case the client will be idle
+    /* reset the peak value each server.reply_buffer_peak_reset_time seconds. in case the client will be idle
      * it will start to shrink.
      */
     if (server.reply_buffer_peak_reset_time >=0 &&
-        server.unixtime - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
+        server.mstime - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
     {
         c->buf_peak = c->bufpos;
-        c->buf_peak_last_reset_time = server.unixtime;
+        c->buf_peak_last_reset_time = server.mstime;
     }
 
     if (new_buffer_size) {
@@ -2399,7 +2399,7 @@ void initServer(void) {
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
     server.cluster_drop_packet_filter = -1;
-    server.reply_buffer_peak_reset_time = 5;
+    server.reply_buffer_peak_reset_time = 5000;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)

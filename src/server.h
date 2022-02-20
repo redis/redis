@@ -1169,7 +1169,7 @@ typedef struct client {
 
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
-    time_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
+    mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
@@ -1896,7 +1896,7 @@ struct redisServer {
     int failover_state; /* Failover state */
     int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
-    int reply_buffer_peak_reset_time; /* The amount of time to wait between reply buffer peak resets */
+    long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
 };
 
 #define MAX_KEYS_BUFFER 256
