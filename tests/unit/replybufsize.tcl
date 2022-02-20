@@ -8,7 +8,7 @@ proc get_reply_buffer_size {cname} {
     return $rbufsize
 }
 
-start_server {tags {"replybufsize"}} {
+start_server {tags {"replybufsize"} overrides {enable-debug-command {local}}} {
     
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
@@ -17,8 +17,8 @@ start_server {tags {"replybufsize"}} {
         # Create a simple idle test client
         variable tc [redis_client]
         $tc client setname test_client
-        
-        # make sure the client is idle for 5 seconds to make it shrink the reply buffer
+         
+        # make sure the client is idle for 1 seconds to make it shrink the reply buffer
         wait_for_condition 10 100 {
             [get_reply_buffer_size test_client] >= 1024 && [get_reply_buffer_size test_client] < 2046
         } else {
@@ -39,6 +39,6 @@ start_server {tags {"replybufsize"}} {
         }
         
         $tc close
-    } {} {needs:debug}
+    } {0} {needs:debug}
 }
     
