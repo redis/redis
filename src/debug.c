@@ -963,9 +963,9 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer-peak-reset-time") && c->argc == 3 ) {
         if (!strcasecmp(c->argv[2]->ptr, "never")) {
-            server.reply_buffer_peak_reset_frequency = -1;
+            server.reply_buffer_peak_reset_time = -1;
         } else {
-            server.reply_buffer_peak_reset_frequency = atoi(c->argv[2]->ptr);
+            server.reply_buffer_peak_reset_time = atoi(c->argv[2]->ptr);
         }
         addReply(c, shared.ok);
     } else {
