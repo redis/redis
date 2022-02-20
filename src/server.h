@@ -1584,7 +1584,7 @@ struct redisServer {
         long long samples[STATS_METRIC_SAMPLES];
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
-    long long stat_reply_buffer_shrinks; /* Total number of buffer output buffer shrinks */
+    long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
     long long stat_reply_buffer_expends; /* Total number of output buffer expends */
 
     /* Configuration */
