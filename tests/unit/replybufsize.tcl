@@ -8,7 +8,7 @@ proc get_reply_buffer_size {cname} {
     return $rbufsize
 }
 
-start_server {tags {"replybufsize"} overrides {enable-debug-command {local}}} {
+start_server {tags {"replybufsize"}} {
     
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
