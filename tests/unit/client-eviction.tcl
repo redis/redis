@@ -450,6 +450,7 @@ start_server {} {
         r client setname control
         r client no-evict on
         r config set maxmemory-clients 0
+        r debug replybuffer-peak-reset-time never
         
         # Run over all sizes and create some clients using up that size
         set total_client_mem 0
@@ -460,16 +461,11 @@ start_server {} {
             for {set j 0} {$j < $clients_per_size} {incr j} {
                 set rr [redis_client]
                 lappend rrs $rr
-                $rr client setname client-$i-$j
-                wait_for_condition 500 10 {
-                    [client_field client-$i-$j rbs] < [kb 2]
-                } else {
-                    fail "client client-$i-$j failed to shrink reply buffer after 5 seconds"
-                }
+                $rr client setname client-$i
                 $rr write [join [list "*2\r\n\$$size\r\n" [string repeat v $size]] ""]
                 $rr flush
             }
-            set client_mem [client_field client-$i-0 tot-mem]
+            set client_mem [client_field client-$i tot-mem]
     
             # Update our size list based on actual used up size (this is usually 
             # slightly more than expected because of allocator bins
@@ -483,7 +479,7 @@ start_server {} {
         # Make sure all clients are connected
         set clients [split [string trim [r client list]] "\r\n"]
         for {set i 0} {$i < [llength $sizes]} {incr i} {
-            assert_equal [llength [lsearch -all $clients "*name=client-$i-*"]] $clients_per_size        
+            assert_equal [llength [lsearch -all $clients "*name=client-$i *"]] $clients_per_size        
         }
         
         # For each size reduce maxmemory-clients so relevant clients should be evicted
@@ -496,7 +492,7 @@ start_server {} {
             # Verify only relevant clients were evicted
             for {set i 0} {$i < [llength $sizes]} {incr i} {
                 set verify_size [lindex $sizes $i]
-                set count [llength [lsearch -all $clients "*name=client-$i-*"]]
+                set count [llength [lsearch -all $clients "*name=client-$i *"]]
                 if {$verify_size < $size} {
                     assert_equal $count $clients_per_size
                 } else {
