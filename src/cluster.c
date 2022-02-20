@@ -2567,7 +2567,7 @@ void clusterWriteHandler(connection *conn) {
 
     nwritten = connWrite(conn, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
-        serverLog(LL_DEBUG, "I/O error writing to node link: %s",
+        serverLog(LL_DEBUG,"I/O error writing to node link: %s",
             (nwritten == -1) ? connGetLastError(conn) : "short write");
         handleLinkIOError(link);
         return;
