@@ -501,7 +501,7 @@ start_server {} {
             }
         }
         foreach rr $rrs {$rr close}
-    }
+    } {} {needs:debug}
 }
 
 }
