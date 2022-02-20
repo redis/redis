@@ -2567,7 +2567,7 @@ void clusterWriteHandler(connection *conn) {
 
     nwritten = connWrite(conn, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
-        serverLog(LL_WARNING, "I/O error writing to node link: %s",
+        serverLog(LL_DEBUG, "I/O error writing to node link: %s",
             (nwritten == -1) ? connGetLastError(conn) : "short write");
         handleLinkIOError(link);
         return;
@@ -2586,7 +2586,7 @@ void clusterLinkConnectHandler(connection *conn) {
 
     /* Check if connection succeeded */
     if (connGetState(conn) != CONN_STATE_CONNECTED) {
-        serverLog(LL_WARNING, "Connection with Node %.40s at %s:%d failed: %s",
+        serverLog(LL_VERBOSE, "Connection with Node %.40s at %s:%d failed: %s",
                 node->name, node->ip, node->cport,
                 connGetLastError(conn));
         freeClusterLink(link);
@@ -2663,7 +2663,7 @@ void clusterReadHandler(connection *conn) {
 
         if (nread <= 0) {
             /* I/O error... */
-            serverLog(LL_WARNING, "I/O error reading from node link: %s",
+            serverLog(LL_DEBUG,"I/O error reading from node link: %s",
                 (nread == 0) ? "connection closed" : connGetLastError(conn));
             handleLinkIOError(link);
             return;
