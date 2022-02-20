@@ -142,7 +142,7 @@ client *createClient(connection *conn) {
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
-    c->buf_peak_last_reset_time = 0UL;
+    c->buf_peak_last_reset_time = server.unixtime;
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
