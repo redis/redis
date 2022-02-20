@@ -18,7 +18,7 @@ start_server {tags {"replybufsize"}} {
             $tc client setname test_client
             
             # make sure the client is idle for 5 seconds to make it shrink the reply buffer
-            wait_for_condition 5 1000 {
+            wait_for_condition 6 1000 {
                 [get_reply_buffer_size test_client] >= 1024 && [get_reply_buffer_size test_client] < 2046
             } else {
                 set rbs [get_reply_buffer_size test_client]
