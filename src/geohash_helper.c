@@ -91,8 +91,8 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
  *    \-----------------/          --------               \-----------------/
  *     \               /         /          \              \               /
  *      \  (long,lat) /         / (long,lat) \              \  (long,lat) /
- *       \           /         /              \              /            \
- *         ---------          /----------------\            /--------------\
+ *       \           /         /              \             /             \
+ *         ---------          /----------------\           /---------------\
  *  Northern Hemisphere       Southern Hemisphere         Around the equator
  */
 int geohashBoundingBox(GeoShape *shape, double *bounds) {
@@ -172,7 +172,6 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
             decrease_step = 1;
         if (west.longitude.min > min_lon)  
             decrease_step = 1;
-
     }
 
     if (steps > 1 && decrease_step) {
