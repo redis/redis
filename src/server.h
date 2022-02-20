@@ -1168,7 +1168,7 @@ typedef struct client {
                                   * i.e. the next offset to send. */
 
     /* Response buffer */
-    size_t buf_peak; /* Usable size of buffer. */
+    size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
     time_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
