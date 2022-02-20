@@ -711,9 +711,9 @@ int clientsCronResizeQueryBuffer(client *c) {
  * the logic is:
  * in case the last observed peak size of the buffer equals the buffer size - we double the size
  * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
- * The buffer peak will be reset back to the buffer position every 5 seconds
+ * The buffer peak will be reset back to the buffer position every server.reply_buffer_peak_reset_time milliseconds
  * The function always returns 0 as it never terminates the client. */
-int clientsCronResizeOutputBuffer(client *c) {
+int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
 
     size_t new_buffer_size = 0;
     char *oldbuf = NULL;
@@ -736,10 +736,10 @@ int clientsCronResizeOutputBuffer(client *c) {
      * it will start to shrink.
      */
     if (server.reply_buffer_peak_reset_time >=0 &&
-        server.mstime - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
+            now_ms - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
     {
         c->buf_peak = c->bufpos;
-        c->buf_peak_last_reset_time = server.mstime;
+        c->buf_peak_last_reset_time = now_ms;
     }
 
     if (new_buffer_size) {
@@ -944,7 +944,7 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
-        if (clientsCronResizeOutputBuffer(c)) continue;
+        if (clientsCronResizeOutputBuffer(c,now)) continue;
 
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
 

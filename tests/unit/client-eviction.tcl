@@ -441,7 +441,7 @@ start_server {} {
     }
 }
 
-start_server {} {
+start_server {overrides {enable-debug-command {local}}} {
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step 
         # because of how the client-eviction size bucktting works
