@@ -965,7 +965,8 @@ NULL
         if (!strcasecmp(c->argv[2]->ptr, "never")) {
             server.reply_buffer_peak_reset_time = -1;
         } else {
-            server.reply_buffer_peak_reset_time = atoi(c->argv[2]->ptr);
+            if (getLongFromObjectOrReply(c, c->argv[2], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+                return;
         }
         addReply(c, shared.ok);
     } else {
