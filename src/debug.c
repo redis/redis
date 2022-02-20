@@ -482,6 +482,9 @@ void debugCommand(client *c) {
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
+"REPLYBUFFER-PEAK-RESET-TIME <NEVER|time>",
+"    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
+"    In case NEVER is configured the last observed peak will never be reset",
 NULL
         };
         addReplyHelp(c, help);
