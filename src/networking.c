@@ -1744,7 +1744,9 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             return C_OK;
         }
 
-        *nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
+        size_t write_limit = NET_MAX_WRITES_PER_EVENT <= objlen - c->sentlen ? NET_MAX_WRITES_PER_EVENT :
+                                                                               objlen - c->sentlen;
+        *nwritten = connWrite(c->conn, o->buf + c->sentlen, write_limit);
         if (*nwritten <= 0) return C_ERR;
         c->sentlen += *nwritten;
 
