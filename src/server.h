@@ -1896,6 +1896,7 @@ struct redisServer {
     int failover_state; /* Failover state */
     int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
+    int reply_buffer_peak_reset_frequency; /* The amount of time to wait between reply buffer peak resets */
 };
 
 #define MAX_KEYS_BUFFER 256
