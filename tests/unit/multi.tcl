@@ -298,6 +298,38 @@ start_server {tags {"multi"}} {
         r debug set-active-expire 1
     } {OK} {singledb:skip needs:debug}
 
+    test {SWAPDB does not touch non-existing key replaced with stale key} {
+        r flushall
+        r select 0
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
+    test {SWAPDB does not touch stale key replaced with another stale key} {
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r set x foo px 1
+        r select 0
+        r set x bar px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
         r set x 30

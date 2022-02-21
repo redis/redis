@@ -412,20 +412,34 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
                 watchedKey *wk = listNodeValue(ln);
-                if (wk->expired) {
-                    if (!replaced_with || !dictFind(replaced_with->dict, key->ptr)) {
-                        /* Expired key now deleted. No logical change. Clear the
-                         * flag. Deleted keys are not flagged as expired. */
+                if (!replaced_with) {
+                    /* FLUSHDB, etc. Dicts are not yet emptied. */
+                    if (wk->expired) {
+                        /* Expired key will be deleted. No logical change. Clear
+                         * the flag. Deleted keys are not flagged as expired. */
                         wk->expired = 0;
                         continue;
-                    } else if (keyIsExpired(replaced_with, key)) {
-                        /* Expired key remains expired. */
+                    }
+                } else {
+                    /* SWAPDB or swapMainDbWithTempDb. Dicts are already swapped. */
+                    if (wk->expired) {
+                        if (!exists_in_emptied) {
+                            /* Expired key now deleted. No logical change. Clear
+                             * the flag. Deleted keys are not flagged as
+                             * expired. */
+                            wk->expired = 0;
+                            continue;
+                        } else if (keyIsExpired(emptied, key)) {
+                            /* Expired key remains expired. */
+                            continue;
+                        }
+                    } else if (!dictFind(replaced_with->dict, key->ptr) &&
+                               keyIsExpired(emptied, key))
+                    {
+                        /* Non-existing key is replaced with an expired key. */
+                        wk->expired = 1;
                         continue;
                     }
-                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key)) {
-                    /* Non-existing key is replaced with an expired key. */
-                    wk->expired = 1;
-                    continue;
                 }
                 client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
