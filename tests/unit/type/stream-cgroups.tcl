@@ -751,7 +751,7 @@ start_server {
         set group [lindex [dict get $reply groups] 0]
         assert_equal [dict get $reply max-deleted-entry-id] "0-0"
         assert_equal [dict get $reply entries-added] 0
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] 0
 
         r XADD x 1-0 data a
@@ -761,7 +761,7 @@ start_server {
         set group [lindex [dict get $reply groups] 0]
         assert_equal [dict get $reply max-deleted-entry-id] "1-0"
         assert_equal [dict get $reply entries-added] 1
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] 0
     }
 
@@ -776,7 +776,7 @@ start_server {
 
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] 5
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
@@ -811,25 +811,25 @@ start_server {
         
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] {}
 
         r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
@@ -850,7 +850,7 @@ start_server {
         assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
         set group [lindex [dict get $reply groups] 1]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] 3
 
         r XTRIM x MINID = 5-0
@@ -859,7 +859,7 @@ start_server {
         assert_equal [dict get $group entries-read] 5
         assert_equal [dict get $group lag] 1
         set group [lindex [dict get $reply groups] 1]
-        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group entries-read] {}
         assert_equal [dict get $group lag] 2
     }
 

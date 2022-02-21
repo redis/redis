@@ -1451,22 +1451,14 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     if (!s->entries_added) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
-    } else if (cg->entries_read && streamRangeDoesNotContainTombstone(s,&cg->last_id)) {
+    } else if (cg->entries_read != ULLONG_MAX && streamRangeDoesNotContainTombstone(s,&cg->last_id)) {
         /* No fragmentation ahead means that the group's logical reads counter
          * is valid for performing the lag calculation. */
         lag = s->entries_added - cg->entries_read;
-    } else if (streamIDEqZero(&cg->last_id)) {
-        serverAssert(cg->entries_read == 0);
-        if (streamRangeDoesNotContainTombstone(s,NULL)) {
-            /* The group is at 0-0 of a non-fragmented stream. */
-            lag = s->length;
-        } else {
-            valid = 0;
-        }
     } else {
         /* Attempt to retrieve the group's last ID logical read counter. */
         uint64_t entries_read = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
-        if (entries_read) {
+        if (entries_read != ULLONG_MAX) {
             /* A valid counter was obtained. */
             lag = s->entries_added - entries_read;
         } else {
@@ -1475,7 +1467,7 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 
     if (valid) {
-        addReplyLongLong(c,(long long)lag);
+        addReplyUnsignedLongLong(c,(long long)lag);
     } else {
         addReplyNull(c);
     }
@@ -1484,11 +1476,8 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
 /* This function returns a value that is the ID's logical read counter, or its
  * distance (the number of entries) from the first entry ever to have been added
  * to the stream.
- * A valid counter is always non-zero, whereas the zero value means that the
- * counter for an ID isn't available. Basically, the counter is available only
- * for IDs that are at stream's tips (the current first and last entries).
  * 
- * A valid, non-zero counter is returned only in one of the following cases:
+ * A counter is returned only in one of the following cases:
  * 1. The ID is the same as the stream's last ID. In this case, the returned
  *    is the same as the stream's entries_added counter.
  * 2. The ID equals that of the currently first entry in the stream, and the
@@ -1498,13 +1487,14 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
  * 3. The ID less than the stream's first current entry's ID, and there are no
  *    tombstones. Here the estimated counter is the result of subtracting the
  *    stream's length from its added_entries.
- *
- * The zero value is returned in the following cases:
- * 1. The stream's added_entries is zero, meaning that no entries were ever
+ * 4. The stream's added_entries is zero, meaning that no entries were ever
  *    added.
- * 2. The provided ID, if it even exists, is somewhere between the the stream's
- *    current first and last entries' IDs.
- * 3. The stream contains one or more tombstones. */
+ *
+ * The special return value of ULLONG_MAX signals that the counter's value isn't
+ * obtainable. It is returned in these cases:
+ * 1. The provided ID, if it even exists, is somewhere between the the stream's
+ *    current first and last entries' IDs, or in the future.
+ * 2. The stream contains one or more tombstones. */
 uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     /* The counter of any ID in an empty, never-before-used stream is 0. */
     if (!s->entries_added) {
@@ -1523,50 +1513,25 @@ uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
         return s->entries_added;
     } else if (cmp_last > 0) {
         /* The counter of a future ID is unknown. */
-        return 0;
+        return ULLONG_MAX;
     }
 
-    int cmp_first = streamCompareID(id,&s->first_id);
-    int cmp_xdel = streamCompareID(id,&s->max_deleted_entry_id);
-    if (streamIDEqZero(&s->max_deleted_entry_id) || cmp_xdel > 0) {
-        /* There's definitely no fragmentation. */
-        if (cmp_first < 0) {
+    int cmp_id_first = streamCompareID(id,&s->first_id);
+    int cmp_xdel_first = streamCompareID(&s->max_deleted_entry_id,&s->first_id);
+    if (streamIDEqZero(&s->max_deleted_entry_id) || cmp_xdel_first < 0) {
+        /* There's definitely no fragmentation ahead. */
+        if (cmp_id_first < 0) {
             /* Return the estimated counter. */
             return s->entries_added - s->length;
-        } else if (cmp_first == 0) {
+        } else if (cmp_id_first == 0) {
             /* Return the exact counter of the first entry in the stream. */
             return s->entries_added - s->length + 1;
-        } else {
-            /* The add counter of an arbitrary ID in the stream is unknown. */
-            return 0;
         }
     }
 
-    /* There's a chance that the next ID is valid, and the only thing
-     * before our ID is a tombstone. If we got here, we know that the
-     * stream isn't empty and that our ID is before its start, so there 
-     * must be at least one entry with a larger ID in it. */
-    streamIterator si;
-    int64_t numfields;
-    streamID next_id = *id;
-    streamIncrID(&next_id);
-    streamIteratorStart(&si,s,&next_id,NULL,0);
-    serverAssert(streamIteratorGetID(&si,&next_id,&numfields));
-    streamIteratorStop(&si);
-
-    int cmp_next = streamCompareID(&next_id,&s->max_deleted_entry_id);
-    if (cmp_next > 0) {
-        /* Return the estimated first counter. At this point we know that
-         * the ID is smaller than the first ID, and that there's a tombstone
-         * between them. However, the tombstone is also before the first ID,
-         * so the next ID is actually the first in the stream. This lets us
-         * set the counter to that of the next ID, but off by one. */
-        return s->entries_added - s->length - 1;
-    }
-
-    /* The ID is before an XDEL that fragments the stream, so we can't make a
-     * prediction. */
-    return 0;
+    /* The ID is either before an XDEL that fragments the stream or an arbitrary
+     * ID. Either case, so we can't make a prediction. */
+    return ULLONG_MAX;
 }
 
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
@@ -1617,7 +1582,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    argv[5] = createStringObjectFromLongLong((long long)group->entries_read);
+    argv[5] = createStringObjectFromLongLong((unsigned long long)group->entries_read);
 
     alsoPropagate(c->db->id,argv,6,PROPAGATE_AOF|PROPAGATE_REPL);
 
@@ -1721,15 +1686,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->entries_read && streamRangeDoesNotContainTombstone(s,&id)) {
-                /* A valid (non-zero) counter and no future tombstones mean we
-                 * can increment the read counter to keep tracking the group's
+            if (group->entries_read != ULLONG_MAX && streamRangeDoesNotContainTombstone(s,&id)) {
+                /* A valid counter and no future tombstones mean we can 
+                 * increment the read counter to keep tracking the group's
                  * progress. */
                 group->entries_read++;
             } else if (s->entries_added) {
-                /* The group's counter may be zero because it is was invalid, or
-                 * because it is the real 0 counter (the one before the first).
-                 * Either way, in this case, we try to obtain the counter. */
+                /* The group's counter may be invalid, so we try to obtain it. */
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
@@ -2601,7 +2564,7 @@ void xgroupCommand(client *c) {
     streamCG *cg = NULL;
     char *opt = c->argv[1]->ptr; /* Subcommand name. */
     int mkstream = 0;
-    long long entries_read = 0;
+    long long entries_read = ULLONG_MAX;
     robj *o;
 
     /* CREATE has an MKSTREAM option that creates the stream if it
@@ -2614,10 +2577,10 @@ void xgroupCommand(client *c) {
                 mkstream = 1;
                 i++;
             } else if (!strcasecmp(c->argv[i]->ptr,"ENTRIESREAD") && i + 1 < c->argc) {
-                if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_read,NULL) != C_OK) {
-                    return;
-                } else if (entries_read < 0) {
-                    addReplyError(c,"entries_read must be positive");
+                sds arg = c->argv[i+1]->ptr;
+                if (sdslen(arg) == 0 || arg[0] == '-') {
+                    addReplyError(c,"entries_read must be an unsigned 64-bit integer");
+                } else if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_read,NULL) != C_OK) {
                     return;
                 }
                 i = i + 2;
@@ -2705,12 +2668,7 @@ NULL
             signalModifiedKey(c,c->db,c->argv[2]);
         }
 
-        /* Handle missing/invalid read counter for the group. */
-        if (!entries_read || (uint64_t)entries_read > s->entries_added) {
-            entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
-        }
-
-        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
+        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,(unsigned long long)entries_read);
         if (cg) {
             addReply(c,shared.ok);
             server.dirty++;
@@ -2727,15 +2685,15 @@ NULL
             return;
         }
         if (c->argc == 6) {
-            if (getLongLongFromObjectOrReply(c,c->argv[5],&entries_read,NULL) != C_OK) {
-                return;
-            } else if (entries_read < 0) {
-                addReplyError(c,"entries_read must be positive");
+            sds arg = c->argv[5]->ptr;
+            if (sdslen(arg) == 0 || arg[0] == '-') {
+                addReplyError(c,"entries_read must be an unsigned 64-bit integer");
+            } else if (getLongLongFromObjectOrReply(c,c->argv[5],&entries_read,NULL) != C_OK) {
                 return;
             }
         }
         cg->last_id = id;
-        cg->entries_read = (uint64_t)entries_read;
+        cg->entries_read = (unsigned long long)entries_read;
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -3704,7 +3662,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyBulkCString(c,"max-deleted-entry-id");
     addReplyStreamID(c,&s->max_deleted_entry_id);
     addReplyBulkCString(c,"entries-added");
-    addReplyLongLong(c,s->entries_added);
+    addReplyUnsignedLongLong(c,s->entries_added);
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
 
@@ -3757,7 +3715,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
 
                 /* Read counter of the last delivered ID */
                 addReplyBulkCString(c,"entries-read");
-                addReplyLongLong(c,cg->entries_read);
+                if (cg->entries_read != ULLONG_MAX) {
+                    addReplyUnsignedLongLong(c,cg->entries_read);
+                } else {
+                    addReplyNull(c);
+                }
 
                 /* Group lag */
                 addReplyBulkCString(c,"lag");
@@ -3950,7 +3912,11 @@ NULL
             addReplyBulkCString(c,"last-delivered-id");
             addReplyStreamID(c,&cg->last_id);
             addReplyBulkCString(c,"entries-read");
-            addReplyLongLong(c,cg->entries_read);
+            if (cg->entries_read != ULLONG_MAX) {
+                addReplyUnsignedLongLong(c,cg->entries_read);
+            } else {
+                addReplyNull(c);
+            }
             addReplyBulkCString(c,"lag");
             streamReplyWithCGLag(c,s,cg);
         }
