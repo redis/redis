@@ -167,13 +167,13 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 300kb
+            r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
             
             set n 50000
 
             # Populate memory with interleaving script-key pattern of same size
-            set dummy_script "--[string repeat x 200]\nreturn "
+            set dummy_script "--[string repeat x 400]\nreturn "
             set rd [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
                 set val "$dummy_script[format "%06d" $j]"
