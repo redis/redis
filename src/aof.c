@@ -2409,6 +2409,9 @@ void aofRemoveTempFile(pid_t childpid) {
     bg_unlink(tmpfile);
 }
 
+/* Get size of an AOF file.
+ * The status argument is an optional output argument to be filled with
+ * one of the AOF_ status values. */
 off_t getAppendOnlyFileSize(sds filename, int *status) {
     struct redis_stat sb;
     off_t size;
@@ -2417,17 +2420,12 @@ off_t getAppendOnlyFileSize(sds filename, int *status) {
     sds aof_filepath = makePath(server.aof_dirname, filename);
     latencyStartMonitor(latency);
     if (redis_stat(aof_filepath, &sb) == -1) {
+        if (status) *status = errno == ENOENT ? AOF_NOT_EXIST : AOF_OPEN_ERR;
         serverLog(LL_WARNING, "Unable to obtain the AOF file %s length. stat: %s",
             filename, strerror(errno));
-
-        if (status) {
-            *status = errno == ENOENT ? AOF_NOT_EXIST : AOF_OPEN_ERR;
-        }
         size = 0;
     } else {
-        if (status) {
-            *status = AOF_OK;
-        }
+        if (status) *status = AOF_OK;
         size = sb.st_size;
     }
     latencyEndMonitor(latency);
@@ -2436,6 +2434,9 @@ off_t getAppendOnlyFileSize(sds filename, int *status) {
     return size;
 }
 
+/* Get size of all AOF files referred by the manifest (excluding history).
+ * The status argument is an optional output argument to be filled with
+ * one of the AOF_ status values. */
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status) {
     off_t size = 0;
     listNode *ln;
@@ -2451,6 +2452,8 @@ off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status) {
     listRewind(am->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
+        if (ai->file_type == AOF_FILE_TYPE_HIST)
+            continue;
         serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
         size += getAppendOnlyFileSize(ai->file_name, status);
         if (*status != AOF_OK) return 0;
