@@ -725,7 +725,7 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     {
         new_buffer_size = max(PROTO_REPLY_MIN_BYTES,c->buf_peak+1);
         server.stat_reply_buffer_shrinks++;
-    } else if (buffer_target_expend_size < PROTO_REPLY_CHUNK_BYTES*2 &&
+    } else if (buffer_target_expand_size < PROTO_REPLY_CHUNK_BYTES*2 &&
         c->buf_peak == c->buf_usable_size)
     {
         new_buffer_size = min(PROTO_REPLY_CHUNK_BYTES,buffer_target_expend_size);
