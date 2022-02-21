@@ -500,6 +500,10 @@ start_server {} {
                 }
             }
         }
+        
+        # Restore the peak reset time to default
+        r debug replybuffer-peak-reset-time reset
+        
         foreach rr $rrs {$rr close}
     } {} {needs:debug}
 }

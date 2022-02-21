@@ -169,6 +169,8 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
 
+#define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
+
 /* When configuring the server eventloop, we setup it so that the total number
  * of file descriptors we can handle are server.maxclients + RESERVED_FDS +
  * a few more to stay safe. Since RESERVED_FDS defaults to 32, we add 96

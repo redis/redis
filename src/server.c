@@ -2399,7 +2399,7 @@ void initServer(void) {
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
     server.cluster_drop_packet_filter = -1;
-    server.reply_buffer_peak_reset_time = 5000;
+    server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)

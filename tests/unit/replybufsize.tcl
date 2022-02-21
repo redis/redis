@@ -37,6 +37,9 @@ start_server {tags {"replybufsize"}} {
             set rbs [get_reply_buffer_size test_client]
             fail "reply buffer of busy client is $rbs after 1 seconds"
         }
+   
+        # Restore the peak reset time to default
+        r debug replybuffer-peak-reset-time reset
         
         $tc close
     } {0} {needs:debug}
