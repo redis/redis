@@ -5539,7 +5539,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
-            server.stat_reply_buffer_expends);
+            server.stat_reply_buffer_expands);
     }
 
     /* Replication */
