@@ -1,14 +1,15 @@
 source "../tests/includes/init-tests.tcl"
 
-proc cluster_allocate_with_split_slots {} {
-    R 0 cluster ADDSLOTSRANGE 0 1000 1002 5459 5461 5461 10926 10926
-    R 1 cluster ADDSLOTSRANGE 5460 5460 5462 10922 10925 10925
-    R 2 cluster ADDSLOTSRANGE 10923 10924 10927 16383
-    R 3 cluster ADDSLOTSRANGE 1001 1001
-}
+# Initial slot distribution.
+set ::slot0 [list 0 1000 1002 5459 5461 5461 10926 10926]
+set ::slot1 [list 5460 5460 5462 10922 10925 10925]
+set ::slot2 [list 10923 10924 10927 16383]
+set ::slot3 [list 1001 1001]
 
 proc cluster_create_with_split_slots {masters replicas} {
-    cluster_allocate_with_split_slots
+    for {set j 0} {$j < $masters} {incr j} {
+        R $j cluster ADDSLOTSRANGE {*}[set ::slot${j}]
+    }
     if {$replicas} {
         cluster_allocate_slaves $masters $replicas
     }
@@ -71,12 +72,6 @@ proc dict_setup_for_verification {node i} {
     dict set node_ref hostname "host-$i.com"
 }
 
-# Initial slot distribution.
-set slot1 [list 1001 1001]
-set slot2 [list 10923 10924 10927 16383]
-set slot3 [list 5460 5460 5462 10922 10925 10925]
-set slot4 [list 0 1000 1002 5459 5461 5461 10926 10926]
-
 # Verify various combinations of `CLUSTER SHARDS` response
 # 1. Single slot owner
 # 2. Single slot(s) + multi slot range owner
@@ -89,7 +84,7 @@ test "Verify cluster shards response" {
     foreach shard $shards {
         set slots [dict get $shard slots]
         set nodes [dict get $shard nodes]
-        if { $slots == $slot1 } {
+        if { $slots == $::slot3 } {
             assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 3
             dict_setup_for_verification replica 7
@@ -97,7 +92,7 @@ test "Verify cluster shards response" {
             dict_shard_cmp [lindex $nodes 1] $replica
             incr validation_cnt
         }
-        if { $slots == $slot2 } {
+        if { $slots == $::slot2 } {
             assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 2
             dict_setup_for_verification replica 6
@@ -105,7 +100,7 @@ test "Verify cluster shards response" {
             dict_shard_cmp [lindex $nodes 1] $replica
             incr validation_cnt
         }
-        if { $slots == $slot3 } {
+        if { $slots == $::slot1 } {
             assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 1
             dict_setup_for_verification replica 5
@@ -113,7 +108,7 @@ test "Verify cluster shards response" {
             dict_shard_cmp [lindex $nodes 1] $replica
             incr validation_cnt
         }
-        if { $slots == $slot4 } {
+        if { $slots == $::slot0 } {
             assert_equal [llength $nodes] 2
             dict_setup_for_verification primary 0
             dict_setup_for_verification replica 4
@@ -223,7 +218,7 @@ if {false} {
             set slots [dict get $shard slots]
             set nodes [dict get $shard nodes]
             set slot_len [llength $slots]
-            if {$slots == $slot4} {
+            if {$slots == $slot0} {
                 assert_equal [llength $nodes] 2
                 dict_setup_for_verification primary $primary_id
                 dict set primary health ONLINE

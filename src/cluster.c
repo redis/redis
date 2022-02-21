@@ -119,20 +119,6 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
-/* We use the following dictionary type to store nodeToSlotPair info,
- * so it's like "node-id" -> list of slot/slot range numbers. */
-void dictListDestructor(dict *d, void *val);
-
-dictType clusterNodesToSlotDictType = {
-        dictSdsHash,                /* hash function */
-        NULL,                       /* key dup */
-        NULL,                       /* val dup */
-        dictSdsKeyCompare,          /* key compare */
-        dictSdsDestructor,          /* key destructor */
-        dictListDestructor,         /* val destructor */
-        NULL             /* allow to expand */
-};
-
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -4582,21 +4568,19 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
     return ci;
 }
 
+/* Concatenate the slot ownership information to the given SDS string 'ci'.
+ * If the slot ownership is in a continguous block, it's represented as start-end pair,
+ * else each slot is added separately. */
 sds representSlotInfo(sds ci, list *slot_info_pair) {
-    if (slot_info_pair == NULL)
-        return ci;
-    uint16_t slot_info_count = 0;
-    slot_info_count = listLength(slot_info_pair);
-    serverAssert((slot_info_count % 2) == 0);
     listIter li;
-    listRewind(slot_info_pair, &li);
     listNode *ln;
-    while(slot_info_count > 0) {
-        ln = listNext(&li);
+    listRewind(slot_info_pair, &li);
+    while((ln = listNext(&li))) {
         unsigned long start = (unsigned long)ln->value;
         ln = listNext(&li);
+        /* List should have even number of elements */
+        serverAssert(ln != NULL);
         unsigned long end = (unsigned long)ln->value;
-        slot_info_count-=2;
         if (start == end) {
             ci = sdscatfmt(ci, " %i", start);
         } else {
@@ -4986,6 +4970,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     setDeferredArrayLen(c, nested_replylen, nested_elements);
 }
 
+/* Add detailed information of a node to the output buffer of the given client. */
 void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     int reply_cnt = 0;
     void *node_replylen = addReplyDeferredLen(c);
@@ -5000,7 +4985,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     }
     int tls_port = server.cluster_announce_tls_port ? server.cluster_announce_tls_port : server.tls_port;
     if (tls_port) {
-        addReplyBulkCString(c, "port");
+        addReplyBulkCString(c, "tls_port");
         addReplyLongLong(c, tls_port);
         reply_cnt++;
     }
@@ -5008,7 +4993,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, node->ip);
     reply_cnt++;
     addReplyBulkCString(c, "endpoint");
-    addReplyBulkCString(c,  getPreferredEndpoint(node));
+    addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_cnt++;
     if (node->hostname) {
         addReplyBulkCString(c, "hostname");
@@ -5040,11 +5025,13 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     setDeferredMapLen(c, node_replylen, reply_cnt);
 }
 
+/* Add to the output buffer of the given client, add the slot_info_pair i.e. list of
+ * start/end slot pairs. Also, add information regarding the node and it's set of replica(s).  */
 void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_pair) {
     addReplyMapLen(c, 2);
     addReplyBulkCString(c,"slots");
     uint16_t slot_pair_count = 0;
-    if (slot_info_pair != NULL) {
+    if (slot_info_pair) {
         slot_pair_count = listLength(slot_info_pair);
         serverAssert((slot_pair_count % 2) == 0);
         addReplyArrayLen(c, slot_pair_count);
@@ -5057,11 +5044,12 @@ void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_p
             addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
         }
     } else {
-        addReplyArrayLen(c, slot_pair_count);
+        /* If no slot info pair is provided, the node owns no slots */
+        addReplyArrayLen(c, 0);
     }
     addReplyBulkCString(c,"nodes");
     list *nodes_for_slot = clusterGetNodesServingMySlots(node);
-    if (nodes_for_slot != NULL) {
+    if (nodes_for_slot) {
         addReplyArrayLen(c, listLength(nodes_for_slot));
         if (listLength(nodes_for_slot) != 0) {
             listIter li;
@@ -5073,17 +5061,22 @@ void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_p
             }
             listRelease(nodes_for_slot);
         }
-    } else {
-        addReplyArrayLen(c, 0);
     }
 }
 
+/* Add to the output buffer of the given client, an array of slot (start, end)
+ * pair owned by the shard, also the primary and set of replica(s) along with
+ * information about each node. */
 void clusterReplyShards(client *c) {
     void *shard_replylen = addReplyDeferredLen(c);
     int shard_cnt = 0;
     clusterGenNodesSlotsInfo(0);
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
+    /* Iterate over all the available nodes in the cluster, for each primary
+     * node return generate the cluster shards response. if the primary node
+     * doesn't own any slot, cluster shard response contains the node related
+     * information and an empty slots array. */
     while((de = dictNext(di)) != NULL) {
         clusterNode *n = dictGetVal(de);
         if (nodeIsSlave(n)) {
