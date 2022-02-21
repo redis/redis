@@ -736,7 +736,7 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
      * it will start to shrink.
      */
     if (server.reply_buffer_peak_reset_time >=0 &&
-            now_ms - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
+        now_ms - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
     {
         c->buf_peak = c->bufpos;
         c->buf_peak_last_reset_time = now_ms;
