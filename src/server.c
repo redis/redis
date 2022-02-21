@@ -718,7 +718,7 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     size_t new_buffer_size = 0;
     char *oldbuf = NULL;
     const size_t buffer_target_shrink_size = c->buf_usable_size/2;
-    const size_t buffer_target_expend_size = c->buf_usable_size*2;
+    const size_t buffer_target_expand_size = c->buf_usable_size*2;
 
     if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
         c->buf_peak < buffer_target_shrink_size )
