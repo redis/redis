@@ -728,8 +728,8 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     } else if (buffer_target_expand_size < PROTO_REPLY_CHUNK_BYTES*2 &&
         c->buf_peak == c->buf_usable_size)
     {
-        new_buffer_size = min(PROTO_REPLY_CHUNK_BYTES,buffer_target_expend_size);
-        server.stat_reply_buffer_expends++;
+        new_buffer_size = min(PROTO_REPLY_CHUNK_BYTES,buffer_target_expand_size);
+        server.stat_reply_buffer_expands++;
     }
 
     /* reset the peak value each server.reply_buffer_peak_reset_time seconds. in case the client will be idle
