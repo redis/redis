@@ -367,7 +367,8 @@ void touchWatchedKey(redisDb *db, robj *key) {
                 equalStringObjects(key, wk->key) &&
                 dictFind(db->dict, key->ptr) == NULL)
             {
-                /* Already expired key is deleted, so logically no change. */
+                /* Already expired key is deleted, so logically no change. Clear
+                 * the flag. Deleted keys are not flagged as expired. */
                 wk->expired = 0;
                 goto skip_client;
             }
@@ -411,15 +412,19 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
                 watchedKey *wk = listNodeValue(ln);
-                if (wk->expired &&
-                    (!exists_in_emptied ||
-                     keyIsExpired(emptied, key)) &&
-                    (!replaced_with ||
-                     !dictFind(replaced_with->dict, key->ptr) ||
-                     keyIsExpired(replaced_with, key)))
-                {
-                    /* The watched key was expired when WATCH was called and now
-                     * it's expired or deleted, i.e. no logical change. */
+                if (wk->expired) {
+                    if (!replaced_with || !dictFind(replaced_with->dict, key->ptr)) {
+                        /* Expired key now deleted. No logical change. Clear the
+                         * flag. Deleted keys are not flagged as expired. */
+                        wk->expired = 0;
+                        continue;
+                    } else if (keyIsExpired(replaced_with, key)) {
+                        /* Expired key remains expired. */
+                        continue;
+                    }
+                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key)) {
+                    /* Non-existing key is replaced with an expired key. */
+                    wk->expired = 1;
                     continue;
                 }
                 client *c = wk->client;

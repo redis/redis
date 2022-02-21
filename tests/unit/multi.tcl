@@ -159,6 +159,20 @@ start_server {tags {"multi"}} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
+    test {Delete WATCHed stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        # EXISTS triggers lazy expiry/deletion
+        assert_equal 0 [r exists x]
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {FLUSHDB while watching stale keys should not fail EXEC} {
         r del x
         r debug set-active-expire 0
