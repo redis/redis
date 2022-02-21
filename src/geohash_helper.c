@@ -91,8 +91,8 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
  *    \-----------------/          --------               \-----------------/
  *     \               /         /          \              \               /
  *      \  (long,lat) /         / (long,lat) \              \  (long,lat) /
- *       \           /         /              \              /            \
- *         ---------          /----------------\            /--------------\
+ *       \           /         /              \             /             \
+ *         ---------          /----------------\           /---------------\
  *  Northern Hemisphere       Southern Hemisphere         Around the equator
  */
 int geohashBoundingBox(GeoShape *shape, double *bounds) {
@@ -164,14 +164,14 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
         geohashDecode(long_range, lat_range, neighbors.east, &east);
         geohashDecode(long_range, lat_range, neighbors.west, &west);
 
-        if (geohashGetDistance(longitude,latitude,longitude,north.latitude.max)
-            < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,longitude,south.latitude.min)
-            < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,east.longitude.max,latitude)
-            < radius_meters) decrease_step = 1;
-        if (geohashGetDistance(longitude,latitude,west.longitude.min,latitude)
-            < radius_meters) decrease_step = 1;
+        if (north.latitude.max < max_lat) 
+            decrease_step = 1;
+        if (south.latitude.min > min_lat) 
+            decrease_step = 1;
+        if (east.longitude.max < max_lon) 
+            decrease_step = 1;
+        if (west.longitude.min > min_lon)  
+            decrease_step = 1;
     }
 
     if (steps > 1 && decrease_step) {
