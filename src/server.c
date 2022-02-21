@@ -706,7 +706,7 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
-/* The client output buffer can be adjusted to better fit the memory requierments.
+/* The client output buffer can be adjusted to better fit the memory requirements.
  *
  * the logic is:
  * in case the last observed peak size of the buffer equals the buffer size - we double the size
