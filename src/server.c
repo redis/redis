@@ -3167,6 +3167,12 @@ void call(client *c, int flags) {
      * the same error twice. */
     if ((server.stat_total_error_replies - prev_err_count) > 0) {
         real_cmd->failed_calls++;
+    } else if (c->deferred_reply_errors) {
+        /* When call is used from a module client, error stats, and total_error_replies
+         * isn't updated since these errors, if handled by the module, are internal,
+         * and not reflected to users. however, the commandstats does show these calls
+         * (made by RM_Call), so it should log if they failed or succeeded. */
+        real_cmd->failed_calls++;
     }
 
     /* After executing command, we will close the client after writing entire

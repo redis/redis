@@ -7101,6 +7101,7 @@ void moduleHandleBlockedClients(void) {
          * was blocked on keys (RM_BlockClientOnKeys()), because we already
          * called such callback in moduleTryServeClientBlockedOnKey() when
          * the key was signaled as ready. */
+        long long prev_error_replies = server.stat_total_error_replies;
         uint64_t reply_us = 0;
         if (c && !bc->blocked_on_keys && bc->reply_callback) {
             RedisModuleCtx ctx;
@@ -7114,13 +7115,6 @@ void moduleHandleBlockedClients(void) {
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
-        }
-        /* Update stats now that we've finished the blocking operation.
-         * This needs to be out of the reply callback above given that a
-         * module might not define any callback and still do blocking ops.
-         */
-        if (c && !bc->blocked_on_keys) {
-            updateStatsOnUnblock(c, bc->background_duration, reply_us);
         }
 
         /* Free privdata if any. */
@@ -7141,6 +7135,14 @@ void moduleHandleBlockedClients(void) {
         if (c) AddReplyFromClient(c, bc->reply_client);
         moduleReleaseTempClient(bc->reply_client);
         moduleReleaseTempClient(bc->thread_safe_ctx_client);
+
+        /* Update stats now that we've finished the blocking operation.
+         * This needs to be out of the reply callback above given that a
+         * module might not define any callback and still do blocking ops.
+         */
+        if (c && !bc->blocked_on_keys) {
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
+        }
 
         if (c != NULL) {
             /* Before unblocking the client, set the disconnect callback
@@ -7199,10 +7201,11 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
+    long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     if (!bc->blocked_on_keys) {
-        updateStatsOnUnblock(c, bc->background_duration, 0);
+        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
     }
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in

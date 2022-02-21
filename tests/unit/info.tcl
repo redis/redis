@@ -238,6 +238,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat OOM]
+            r config set maxmemory 0
         }
 
         test {errorstats: rejected call by authorization error} {
@@ -253,6 +254,25 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOPERM]
+            r auth default ""
         }
+
+        test {errorstats: blocking commands} {
+            r config resetstat
+            set rd [redis_deferring_client]
+            $rd client id
+            set rd_id [$rd read]
+            r del list1{t}
+
+            $rd blpop list1{t} 0
+            wait_for_blocked_client
+            r client unblock $rd_id error
+            assert_error {UNBLOCKED*} {$rd read}
+            assert_match {*count=1*} [errorstat UNBLOCKED]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat blpop]
+            assert_equal [s total_error_replies] 1
+            $rd close
+        }
+
     }
 }
