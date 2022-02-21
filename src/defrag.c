@@ -1156,7 +1156,7 @@ void activeDefragCycle(void) {
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
-                defragOtherGlobals();
+                server.stat_active_defrag_hits += defragOtherGlobals();
 
                 long long now = ustime();
                 size_t frag_bytes;
