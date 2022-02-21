@@ -5494,7 +5494,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "io_threaded_reads_processed:%lld\r\n"
             "io_threaded_writes_processed:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
-            "reply_buffer_expends:%lld\r\n",
+            "reply_buffer_expands:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
