@@ -226,7 +226,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
 
     FILE *fp = fopen(aof_filepath, "r+");
     if (fp == NULL) {
-        printf("Cannot open file: %s, aborting...\n", aof_filename);
+        printf("Cannot open file %s: %s, aborting...\n", aof_filepath, strerror(errno));
         exit(1);
     }
 
@@ -336,7 +336,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
 int fileIsRDB(char *filepath) {
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
-        printf("Cannot open file: %s\n", filepath);
+        printf("Cannot open file %s: %s\n", filepath, strerror(errno));
         exit(1);
     }
 
@@ -372,7 +372,7 @@ int fileIsManifest(char *filepath) {
     int is_manifest = 0;
     FILE *fp = fopen(filepath, "r");
     if (fp == NULL) {
-        printf("Cannot open file: %s\n", filepath);
+        printf("Cannot open file %s: %s\n", filepath, strerror(errno));
         exit(1);
     }
 
