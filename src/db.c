@@ -1340,6 +1340,11 @@ int dbSwapDatabases(int id1, int id2) {
     redisDb aux = server.db[id1];
     redisDb *db1 = &server.db[id1], *db2 = &server.db[id2];
 
+    /* Swapdb should make transaction fail if there is any
+     * client watching keys */
+    touchAllWatchedKeysInDb(db1, db2);
+    touchAllWatchedKeysInDb(db2, db1);
+
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
      * remain in the same DB they were. */
@@ -1361,14 +1366,9 @@ int dbSwapDatabases(int id1, int id2) {
      * However normally we only do this check for efficiency reasons
      * in dbAdd() when a list is created. So here we need to rescan
      * the list of clients blocked on lists and signal lists as ready
-     * if needed.
-     *
-     * Also the swapdb should make transaction fail if there is any
-     * client watching keys */
+     * if needed. */
     scanDatabaseForReadyLists(db1);
-    touchAllWatchedKeysInDb(db1, db2);
     scanDatabaseForReadyLists(db2);
-    touchAllWatchedKeysInDb(db2, db1);
     return C_OK;
 }
 
@@ -1386,6 +1386,10 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
+
+        /* Swapping databases should make transaction fail if there is any
+         * client watching keys. */
+        touchAllWatchedKeysInDb(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -1408,12 +1412,8 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * However normally we only do this check for efficiency reasons
          * in dbAdd() when a list is created. So here we need to rescan
          * the list of clients blocked on lists and signal lists as ready
-         * if needed.
-         *
-         * Also the swapdb should make transaction fail if there is any
-         * client watching keys. */
+         * if needed. */
         scanDatabaseForReadyLists(activedb);
-        touchAllWatchedKeysInDb(activedb, newdb);
     }
 
     trackingInvalidateKeysOnFlush(1);
