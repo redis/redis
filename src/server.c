@@ -526,6 +526,18 @@ dictType stringSetDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Dict for case-insensitive search using sds objects with a zmalloc
+ * allocated object as the value. */
+dictType sdsHashDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictVanillaFree,            /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 int htNeedsResize(dict *dict) {
     long long size, used;
 
