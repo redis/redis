@@ -24,6 +24,22 @@ test "Try to rename key that does not exist" {
     }
 
 }
+
+test "Renamenx to key that already exists" {
+    set key "testKey{123}"
+    set updated_key "newKey{123}"
+    set slot [$cluster cluster keyslot $key]
+    array set nodefrom [$cluster masternode_for_slot $slot]
+
+    $nodefrom(link) set $key "val1"
+    $nodefrom(link) set $updated_key "val2"
+
+    catch {$nodefrom(link) renamenx $key  $updated_key} e
+    if {[string match "1" $e]} {
+        fail "Should not rename to already set key"
+    }
+}
+
 test "Rename slot to another cluster" {
     set key "testKey"
     set updated_key "newKey"
