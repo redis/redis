@@ -2934,18 +2934,18 @@ void initConfigValues() {
         if (config->interface.init) config->interface.init(config->data);
         standardConfig *primary = zmalloc(sizeof(standardConfig));
         memcpy(primary, config, sizeof(standardConfig));
+        primary->flags |= PREFERRED_CONFIG;
+        primary->alias = NULL;
         /* Add the primary config to the dictionary. */
-        dictAdd(configs, sdsnew(config->name), primary);
+        dictAdd(configs, sdsnew(primary->name), primary);
         /* Alias is not used at runtime, stead we create
          * duplicate entries each with their own respective name. */
         if (config->alias) {
             standardConfig *alias = zmalloc(sizeof(standardConfig));
             memcpy(alias, config, sizeof(standardConfig));
-            dictAdd(configs, sdsnew(config->alias), alias);
             alias->name = config->alias;
             alias->alias = NULL;
-            primary->alias = NULL;
-            primary->flags |= PREFERRED_CONFIG;
+            dictAdd(configs, sdsnew(alias->name), alias);
         }
     }
 }
