@@ -42,8 +42,8 @@
 #include <sys/param.h>
 
 void freeClientArgv(client *c);
-off_t getAppendOnlyFileSize(sds filename);
-off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am);
+off_t getAppendOnlyFileSize(sds filename, int *status);
+off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
 int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
@@ -728,7 +728,7 @@ void aofOpenIfNeededOnServerStart(void) {
         exit(1);
     }
 
-    server.aof_last_incr_size = getAppendOnlyFileSize(aof_name);
+    server.aof_last_incr_size = getAppendOnlyFileSize(aof_name, NULL);
 }
 
 int aofFileExist(char *filename) {
@@ -1556,7 +1556,7 @@ cleanup:
 /* Load the AOF files according the aofManifest pointed by am. */
 int loadAppendOnlyFiles(aofManifest *am) {
     serverAssert(am != NULL);
-    int ret = C_OK;
+    int status, ret = C_OK;
     long long start;
     off_t total_size = 0;
     sds aof_name;
@@ -1590,7 +1590,16 @@ int loadAppendOnlyFiles(aofManifest *am) {
 
     /* Here we calculate the total size of all BASE and INCR files in
      * advance, it will be set to `server.loading_total_bytes`. */
-    total_size = getBaseAndIncrAppendOnlyFilesSize(am);
+    total_size = getBaseAndIncrAppendOnlyFilesSize(am, &status);
+    if (status != AOF_OK) {
+        /* If an AOF exists in the manifest but not on the disk, we consider this to be a fatal error. */
+        if (status == AOF_NOT_EXIST) status = AOF_FAILED;
+
+        return status;
+    } else if (total_size == 0) {
+        return AOF_EMPTY;
+    }
+
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
 
     /* Load BASE AOF if needed. */
@@ -1606,9 +1615,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
-        /* If an AOF exists in the manifest but not on the disk, Or the truncated
-         * file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+        /* If the truncated file is not the last file, we consider this to be a fatal error. */
+        if (ret == AOF_TRUNCATED && !last_file) {
             ret = AOF_FAILED;
         }
 
@@ -1636,7 +1644,11 @@ int loadAppendOnlyFiles(aofManifest *am) {
                     aof_name, (float)(ustime()-start)/1000000);
             }
 
-            if (ret == AOF_NOT_EXIST || (ret == AOF_TRUNCATED && !last_file)) {
+            /* We know that (at least) one of the AOF files has data (total_size > 0),
+             * so empty incr AOF file doesn't count as a AOF_EMPTY result */
+            if (ret == AOF_EMPTY) ret = AOF_OK;
+
+            if (ret == AOF_TRUNCATED && !last_file) {
                 ret = AOF_FAILED;
             }
 
@@ -1651,7 +1663,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     server.aof_fsync_offset = server.aof_current_size;
 
 cleanup:
-    stopLoading(ret == AOF_OK);
+    stopLoading(ret == AOF_OK || ret == AOF_TRUNCATED);
     return ret;
 }
 
@@ -2404,7 +2416,10 @@ void aofRemoveTempFile(pid_t childpid) {
     bg_unlink(tmpfile);
 }
 
-off_t getAppendOnlyFileSize(sds filename) {
+/* Get size of an AOF file.
+ * The status argument is an optional output argument to be filled with
+ * one of the AOF_ status values. */
+off_t getAppendOnlyFileSize(sds filename, int *status) {
     struct redis_stat sb;
     off_t size;
     mstime_t latency;
@@ -2412,10 +2427,12 @@ off_t getAppendOnlyFileSize(sds filename) {
     sds aof_filepath = makePath(server.aof_dirname, filename);
     latencyStartMonitor(latency);
     if (redis_stat(aof_filepath, &sb) == -1) {
+        if (status) *status = errno == ENOENT ? AOF_NOT_EXIST : AOF_OPEN_ERR;
         serverLog(LL_WARNING, "Unable to obtain the AOF file %s length. stat: %s",
             filename, strerror(errno));
         size = 0;
     } else {
+        if (status) *status = AOF_OK;
         size = sb.st_size;
     }
     latencyEndMonitor(latency);
@@ -2424,22 +2441,27 @@ off_t getAppendOnlyFileSize(sds filename) {
     return size;
 }
 
-off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am) {
+/* Get size of all AOF files referred by the manifest (excluding history).
+ * The status argument is an output argument to be filled with
+ * one of the AOF_ status values. */
+off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status) {
     off_t size = 0;
-
     listNode *ln;
     listIter li;
 
     if (am->base_aof_info) {
         serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
-        size += getAppendOnlyFileSize(am->base_aof_info->file_name);
+
+        size += getAppendOnlyFileSize(am->base_aof_info->file_name, status);
+        if (*status != AOF_OK) return 0;
     }
 
     listRewind(am->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo*)ln->value;
         serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
-        size += getAppendOnlyFileSize(ai->file_name);
+        size += getAppendOnlyFileSize(ai->file_name, status);
+        if (*status != AOF_OK) return 0;
     }
 
     return size;
@@ -2513,7 +2535,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         if (server.aof_fd != -1) {
             /* AOF enabled. */
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            server.aof_current_size = getAppendOnlyFileSize(new_base_filename) + server.aof_last_incr_size;
+            server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
             server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
