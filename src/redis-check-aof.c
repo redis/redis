@@ -557,8 +557,6 @@ int redis_check_aof_main(int argc, char **argv) {
     memcpy(temp_filepath, filepath, strlen(filepath));
     dirpath = dirname(temp_filepath);
 
-    printf("dirpath is: %s\n", dirpath);
-
     /* Select the corresponding verification method according to the input file type. */
     input_file_type type = getInputFileType(filepath);
     switch (type) {
