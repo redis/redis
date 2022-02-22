@@ -234,13 +234,16 @@ start_server {tags {"cli"}} {
         assert_equal \/ \/ [run_cli hgetall solidus]
         set escaped_reverse_solidus \"\\"
         assert_equal $escaped_reverse_solidus $escaped_reverse_solidus [run_cli --json hgetall \/]
-        # non printable (ð is 0xF0 in ISO-8859-1, not UTF-8(0xC3 0xB0))
-        # set ð by ISO-8859-1, not UTF-8, to edit this character please reopen this file with ISO-8859-1
-        set eth ð
+        # non printable (0xF0 in ISO-8859-1, not UTF-8(0xC3 0xB0))
+        # set \0xf0 by ISO-8859-1, not UTF-8, to edit this character please reopen this file with ISO-8859-1
+        set eth "\xf0\x65"
         r hset eth test $eth
-        assert_equal \"\\xf0\" [run_cli hget eth test]
-        assert_equal \"ð\" [run_cli --json hget eth test]
-        assert_equal \"\\\\xf0\" [run_cli --json --json-binary-encoding hget eth test]
+        assert_equal \"\\xf0e\" [run_cli hget eth test]
+        assert_equal \"\xf0e\" [run_cli --json hget eth test]
+        assert_equal \"\\\\xf0\\\\x65\" [run_cli --json --json-binary-encoding hget eth test]
+        # control characters
+        r hset control test "Hello\x00\x01\x02\x03World"
+        assert_equal \"Hello\\u0000\\u0001\\u0002\\u0003World" [run_cli --json hget control test]
     }
 
     test_nontty_cli "Status reply" {
