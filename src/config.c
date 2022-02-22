@@ -2936,7 +2936,7 @@ void initConfigValues() {
         memcpy(primary, config, sizeof(standardConfig));
         /* Add the primary config to the dictionary. */
         dictAdd(configs, sdsnew(config->name), primary);
-        /* Alias is not used at runtime, intead we create
+        /* Alias is not used at runtime, stead we create
          * duplicate entries each with their own respective name. */
         if (config->alias) {
             standardConfig *alias = zmalloc(sizeof(standardConfig));
