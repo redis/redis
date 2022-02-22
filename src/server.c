@@ -706,6 +706,51 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
+/* The client output buffer can be adjusted to better fit the memory requirements.
+ *
+ * the logic is:
+ * in case the last observed peak size of the buffer equals the buffer size - we double the size
+ * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
+ * The buffer peak will be reset back to the buffer position every server.reply_buffer_peak_reset_time milliseconds
+ * The function always returns 0 as it never terminates the client. */
+int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
+
+    size_t new_buffer_size = 0;
+    char *oldbuf = NULL;
+    const size_t buffer_target_shrink_size = c->buf_usable_size/2;
+    const size_t buffer_target_expand_size = c->buf_usable_size*2;
+
+    if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
+        c->buf_peak < buffer_target_shrink_size )
+    {
+        new_buffer_size = max(PROTO_REPLY_MIN_BYTES,c->buf_peak+1);
+        server.stat_reply_buffer_shrinks++;
+    } else if (buffer_target_expand_size < PROTO_REPLY_CHUNK_BYTES*2 &&
+        c->buf_peak == c->buf_usable_size)
+    {
+        new_buffer_size = min(PROTO_REPLY_CHUNK_BYTES,buffer_target_expand_size);
+        server.stat_reply_buffer_expands++;
+    }
+
+    /* reset the peak value each server.reply_buffer_peak_reset_time seconds. in case the client will be idle
+     * it will start to shrink.
+     */
+    if (server.reply_buffer_peak_reset_time >=0 &&
+        now_ms - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
+    {
+        c->buf_peak = c->bufpos;
+        c->buf_peak_last_reset_time = now_ms;
+    }
+
+    if (new_buffer_size) {
+        oldbuf = c->buf;
+        c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
+        memcpy(c->buf,oldbuf,c->bufpos);
+        zfree(oldbuf);
+    }
+    return 0;
+}
+
 /* This function is used in order to track clients using the biggest amount
  * of memory in the latest few seconds. This way we can provide such information
  * in the INFO output (clients section), without having to do an O(N) scan for
@@ -899,6 +944,8 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronResizeOutputBuffer(c,now)) continue;
+
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
 
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
@@ -2290,6 +2337,8 @@ void resetServerStats(void) {
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
+    server.stat_reply_buffer_shrinks = 0;
+    server.stat_reply_buffer_expands = 0;
     lazyfreeResetStats();
 }
 
@@ -2350,6 +2399,7 @@ void initServer(void) {
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
     server.cluster_drop_packet_filter = -1;
+    server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
@@ -5448,7 +5498,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_reads_processed:%lld\r\n"
             "total_writes_processed:%lld\r\n"
             "io_threaded_reads_processed:%lld\r\n"
-            "io_threaded_writes_processed:%lld\r\n",
+            "io_threaded_writes_processed:%lld\r\n"
+            "reply_buffer_shrinks:%lld\r\n"
+            "reply_buffer_expands:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5491,7 +5543,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_total_reads_processed,
             stat_total_writes_processed,
             server.stat_io_reads_processed,
-            server.stat_io_writes_processed);
+            server.stat_io_writes_processed,
+            server.stat_reply_buffer_shrinks,
+            server.stat_reply_buffer_expands);
     }
 
     /* Replication */
