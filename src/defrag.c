@@ -167,11 +167,11 @@ long dictIterDefragEntry(dictIterator *iter) {
         }
     }
     /* handle the case of the first entry in the hash bucket. */
-    if (iter->d->ht_table[iter->table][iter->index] == iter->entry) {
+    if (iter->d->ht_table[iter->index] == iter->entry) {
         dictEntry *newde = activeDefragAlloc(iter->entry);
         if (newde) {
             iter->entry = newde;
-            iter->d->ht_table[iter->table][iter->index] = newde;
+            iter->d->ht_table[iter->index] = newde;
             defragged++;
         }
     }
@@ -184,16 +184,14 @@ long dictIterDefragEntry(dictIterator *iter) {
 long dictDefragTables(dict* d) {
     dictEntry **newtable;
     long defragged = 0;
-    /* handle the first hash table */
-    newtable = activeDefragAlloc(d->ht_table[0]);
-    if (newtable)
-        defragged++, d->ht_table[0] = newtable;
-    /* handle the second hash table */
-    if (d->ht_table[1]) {
-        newtable = activeDefragAlloc(d->ht_table[1]);
-        if (newtable)
-            defragged++, d->ht_table[1] = newtable;
+
+    /* handle the hash table */
+    newtable = activeDefragAlloc(d->ht_table);
+    if (newtable) {
+        d->ht_table = newtable;
+        defragged++;
     }
+
     return defragged;
 }
 

@@ -247,33 +247,32 @@ void activeExpireCycle(int type) {
             long checked_buckets = 0;
 
             while (sampled < num && checked_buckets < max_buckets) {
-                for (int table = 0; table < 2; table++) {
-                    if (table == 1 && !dictIsRehashing(db->expires)) break;
 
-                    unsigned long idx = db->expires_cursor;
-                    idx &= DICTHT_SIZE_MASK(db->expires->ht_size_exp[table]);
-                    dictEntry *de = db->expires->ht_table[table][idx];
-                    long long ttl;
+                unsigned long idx = dictGetIndex(db->expires,
+                                                 db->expires_cursor);
 
-                    /* Scan the current bucket of the current table. */
-                    checked_buckets++;
-                    while(de) {
-                        /* Get the next entry now since this entry may get
-                         * deleted. */
-                        dictEntry *e = de;
-                        de = de->next;
+                dictEntry *de = db->expires->ht_table[idx];
+                long long ttl;
 
-                        ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
-                        if (ttl > 0) {
-                            /* We want the average TTL of keys yet
-                             * not expired. */
-                            ttl_sum += ttl;
-                            ttl_samples++;
-                        }
-                        sampled++;
+                /* Scan the current bucket of the current table. */
+                checked_buckets++;
+                while(de) {
+                    /* Get the next entry now since this entry may get
+                     * deleted. */
+                    dictEntry *e = de;
+                    de = de->next;
+
+                    ttl = dictGetSignedIntegerVal(e)-now;
+                    if (activeExpireCycleTryExpire(db,e,now)) expired++;
+                    if (ttl > 0) {
+                        /* We want the average TTL of keys yet
+                         * not expired. */
+                        ttl_sum += ttl;
+                        ttl_samples++;
                     }
+                    sampled++;
                 }
+
                 db->expires_cursor++;
             }
             total_expired += expired;

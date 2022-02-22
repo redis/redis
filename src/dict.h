@@ -79,14 +79,15 @@ typedef struct dictType {
 struct dict {
     dictType *type;
 
-    dictEntry **ht_table[2];
-    unsigned long ht_used[2];
+    dictEntry **ht_table;
+    unsigned long ht_used;
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
-    signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+    signed char ht_size_exp; /* exponent of size. (size = 1<<exp) */
+    signed char ht_size_exp_prev; /* exponent of size. (size = 1<<exp) */
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -96,7 +97,7 @@ struct dict {
 typedef struct dictIterator {
     dict *d;
     long index;
-    int table, safe;
+    int safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
@@ -156,8 +157,8 @@ typedef void (dictScanBucketFunction)(dict *d, dictEntry **bucketref);
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
-#define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
-#define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
+#define dictSlots(d) (DICTHT_SIZE((d)->ht_size_exp))
+#define dictSize(d) ((d)->ht_used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) (d)->pauserehash++
 #define dictResumeRehashing(d) (d)->pauserehash--
@@ -197,12 +198,13 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
 void dictEnableResize(void);
 void dictDisableResize(void);
-int dictRehash(dict *d, int n);
+int dictRehash(dict *d, int bucket_visits);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
+long dictGetIndex(dict *d, uint64_t keyHash);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 #ifdef REDIS_TEST
