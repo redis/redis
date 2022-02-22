@@ -66,7 +66,7 @@ int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleC
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
     REDISMODULE_NOT_USED(is_startup);
-    // We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide
+    /* We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide */
     enumval = val;
     return 1;
 }

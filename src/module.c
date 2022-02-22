@@ -11304,7 +11304,7 @@ void moduleConfigRewriteCommand(const char* parameter, struct rewriteConfigState
     }
 }
 
-/* This function takes a module and a list of configs storing sds NAME VALUE pairs.
+/* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
  * It attempts to call set on each of these configs with REDISMODULE_CONFIG_SET_STARTUP. */
 int loadModuleConfigs(RedisModule *module, list *configs_list) {
     if (!configs_list || !listLength(configs_list)) return REDISMODULE_OK;
@@ -11485,12 +11485,12 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
  * supported flags are:
  * 
  * * REDISMODULE_CONFIG_DEFAULT: This config can be modified after startup.
- * * REDISMODULE_CONFIG_IMMUTABLE: This config can also be provided as a startup argument.
+ * * REDISMODULE_CONFIG_IMMUTABLE: This config can only be provided loading time.
  * * REDISMODULE_CONFIG_SENSITIVE: The value stored in this config is redacted from all logging.
  * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching. 
  * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the servers protected config value.
- * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the cluster is loading data.
- * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert memory values into their byte equivalent.
+ * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
+ * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
  *
  * Default values are used explicitly to compare to on a config rewrite.
  *

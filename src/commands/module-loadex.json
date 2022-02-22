@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "server",
         "since": "7.0.0",
-        "arity": -4,
+        "arity": -3,
         "container": "MODULE",
         "function": "moduleCommand",
         "command_flags": [
