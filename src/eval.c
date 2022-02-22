@@ -241,11 +241,17 @@ void scriptingInit(int setup) {
                                 "  if i and i.what == 'C' then\n"
                                 "    i = dbg.getinfo(3,'nSl')\n"
                                 "  end\n"
+                                "  if type(err) ~= 'table' then\n"
+                                "    err = {err=err}"
+                                "  end"
+                                "  if err.err_code == nil then\n"
+                                "    err['err_code'] = 'ERR'"
+                                "  end"
                                 "  if i then\n"
-                                "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
-                                "  else\n"
-                                "    return err\n"
-                                "  end\n"
+                                "    err['source'] = i.source\n"
+                                "    err['line'] = i.currentline\n"
+                                "  end"
+                                "  return err\n"
                                 "end\n";
         luaL_loadbuffer(lua,errh_func,strlen(errh_func),"@err_handler_def");
         lua_pcall(lua,0,0,0);
@@ -1474,8 +1480,8 @@ int ldbRepl(lua_State *lua) {
         while((argv = ldbReplParseCommand(&argc, &err)) == NULL) {
             char buf[1024];
             if (err) {
-                lua_pushstring(lua, err);
-                lua_error(lua);
+                luaPushError(lua, err);
+                luaRaiseError(lua);
             }
             int nread = connRead(ldb.conn,buf,sizeof(buf));
             if (nread <= 0) {
@@ -1492,8 +1498,8 @@ int ldbRepl(lua_State *lua) {
             if (sdslen(ldb.cbuf) > 1<<20) {
                 sdsfree(ldb.cbuf);
                 ldb.cbuf = sdsempty();
-                lua_pushstring(lua, "max client buffer reached");
-                lua_error(lua);
+                luaPushError(lua, "max client buffer reached");
+                luaRaiseError(lua);
             }
         }
 
@@ -1553,8 +1559,8 @@ ldbLog(sdsnew("                     next line of code."));
             ldbEval(lua,argv,argc);
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"a") || !strcasecmp(argv[0],"abort")) {
-            lua_pushstring(lua, "script aborted for user request");
-            lua_error(lua);
+            luaPushError(lua, "script aborted for user request");
+            luaRaiseError(lua);
         } else if (argc > 1 &&
                    (!strcasecmp(argv[0],"r") || !strcasecmp(argv[0],"redis"))) {
             ldbRedis(lua,argv,argc);
@@ -1635,8 +1641,8 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             /* If the client closed the connection and we have a timeout
              * connection, let's kill the script otherwise the process
              * will remain blocked indefinitely. */
-            lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
-            lua_error(lua);
+            luaPushError(lua, "timeout during Lua debugging with client closing connection");
+            luaRaiseError(lua);
         }
         rctx->start_time = getMonotonicUs();
         rctx->snapshot_time = mstime();

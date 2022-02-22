@@ -537,12 +537,18 @@ void addReplyError(client *c, const char *err) {
     afterErrorReply(c,err,strlen(err));
 }
 
+void addReplyErrorSdsExt(client *c, sds err, int flags) {
+    addReplyErrorLength(c,err,sdslen(err));
+    if (!(flags & ERR_REPLY_FLAG_NO_STATS_UPDATE)) {
+        afterErrorReply(c,err,sdslen(err));
+    }
+    sdsfree(err);
+}
+
 /* See addReplyErrorLength for expectations from the input string. */
 /* As a side effect the SDS string is freed. */
 void addReplyErrorSds(client *c, sds err) {
-    addReplyErrorLength(c,err,sdslen(err));
-    afterErrorReply(c,err,sdslen(err));
-    sdsfree(err);
+    addReplyErrorSdsExt(c, err, 0);
 }
 
 /* See addReplyErrorLength for expectations from the formatted string.

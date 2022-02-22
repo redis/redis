@@ -2376,6 +2376,8 @@ int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);
 void redisSetCpuAffinity(const char *cpulist);
 
+#define ERR_REPLY_FLAG_NO_STATS_UPDATE (1ULL<<0) /* Indicating that we should not update
+                                                    error stats after sending error reply */
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
 void freeClient(client *c);
@@ -2415,6 +2417,7 @@ void addReplyBulkSds(client *c, sds s);
 void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);
+void addReplyErrorSdsExt(client *c, sds err, int flags);
 void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
