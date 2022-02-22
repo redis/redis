@@ -235,7 +235,6 @@ start_server {tags {"cli"}} {
         set escaped_reverse_solidus \"\\"
         assert_equal $escaped_reverse_solidus $escaped_reverse_solidus [run_cli --json hgetall \/]
         # non printable (0xF0 in ISO-8859-1, not UTF-8(0xC3 0xB0))
-        # set \0xf0 by ISO-8859-1, not UTF-8, to edit this character please reopen this file with ISO-8859-1
         set eth "\xf0\x65"
         r hset eth test $eth
         assert_equal \"\\xf0e\" [run_cli hget eth test]
