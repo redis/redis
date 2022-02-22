@@ -271,6 +271,7 @@ typedef struct standardConfig {
 
 standardConfig *configs;
 size_t num_configs;
+size_t configs_size;
 
 /*-----------------------------------------------------------------------------
  * Enum access functions
@@ -399,26 +400,15 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
     return 1;
 }
 
-int isModuleStandardConfig(standardConfig *config) {
-    if (config->flags & MODULE_CONFIG) {
-        return 1;
-    }
-    return 0;
-}
-
-/* Suite of config get/set/rewrite controllers.
- * If the configuration is a module config, we want to call its callback
- * or in rewrites case call the module config rewrite method.
- * If not, use the standard interface call */
 sds standardConfigGet(standardConfig *config) {
-    if (isModuleStandardConfig(config)) {
+    if (config->flags & MODULE_CONFIG) {
         return moduleConfigGetCommand(config->name, config->privdata);
     }
     return config->interface.get(config->data);
 }
 
 int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **errstr) {
-    if (isModuleStandardConfig(config)) {
+    if (config->flags & MODULE_CONFIG) {
         if (argc != 1){
             *errstr = "wrong number of arguments";
             return 0;
@@ -429,7 +419,7 @@ int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **
 }
 
 void standardConfigRewrite(standardConfig *config, struct rewriteConfigState *state) {
-    if (isModuleStandardConfig(config)) {
+    if (config->flags & MODULE_CONFIG) {
         moduleConfigRewriteCommand(config->name, state, config->privdata);
     } else if (config->interface.rewrite) {
         config->interface.rewrite(config->data, config->name, state);
@@ -1059,22 +1049,15 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL) {
+        if (argv == NULL || !isConfigNameRegistered(argv[0])) {
             /* Apparently the line is unparsable for some reason, for
              * instance it may have unbalanced quotes. Load it as a
              * comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
+            if (argv) sdsfreesplitres(argv, argc);
             sdsfree(line);
             rewriteConfigAppendLine(state,aux);
-            continue;
-        }
-
-        /* If we have a module config in the config file, but its no longer present: remove it. */
-        if (strchr(argv[0], '.') && !isConfigNameRegistered(argv[0])) {
-            linenum--;
-            sdsfreesplitres(argv, argc);
-            sdsfree(line);
             continue;
         }
 
@@ -2987,17 +2970,18 @@ void initConfigValues() {
         num_configs++;
         if (config->interface.init) config->interface.init(config->data);
     }
-    configs = (standardConfig *) zmalloc(sizeof(standardConfig) * num_configs);
+    configs_size = num_configs + 32;
+    configs = (standardConfig *) zmalloc(sizeof(standardConfig) * configs_size);
     memcpy(configs, &static_configs, sizeof(standardConfig) * num_configs);
 }
 
 /* Appends a new standardConfig to the end of the configs array if there is not already a config with that name. */
 void addConfig(standardConfig *new_config) {
-    if (isConfigNameRegistered(new_config->name)) {
-        serverPanic("Attempted to register a configuration with a name that is already registered.");
-    }
     num_configs += 1;
-    configs = (standardConfig *) zrealloc(configs, sizeof(standardConfig) * num_configs);
+    if (num_configs == configs_size) {
+        configs_size += 32;
+        configs = (standardConfig *) zrealloc(configs, sizeof(standardConfig) * configs_size);
+    }
     memcpy(configs + num_configs - 1, new_config, sizeof(standardConfig));
 }
 
@@ -3005,7 +2989,6 @@ void addConfig(standardConfig *new_config) {
 void removeConfigByIndex(size_t index) {
     memmove(configs + index, configs + index + 1, sizeof(standardConfig) * (num_configs - index - 1));
     num_configs--;
-    configs = zrealloc(configs, sizeof(standardConfig) * num_configs);
 }
 
 /* Removes a config by name */
@@ -3013,7 +2996,7 @@ void removeConfig(char *name) {
     for (size_t i = 0; i < num_configs; i++) {
         standardConfig *config = &configs[i];
         if (!strcasecmp(config->name, name)) {
-            if (isModuleStandardConfig(config)) {
+            if (config->flags & MODULE_CONFIG) {
                 sdsfree((sds) config->name);
             }
             removeConfigByIndex(i);
@@ -3026,17 +3009,11 @@ void removeConfig(char *name) {
  * Module Config
  *----------------------------------------------------------------------------*/
 
-/* Create a new skeleton standardConfig object for a module config with just a name, flags, apply function, and a pointer to the module */
-standardConfig createModuleStandardConfig(const char *config_name, int flags, apply_fn applyfn, void *privdata) {
-    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .interface.apply = applyfn, .privdata = privdata};
-    return module_config;
-}
-
 /* Create and add a skeleton standardConfig for a module config to the configs array */
 void addModuleConfig(const char *module_name, const char *name, int flags, apply_fn applyfn, void *privdata) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
-    standardConfig new_module_config = createModuleStandardConfig(config_name, flags, applyfn, privdata);
-    addConfig(&new_module_config);
+    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .interface.apply = applyfn, .privdata = privdata};
+    addConfig(&module_config);
 }
 
 /*-----------------------------------------------------------------------------

@@ -4615,7 +4615,7 @@ struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
 {"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
-{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
+{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
 {"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };

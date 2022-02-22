@@ -89,8 +89,6 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 2097152"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
-        catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool yes CONFIG moduleconfigs.immutable_bool yes CONFIG moduleconfigs.memory_numeric 2mb CONFIG moduleconfigs.string tclortickle ARGS]} e
-        assert_match {*Error*} $e
     }
 
     test {test loadex rejects bad configs} {

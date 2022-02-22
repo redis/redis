@@ -30,7 +30,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "configs", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (RedisModule_RegisterBoolConfig(ctx, "test", 1, REDISMODULE_CONFIG_DEFAULT, &getBoolConfigCommand, &setBoolConfigCommand, NULL, &argc) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterBoolConfig(ctx, "test", 1, REDISMODULE_CONFIG_DEFAULT, getBoolConfigCommand, setBoolConfigCommand, NULL, &argc) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
