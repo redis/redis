@@ -292,9 +292,16 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_UPDATE (1ULL<<5)
 #define REDISMODULE_CMD_KEY_INSERT (1ULL<<6)
 #define REDISMODULE_CMD_KEY_DELETE (1ULL<<7)
-#define REDISMODULE_CMD_KEY_CHANNEL (1ULL<<8)
+#define REDISMODULE_CMD_KEY_NOT_KEY (1ULL<<8)
 #define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<9)
 #define REDISMODULE_CMD_KEY_VARIABLE_FLAGS (1ULL<<10)
+
+/* Channel flags, for details see the documentation of
+ * RedisModule_ChannelAtPosWithFlags. */
+#define REDISMODULE_CMD_CHANNEL_PATTERN (1ULL<<0)
+#define REDISMODULE_CMD_CHANNEL_PUBLISH (1ULL<<1)
+#define REDISMODULE_CMD_CHANNEL_SUBSCRIBE (1ULL<<2)
+#define REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE (1ULL<<3)
 
 typedef struct RedisModuleCommandArg {
     const char *name;
@@ -395,12 +402,6 @@ typedef struct {
     RedisModuleCommandKeySpec *key_specs;
     RedisModuleCommandArg *args;
 } RedisModuleCommandInfo;
-
-/* Redis ACL key permission flags, which specify which permissions a module
- * needs on a key. */
-#define REDISMODULE_KEY_PERMISSION_READ (1<<0) 
-#define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
-#define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)
 
 /* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
@@ -946,6 +947,8 @@ REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_IsChannelsPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ChannelAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientUserNameById)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClientInfoById)(void *ci, uint64_t id) REDISMODULE_ATTR;
@@ -1267,6 +1270,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(KeyAtPosWithFlags);
+    REDISMODULE_GET_API(IsChannelsPositionRequest);
+    REDISMODULE_GET_API(ChannelAtPosWithFlags);
     REDISMODULE_GET_API(GetClientId);
     REDISMODULE_GET_API(GetClientUserNameById);
     REDISMODULE_GET_API(GetContextFlags);
