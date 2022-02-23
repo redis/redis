@@ -17,7 +17,11 @@ typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
+    streamID pels_min_id;   /* Same, holds the minimal ID from all PELs. */
+    streamID lasts_min_id;  /* Same same, but for all CGs' last delivered ID. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+    rax *cgpels;            /* A reference count dict of minimal PEL IDs. */
+    rax *cglasts;           /* A reference count dict of last delivered IDs. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without

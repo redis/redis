@@ -58,6 +58,7 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
+void streamSetCGLastID(stream *s, streamCG *cg, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -70,7 +71,13 @@ stream *streamNew(void) {
     s->length = 0;
     s->last_id.ms = 0;
     s->last_id.seq = 0;
+    s->pels_min_id.ms = 0;
+    s->pels_min_id.seq = 0;
+    s->lasts_min_id.ms = 0;
+    s->lasts_min_id.seq = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
+    s->cgpels = NULL;
+    s->cglasts = NULL;
     return s;
 }
 
@@ -79,6 +86,10 @@ void freeStream(stream *s) {
     raxFreeWithCallback(s->rax,(void(*)(void*))lpFree);
     if (s->cgroups)
         raxFreeWithCallback(s->cgroups,(void(*)(void*))streamFreeCG);
+    if (s->cgpels)
+        raxFreeWithCallback(s->cgpels,NULL);
+    if (s->cglasts)
+        raxFreeWithCallback(s->cglasts,NULL);
     zfree(s);
 }
 
@@ -187,6 +198,8 @@ robj *streamDup(robj *o) {
     new_s->last_id = s->last_id;
     raxStop(&ri);
 
+    /* TBD: dup cglasts and cgpels. */
+    
     if (s->cgroups == NULL) return sobj;
 
     /* Consumer Groups */
@@ -1386,6 +1399,101 @@ robj *createObjectFromStreamID(streamID *id) {
                         id->ms,id->seq));
 }
 
+/* Returns non-zero if the ID is 0-0. */
+int streamIDEqZero(streamID *id) {
+    return !(id->ms || id->seq);
+}
+
+/* Sets the 'id' to the first/last ID in the referance rax. */
+void refraxGetEdge(rax *refrax, int first, streamID *id) {
+    if (raxSize(refrax) == 0) {
+        id->ms = first ? UINT64_MAX : 0;
+        id->seq = first ? UINT64_MAX : 0;
+        return;
+    }
+
+    raxIterator ri;
+    raxStart(&ri, refrax);
+    if (first) {
+        raxSeek(&ri,"^",NULL,0);
+    } else {
+        raxSeek(&ri,"$",NULL,0);
+    }
+    streamDecodeID(ri.key,id);
+    raxStop(&ri);
+}
+
+/* Inserts/increments a key to the reference counting rax, and updates the
+ * minimal (first) parameter. */
+void refraxInsertAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
+    unsigned char key[sizeof(streamID)];
+    int exists;
+    size_t value;
+    void *new, *old;
+
+    /* We can't use raxFind here, because there's a chance that our counters
+     * will eventually reach the 'raxNotFound' address. Instead, we'll try
+     * inserting a new key, and update the existing upon failure. */
+    value = 1;
+    new = (void *)value;
+    streamEncodeID(key,id);
+    exists = raxTryInsert(refrax,key,sizeof(streamID),new,&old);
+
+    if (exists) {
+        /* Increrement exisiting reference counter for the ID by 1. */
+        value = (size_t)old;
+        value++;
+        new = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),new,NULL);
+    } else if (streamIDEqZero(min_id) || streamCompareID(id,min_id) < 0) {
+        /* Set the minimal ID to the newly-inserted ID. */
+        min_id->ms = id->ms;
+        min_id->seq = id->seq;
+    }
+}
+
+/* Decrements or removes (when the reference count is zeroed) the key from the
+ * reference counting rax, and updates the minimal (first) parameter. */
+void refraxRemoveAndSetMinID(rax *refrax, streamID *id, streamID *min_id) {
+    unsigned char key[sizeof(streamID)];
+    int exists;
+    size_t value;
+    void *new, *old;
+
+    /* We can't use raxFind here, because there's a chance that our counters
+     * will eventually reach the 'raxNotFound' address. Instead, we'll try
+     * inserting a new key, and update or remove the existing upon failure.
+     * In the rare case that this is called with a non-existing key, we'll add
+     * and immediately remove the key. */
+    value = 1;
+    new = (void *)value;
+    streamEncodeID(key,id);
+    exists = raxTryInsert(refrax,key,sizeof(streamID),new,&old);
+
+    if (exists) {
+        value = (size_t)old;
+    }
+
+    if (value == 1) {
+        /* The key is no lenger referenced and can be removed. */
+        raxRemove(refrax,key,sizeof(streamID),NULL);
+        if (exists) {
+            /* In case the removed ID was the minimal ID, we need to retrieve
+             * and set the new one. */
+            int cmp = streamCompareID(id,min_id);
+            serverAssert(cmp >= 0);
+            if (streamCompareID(id,min_id) == 0) {
+                refraxGetEdge(refrax,1,min_id);
+            }
+        }
+    } else {
+        /* Decrement the reference counter by 1. */
+        value--;
+        new = (void *)value;
+        raxInsert(refrax,key,sizeof(streamID),new,NULL);
+    }
+}
+
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
  * are created in the pending list of the stream and consumers. We need
  * to propagate this changes in the form of XCLAIM commands. */
@@ -1532,7 +1640,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            group->last_id = id;
+            streamSetCGLastID(s,group,&id);
             /* Group last ID should be propagated only if NOACK was
              * specified, otherwise the last id will be included
              * in the propagation of XCLAIM itself. */
@@ -1593,6 +1701,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
             } else if (group_inserted == 1 && consumer_inserted == 0) {
                 serverPanic("NACK half-created. Should not be possible.");
+            } else {
+                /* Since this is a new PEL and NACK entry for the CG, track it
+                 * in the relevant refrax. */
+                refraxInsertAndSetMinID(s->cgpels,&id,&s->pels_min_id);
             }
 
             /* Propagate as XCLAIM. */
@@ -2297,19 +2409,31 @@ void streamFreeConsumer(streamConsumer *sc) {
     zfree(sc);
 }
 
+void streamSetCGLastID(stream *s, streamCG *cg, streamID *id) {
+    if (!streamIDEqZero(&cg->last_id)) {
+        refraxRemoveAndSetMinID(s->cglasts,&cg->last_id,&s->lasts_min_id);
+    }
+    refraxInsertAndSetMinID(s->cglasts,id,&s->lasts_min_id);
+    cg->last_id = *id;
+}
+
 /* Create a new consumer group in the context of the stream 's', having the
  * specified name and last server ID. If a consumer group with the same name
  * already existed NULL is returned, otherwise the pointer to the consumer
  * group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id) {
-    if (s->cgroups == NULL) s->cgroups = raxNew();
+    if (s->cgroups == NULL) {
+        s->cgroups = raxNew();
+        s->cgpels = raxNew();
+        s->cglasts = raxNew();
+    }
     if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
         return NULL;
 
     streamCG *cg = zmalloc(sizeof(*cg));
     cg->pel = raxNew();
     cg->consumers = raxNew();
-    cg->last_id = *id;
+    streamSetCGLastID(s,cg,id);
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
 }
@@ -2503,7 +2627,7 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
-        cg->last_id = id;
+        streamSetCGLastID(s,cg,&id);
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -2582,11 +2706,13 @@ void xsetidCommand(client *c) {
  * acknowledged, that is, the IDs we were actually able to resolve in the PEL.
  */
 void xackCommand(client *c) {
+    stream *s = NULL;
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     if (o) {
         if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
-        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
+        s = o->ptr;
+        group = streamLookupCG(s,c->argv[2]->ptr);
     }
 
     /* No key or group? Nothing to ack. */
@@ -2618,6 +2744,7 @@ void xackCommand(client *c) {
          * we are able to remove the entry from both PELs. */
         streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
         if (nack != raxNotFound) {
+            refraxRemoveAndSetMinID(s->cgpels,&ids[j-3],&s->pels_min_id);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamFreeNACK(nack);
@@ -2881,6 +3008,7 @@ void xpendingCommand(client *c) {
  * successfully claimed, so that the caller is able to understand
  * what messages it is now in charge of. */
 void xclaimCommand(client *c) {
+    stream *s = NULL;
     streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument. */
@@ -2891,7 +3019,8 @@ void xclaimCommand(client *c) {
 
     if (o) {
         if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
-        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
+        s = o->ptr;
+        group = streamLookupCG(s,c->argv[2]->ptr);
     }
 
     /* No key or group? Send an error given that the group creation
@@ -2961,7 +3090,7 @@ void xclaimCommand(client *c) {
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
-        group->last_id = last_id;
+        streamSetCGLastID(s,group,&last_id);
         propagate_last_id = 1;
     }
 
@@ -3398,7 +3527,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 6 : 7);
+    addReplyMapLen(c,full ? 8 : 9);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -3407,6 +3536,10 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c,s->rax->numnodes);
     addReplyBulkCString(c,"last-generated-id");
     addReplyStreamID(c,&s->last_id);
+    addReplyBulkCString(c,"minimal-groups-pel-id");
+    addReplyStreamID(c,&s->pels_min_id);    
+    addReplyBulkCString(c,"minimal-groups-last-id");
+    addReplyStreamID(c,&s->lasts_min_id);
 
     if (!full) {
         /* XINFO STREAM <key> */
