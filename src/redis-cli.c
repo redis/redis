@@ -70,8 +70,6 @@
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
 #define OUTPUT_JSON 3
-#define JSON_ENABLE_BINARY_ENCODING 1
-#define JSON_DISABLE_BINARY_ENCODING 2
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -1227,11 +1225,16 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int binary) {
                 key->type == REDIS_REPLY_STATUS ||
                 key->type == REDIS_REPLY_STRING ||
                 key->type == REDIS_REPLY_VERB) {
-                out = cliFormatReplyJson(out, key, JSON_DISABLE_BINARY_ENCODING);
+                    /* Binary data can be stored in Hash key, but don't use binary escape here
+                     * otherwise all keys are also printed as binary string, it would be useless
+                     * for users */
+                    out = cliFormatReplyJson(out, key, 0);
             } else {
-                /* According to JSON spec, JSON map keys must be strings, */
-                /* and in RESP3, they can be other types. */
-                sds tmp = cliFormatReplyJson(sdsempty(), key, JSON_DISABLE_BINARY_ENCODING);
+                /* According to JSON spec, JSON map keys must be strings,
+                 * and in RESP3, they can be other types. 
+                 * The first one(cliFormatReplyJson) is to convert non string type to string
+                 * The Second one(escapeJsonString) is to escape the converted string */
+                sds tmp = cliFormatReplyJson(sdsempty(), key, 0);
                 out = escapeJsonString(out,tmp,sdslen(tmp));
                 sdsfree(tmp);
             }
@@ -1656,7 +1659,7 @@ static int parseOptions(int argc, char **argv) {
             }
             config.output = OUTPUT_JSON;
         } else if (!strcmp(argv[i],"--json-binary-encoding")) {
-            config.json_binary_encoding = JSON_ENABLE_BINARY_ENCODING;
+            config.json_binary_encoding = 1;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
@@ -1912,7 +1915,7 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (config.output != OUTPUT_JSON && config.json_binary_encoding != 0) {
+    if (config.output != OUTPUT_JSON && config.json_binary_encoding) {
         fprintf(stderr,"Option --json-binary-encoding should be used with --json\n");
         exit(1);
     }
