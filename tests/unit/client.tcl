@@ -30,9 +30,7 @@ start_server {} {
         catch {r client caching on} err
         set _ $err
     } {ERR*when the client is in tracking mode*}
-}
 
-start_server {} {
     test {CLIENT kill wrong address} {
         catch {r client kill 000.123.321.567:0000} err
         set _ $err
@@ -42,17 +40,12 @@ start_server {} {
         catch {r client kill 127.0.0.1:} err
         set _ $err
     } {ERR*No such*}
-}
 
-start_server {} {
     test {CLIENT no-evict wrong argument} {
         catch {r client no-evict wrongInput} err
         set _ $err
     } {ERR*syntax*}
-}
 
-
-start_server {} {
     test {CLIENT pause wrong timeout type} {
         catch {r client pause abc} err
         set _ $err
@@ -62,16 +55,11 @@ start_server {} {
         catch {r client pause -1} err
         set _ $err
     } {ERR timeout is negative}
-}
 
-start_server {} {
     test {CLIENT reply wrong argument} {
         catch {r client reply wrongInput} err
         set _ $err
     } {ERR*syntax*}
-}
-
-start_server {} {
 
     test {CLIENT tracking wrong argument} {
         catch {r client tracking wrongInput} err
@@ -82,9 +70,7 @@ start_server {} {
         catch {r client tracking on wrongInput} err
         set _ $err
     } {ERR*syntax*}
-}
 
-start_server {} {
     test {CLIENT getname check if name set correctly} {
         r client setname testName
         r client getName
