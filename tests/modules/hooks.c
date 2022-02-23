@@ -270,7 +270,9 @@ void swapDbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void 
 void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(e);
-    REDISMODULE_NOT_USED(sub);
+    if (sub != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+        return;
+    }
 
     RedisModuleConfigChangeV1 *ei = data;
     LogNumericEvent(ctx, "config-change-count", ei->num_changes);
@@ -328,7 +330,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModuleEvent_SwapDB, swapDbCallback);
 
     RedisModule_SubscribeToServerEvent(ctx,
-        RedisModuleEvent_ConfigChange, configChangeCallback);
+        RedisModuleEvent_Config, configChangeCallback);
 
     event_log = RedisModule_CreateDict(ctx);
 

@@ -429,7 +429,7 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
 #define REDISMODULE_EVENT_EVENTLOOP 15
-#define REDISMODULE_EVENT_CONFIG_CHANGE 16
+#define REDISMODULE_EVENT_CONFIG 16
 #define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
@@ -534,8 +534,8 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_EVENTLOOP,
         1
     },
-    RedisModuleEvent_ConfigChange = {
-	REDISMODULE_EVENT_CONFIG_CHANGE,
+    RedisModuleEvent_Config = {
+	REDISMODULE_EVENT_CONFIG,
 	1
     };
 
@@ -578,6 +578,8 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MODULE_LOADED 0
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
+
+#define REDISMODULE_SUBEVENT_CONFIG_CHANGE 0
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
@@ -677,6 +679,8 @@ typedef struct RedisModuleModuleChange {
     int32_t module_version; /* Module version. */
 } RedisModuleModuleChangeV1;
 
+#define RedisModuleModuleChange RedisModuleModuleChangeV1
+
 #define REDISMODULE_CONFIGCHANGE_VERSION 1
 typedef struct RedisModuleConfigChange {
     uint64_t version;       /* Not used since this structure is never passed
@@ -686,7 +690,7 @@ typedef struct RedisModuleConfigChange {
     const char **config_names; /* the config names that were changed */
 } RedisModuleConfigChangeV1;
 
-#define RedisModuleModuleChange RedisModuleModuleChangeV1
+#define RedisModuleConfigChange RedisModuleConfigChangeV1
 
 #define REDISMODULE_CRON_LOOP_VERSION 1
 typedef struct RedisModuleCronLoopInfo {

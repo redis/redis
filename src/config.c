@@ -828,7 +828,7 @@ void configSetCommand(client *c) {
         }
     }
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
-    moduleFireServerEvent(REDISMODULE_EVENT_CONFIG_CHANGE, 0, &cc);
+    moduleFireServerEvent(REDISMODULE_EVENT_CONFIG, REDISMODULE_SUBEVENT_CONFIG_CHANGE, &cc);
     addReply(c,shared.ok);
     goto end;
 
