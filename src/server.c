@@ -2625,6 +2625,10 @@ void createSharedObjects(void) {
             sdscatprintf(sdsempty(),"*%d\r\n",j));
         shared.bulkhdr[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),"$%d\r\n",j));
+        shared.maphdr[j] = createObject(OBJ_STRING,
+            sdscatprintf(sdsempty(),"%%%d\r\n",j));
+        shared.sethdr[j] = createObject(OBJ_STRING,
+            sdscatprintf(sdsempty(),"~%d\r\n",j));
     }
     /* The following two shared objects, minstring and maxstrings, are not
      * actually used for their value but as a special object meaning
