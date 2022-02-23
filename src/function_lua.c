@@ -87,7 +87,7 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
         lua_sethook(lua, luaEngineLoadHook, LUA_MASKLINE, 0);
 
         luaPushError(lua,"FUNCTION LOAD timeout");
-        luaRaiseError(lua);
+        luaError(lua);
     }
 }
 
@@ -432,11 +432,11 @@ static int luaRegisterFunction(lua_State *lua) {
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
     if (!load_ctx) {
         luaPushError(lua, "redis.register_function can only be called on FUNCTION LOAD command");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     if (luaRegisterFunctionReadArgs(lua, &register_f_args) != C_OK) {
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     sds err = NULL;
@@ -444,7 +444,7 @@ static int luaRegisterFunction(lua_State *lua) {
         luaRegisterFunctionArgsDispose(lua, &register_f_args);
         luaPushError(lua, err);
         sdsfree(err);
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     return 0;

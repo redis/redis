@@ -1411,6 +1411,9 @@ start_server {tags {"scripting"}} {
             r eval {return redis.call('set','x','y')} 1 x
         }
         assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
+        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
 
         # redis.pcall() failure due to Redis state (OOM) returns lua error table with Redis error message without '-' prefix
         r config resetstat
@@ -1426,14 +1429,21 @@ start_server {tags {"scripting"}} {
         ] 1
         # error stats were not incremented
         assert_equal [errorrstat ERR r] {}
-        assert_equal [errorrstat OOM r] {}
+        assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
+        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
         
         # Returning an error object from lua is handled as a valid RESP error result.
         r config resetstat
         assert_error {OOM command not allowed when used memory > 'maxmemory'.} {
             r eval { return redis.pcall('set','x','y') } 1 x
         }
+        assert_equal [errorrstat ERR r] {}
         assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
+        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
 
         r config set maxmemory 0
         r config resetstat
@@ -1442,6 +1452,9 @@ start_server {tags {"scripting"}} {
             r eval {return redis.call('select',99)} 0
         }
         assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_select:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
         
         # redis.pcall() failure due to error in Redis command returns lua error table with redis error message without '-' prefix
         r config resetstat
@@ -1456,6 +1469,9 @@ start_server {tags {"scripting"}} {
             } 0
         ] 1
         assert_equal [errorrstat ERR r] {count=1} ;
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_select:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
 
         # Script aborted due to scripting specific error state (write cmd with eval_ro) should report script execution error with detailed internal error
         r config resetstat
@@ -1463,6 +1479,9 @@ start_server {tags {"scripting"}} {
             r eval_ro {return redis.call('set','x','y')} 1 x
         }
         assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
+        assert_match {*cmdstat_eval_ro:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
 
         # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
         r config resetstat
@@ -1476,7 +1495,10 @@ start_server {tags {"scripting"}} {
                 end
             } 1 x
         ] 1
-        assert_equal [errorrstat ERR r] {} ;# error stats were not incremented
+        assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [totalerrorreplies r] {1}
+        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
+        assert_match {*cmdstat_eval_ro:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
     } {} {cluster:skip}
     
     test "LUA redis.error_reply API" {

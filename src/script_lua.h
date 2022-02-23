@@ -75,7 +75,7 @@ void luaRegisterLogFunction(lua_State* lua);
 void luaRegisterVersion(lua_State* lua);
 void luaPushErrorBuff(lua_State *lua, sds err_buff);
 void luaPushError(lua_State *lua, const char *error);
-int luaRaiseError(lua_State *lua);
+int luaError(lua_State *lua);
 void luaSaveOnRegistry(lua_State* lua, const char* name, void* ptr);
 void* luaGetFromRegistry(lua_State* lua, const char* name);
 void luaCallFunction(scriptRunCtx* r_ctx, lua_State *lua, robj** keys, size_t nkeys, robj** args, size_t nargs, int debug_enabled);

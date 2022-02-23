@@ -431,9 +431,12 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
 
 /* This function is used in order to push an error on the Lua stack in the
  * format used by redis.pcall to return errors, which is a lua table
- * with a single "err" field set to the error string. Note that this
+ * with an "err" field set to the error string and "err_code" field which
+ * is also a Lua string representing the error code. Note that this
  * table is never a valid reply by proper commands, since the returned
- * tables are otherwise always indexed by integers, never by strings. */
+ * tables are otherwise always indexed by integers, never by strings.
+ *
+ * The function takes ownership on the given err_buffer. */
 void luaPushErrorBuff(lua_State *lua, sds err_buffer) {
     sds msg;
     sds error_code;
@@ -490,7 +493,7 @@ void luaPushError(lua_State *lua, const char *error) {
  * by the non-error-trapping version of redis.pcall(), which is redis.call(),
  * this function will raise the Lua error so that the execution of the
  * script will be halted. */
-int luaRaiseError(lua_State *lua) {
+int luaError(lua_State *lua) {
     return lua_error(lua);
 }
 
@@ -540,14 +543,16 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
-            const char *err_code = "ERR";
-            lua_pushstring(lua,"err_code");
-            lua_gettable(lua,-3);
-            if (lua_isstring(lua, -1)) {
-                err_code = lua_tostring(lua, -1);
-            }
-            addReplyErrorFormat(c,"-%s %s",err_code,lua_tostring(lua,-2));
-            lua_pop(lua,3);
+            lua_pop(lua, 1); /* pop the error message, we will use luaExtractErrorInformation to get error information */
+            errorInfo err_info = {0};
+            luaExtractErrorInformation(lua, &err_info);
+            addReplyErrorFormatEx(c,
+                                  err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE: 0,
+                                  "-%s %s",
+                                  err_info.error_code? err_info.error_code : "ERR",
+                                  err_info.msg);
+            luaErrorInformationDiscard(&err_info);
+            lua_pop(lua,1); /* pop the result table */
             return;
         }
         lua_pop(lua,1); /* Discard field name pushed before. */
@@ -748,7 +753,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
         luaPushError(lua, "redis.call/pcall can only be called inside a script invocation");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     sds err = NULL;
     client* c = rctx->c;
@@ -757,7 +762,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int argc;
     robj **argv = luaArgsToRedisArgv(lua, &argc);
     if (argv == NULL) {
-        return raise_error ? luaRaiseError(lua) : 1;
+        return raise_error ? luaError(lua) : 1;
     }
 
     static int inuse = 0;   /* Recursive calls detection. */
@@ -796,6 +801,11 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (err) {
         luaPushError(lua, err);
         sdsfree(err);
+        /* push a field indicate to ignore updating the stats on this error
+         * because it was already updated when executing the command. */
+        lua_pushstring(lua,"ignore_error_stats_update");
+        lua_pushboolean(lua, true);
+        lua_settable(lua,-3);
         goto cleanup;
     }
 
@@ -840,7 +850,7 @@ cleanup:
         /* If we are here we should have an error in the stack, in the
          * form of a table with an "err" field. Extract the string to
          * return the plain error. */
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     return 1;
 }
@@ -895,7 +905,7 @@ static int luaRedisSha1hexCommand(lua_State *lua) {
 
     if (argc != 1) {
         luaPushError(lua, "wrong number of arguments");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     s = (char*)lua_tolstring(lua,1,&len);
@@ -958,18 +968,18 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
         luaPushError(lua, "redis.set_repl can only be called inside a script invocation");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     if (argc != 1) {
         luaPushError(lua, "redis.set_repl() requires two arguments.");
-         return luaRaiseError(lua);
+         return luaError(lua);
     }
 
     flags = lua_tonumber(lua,-1);
     if ((flags & ~(PROPAGATE_AOF|PROPAGATE_REPL)) != 0) {
         luaPushError(lua, "Invalid replication flags. Use REPL_AOF, REPL_REPLICA, REPL_ALL or REPL_NONE.");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     scriptSetRepl(rctx, flags);
@@ -983,7 +993,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
         luaPushError(lua, "redis.acl_check_cmd can only be called inside a script invocation");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     int raise_error = 0;
 
@@ -991,7 +1001,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     robj **argv = luaArgsToRedisArgv(lua, &argc);
 
     /* Require at least one argument */
-    if (argv == NULL) return luaRaiseError(lua);
+    if (argv == NULL) return luaError(lua);
 
     /* Find command */
     struct redisCommand *cmd;
@@ -1010,7 +1020,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     while (argc--) decrRefCount(argv[argc]);
     zfree(argv);
     if (raise_error)
-        return luaRaiseError(lua);
+        return luaError(lua);
     else
         return 1;
 }
@@ -1024,15 +1034,15 @@ static int luaLogCommand(lua_State *lua) {
 
     if (argc < 2) {
         luaPushError(lua, "redis.log() requires two arguments or more.");
-        return luaRaiseError(lua);
+        return luaError(lua);
     } else if (!lua_isnumber(lua,-argc)) {
         luaPushError(lua, "First argument must be a number (log level).");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     level = lua_tonumber(lua,-argc);
     if (level < LL_DEBUG || level > LL_WARNING) {
         luaPushError(lua, "Invalid debug level.");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     if (level < server.verbosity) return 0;
 
@@ -1058,19 +1068,19 @@ static int luaSetResp(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (!rctx) {
         luaPushError(lua, "redis.setresp can only be called inside a script invocation");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
         luaPushError(lua, "redis.setresp() requires one argument.");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     int resp = lua_tonumber(lua,-argc);
     if (resp != 2 && resp != 3) {
         luaPushError(lua, "RESP version must be 2 or 3.");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
     scriptSetResp(rctx, resp);
     return 0;
@@ -1434,7 +1444,7 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
         lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
 
         luaPushError(lua,"Script killed by user with SCRIPT KILL...");
-        luaRaiseError(lua);
+        luaError(lua);
     }
 }
 
@@ -1560,12 +1570,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
                                       err_info.source,
                                       err_info.line);
             }
-            addReplyErrorSdsExt(c, final_msg, err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE : 0);
-            if (err_info.ignore_err_stats_update) {
-                /* If we do not update the error stats, the current command stats will not be updated.
-                 * Update it manually here */
-                c->cmd->failed_calls++;
-            }
+            addReplyErrorSdsEx(c, final_msg, err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE : 0);
             luaErrorInformationDiscard(&err_info);
         }
         lua_pop(lua,1); /* Consume the Lua error */

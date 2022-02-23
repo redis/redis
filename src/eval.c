@@ -1481,7 +1481,7 @@ int ldbRepl(lua_State *lua) {
             char buf[1024];
             if (err) {
                 luaPushError(lua, err);
-                luaRaiseError(lua);
+                luaError(lua);
             }
             int nread = connRead(ldb.conn,buf,sizeof(buf));
             if (nread <= 0) {
@@ -1499,7 +1499,7 @@ int ldbRepl(lua_State *lua) {
                 sdsfree(ldb.cbuf);
                 ldb.cbuf = sdsempty();
                 luaPushError(lua, "max client buffer reached");
-                luaRaiseError(lua);
+                luaError(lua);
             }
         }
 
@@ -1560,7 +1560,7 @@ ldbLog(sdsnew("                     next line of code."));
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"a") || !strcasecmp(argv[0],"abort")) {
             luaPushError(lua, "script aborted for user request");
-            luaRaiseError(lua);
+            luaError(lua);
         } else if (argc > 1 &&
                    (!strcasecmp(argv[0],"r") || !strcasecmp(argv[0],"redis"))) {
             ldbRedis(lua,argv,argc);
@@ -1642,7 +1642,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
              * connection, let's kill the script otherwise the process
              * will remain blocked indefinitely. */
             luaPushError(lua, "timeout during Lua debugging with client closing connection");
-            luaRaiseError(lua);
+            luaError(lua);
         }
         rctx->start_time = getMonotonicUs();
         rctx->snapshot_time = mstime();

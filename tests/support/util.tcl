@@ -639,6 +639,12 @@ proc errorrstat {cmd r} {
     }
 }
 
+proc totalerrorreplies {r} {
+    if {[regexp "\r\ntotal_error_replies:(.*?)\r\n" [$r info stats] _ value]} {
+        set _ $value
+    }
+}
+
 proc latencyrstat_percentiles {cmd r} {
     if {[regexp "\r\nlatency_percentiles_usec_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
         set _ $value
