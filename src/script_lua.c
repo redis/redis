@@ -1553,7 +1553,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
     if (err) {
         /* Error object is a table of the following format:
          * {err='<error msg>', err_code='<error code>', source='<source file>', line=<line>}
-         * We can constract the error message from this inforamtion */
+         * We can construct the error message from this information */
         if (!lua_istable(lua, -1)) {
             /* Should not happened, and we should considered assert it */
             addReplyErrorFormat(c,"Error running script (call to %s)\n", run_ctx->funcname);

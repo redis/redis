@@ -393,7 +393,7 @@ sds luaCreateFunction(client *c, robj *body) {
     if (luaL_loadbuffer(lctx.lua,funcdef,sdslen(funcdef),"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
-                "Error compiling script (new function): %s\n",
+                "Error compiling script (new function): %s",
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
@@ -404,7 +404,7 @@ sds luaCreateFunction(client *c, robj *body) {
 
     if (lua_pcall(lctx.lua,0,0,0)) {
         if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s\n",
+            addReplyErrorFormat(c,"Error running script (new function): %s",
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
