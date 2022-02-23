@@ -8521,6 +8521,7 @@ int main(int argc, char **argv) {
     config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.in_multi = 0;
+    config.json_binary_encoding = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

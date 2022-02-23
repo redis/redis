@@ -383,6 +383,8 @@ void freeCliConnInfo(cliConnInfo connInfo){
  * r (carriage return)
  * t (tab)
  * 
+ * and the characters between 0x00~0x1f are printed as \u00??
+ * 
  * ref: https://datatracker.ietf.org/doc/html/rfc7159#section-7
 */
 sds escapeJsonString(sds s, const char *p, size_t len) {
