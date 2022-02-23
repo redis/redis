@@ -717,7 +717,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
     /* Things like *2\r\n, %3\r\n or ~4\r\n are emitted very often by the protocol
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
-    const size_t hdr_len = length < 10 ? 4 : 5;
+    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(length);
     const int opt_hdr = length < OBJ_SHARED_BULKHDR_LEN;
     if (prefix == '*' && opt_hdr) {
         setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, hdr_len);
