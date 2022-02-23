@@ -692,7 +692,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_2);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -986,6 +986,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
         nwritten += n;
+        /* Save the first entry ID. */
+        if ((n = rdbSaveLen(rdb,s->first_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->first_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the maximal tombstone ID. */
+        if ((n = rdbSaveLen(rdb,s->max_deleted_entry_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->max_deleted_entry_id.seq)) == -1) return -1;
+        nwritten += n;
+        /* Save the offset. */
+        if ((n = rdbSaveLen(rdb,s->entries_added)) == -1) return -1;
+        nwritten += n;
 
         /* The consumer groups and their clients are part of the stream
          * type, so serialize every consumer group. */
@@ -1016,6 +1029,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
                 if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) {
+                    raxStop(&ri);
+                    return -1;
+                }
+                nwritten += n;
+                
+                /* Save the group's logical reads counter. */
+                if ((n = rdbSaveLen(rdb,cg->entries_read)) == -1) {
                     raxStop(&ri);
                     return -1;
                 }
@@ -2321,7 +2341,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 rdbReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS || rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
         o = createStreamObject();
         stream *s = o->ptr;
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
@@ -2397,6 +2417,30 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
+        
+        if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+            /* Load the first entry ID. */
+            s->first_id.ms = rdbLoadLen(rdb,NULL);
+            s->first_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the maximal deleted entry ID. */
+            s->max_deleted_entry_id.ms = rdbLoadLen(rdb,NULL);
+            s->max_deleted_entry_id.seq = rdbLoadLen(rdb,NULL);
+
+            /* Load the offset. */
+            s->entries_added = rdbLoadLen(rdb,NULL);
+        } else {
+            /* During migration the offset can be initialized to the stream's
+             * length. At this point, we also don't care about tombstones
+             * because CG offsets will be later initialized as well. */
+            s->max_deleted_entry_id.ms = 0;
+            s->max_deleted_entry_id.seq = 0;
+            s->entries_added = s->length;
+            
+            /* Since the rax is already loaded, we can find the first entry's
+             * ID. */ 
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
 
         if (rioGetReadError(rdb)) {
             rdbReportReadError("Stream object metadata loading failed.");
@@ -2432,8 +2476,22 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
+            
+            /* Load group offset. */
+            uint64_t cg_offset;
+            if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
+                cg_offset = rdbLoadLen(rdb,NULL);
+                if (rioGetReadError(rdb)) {
+                    rdbReportReadError("Stream cgroup offset loading failed.");
+                    sdsfree(cgname);
+                    decrRefCount(o);
+                    return NULL;
+                }
+            } else {
+                cg_offset = streamEstimateDistanceFromFirstEverEntry(s,&cg_id);
+            }
 
-            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
+            streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id,cg_offset);
             if (cgroup == NULL) {
                 rdbReportCorruptRDB("Duplicated consumer group name %s",
                                          cgname);

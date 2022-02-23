@@ -623,22 +623,30 @@ start_server {
         r XDEL x 103
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [llength $reply] 12
-        assert_equal [lindex $reply 1] 4 ;# stream length
-        assert_equal [lindex $reply 9] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}" ;# entries
-        assert_equal [lindex $reply 11 0 1] "g1" ;# first group name
-        assert_equal [lindex $reply 11 0 7 0 0] "100-0" ;# first entry in group's PEL
-        assert_equal [lindex $reply 11 0 9 0 1] "Alice" ;# first consumer
-        assert_equal [lindex $reply 11 0 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 1] "g2" ;# second group name
-        assert_equal [lindex $reply 11 1 9 0 1] "Charlie" ;# first consumer
-        assert_equal [lindex $reply 11 1 9 0 7 0 0] "100-0" ;# first entry in first consumer's PEL
-        assert_equal [lindex $reply 11 1 9 0 7 1 0] "101-0" ;# second entry in first consumer's PEL
+        assert_equal [llength $reply] 18
+        assert_equal [dict get $reply length] 4
+        assert_equal [dict get $reply entries] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}"
+
+        # First consumer group
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group name] "g1"
+        assert_equal [lindex [dict get $group pending] 0 0] "100-0"
+        set consumer [lindex [dict get $group consumers] 0]
+        assert_equal [dict get $consumer name] "Alice"
+        assert_equal [lindex [dict get $consumer pending] 0 0] "100-0" ;# first entry in first consumer's PEL
+
+        # Second consumer group
+        set group [lindex [dict get $reply groups] 1]
+        assert_equal [dict get $group name] "g2"
+        set consumer [lindex [dict get $group consumers] 0]
+        assert_equal [dict get $consumer name] "Charlie"
+        assert_equal [lindex [dict get $consumer pending] 0 0] "100-0" ;# first entry in first consumer's PEL
+        assert_equal [lindex [dict get $consumer pending] 1 0] "101-0" ;# second entry in first consumer's PEL
 
         set reply [r XINFO STREAM x FULL COUNT 1]
-        assert_equal [llength $reply] 12
-        assert_equal [lindex $reply 1] 4
-        assert_equal [lindex $reply 9] "{100-0 {a 1}}"
+        assert_equal [llength $reply] 18
+        assert_equal [dict get $reply length] 4
+        assert_equal [dict get $reply entries] "{100-0 {a 1}}"
     }
 
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
@@ -702,7 +710,7 @@ start_server {
             set grpinfo [r xinfo groups mystream]
 
             r debug loadaof
-            assert {[r xinfo groups mystream] == $grpinfo}
+            assert_equal [r xinfo groups mystream] $grpinfo
             set reply [r xinfo consumers mystream mygroup]
             set consumer_info [lindex $reply 0]
             assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
@@ -739,6 +747,154 @@ start_server {
             assert_equal [lindex $consumer_info 1] "Charlie"
             $rd close
         }
+    }
+
+    test {Consumer group read counter and lag in empty streams} {
+        r DEL x
+        r XGROUP CREATE x g1 0 MKSTREAM
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
+        assert_equal [dict get $reply entries-added] 0
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] 0
+
+        r XADD x 1-0 data a
+        r XDEL x 1-0
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $reply max-deleted-entry-id] "1-0"
+        assert_equal [dict get $reply entries-added] 1
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] 0
+    }
+
+    test {Consumer group read counter and lag sanity} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XGROUP CREATE x g1 0
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] 5
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] 4
+
+        r XREADGROUP GROUP g1 c12 COUNT 10 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 0
+
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 1
+    }
+
+    test {Consumer group lag with XDELs} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XDEL x 3-0
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATE x g2 0
+        
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] {}
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] {}
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] {}
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] {}
+
+        r XREADGROUP GROUP g1 c11 COUNT 1 STREAMS x >
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 0
+
+        r XADD x 6-0 data f
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 1
+        
+        r XTRIM x MINID = 3-0
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 1
+        set group [lindex [dict get $reply groups] 1]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] 3
+
+        r XTRIM x MINID = 5-0
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 5
+        assert_equal [dict get $group lag] 1
+        set group [lindex [dict get $reply groups] 1]
+        assert_equal [dict get $group entries-read] {}
+        assert_equal [dict get $group lag] 2
+    }
+
+    test {Loading from legacy (Redis <= v6.2.x, rdb_ver < 10) persistence} {
+        # The payload was DUMPed from a v5 instance after:
+        # XADD x 1-0 data a
+        # XADD x 2-0 data b
+        # XADD x 3-0 data c
+        # XADD x 4-0 data d
+        # XADD x 5-0 data e
+        # XADD x 6-0 data f
+        # XDEL x 3-0
+        # XGROUP CREATE x g1 0
+        # XGROUP CREATE x g2 0
+        # XREADGROUP GROUP g1 c11 COUNT 4 STREAMS x >
+        # XTRIM x MAXLEN = 2
+
+        r DEL x
+        r RESTORE x 0 "\x0F\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\xC3\x40\x4A\x40\x57\x16\x57\x00\x00\x00\x23\x00\x02\x01\x04\x01\x01\x01\x84\x64\x61\x74\x61\x05\x00\x01\x03\x01\x00\x20\x01\x03\x81\x61\x02\x04\x20\x0A\x00\x01\x40\x0A\x00\x62\x60\x0A\x00\x02\x40\x0A\x00\x63\x60\x0A\x40\x22\x01\x81\x64\x20\x0A\x40\x39\x20\x0A\x00\x65\x60\x0A\x00\x05\x40\x0A\x00\x66\x20\x0A\x00\xFF\x02\x06\x00\x02\x02\x67\x31\x05\x00\x04\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x3E\xF7\x83\x43\x7A\x01\x00\x00\x01\x01\x03\x63\x31\x31\x3E\xF7\x83\x43\x7A\x01\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00\x00\x00\x00\x00\x02\x67\x32\x00\x00\x00\x00\x09\x00\x3D\x52\xEF\x68\x67\x52\x1D\xFA"
+
+        set reply [r XINFO STREAM x FULL]
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
+        assert_equal [dict get $reply entries-added] 2
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] 1
+        set group [lindex [dict get $reply groups] 1]
+        assert_equal [dict get $group entries-read] 0
+        assert_equal [dict get $group lag] 2
     }
 
     start_server {tags {"external:skip"}} {
@@ -841,7 +997,7 @@ start_server {
             waitForBgrewriteaof r
             r debug loadaof
             assert {[dict get [r xinfo stream mystream] length] == 0}
-            assert {[r xinfo groups mystream] == $grpinfo}
+            assert_equal [r xinfo groups mystream] $grpinfo
         }
     }
 }
