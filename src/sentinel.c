@@ -2880,13 +2880,16 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                     dictIterator *di;
                     dictEntry *de;
 
+                    /* Keep a copy of runid. 'other' about to be deleted in loop. */
+                    sds runid_obsolete = sdsnew(other->runid);
+
                     di = dictGetIterator(sentinel.masters);
                     while((de = dictNext(di)) != NULL) {
                         sentinelRedisInstance *master = dictGetVal(de);
-                        removeMatchingSentinelFromMaster(master, other->runid);
+                        removeMatchingSentinelFromMaster(master, runid_obsolete);
                     }
                     dictReleaseIterator(di);
-
+                    sdsfree(runid_obsolete);
                 }
             }
 
