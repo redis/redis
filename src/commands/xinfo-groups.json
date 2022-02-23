@@ -9,7 +9,7 @@
         "history": [
             [
                 "7.0.0",
-                "Added the `enries-read` and `lag` fields"
+                "Added the `entries-read` and `lag` fields"
             ]
         ],
         "function": "xinfoCommand",

@@ -394,22 +394,11 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
 {
     streamIterator si;
     int64_t numfields;
-    int empty = (s->length == 0);
-    streamID min_id, max_id;
-    min_id.ms = 0;
-    min_id.seq = 0;
-    max_id.ms = UINT64_MAX;
-    max_id.seq = UINT64_MAX;
-
-    /* If the stream isn't empty, locate the edge ID (the stream may appear
-     * empty, but may still have tombstones). */
-    if (!empty || !skip_tombstones) {
-        streamIteratorStart(&si,s,NULL,NULL,!first);
-        si.skip_tombstones = skip_tombstones;
-        empty = !streamIteratorGetID(&si,edge_id,&numfields);
-        streamIteratorStop(&si);
-    } else {
-        /* Stream is empty, mark edge ID as lowest/highest possible. */
+    streamIteratorStart(&si,s,NULL,NULL,!first);
+    si.skip_tombstones = skip_tombstones;
+    int found = streamIteratorGetID(&si,edge_id,&numfields);
+    if (!found) {
+        streamID min_id = {0, 0}, max_id = {UINT64_MAX, UINT64_MAX};
         *edge_id = first ? max_id : min_id;
     }
 
@@ -1406,20 +1395,24 @@ int streamIDEqZero(streamID *id) {
     return !(id->ms || id->seq);
 }
 
-/* A helper that returns non-zero if the range from 'start' to the stream's
- * end doesn't contain a tombstone.
+/* A helper that returns non-zero if the range from 'start' to `end`
+ * contains a tombstone.
  *
  * NOTE: this assumes that the caller had verified that 'start' is less than
  * 's->last_id'. */
-int streamRangeDoesNotContainTombstone(stream *s, streamID *start) {
-    streamID start_id;
+int streamRangeHasTombstones(stream *s, streamID *start, streamID *end) {
+    streamID start_id, end_id;
 
     if (!s->length || streamIDEqZero(&s->max_deleted_entry_id)) {
         /* The stream is empty or has no tombstones. */
-        return 1;
+        return 0;
     }
 
-    /* Copy start ID, if given, or default to 0-0. */
+    if (streamCompareID(&s->first_id,&s->max_deleted_entry_id) > 0) {
+        /* The latest tombstone is before the first entry. */
+        return 0;
+    }
+
     if (start) {
         start_id = *start;
     } else {
@@ -1427,47 +1420,52 @@ int streamRangeDoesNotContainTombstone(stream *s, streamID *start) {
         start_id.seq = 0;
     }
 
-    if (streamCompareID(&s->first_id,&s->max_deleted_entry_id) > 0) {
-        /* The latest tombstone is before the first entry. */
+    if (end) {
+        end_id = *end;
+    } else {
+        end_id.ms = UINT64_MAX;
+        end_id.seq = UINT64_MAX;
+    }
+
+    if (streamCompareID(&start_id,&s->max_deleted_entry_id) <= 0 &&
+        streamCompareID(&s->max_deleted_entry_id,&end_id) <= 0)
+    {
+        /* start_id <= max_deleted_entry_id <= end_id: The range does include a tombstone. */
         return 1;
     }
 
-    if (streamCompareID(&start_id,&s->max_deleted_entry_id) >= 0) {
-        /* The range doesn't include a tombstone. */
-        return 1;
-    }
-
-    /* The range includes a tombstone. */
+    /* The range doesn't includes a tombstone. */
     return 0;
 }
 
-/* Replies with a consumerg group's current lag, that is the number of messages
+/* Replies with a consumer group's current lag, that is the number of messages
  * in the stream that are yet to be delivered. In case that the lag isn't
  * available due to fragmentation, the reply to the client is a null. */
 void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
-    int valid = 1;
-    uint64_t lag = 0;
+    int valid = 0;
+    long long lag = 0;
 
     if (!s->entries_added) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
-    } else if (cg->entries_read != ULLONG_MAX && streamRangeDoesNotContainTombstone(s,&cg->last_id)) {
+        valid = 1;
+    } else if (cg->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&cg->last_id,NULL)) {
         /* No fragmentation ahead means that the group's logical reads counter
          * is valid for performing the lag calculation. */
-        lag = s->entries_added - cg->entries_read;
+        lag = (long long)s->entries_added - cg->entries_read;
+        valid = 1;
     } else {
         /* Attempt to retrieve the group's last ID logical read counter. */
-        uint64_t entries_read = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
-        if (entries_read != ULLONG_MAX) {
+        long long entries_read = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
+        if (entries_read != SCG_INVALID_ENTRIES_READ) {
             /* A valid counter was obtained. */
-            lag = s->entries_added - entries_read;
-        } else {
-            valid = 0;
+            lag = (long long)s->entries_added - entries_read;
+            valid = 1;
         }
     }
 
     if (valid) {
-        addReplyUnsignedLongLong(c,(long long)lag);
+        addReplyLongLong(c,lag);
     } else {
         addReplyNull(c);
     }
@@ -1492,10 +1490,10 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
  *
  * The special return value of ULLONG_MAX signals that the counter's value isn't
  * obtainable. It is returned in these cases:
- * 1. The provided ID, if it even exists, is somewhere between the the stream's
+ * 1. The provided ID, if it even exists, is somewhere between the stream's
  *    current first and last entries' IDs, or in the future.
  * 2. The stream contains one or more tombstones. */
-uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
+long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     /* The counter of any ID in an empty, never-before-used stream is 0. */
     if (!s->entries_added) {
         return 0;
@@ -1513,7 +1511,7 @@ uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
         return s->entries_added;
     } else if (cmp_last > 0) {
         /* The counter of a future ID is unknown. */
-        return ULLONG_MAX;
+        return SCG_INVALID_ENTRIES_READ;
     }
 
     int cmp_id_first = streamCompareID(id,&s->first_id);
@@ -1531,7 +1529,7 @@ uint64_t streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
 
     /* The ID is either before an XDEL that fragments the stream or an arbitrary
      * ID. Either case, so we can't make a prediction. */
-    return ULLONG_MAX;
+    return SCG_INVALID_ENTRIES_READ;
 }
 
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
@@ -1573,21 +1571,22 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
  * that was consumed by XREADGROUP with the NOACK option: in that case we can't
  * propagate the last ID just using the XCLAIM LASTID option, so we emit
  *
- *  XGROUP SETID <key> <groupname> <id> <entries_read>
+ *  XGROUP SETID <key> <groupname> <id> ENTRIESREAD <entries_read>
  */
 void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupname) {
-    robj *argv[6];
+    robj *argv[7];
     argv[0] = shared.xgroup;
     argv[1] = shared.setid;
     argv[2] = key;
     argv[3] = groupname;
     argv[4] = createObjectFromStreamID(&group->last_id);
-    argv[5] = createStringObjectFromLongLong((unsigned long long)group->entries_read);
+    argv[5] = shared.entriesread;
+    argv[6] = createStringObjectFromLongLong(group->entries_read);
 
-    alsoPropagate(c->db->id,argv,6,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id,argv,7,PROPAGATE_AOF|PROPAGATE_REPL);
 
     decrRefCount(argv[4]);
-    decrRefCount(argv[5]);
+    decrRefCount(argv[6]);
 }
 
 /* We need this when we want to propagate creation of consumer that was created
@@ -1686,7 +1685,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->entries_read != ULLONG_MAX && streamRangeDoesNotContainTombstone(s,&id)) {
+            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&id,NULL)) {
                 /* A valid counter and no future tombstones mean we can 
                  * increment the read counter to keep tracking the group's
                  * progress. */
@@ -2464,7 +2463,7 @@ void streamFreeConsumer(streamConsumer *sc) {
  * specified name, last server ID and reads counter. If a consumer group with
  * the same name already exists NULL is returned, otherwise the pointer to the
  * consumer group is returned. */
-streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, uint64_t entries_read) {
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL) s->cgroups = raxNew();
     if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
         return NULL;
@@ -2553,8 +2552,8 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
  * Consumer groups commands
  * ----------------------------------------------------------------------- */
 
-/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESADDED entries_added]
- * XGROUP SETID <key> <groupname> <id or $> [entries_added]
+/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESADDED count]
+ * XGROUP SETID <key> <groupname> <id or $> [ENTRIESADDED count]
  * XGROUP DESTROY <key> <groupname>
  * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
@@ -2564,36 +2563,33 @@ void xgroupCommand(client *c) {
     streamCG *cg = NULL;
     char *opt = c->argv[1]->ptr; /* Subcommand name. */
     int mkstream = 0;
-    long long entries_read = ULLONG_MAX;
+    long long entries_read = SCG_INVALID_ENTRIES_READ;
     robj *o;
 
-    /* CREATE has an MKSTREAM option that creates the stream if it
-     * does not exist, so we want check that in advance. In this opportunity
-     * we can also parse CREATE's additional options. */
-    if (c->argc >= 6 && c->argc <= 8 && !strcasecmp(opt,"CREATE")) {
+    /* Everything but the "HELP" option requires a key and group name. */
+    if (c->argc >= 4) {
+        /* Parse optional arguments for CREATE and SETID */
         int i = 5;
+        int create_subcmd = !strcasecmp(opt,"CREATE");
+        int setid_subcmd = !strcasecmp(opt,"SETID");
         while (i < c->argc) {
-            if (!strcasecmp(c->argv[i]->ptr,"MKSTREAM")) {
+            if (create_subcmd && !strcasecmp(c->argv[i]->ptr,"MKSTREAM")) {
                 mkstream = 1;
                 i++;
-            } else if (!strcasecmp(c->argv[i]->ptr,"ENTRIESREAD") && i + 1 < c->argc) {
-                sds arg = c->argv[i+1]->ptr;
-                if (sdslen(arg) == 0 || arg[0] == '-') {
-                    addReplyError(c,"entries_read must be an unsigned 64-bit integer");
-                } else if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_read,NULL) != C_OK) {
+            } else if ((create_subcmd || setid_subcmd) && !strcasecmp(c->argv[i]->ptr,"ENTRIESREAD") && i + 1 < c->argc) {
+                if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_read,NULL) != C_OK)
+                    return;
+                if (entries_read < 0 && entries_read != SCG_INVALID_ENTRIES_READ) {
+                    addReplyError(c,"value for ENTRIESREAD must be positive or -1");
                     return;
                 }
-                i = i + 2;
+                i += 2;
             } else {
                 addReplySubcommandSyntaxError(c);
                 return;
             }
         }
-        grpname = c->argv[3]->ptr;
-    }
 
-    /* Everything but the "HELP" option requires a key and group name. */
-    if (c->argc >= 4) {
         o = lookupKeyWrite(c->db,c->argv[2]);
         if (o) {
             if (checkType(c,o,OBJ_STREAM)) return;
@@ -2641,7 +2637,7 @@ void xgroupCommand(client *c) {
 "    Remove the specified consumer.",
 "DESTROY <key> <groupname>",
 "    Remove the specified group.",
-"SETID <key> <groupname> <id|$> [entries_read]",
+"SETID <key> <groupname> <id|$> [ENTRIESREAD entries_read]",
 "    Set the current group ID and entries_read counter.",
 NULL
         };
@@ -2668,7 +2664,7 @@ NULL
             signalModifiedKey(c,c->db,c->argv[2]);
         }
 
-        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,(unsigned long long)entries_read);
+        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
             addReply(c,shared.ok);
             server.dirty++;
@@ -2677,23 +2673,15 @@ NULL
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
-    } else if (!strcasecmp(opt,"SETID") && (c->argc == 5 || c->argc == 6)) {
+    } else if (!strcasecmp(opt,"SETID") && (c->argc == 5 || c->argc == 7)) {
         streamID id;
         if (!strcmp(c->argv[4]->ptr,"$")) {
             id = s->last_id;
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
-        if (c->argc == 6) {
-            sds arg = c->argv[5]->ptr;
-            if (sdslen(arg) == 0 || arg[0] == '-') {
-                addReplyError(c,"entries_read must be an unsigned 64-bit integer");
-            } else if (getLongLongFromObjectOrReply(c,c->argv[5],&entries_read,NULL) != C_OK) {
-                return;
-            }
-        }
         cg->last_id = id;
-        cg->entries_read = (unsigned long long)entries_read;
+        cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -2732,38 +2720,41 @@ NULL
     }
 }
 
-/* XSETID <stream> <id> [entries_added max_deleted_entry_id]
+/* XSETID <stream> <id> [ENTRIESADDED entries_added] [MAXDELETEDID max_deleted_entry_id]
  *
  * Set the internal "last ID", "added entries" and "maximal deleted entry ID"
  * of a stream. */
 void xsetidCommand(client *c) {
-    streamID id, max_xdel_id;
-    long long entries_added;
-    int ext_form = (c->argc == 5);
+    streamID id, max_xdel_id = {0, 0};
+    long long entries_added = -1;
 
-    if (c->argc != 3 && c->argc != 5) {
-        addReplyErrorObject(c,shared.syntaxerr);
+    if (streamParseStrictIDOrReply(c,c->argv[2],&id,0,NULL) != C_OK)
         return;
-    }
-    if (streamParseStrictIDOrReply(c,c->argv[2],&id,0,NULL) != C_OK) return;
-    if (ext_form) {
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&entries_added,NULL) != C_OK) {
-            return;
-        } else if (entries_added < 0) {
-            addReplyError(c,"entries_added must be positive");
+
+    int i = 3;
+    while (i < c->argc) {
+        int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
+        char *opt = c->argv[i]->ptr;
+        if (!strcasecmp(opt,"ENTRIESADDED") && moreargs) {
+            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_added,NULL) != C_OK) {
+                return;
+            } else if (entries_added < 0) {
+                addReplyError(c,"entries_added must be positive");
+                return;
+            }
+            i += 2;
+        } else if (!strcasecmp(opt,"MAXDELETEDID") && moreargs) {
+            if (streamParseStrictIDOrReply(c,c->argv[i+1],&max_xdel_id,0,NULL) != C_OK) {
+                return;
+            } else if (streamCompareID(&id,&max_xdel_id) < 0) {
+                addReplyError(c,"The ID specified in XSETID is smaller than the provided max_deleted_entry_id");
+                return;
+            }
+            i += 2;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
             return;
         }
-        if (streamParseStrictIDOrReply(c,c->argv[4],&max_xdel_id,0,NULL) != C_OK) {
-            return;
-        } else if (streamCompareID(&id,&max_xdel_id) < 0) {
-            addReplyError(c,"The ID specified in XSETID is smaller than the "
-                            "provided max_deleted_entry_id");
-            return;
-        }
-    } else {
-        max_xdel_id.ms = 0;
-        max_xdel_id.seq = 0;
-        entries_added = 0;
     }
 
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
@@ -2778,24 +2769,22 @@ void xsetidCommand(client *c) {
         streamLastValidID(s,&maxid);
 
         if (streamCompareID(&id,&maxid) < 0) {
-            addReplyError(c,"The ID specified in XSETID is smaller than the "
-                            "target stream top item");
+            addReplyError(c,"The ID specified in XSETID is smaller than the target stream top item");
             return;
         }
 
         /* If an entries_added was provided, it can't be lower than the length. */
-        if (ext_form && s->length > (uint64_t)entries_added) {
-            addReplyError(c,"The entries_added specified in XSETID is smaller "
-                            "than the target stream length");
+        if (entries_added != -1 && s->length > (uint64_t)entries_added) {
+            addReplyError(c,"The entries_added specified in XSETID is smaller than the target stream length");
             return;
         }
     }
 
     s->last_id = id;
-    if (ext_form) {
-        s->entries_added = (uint64_t)entries_added;
+    if (entries_added != -1)
+        s->entries_added = entries_added;
+    if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
-    }
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
@@ -3662,7 +3651,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyBulkCString(c,"max-deleted-entry-id");
     addReplyStreamID(c,&s->max_deleted_entry_id);
     addReplyBulkCString(c,"entries-added");
-    addReplyUnsignedLongLong(c,s->entries_added);
+    addReplyLongLong(c,s->entries_added);
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
 
@@ -3715,8 +3704,8 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
 
                 /* Read counter of the last delivered ID */
                 addReplyBulkCString(c,"entries-read");
-                if (cg->entries_read != ULLONG_MAX) {
-                    addReplyUnsignedLongLong(c,cg->entries_read);
+                if (cg->entries_read != SCG_INVALID_ENTRIES_READ) {
+                    addReplyLongLong(c,cg->entries_read);
                 } else {
                     addReplyNull(c);
                 }
@@ -3912,8 +3901,8 @@ NULL
             addReplyBulkCString(c,"last-delivered-id");
             addReplyStreamID(c,&cg->last_id);
             addReplyBulkCString(c,"entries-read");
-            if (cg->entries_read != ULLONG_MAX) {
-                addReplyUnsignedLongLong(c,cg->entries_read);
+            if (cg->entries_read != SCG_INVALID_ENTRIES_READ) {
+                addReplyLongLong(c,cg->entries_read);
             } else {
                 addReplyNull(c);
             }

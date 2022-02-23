@@ -780,9 +780,8 @@ void addReplyHumanLongDouble(client *c, long double d) {
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
- * When 'ull' is set to non-zero, the value is treated as unsigned.
  * Basically this is used to output <prefix><long long><crlf>. */
-void addReplyLongLongWithPrefix(client *c, long long ll, char prefix, int ull) {
+void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     char buf[128];
     int len;
 
@@ -798,7 +797,7 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix, int ull) {
     }
 
     buf[0] = prefix;
-    len = ull ? ull2string(buf+1,sizeof(buf)-1,ll) : ll2string(buf+1,sizeof(buf)-1,ll);
+    len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
     addReplyProto(c,buf,len+3);
@@ -810,21 +809,12 @@ void addReplyLongLong(client *c, long long ll) {
     else if (ll == 1)
         addReply(c,shared.cone);
     else
-        addReplyLongLongWithPrefix(c,ll,':',0);
-}
-
-void addReplyUnsignedLongLong(client *c, unsigned long long ll) {
-    if (ll == 0)
-        addReply(c,shared.czero);
-    else if (ll == 1)
-        addReply(c,shared.cone);
-    else
-        addReplyLongLongWithPrefix(c,ll,':',1);
+        addReplyLongLongWithPrefix(c,ll,':');
 }
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
-    addReplyLongLongWithPrefix(c,length,prefix,0);
+    addReplyLongLongWithPrefix(c,length,prefix);
 }
 
 void addReplyArrayLen(client *c, long length) {
@@ -884,7 +874,7 @@ void addReplyNullArray(client *c) {
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
 
-    addReplyLongLongWithPrefix(c,len,'$',0);
+    addReplyLongLongWithPrefix(c,len,'$');
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -896,14 +886,14 @@ void addReplyBulk(client *c, robj *obj) {
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
-    addReplyLongLongWithPrefix(c,len,'$',0);
+    addReplyLongLongWithPrefix(c,len,'$');
     addReplyProto(c,p,len);
     addReply(c,shared.crlf);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
-    addReplyLongLongWithPrefix(c,sdslen(s),'$',0);
+    addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
     addReply(c,shared.crlf);
 }

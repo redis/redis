@@ -66,6 +66,7 @@
             },
             {
                 "name": "entries_read",
+                "token": "ENTRIESREAD",
                 "type": "integer",
                 "optional": true
             }

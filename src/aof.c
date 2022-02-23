@@ -2007,11 +2007,13 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
     /* Append XSETID after XADD, make sure lastid is correct,
      * in case of XDEL lastid. */
-    if (!rioWriteBulkCount(r,'*',5) ||
+    if (!rioWriteBulkCount(r,'*',7) ||
         !rioWriteBulkString(r,"XSETID",6) ||
         !rioWriteBulkObject(r,key) ||
         !rioWriteBulkStreamID(r,&s->last_id) ||
+        !rioWriteBulkString(r,"ENTRIESADDED",12) ||
         !rioWriteBulkLongLong(r,s->entries_added) ||
+        !rioWriteBulkString(r,"MAXDELETEDID",12) ||
         !rioWriteBulkStreamID(r,&s->max_deleted_entry_id)) 
     {
         streamIteratorStop(&si);
@@ -2034,7 +2036,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,(char*)ri.key,ri.key_len) ||
                 !rioWriteBulkStreamID(r,&group->last_id) ||
                 !rioWriteBulkString(r,"ENTRIESREAD",11) ||
-                !rioWriteBulkLongLong(r,(long long)group->entries_read)) 
+                !rioWriteBulkLongLong(r,group->entries_read))
             {
                 raxStop(&ri);
                 streamIteratorStop(&si);

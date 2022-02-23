@@ -1733,6 +1733,7 @@ void createSharedObjects(void) {
     shared.retrycount = createStringObject("RETRYCOUNT",10);
     shared.force = createStringObject("FORCE",5);
     shared.justid = createStringObject("JUSTID",6);
+    shared.entriesread = createStringObject("ENTRIESREAD",11);
     shared.lastid = createStringObject("LASTID",6);
     shared.default_username = createStringObject("default",7);
     shared.ping = createStringObject("ping",4);

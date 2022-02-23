@@ -704,7 +704,7 @@ start_server {
             set grpinfo [r xinfo groups mystream]
 
             r debug loadaof
-            assert {[r xinfo groups mystream] == $grpinfo}
+            assert_equal [r xinfo groups mystream] $grpinfo
             set reply [r xinfo consumers mystream mygroup]
             set consumer_info [lindex $reply 0]
             assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
@@ -991,7 +991,7 @@ start_server {
             waitForBgrewriteaof r
             r debug loadaof
             assert {[dict get [r xinfo stream mystream] length] == 0}
-            assert {[r xinfo groups mystream] == $grpinfo}
+            assert_equal [r xinfo groups mystream] $grpinfo
         }
     }
 }

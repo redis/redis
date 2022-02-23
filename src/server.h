@@ -1208,7 +1208,7 @@ struct sharedObjectsStruct {
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
-    *time, *pxat, *absttl, *retrycount, *force, *justid, 
+    *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk,
@@ -2419,11 +2419,10 @@ void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
 void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
-void addReplyLongLongWithPrefix(client *c, long long ll, char prefix, int ull);
+void addReplyLongLongWithPrefix(client *c, long long ll, char prefix);
 void addReplyBigNum(client *c, const char* num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
-void addReplyUnsignedLongLong(client *c, unsigned long long ll);
 void addReplyArrayLen(client *c, long length);
 void addReplyMapLen(client *c, long length);
 void addReplySetLen(client *c, long length);

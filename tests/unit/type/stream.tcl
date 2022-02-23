@@ -788,7 +788,7 @@ start_server {tags {"stream xsetid"}} {
     } {ERR syntax error}
 
     test {XSETID errors on negstive offset} {
-        catch {r XSETID stream 1-1 -1 0-0} err
+        catch {r XSETID stream 1-1 ENTRIESADDED -1 MAXDELETEDID 0-0} err
         set _ $err
     } {ERR*must be positive}
 
@@ -796,7 +796,7 @@ start_server {tags {"stream xsetid"}} {
         r DEL x
         r XADD x 1-0 a b
         
-        catch {r XSETID x "1-0" 1 "2-0" } err
+        catch {r XSETID x "1-0" ENTRIESADDED 1 MAXDELETEDID "2-0" } err
         r XADD mystream MAXLEN 0 * a b
         set err
     } {ERR*smaller*}
@@ -805,7 +805,7 @@ start_server {tags {"stream xsetid"}} {
         r DEL x
         r XADD x 1-0 a b
         
-        catch {r XSETID x "1-0" 0 "0-0" } err
+        catch {r XSETID x "1-0" ENTRIESADDED 0 MAXDELETEDID "0-0" } err
         r XADD mystream MAXLEN 0 * a b
         set err
     } {ERR*smaller*}
@@ -890,7 +890,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         waitForBgrewriteaof r
         r debug loadaof
         assert {[dict get [r xinfo stream mystream] length] == 1}
-        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+        assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
 }
 

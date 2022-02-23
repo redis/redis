@@ -51,19 +51,16 @@
                 "type": "string"
             },
             {
-                "name": "extended_form",
-                "type": "block",
-                "optional": true,
-                "arguments": [
-                    {
-                        "name": "entries_added",
-                        "type": "integer"
-                    },
-                    {
-                        "name": "max_deleted_entry_id",
-                        "type": "string"
-                    }
-                ]
+                "name": "entries_added",
+                "token": "ENTRIESADDED",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "max_deleted_entry_id",
+                "token": "MAXDELETEDID",
+                "type": "string",
+                "optional": true
             }
         ]
     }

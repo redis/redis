@@ -6095,7 +6095,7 @@ struct redisCommandArg XGROUP_SETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_Subargs},
-{"entries_read",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6140,7 +6140,7 @@ struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 
 /* XINFO GROUPS history */
 commandHistory XINFO_GROUPS_History[] = {
-{"7.0.0","Added the `enries-read` and `lag` fields"},
+{"7.0.0","Added the `entries-read` and `lag` fields"},
 {0}
 };
 
@@ -6354,18 +6354,12 @@ commandHistory XSETID_History[] = {
 /* XSETID tips */
 #define XSETID_tips NULL
 
-/* XSETID extended_form argument table */
-struct redisCommandArg XSETID_extended_form_Subargs[] = {
-{"entries_added",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max_deleted_entry_id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
 /* XSETID argument table */
 struct redisCommandArg XSETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"extended_form",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XSETID_extended_form_Subargs},
+{"entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL},
+{"max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
