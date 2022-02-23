@@ -1755,6 +1755,7 @@ int main(int argc, char **argv) {
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
     config.enable_tracking = 0;
+    config.resp3 = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
