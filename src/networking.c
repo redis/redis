@@ -721,10 +721,10 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
         setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, sdslen(shared.mbulkhdr[length]->ptr));
         return;
     } else if (prefix == '%' && length < OBJ_SHARED_BULKHDR_LEN) {
-        setDeferredReply(c, node, shared.maphdr[length]->ptr, (length < 10) ? 4 : 5);
+        setDeferredReply(c, node, shared.maphdr[length]->ptr, sdslen(shared.maphdr[length]->ptr));
         return;
     } else if (prefix == '~' && length < OBJ_SHARED_BULKHDR_LEN) {
-        setDeferredReply(c, node, shared.sethdr[length]->ptr, (length < 10) ? 4 : 5);
+        setDeferredReply(c, node, shared.sethdr[length]->ptr, sdslen(shared.sethdr[length]->ptr));
         return;
     }
 
