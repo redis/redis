@@ -47,10 +47,12 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     /* This reject should not pass Address Sanitizer if we're not properly freeing rejected strings */
     RedisModuleString *reject = RedisModule_CreateString(NULL, "rejectisfreed", 13);
     if (!RedisModule_StringCompare(new, reject)) {
+        if (strval) RedisModule_RetainString(NULL, *(RedisModuleString **)privdata);
         RedisModule_FreeString(NULL, reject);
         return 0;
     }
     RedisModule_FreeString(NULL, reject);
+    RedisModule_RetainString(NULL, new);
     *(RedisModuleString **)privdata = new;
     return 1;
 }

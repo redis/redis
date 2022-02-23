@@ -11107,11 +11107,8 @@ int parseAndSetStringConfig(ModuleConfig *config, char *strval, RedisModuleConfi
 
     RedisModuleString *new = createStringObject(strval, strlen(strval));
     int return_code = config->set_fn.set_string(config->name, new, config->privdata, set_ctx, err);
-    if (!return_code) {
-        decrRefCount(new);
-    } else if (prev) {
-        decrRefCount(prev);
-    }
+    if (prev) decrRefCount(prev);
+    decrRefCount(new);
     return return_code;
 }
 
@@ -11443,23 +11440,27 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
  *
  * Default values are used explicitly to compare to on a config rewrite.
  *
- * Note on strings that the previous string from a SET callback will be automatically freed on a return 1,
- * and the new one will be automatically freed on a return 0. Modules however must be careful to free the string
- * on apply callback failures (if necessary) and on UnLoad.
+ * Note on strings that the previous string and the new string will both be freed and a set callback should always retain one
  * 
  * Example implementation:
  * 
  *     RedisModuleString *strval;
+ *     int adjustable = 1;
  *     RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
  *         return strval;
  *     }
  *     
  *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
- *        strval = new;
- *        return 1;
+          if (adjustable) {
+              RedisModule_RetainString(NULL, new);
+              strval = new;
+              return 1;
+          }
+ *        if (strval) RedisModule_RetainString(NULL, strval);
+ *        return 0;
  *     }
  *     ...
- *     RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, &getStringConfigCommand, &setStringConfigCommand, NULL, NULL);
+ *     RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL);
  * 
  * If the registration fails, REDISMODULE_ERR is returned and one of the following 
  * errno is set:
@@ -11496,7 +11497,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
             return 1;
         }
         ...
-        RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, 3, &getEnumConfigCommand, &setEnumConfigCommand, NULL, NULL)
+        RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL)
 
  * See RedisModule_RegisterStringConfig for detailed general information about configs. */
 int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
