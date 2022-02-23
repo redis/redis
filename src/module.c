@@ -407,6 +407,11 @@ typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *pri
 /* Apply signature, matches apply_fn in config.c */
 typedef int (*RedisModuleConfigApplyFunc)(const char **err);
 
+typedef struct moduleEnumConfig {
+    char *name; /* String name of this enum. */
+    int val; /* Integer value of this enum. */
+} moduleEnumConfig;
+
 /* Struct representing a module config. These are stored in a list in the module struct */
 typedef struct ModuleConfig {
     sds name; /* Name of config without the module name appended to the front */
@@ -431,7 +436,7 @@ typedef struct ModuleConfig {
             long long lower;
         } numeric;
         struct { /* For enums, we need to know valid values */
-            char **enum_values;
+            moduleEnumConfig *enum_values;
             int num_enums;
         } enums;
     } type_specific;
@@ -1918,7 +1923,7 @@ void moduleListFree(void *config) {
     ModuleConfig *module_config = (ModuleConfig *) config;
     if (module_config->type == REDISMODULE_CONFIG_ENUM) {
         for (int i = 0; i < module_config->type_specific.enums.num_enums; i++) {
-            zfree(module_config->type_specific.enums.enum_values[i]);
+            zfree(module_config->type_specific.enums.enum_values[i].name);
         }
         zfree(module_config->type_specific.enums.enum_values);
     } else if (module_config->type == REDISMODULE_CONFIG_STRING) {
@@ -11118,15 +11123,19 @@ static char enum_error[ENUM_ERROR_SIZE];
 int parseAndSetEnumConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
     int prev = config->get_fn.get_enum(config->name, config->privdata);
 
+    for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
+        moduleEnumConfig enum_val = config->type_specific.enums.enum_values[i];
+        if (!strcasecmp(strval, enum_val.name)) {
+            int int_val = enum_val.val;
+            if (int_val == prev) return 2;
+            return config->set_fn.set_enum(config->name, int_val, config->privdata, set_ctx, err);
+        }
+    }
+    
     sds error = sdsnew("argument must be one of the following: ");
     for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
-        char *enum_val = config->type_specific.enums.enum_values[i];
-        if (!strcasecmp(strval, enum_val)) {
-            sdsfree(error);
-            if (i == prev) return 2;
-            return config->set_fn.set_enum(config->name, i, config->privdata, set_ctx, err);
-        }
-        error = sdscatlen(error, enum_val, strlen(enum_val));
+        moduleEnumConfig enum_val = config->type_specific.enums.enum_values[i];
+        error = sdscatlen(error, enum_val.name, strlen(enum_val.name));
         error = sdscatlen(error, ", ", 2);
     }
     sdsrange(error, 0, -3);
@@ -11196,8 +11205,9 @@ sds getAndParseStringConfig(ModuleConfig *module_config) {
 
 sds getAndParseEnumConfig(ModuleConfig *module_config) {
     int val = module_config->get_fn.get_enum(module_config->name, module_config->privdata);
-    if (0 <= val && val < module_config->type_specific.enums.num_enums) {
-        return sdsnew(module_config->type_specific.enums.enum_values[val]);
+    for (int i = 0; i < module_config->type_specific.enums.num_enums; i++) {
+        moduleEnumConfig enum_val = module_config->type_specific.enums.enum_values[i];
+        if (val == enum_val.val) return sdsnew(enum_val.name); 
     }
     return sdsnew("unknown");
 }
@@ -11482,10 +11492,11 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
 
 /* Create an enum config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
- * enum_values is a array of c-strings that are valid set options. We implicitly treat
- * these as integer values equal to their index in the array.
+ * enum_values is a array of c-strings that are valid set options. We match
+ * enum names with their index partner in int_vals.
  * Example Implementation:
         const char *enum_vals[3] = {"first", "second", "third"};
+        const int int_vals[3] = {0, 2, 4};
         int enum_val = 0;
 
         int getEnumConfigCommand(const char *name, void *privdata) {
@@ -11497,20 +11508,21 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
             return 1;
         }
         ...
-        RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL)
+        RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL)
 
  * See RedisModule_RegisterStringConfig for detailed general information about configs. */
-int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
     if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_ENUM)) {
         return REDISMODULE_ERR;
     }
     ModuleConfig newEnumConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_ENUM, flags, applyfn, privdata);
     addDefaultAndCallbacksToConfig(newEnumConfig, default_val, getfn, setfn, enum);
-    newEnumConfig.type_specific.enums.enum_values = zmalloc(num_enum_vals * sizeof(char *));
+    newEnumConfig.type_specific.enums.enum_values = zmalloc(num_enum_vals * sizeof(moduleEnumConfig));
     newEnumConfig.type_specific.enums.num_enums = num_enum_vals;
     for (int i = 0; i < num_enum_vals; i++) {
-        newEnumConfig.type_specific.enums.enum_values[i] = zstrdup(enum_values[i]);
+        moduleEnumConfig enum_config = {.name = zstrdup(enum_values[i]), .val = int_values[i]};
+        memcpy(newEnumConfig.type_specific.enums.enum_values + i, &enum_config, sizeof(moduleEnumConfig));    
     }
     addModuleConfigtoList(module, newEnumConfig);
     flags = maskModuleConfigFlags(flags);
