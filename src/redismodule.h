@@ -535,8 +535,8 @@ static const RedisModuleEvent
         1
     },
     RedisModuleEvent_Config = {
-	REDISMODULE_EVENT_CONFIG,
-	1
+        REDISMODULE_EVENT_CONFIG,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -580,6 +580,7 @@ static const RedisModuleEvent
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
 
 #define REDISMODULE_SUBEVENT_CONFIG_CHANGE 0
+#define _REDISMODULE_SUBEVENT_CONFIG_NEXT 1
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
@@ -686,7 +687,7 @@ typedef struct RedisModuleConfigChange {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    uint32_t num_changes;   /* how many redis config options where changed */
+    uint32_t num_changes;   /* how many redis config options were changed */
     const char **config_names; /* the config names that were changed */
 } RedisModuleConfigChangeV1;
 

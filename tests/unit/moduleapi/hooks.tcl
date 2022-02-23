@@ -152,10 +152,10 @@ tags "modules" {
             assert_equal [r hooks.event_last swapdb-second] 10
         }
 
-	test {Test configchange hooks} {
-	    r config set rdbcompression no 
-	    assert_equal [r hooks.event_last config-change-count] 1
-	    assert_equal [r hooks.event_last config-change-first] rdbcompression
+        test {Test configchange hooks} {
+            r config set rdbcompression no 
+            assert_equal [r hooks.event_last config-change-count] 1
+            assert_equal [r hooks.event_last config-change-first] rdbcompression
         }
 
         # look into the log file of the server that just exited

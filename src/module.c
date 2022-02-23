@@ -9976,7 +9976,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_FORK_CHILD */
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
-    -1, /* REDISMODULE_EVENT_CONFOG_CHANGE */
+    -1, /* REDISMODULE_EVENT_CONFIG */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10314,6 +10314,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
     case REDISMODULE_EVENT_EVENTLOOP:
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
+    case REDISMODULE_EVENT_CONFIG:
+        return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     default:
         break;
     }
