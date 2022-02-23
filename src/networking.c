@@ -718,7 +718,7 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
     if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN) {
-        setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, (length < 10) ? 4 : 5);
+        setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, sdslen(shared.mbulkhdr[length]->ptr));
         return;
     }
 
