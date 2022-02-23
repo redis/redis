@@ -866,22 +866,21 @@ cleanup:
  * and just return the error message. */
 static int luaRedisPcall(lua_State *lua) {
     int argc = lua_gettop(lua);
-    int result = 1;
+    lua_pushboolean(lua, 1); /* result place holder */
+    lua_insert(lua, 1);
     if (lua_pcall(lua, argc - 1, LUA_MULTRET, 0)) {
         /* Error */
-        result = 0;
+        lua_remove(lua, 1); /* remove the result place holder, now we have room for at least one element */
         if (lua_istable(lua, -1)) {
             lua_getfield(lua, -1, "err");
             if (lua_isstring(lua, -1)) {
                 lua_replace(lua, -2); /* replace the error message with the table */
             }
         }
+        lua_pushboolean(lua, 0); /* push result */
+        lua_insert(lua, 1);
     }
-
-    int res = lua_gettop(lua);
-    lua_pushboolean(lua, result); /* push result */
-    lua_insert(lua, -res - 1);
-    return res + 1;
+    return lua_gettop(lua);
 
 }
 
