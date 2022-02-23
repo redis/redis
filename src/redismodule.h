@@ -677,6 +677,15 @@ typedef struct RedisModuleModuleChange {
     int32_t module_version; /* Module version. */
 } RedisModuleModuleChangeV1;
 
+#define REDISMODULE_CONFIGCHANGE_VERSION 1
+typedef struct RedisModuleConfigChange {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint32_t num_changes;   /* how many redis config options where changed */
+    const char **config_names; /* the config names that were changed */
+} RedisModuleConfigChangeV1;
+
 #define RedisModuleModuleChange RedisModuleModuleChangeV1
 
 #define REDISMODULE_CRON_LOOP_VERSION 1

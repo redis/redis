@@ -10390,6 +10390,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_SWAPDB) {
                 moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CONFIG_CHANGE) {
+                moduledata = data;
             }
 
             el->module->in_hook++;

@@ -270,7 +270,11 @@ void swapDbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void 
 void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
 {
     REDISMODULE_NOT_USED(e);
-    LogStringEvent(ctx, "config-change", "config-change");
+    REDISMODULE_NOT_USED(sub);
+
+    RedisModuleConfigChangeV1 *ei = data;
+    LogNumericEvent(ctx, "config-change-count", ei->num_changes);
+    LogStringEvent(ctx, "config-change-first", ei->config_names[0]);
 }
 
 /* This function must be present on each Redis module. It is used in order to
