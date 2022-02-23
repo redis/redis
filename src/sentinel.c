@@ -3178,6 +3178,13 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 }
 
 /* =========================== SENTINEL command ============================= */
+static void populateDict(dict *options_dict, char **options) {
+    for (int i=0; options[i]; i++) {
+        sds option = sdsnew(options[i]);
+        if (dictAdd(options_dict, option, NULL)==DICT_ERR)
+            sdsfree(option);
+    }
+}
 
 const char* getLogLevel() {
    switch (server.verbosity) {
@@ -3189,52 +3196,109 @@ const char* getLogLevel() {
     return "unknown";
 }
 
-/* SENTINEL CONFIG SET <option> <value>*/
+/* SENTINEL CONFIG SET option value [option value ...] */
 void sentinelConfigSetCommand(client *c) {
-    robj *o = c->argv[3];
-    robj *val = c->argv[4];
     long long numval;
     int drop_conns = 0;
+    char *option;
+    robj *val;
+    char *options[] = {
+        "announce-ip",
+        "sentinel-user",
+        "sentinel-pass",
+        "resolve-hostnames",
+        "announce-port",
+        "announce-hostnames",
+	"loglevel",
+        NULL};
+    static dict *options_dict = NULL;
+    if (!options_dict) {
+        options_dict = dictCreate(&stringSetDictType);
+        populateDict(options_dict, options);
+    }
+    dict *set_configs = dictCreate(&stringSetDictType);
 
-    if (!strcasecmp(o->ptr, "resolve-hostnames")) {
-        if ((numval = yesnotoi(val->ptr)) == -1) goto badfmt;
-        sentinel.resolve_hostnames = numval;
-    } else if (!strcasecmp(o->ptr, "announce-hostnames")) {
-        if ((numval = yesnotoi(val->ptr)) == -1) goto badfmt;
-        sentinel.announce_hostnames = numval;
-    } else if (!strcasecmp(o->ptr, "announce-ip")) {
-        if (sentinel.announce_ip) sdsfree(sentinel.announce_ip);
-        sentinel.announce_ip = sdsnew(val->ptr);
-    } else if (!strcasecmp(o->ptr, "announce-port")) {
-        if (getLongLongFromObject(val, &numval) == C_ERR ||
-            numval < 0 || numval > 65535)
-            goto badfmt;
-        sentinel.announce_port = numval;
-    } else if (!strcasecmp(o->ptr, "sentinel-user")) {
-        sdsfree(sentinel.sentinel_auth_user);
-        sentinel.sentinel_auth_user = sdslen(val->ptr) == 0 ?
-            NULL : sdsdup(val->ptr);
-        drop_conns = 1;
-    } else if (!strcasecmp(o->ptr, "sentinel-pass")) {
-        sdsfree(sentinel.sentinel_auth_pass);
-        sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
-            NULL : sdsdup(val->ptr);
-        drop_conns = 1;
-    } else if (!strcasecmp(o->ptr, "loglevel")) {
-        if (!strcasecmp(val->ptr, "debug"))
-            server.verbosity = LL_DEBUG;
-        else if (!strcasecmp(val->ptr, "verbose"))
-            server.verbosity = LL_VERBOSE;
-        else if (!strcasecmp(val->ptr, "notice"))
-            server.verbosity = LL_NOTICE;
-        else if (!strcasecmp(val->ptr, "warning"))
-            server.verbosity = LL_WARNING;
-        else
-            goto badfmt;
-    } else {
-        addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET",
-                            (char *) o->ptr);
-        return;
+    /* Validate arguments are valid */
+    for (int i = 3; i < c->argc; i++) {
+        option = c->argv[i]->ptr;
+
+        /* Validate option is valid */
+        if (dictFind(options_dict, option) == NULL) {
+            addReplyErrorFormat(c, "Invalid argument '%s' to SENTINEL CONFIG SET", option);
+            goto exit;
+        }
+
+        /* Check duplicates */
+        if (dictFind(set_configs, option) != NULL) {
+            addReplyErrorFormat(c, "Duplicate argument '%s' to SENTINEL CONFIG SET", option);
+            goto exit;
+        }
+
+        serverAssert(dictAdd(set_configs, sdsnew(option), NULL) == C_OK);
+
+        /* Validate argument */
+        if (i + 1 == c->argc) {
+            addReplyErrorFormat(c, "Missing argument '%s' value", option);
+            goto exit;
+        }
+        val = c->argv[++i];
+
+        if (!strcasecmp(option, "resolve-hostnames")) {
+            if ((yesnotoi(val->ptr)) == -1) goto badfmt;
+        } else if (!strcasecmp(option, "announce-hostnames")) {
+            if ((yesnotoi(val->ptr)) == -1) goto badfmt;
+        } else if (!strcasecmp(option, "announce-port")) {
+            if (getLongLongFromObject(val, &numval) == C_ERR ||
+                numval < 0 || numval > 65535) goto badfmt;
+        }
+    }
+
+    /* Apply changes */
+    for (int i = 3; i < c->argc; i++) {
+        int moreargs = (c->argc-1) - i;
+        option = c->argv[i]->ptr;
+        if (!strcasecmp(option, "resolve-hostnames") && moreargs > 0) {
+            val = c->argv[++i];
+            numval = yesnotoi(val->ptr);
+            sentinel.resolve_hostnames = numval;
+        } else if (!strcasecmp(option, "announce-hostnames") && moreargs > 0) {
+            val = c->argv[++i];
+            numval = yesnotoi(val->ptr);
+            sentinel.announce_hostnames = numval;
+        } else if (!strcasecmp(option, "announce-ip") && moreargs > 0) {
+            val = c->argv[++i];
+            if (sentinel.announce_ip) sdsfree(sentinel.announce_ip);
+            sentinel.announce_ip = sdsnew(val->ptr);
+        } else if (!strcasecmp(option, "announce-port") && moreargs > 0) {
+            val = c->argv[++i];
+            getLongLongFromObject(val, &numval);
+            sentinel.announce_port = numval;
+        } else if (!strcasecmp(option, "sentinel-user") && moreargs > 0) {
+            val = c->argv[++i];
+            sdsfree(sentinel.sentinel_auth_user);
+            sentinel.sentinel_auth_user = sdslen(val->ptr) == 0 ?
+                NULL : sdsdup(val->ptr);
+            drop_conns = 1;
+        } else if (!strcasecmp(option, "sentinel-pass") && moreargs > 0) {
+            val = c->argv[++i];
+            sdsfree(sentinel.sentinel_auth_pass);
+            sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
+                NULL : sdsdup(val->ptr);
+            drop_conns = 1;
+        } else if (!strcasecmp(option, "loglevel") && moreargs > 0) {
+            val = c->argv[++i];
+            if (!strcasecmp(val, "debug"))
+                server.verbosity = LL_DEBUG;
+            else if (!strcasecmp(val, "verbose"))
+                server.verbosity = LL_VERBOSE;
+            else if (!strcasecmp(val, "notice"))
+                server.verbosity = LL_NOTICE;
+            else if (!strcasecmp(val, "warning"))
+                server.verbosity = LL_WARNING;
+        } else {
+            /* Should never reach here */
+            serverAssert(0);
+        }
     }
 
     sentinelFlushConfigAndReply(c);
@@ -3243,11 +3307,14 @@ void sentinelConfigSetCommand(client *c) {
     if (drop_conns)
         sentinelDropConnections();
 
+exit:
+    dictRelease(set_configs);
     return;
 
 badfmt:
     addReplyErrorFormat(c, "Invalid value '%s' to SENTINEL CONFIG SET '%s'",
-                        (char *) val->ptr, (char *) o->ptr);
+                        (char *) val->ptr, option);
+    dictRelease(set_configs);
 }
 
 /* SENTINEL CONFIG GET <option> */
@@ -3787,7 +3854,7 @@ void sentinelCommand(client *c) {
 "    Check if the current Sentinel configuration is able to reach the quorum",
 "    needed to failover a master and the majority needed to authorize the",
 "    failover.",
-"CONFIG SET <param> <value>",
+"CONFIG SET param value [param value ...]",
 "    Set a global Sentinel configuration parameter.",
 "CONFIG GET <param>",
 "    Get global Sentinel configuration parameter.",
@@ -4042,12 +4109,13 @@ NULL
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 4) goto numargserr;
-        if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc == 5)
+        if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc >= 5) {
             sentinelConfigSetCommand(c);
+        }
         else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc == 4)
             sentinelConfigGetCommand(c);
         else
-            addReplyError(c, "Only SENTINEL CONFIG GET <option> / SET <option> <value> are supported.");
+            addReplyError(c, "Only SENTINEL CONFIG GET <param> / SET <param> <value> [<param> <value> ...] are supported.");
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         /* SENTINEL INFO-CACHE <name> */
         if (c->argc < 2) goto numargserr;
