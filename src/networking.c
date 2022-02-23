@@ -714,6 +714,14 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
      * we return NULL in addReplyDeferredLen() */
     if (node == NULL) return;
 
+    /* Things like *2\r\n or *3\r\n are emitted very often by the protocol
+     * so we have a few shared objects to use if the integer is small
+     * like it is most of the times. */
+    if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN) {
+        setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, (length < 10) ? 4 : 5);
+        return;
+    }
+
     char lenstr[128];
     size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
     setDeferredReply(c, node, lenstr, lenstr_len);
