@@ -3143,7 +3143,7 @@ void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
     uint64_t client_old_flags = c->flags;
-    struct redisCommand *real_cmd = c->cmd;
+    struct redisCommand *real_cmd = c->realcmd;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3448,7 +3448,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
+    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
         if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command

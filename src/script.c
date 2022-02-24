@@ -505,7 +505,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     argc = c->argc;
 
     struct redisCommand *cmd = lookupCommand(argv, argc);
-    c->cmd = c->lastcmd = cmd;
+    c->cmd = c->lastcmd = c->realcmd = cmd;
     if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
         goto error;
     }

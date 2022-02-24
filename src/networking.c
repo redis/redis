@@ -154,7 +154,7 @@ client *createClient(connection *conn) {
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
-    c->cmd = c->lastcmd = NULL;
+    c->cmd = c->lastcmd = c->realcmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
@@ -475,8 +475,9 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
     } else {
         /* stat_total_error_replies will not be updated, which means that
          * the cmd stats will not be updated as well, we still want this command
-         * to be counted as failed so we update it here */
-        c->cmd->failed_calls++;
+         * to be counted as failed so we update it here. We update c->realcmd in
+         * case c->cmd was changed (like in GEOADD). */
+        c->realcmd->failed_calls++;
     }
 
     /* Sometimes it could be normal that a slave replies to a master with
