@@ -3936,7 +3936,7 @@ init_defrag(void) {
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    printf("Initing defrag hints\n");
+    /*printf("Initing defrag hints\n");*/
 
     // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
@@ -3952,12 +3952,12 @@ init_defrag(void) {
         if (used_slabs != needed_slabs) {
             int64_t nonfull_to_retain = needed_slabs - full_slabs;
             if (bin->slabcur) nonfull_to_retain--;
-            printf("%zu: Need %lu slabs but have %lu, non full to retain %ld\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain);
+            /*printf("%zu: Need %lu slabs but have %lu, non full to retain %ld\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain);*/
             extent_list_t slabs_retain;
             extent_list_init(&slabs_retain);
             while (nonfull_to_retain--) {
                 extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
-                if (slab == NULL) printf("badger!!!!\n");
+                //if (slab == NULL) printf("badger!!!!\n");
                 extent_defrag_retain_set(slab, true);
                 extent_list_append(&slabs_retain, slab);
             }
@@ -3998,7 +3998,7 @@ finish_defrag(void) {
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    printf("Cleaning up defrag hints\n");
+    /*printf("Cleaning up defrag hints\n");*/
 
     // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
@@ -4021,9 +4021,9 @@ finish_defrag(void) {
             }
         }
 
-        const bin_info_t *bin_info = &bin_infos[i];
+        /*const bin_info_t *bin_info = &bin_infos[i];
         if (found_non || found_full)
-            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);
+            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);*/
 
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
