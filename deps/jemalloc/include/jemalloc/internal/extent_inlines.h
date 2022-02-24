@@ -385,6 +385,7 @@ extent_init(extent_t *extent, arena_t *arena, void *addr, size_t size,
 	extent_addr_set(extent, addr);
 	extent_size_set(extent, size);
 	extent_slab_set(extent, slab);
+    extent_defrag_retain_set(extent, false);
 	extent_szind_set(extent, szind);
 	extent_sn_set(extent, sn);
 	extent_state_set(extent, state);
