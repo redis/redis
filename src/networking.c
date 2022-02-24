@@ -3858,7 +3858,7 @@ void processEventsWhileBlocked(void) {
 
     /* Update our cached time since it is used to create and update the last
      * interaction time with clients and for other important things. */
-    updateCachedTime(0, -1);
+    updateCachedTime(0);
 
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we

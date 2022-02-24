@@ -1023,11 +1023,9 @@ void databasesCron(void) {
  * in call(), so it is possible to decide if to update the daylight saving
  * info or not using the 'update_daylight_info' argument. Normally we update
  * such info only when calling this function from serverCron() but not when
- * calling it from call().
- * If the ustime is already provided (us>0) we re-use it to avoid calling
- * the cpu costly ustime() again */
-void updateCachedTime(int update_daylight_info, ustime_t us) {
-    server.ustime = us > 0 ? us: ustime();
+ * calling it from call(). */
+void updateCachedTime(int update_daylight_info) {
+    server.ustime = ustime();
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
     atomicSet(server.unixtime, unixtime);
@@ -1161,7 +1159,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
     /* Update the time cache. */
-    updateCachedTime(1, -1);
+    updateCachedTime(1);
 
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
@@ -1401,7 +1399,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
 void blockingOperationStarts() {
     if(!server.blocking_op_nesting++){
-        updateCachedTime(0, -1);
+        updateCachedTime(0);
         server.blocked_last_cron = server.mstime;
     }
 }
@@ -1811,7 +1809,7 @@ void initServerConfig(void) {
     char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
 
     initConfigValues();
-    updateCachedTime(1, -1);
+    updateCachedTime(1);
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -3202,15 +3200,14 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     prev_err_count = server.stat_total_error_replies;
 
-    elapsedStart(&call_timer);
-
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
     if (server.fixed_time_expire++ == 0) {
-        updateCachedTime(0, call_timer);
+        updateCachedTime(0);
     }
     server.in_nested_call++;
 
+    elapsedStart(&call_timer);
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
     c->duration = duration;
