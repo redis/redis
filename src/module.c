@@ -10237,6 +10237,13 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP`
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP`
  *
+ * * RedisModule_Event_Config
+ *
+ *     Called when a configuration event happens
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_CONFIG_CHANGE`
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
