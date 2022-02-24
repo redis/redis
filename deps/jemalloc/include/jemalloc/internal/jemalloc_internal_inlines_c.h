@@ -229,7 +229,7 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 	if (likely(is_slab)) {
 		/* Small allocation. */
 		extent_t *slab = iealloc(tsdn, ptr);
-        return (int)extent_defrag_retain_get(slab);
+        return (int)!extent_defrag_retain_get(slab);
 
 	}
 	return 0;
