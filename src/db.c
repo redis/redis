@@ -1333,8 +1333,8 @@ void scanDatabaseForReadyKeys(redisDb *db) {
 }
 
 /* Since we are unblocking XREADGROUP clients in the event the
- * key was deleted/overwirtten we must do the same in case the
- * database was flushed/swaped. */
+ * key was deleted/overwritten we must do the same in case the
+ * database was flushed/swapped. */
 void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
     /* Optimization: If no clients are in type BLOCKED_STREAM,
      * we can skip this loop. */
