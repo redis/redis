@@ -131,7 +131,7 @@ client *createClient(connection *conn) {
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
-
+    c->buf = zmalloc(PROTO_REPLY_CHUNK_BYTES);
     selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
@@ -140,7 +140,9 @@ client *createClient(connection *conn) {
     c->conn = conn;
     c->name = NULL;
     c->bufpos = 0;
-    c->buf_usable_size = zmalloc_usable_size(c)-offsetof(client,buf);
+    c->buf_usable_size = zmalloc_usable_size(c->buf);
+    c->buf_peak = c->buf_usable_size;
+    c->buf_peak_last_reset_time = server.unixtime;
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
@@ -314,6 +316,9 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
     size_t reply_len = len > available ? available : len;
     memcpy(c->buf+c->bufpos,s,reply_len);
     c->bufpos+=reply_len;
+    /* We update the buffer peak after appending the reply to the buffer */
+    if(c->buf_peak < (size_t)c->bufpos)
+        c->buf_peak = (size_t)c->bufpos;
     return reply_len;
 }
 
@@ -709,6 +714,24 @@ void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
      * we return NULL in addReplyDeferredLen() */
     if (node == NULL) return;
 
+    /* Things like *2\r\n, %3\r\n or ~4\r\n are emitted very often by the protocol
+     * so we have a few shared objects to use if the integer is small
+     * like it is most of the times. */
+    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(length);
+    const int opt_hdr = length < OBJ_SHARED_BULKHDR_LEN;
+    if (prefix == '*' && opt_hdr) {
+        setDeferredReply(c, node, shared.mbulkhdr[length]->ptr, hdr_len);
+        return;
+    }
+    if (prefix == '%' && opt_hdr) {
+        setDeferredReply(c, node, shared.maphdr[length]->ptr, hdr_len);
+        return;
+    }
+    if (prefix == '~' && opt_hdr) {
+        setDeferredReply(c, node, shared.sethdr[length]->ptr, hdr_len);
+        return;
+    }
+
     char lenstr[128];
     size_t lenstr_len = sprintf(lenstr, "%c%ld\r\n", prefix, length);
     setDeferredReply(c, node, lenstr, lenstr_len);
@@ -801,11 +824,18 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
-    if (prefix == '*' && ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0) {
+    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+    if (prefix == '*' && opt_hdr) {
         addReply(c,shared.mbulkhdr[ll]);
         return;
-    } else if (prefix == '$' && ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0) {
+    } else if (prefix == '$' && opt_hdr) {
         addReply(c,shared.bulkhdr[ll]);
+        return;
+    } else if (prefix == '%' && opt_hdr) {
+        addReply(c,shared.maphdr[ll]);
+        return;
+    } else if (prefix == '~' && opt_hdr) {
+        addReply(c,shared.sethdr[ll]);
         return;
     }
 
@@ -1525,6 +1555,7 @@ void freeClient(client *c) {
 
     /* Free data structures. */
     listRelease(c->reply);
+    zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
@@ -1691,10 +1722,82 @@ client *lookupClientByID(uint64_t id) {
     return (c == raxNotFound) ? NULL : c;
 }
 
+/* This function should be called from _writeToClient when the reply list is not empty,
+ * it gathers the scattered buffers from reply list and sends them away with connWritev.
+ * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
+ * and 'nwritten' is an output parameter, it means how many bytes server write
+ * to client. */
+static int _writevToClient(client *c, ssize_t *nwritten) {
+    struct iovec iov[IOV_MAX];
+    int iovcnt = 0;
+    size_t iov_bytes_len = 0;
+    /* If the static reply buffer is not empty, 
+     * add it to the iov array for writev() as well. */
+    if (c->bufpos > 0) {
+        iov[iovcnt].iov_base = c->buf + c->sentlen;
+        iov[iovcnt].iov_len = c->bufpos - c->sentlen;
+        iov_bytes_len += iov[iovcnt++].iov_len;
+    }
+    /* The first node of reply list might be incomplete from the last call,
+     * thus it needs to be calibrated to get the actual data address and length. */
+    size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
+    listIter iter;
+    listNode *next;
+    clientReplyBlock *o;
+    listRewind(c->reply, &iter);
+    while ((next = listNext(&iter)) && iovcnt < IOV_MAX && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
+        o = listNodeValue(next);
+        if (o->used == 0) { /* empty node, just release it and skip. */
+            c->reply_bytes -= o->size;
+            listDelNode(c->reply, next);
+            offset = 0;
+            continue;
+        }
+
+        iov[iovcnt].iov_base = o->buf + offset;
+        iov[iovcnt].iov_len = o->used - offset;
+        iov_bytes_len += iov[iovcnt++].iov_len;
+        offset = 0;
+    }
+    if (iovcnt == 0) return C_OK;
+    *nwritten = connWritev(c->conn, iov, iovcnt);
+    if (*nwritten <= 0) return C_ERR;
+
+    /* Locate the new node which has leftover data and
+     * release all nodes in front of it. */
+    ssize_t remaining = *nwritten;
+    if (c->bufpos > 0) { /* deal with static reply buffer first. */
+        int buf_len = c->bufpos - c->sentlen;
+        c->sentlen += remaining;
+        /* If the buffer was sent, set bufpos to zero to continue with
+         * the remainder of the reply. */
+        if (remaining >= buf_len) {
+            c->bufpos = 0;
+            c->sentlen = 0;
+        }
+        remaining -= buf_len;
+    }
+    listRewind(c->reply, &iter);
+    while (remaining > 0) {
+        next = listNext(&iter);
+        o = listNodeValue(next);
+        if (remaining < (ssize_t)(o->used - c->sentlen)) {
+            c->sentlen += remaining;
+            break;
+        }
+        remaining -= (ssize_t)(o->used - c->sentlen);
+        c->reply_bytes -= o->size;
+        listDelNode(c->reply, next);
+        c->sentlen = 0;
+    }
+
+    return C_OK;
+}
+
 /* This function does actual writing output buffers to different types of
  * clients, it is called by writeToClient.
- * If we write successfully, it return C_OK, otherwise, C_ERR is returned,
- * And 'nwritten' is a output parameter, it means how many bytes server write
+ * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
+ * and 'nwritten' is an output parameter, it means how many bytes server write
  * to client. */
 int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
@@ -1723,8 +1826,18 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         return C_OK;
     }
 
-    if (c->bufpos > 0) {
-        *nwritten = connWrite(c->conn,c->buf+c->sentlen,c->bufpos-c->sentlen);
+    /* When the reply list is not empty, it's better to use writev to save us some
+     * system calls and TCP packets. */
+    if (listLength(c->reply) > 0) {
+        int ret = _writevToClient(c, nwritten);
+        if (ret != C_OK) return ret;
+
+        /* If there are no longer objects in the list, we expect
+         * the count of reply bytes to be exactly zero. */
+        if (listLength(c->reply) == 0)
+            serverAssert(c->reply_bytes == 0);
+    } else if (c->bufpos > 0) {
+        *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
         c->sentlen += *nwritten;
 
@@ -1734,31 +1847,8 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->bufpos = 0;
             c->sentlen = 0;
         }
-    } else {
-        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
-        size_t objlen = o->used;
+    } 
 
-        if (objlen == 0) {
-            c->reply_bytes -= o->size;
-            listDelNode(c->reply,listFirst(c->reply));
-            return C_OK;
-        }
-
-        *nwritten = connWrite(c->conn, o->buf + c->sentlen, objlen - c->sentlen);
-        if (*nwritten <= 0) return C_ERR;
-        c->sentlen += *nwritten;
-
-        /* If we fully sent the object on head go to the next one */
-        if (c->sentlen == objlen) {
-            c->reply_bytes -= o->size;
-            listDelNode(c->reply,listFirst(c->reply));
-            c->sentlen = 0;
-            /* If there are no longer objects in the list, we expect
-             * the count of reply bytes to be exactly zero. */
-            if (listLength(c->reply) == 0)
-                serverAssert(c->reply_bytes == 0);
-        }
-    }
     return C_OK;
 }
 
@@ -2593,7 +2683,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2610,6 +2700,8 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) sdsavail(client->querybuf),
         (unsigned long long) client->argv_len_sum,
         (unsigned long long) client->mstate.argv_len_sums,
+        (unsigned long long) client->buf_usable_size,
+        (unsigned long long) client->buf_peak,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
         (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
@@ -2956,6 +3048,7 @@ NULL
             else
                 replyToBlockedClientTimedOut(target);
             unblockClient(target);
+            updateStatsOnUnblock(target, 0, 0, 1);
             addReply(c,shared.cone);
         } else {
             addReply(c,shared.czero);
@@ -3451,6 +3544,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
         *output_buffer_mem_usage = mem;
     mem += sdsZmallocSize(c->querybuf);
     mem += zmalloc_size(c);
+    mem += c->buf_usable_size;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */

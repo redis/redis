@@ -42,6 +42,7 @@
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include <openssl/decoder.h>
 #endif
+#include <sys/uio.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -819,6 +820,43 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     return ret;
 }
 
+static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt) {
+    if (iovcnt == 1) return connTLSWrite(conn_, iov[0].iov_base, iov[0].iov_len);
+
+    /* Accumulate the amount of bytes of each buffer and check if it exceeds NET_MAX_WRITES_PER_EVENT. */
+    size_t iov_bytes_len = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        iov_bytes_len += iov[i].iov_len;
+        if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) break;
+    }
+
+    /* The amount of all buffers is greater than NET_MAX_WRITES_PER_EVENT, 
+     * which is not worth doing so much memory copying to reduce system calls,
+     * therefore, invoke connTLSWrite() multiple times to avoid memory copies. */
+    if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) {
+        size_t tot_sent = 0;
+        for (int i = 0; i < iovcnt; i++) {
+            size_t sent = connTLSWrite(conn_, iov[i].iov_base, iov[i].iov_len);
+            if (sent <= 0) return tot_sent > 0 ? tot_sent : sent;
+            tot_sent += sent;
+            if (sent != iov[i].iov_len) break;
+        }
+        return tot_sent;
+    }
+
+    /* The amount of all buffers is less than NET_MAX_WRITES_PER_EVENT, 
+     * which is worth doing more memory copies in exchange for fewer system calls, 
+     * so concatenate these scattered buffers into a contiguous piece of memory 
+     * and send it away by one call to connTLSWrite(). */
+    char buf[iov_bytes_len];
+    size_t offset = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        memcpy(buf + offset, iov[i].iov_base, iov[i].iov_len);
+        offset += iov[i].iov_len;
+    }
+    return connTLSWrite(conn_, buf, iov_bytes_len);
+}
+
 static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     tls_connection *conn = (tls_connection *) conn_;
     int ret;
@@ -982,6 +1020,7 @@ ConnectionType CT_TLS = {
     .blocking_connect = connTLSBlockingConnect,
     .read = connTLSRead,
     .write = connTLSWrite,
+    .writev = connTLSWritev,
     .close = connTLSClose,
     .set_write_handler = connTLSSetWriteHandler,
     .set_read_handler = connTLSSetReadHandler,

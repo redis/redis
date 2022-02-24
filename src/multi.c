@@ -257,10 +257,13 @@ void execCommand(client *c) {
 
 /* In the client->watched_keys list we need to use watchedKey structures
  * as in order to identify a key in Redis we need both the key name and the
- * DB */
+ * DB. This struct is also referenced from db->watched_keys dict, where the
+ * values are lists of watchedKey pointers. */
 typedef struct watchedKey {
     robj *key;
     redisDb *db;
+    client *client;
+    unsigned expired:1; /* Flag that we're watching an already expired key. */
 } watchedKey;
 
 /* Watch for the specified key */
@@ -284,13 +287,15 @@ void watchForKey(client *c, robj *key) {
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
     }
-    listAddNodeTail(clients,c);
     /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
+    wk->client = c;
     wk->db = c->db;
+    wk->expired = keyIsExpired(c->db, key);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys,wk);
+    listAddNodeTail(clients,wk);
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
@@ -305,12 +310,12 @@ void unwatchAllKeys(client *c) {
         list *clients;
         watchedKey *wk;
 
-        /* Lookup the watched key -> clients list and remove the client
+        /* Lookup the watched key -> clients list and remove the client's wk
          * from the list */
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
         serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,c));
+        listDelNode(clients,listSearchKey(clients,wk));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
@@ -321,8 +326,8 @@ void unwatchAllKeys(client *c) {
     }
 }
 
-/* iterates over the watched_keys list and
- * look for an expired key . */
+/* Iterates over the watched_keys list and looks for an expired key. Keys which
+ * were expired already when WATCH was called are ignored. */
 int isWatchedKeyExpired(client *c) {
     listIter li;
     listNode *ln;
@@ -331,6 +336,7 @@ int isWatchedKeyExpired(client *c) {
     listRewind(c->watched_keys,&li);
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
+        if (wk->expired) continue; /* was expired when WATCH was called */
         if (keyIsExpired(wk->db, wk->key)) return 1;
     }
 
@@ -352,13 +358,31 @@ void touchWatchedKey(redisDb *db, robj *key) {
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
+        watchedKey *wk = listNodeValue(ln);
+        client *c = wk->client;
+
+        if (wk->expired) {
+            /* The key was already expired when WATCH was called. */
+            if (db == wk->db &&
+                equalStringObjects(key, wk->key) &&
+                dictFind(db->dict, key->ptr) == NULL)
+            {
+                /* Already expired key is deleted, so logically no change. Clear
+                 * the flag. Deleted keys are not flagged as expired. */
+                wk->expired = 0;
+                goto skip_client;
+            }
+            break;
+        }
 
         c->flags |= CLIENT_DIRTY_CAS;
         /* As the client is marked as dirty, there is no point in getting here
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
+
+    skip_client:
+        continue;
     }
 }
 
@@ -379,14 +403,31 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (dictFind(emptied->dict, key->ptr) ||
+        int exists_in_emptied = dictFind(emptied->dict, key->ptr) != NULL;
+        if (exists_in_emptied ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
         {
             list *clients = dictGetVal(de);
             if (!clients) continue;
             listRewind(clients,&li);
             while((ln = listNext(&li))) {
-                client *c = listNodeValue(ln);
+                watchedKey *wk = listNodeValue(ln);
+                if (wk->expired) {
+                    if (!replaced_with || !dictFind(replaced_with->dict, key->ptr)) {
+                        /* Expired key now deleted. No logical change. Clear the
+                         * flag. Deleted keys are not flagged as expired. */
+                        wk->expired = 0;
+                        continue;
+                    } else if (keyIsExpired(replaced_with, key)) {
+                        /* Expired key remains expired. */
+                        continue;
+                    }
+                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key)) {
+                    /* Non-existing key is replaced with an expired key. */
+                    wk->expired = 1;
+                    continue;
+                }
+                client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
                 /* As the client is marked as dirty, there is no point in getting here
                  * again for others keys (or keep the memory overhead till EXEC). */

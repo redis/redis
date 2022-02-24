@@ -15,11 +15,13 @@ int set_aclcheck_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     const char *flags = RedisModule_StringPtrLen(argv[1], NULL);
 
     if (!strcasecmp(flags, "W")) {
-        permissions = REDISMODULE_KEY_PERMISSION_WRITE;
+        permissions = REDISMODULE_CMD_KEY_UPDATE;
     } else if (!strcasecmp(flags, "R")) {
-        permissions = REDISMODULE_KEY_PERMISSION_READ;
+        permissions = REDISMODULE_CMD_KEY_ACCESS;
     } else if (!strcasecmp(flags, "*")) {
-        permissions = REDISMODULE_KEY_PERMISSION_ALL;
+        permissions = REDISMODULE_CMD_KEY_UPDATE | REDISMODULE_CMD_KEY_ACCESS;
+    } else if (!strcasecmp(flags, "~")) {
+        permissions = 0; /* Requires either read or write */
     } else {
         RedisModule_ReplyWithError(ctx, "INVALID FLAGS");
         return REDISMODULE_OK;
@@ -58,7 +60,7 @@ int publish_aclcheck_channel(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     /* Check that the pubsub channel can be accessed */
     RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
     RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
-    int ret = RedisModule_ACLCheckChannelPermissions(user, argv[1], 1);
+    int ret = RedisModule_ACLCheckChannelPermissions(user, argv[1], REDISMODULE_CMD_CHANNEL_SUBSCRIBE);
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED CHANNEL");
         RedisModule_FreeModuleUser(user);

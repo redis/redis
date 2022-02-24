@@ -57,6 +57,10 @@
 #include <systemd/sd-daemon.h>
 #endif
 
+#ifndef static_assert
+#define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
+#endif
+
 typedef long long mstime_t; /* millisecond time type. */
 typedef long long ustime_t; /* microsecond time type. */
 
@@ -105,6 +109,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_SHARED_SELECT_CMDS 10
 #define OBJ_SHARED_INTEGERS 10000
 #define OBJ_SHARED_BULKHDR_LEN 32
+#define OBJ_SHARED_HDR_STRLEN(_len_) (((_len_) < 10) ? 4 : 5) /* see shared.mbulkhdr etc. */
 #define LOG_MAX_LEN    1024 /* Default maximum length of syslog messages.*/
 #define AOF_REWRITE_ITEMS_PER_CMD 64
 #define AOF_ANNOTATION_LINE_MAX_LEN 1024
@@ -159,10 +164,13 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
+#define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
+
+#define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
 
 /* When configuring the server eventloop, we setup it so that the total number
  * of file descriptors we can handle are server.maxclients + RESERVED_FDS +
@@ -210,6 +218,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_NO_MULTI (1ULL<<24)
 #define CMD_MOVABLE_KEYS (1ULL<<25) /* populated by populateCommandMovableKeys */
 #define CMD_ALLOW_BUSY ((1ULL<<26))
+#define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -262,7 +271,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_DELETE (1ULL<<7) /* Explicitly deletes some content
                                   * from the value of the key. */
 /* Other flags: */
-#define CMD_KEY_CHANNEL (1ULL<<8)     /* PUBSUB shard channel */
+#define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
+                                       * like a key in cluster mode but is 
+                                       * excluded from other key checks. */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
@@ -270,6 +281,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
+
+/* Channel flags share the same flag space as the key flags */
+#define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
+#define CMD_CHANNEL_SUBSCRIBE (1ULL<<12)   /* The command subscribes to channels */
+#define CMD_CHANNEL_UNSUBSCRIBE (1ULL<<13) /* The command unsubscribes to channels */
+#define CMD_CHANNEL_PUBLISH (1ULL<<14)     /* The command publishes to channels. */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -1163,14 +1180,11 @@ typedef struct client {
                                   * i.e. the next offset to send. */
 
     /* Response buffer */
+    size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
+    mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
-    /* Note that 'buf' must be the last field of client struct, because memory
-     * allocator may give us more memory than our apply for reducing fragments,
-     * but we want to make full use of given memory, i.e. we may access the
-     * memory after 'buf'. To avoid make others fields corrupt, 'buf' must be
-     * the last one. */
-    char buf[PROTO_REPLY_CHUNK_BYTES];
+    char *buf;
 } client;
 
 struct saveparam {
@@ -1209,14 +1223,16 @@ struct sharedObjectsStruct {
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
-    *time, *pxat, *absttl, *retrycount, *force, *justid, 
+    *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
-    *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
+    *bulkhdr[OBJ_SHARED_BULKHDR_LEN],  /* "$<value>\r\n" */
+    *maphdr[OBJ_SHARED_BULKHDR_LEN],   /* "%<value>\r\n" */
+    *sethdr[OBJ_SHARED_BULKHDR_LEN];   /* "~<value>\r\n" */
     sds minstring, maxstring;
 };
 
@@ -1540,6 +1556,8 @@ struct redisServer {
     long long stat_total_active_defrag_time; /* Total time memory fragmentation over the limit, unit us */
     monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record */
+    long long stat_aof_rewrites;    /* number of aof file rewrites performed */
+    long long stat_rdb_saves;       /* number of rdb saves performed */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
     long long stat_total_forks;     /* Total count of fork. */
@@ -1580,6 +1598,9 @@ struct redisServer {
         long long samples[STATS_METRIC_SAMPLES];
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
+    long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
+    long long stat_reply_buffer_expands; /* Total number of output buffer expands */
+
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
@@ -1889,6 +1910,7 @@ struct redisServer {
     int failover_state; /* Failover state */
     int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
+    long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -1900,7 +1922,8 @@ typedef struct {
 } keyReference;
 
 /* A result structure for the various getkeys function calls. It lists the
- * keys as indices to the provided argv.
+ * keys as indices to the provided argv. This functionality is also re-used
+ * for returning channel information.
  */
 typedef struct {
     keyReference keysbuf[MAX_KEYS_BUFFER];       /* Pre-allocated buffer, to save heap allocations */
@@ -2320,6 +2343,7 @@ void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
 const char *moduleTypeModuleName(moduleType *mt);
@@ -3005,13 +3029,15 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 /* API to get key arguments from commands */
 #define GET_KEYSPEC_DEFAULT 0
-#define GET_KEYSPEC_INCLUDE_CHANNELS (1<<0) /* Consider channels as keys */
+#define GET_KEYSPEC_INCLUDE_NOT_KEYS (1<<0) /* Consider 'fake' keys as keys */
 #define GET_KEYSPEC_RETURN_PARTIAL (1<<1) /* Return all keys that can be found */
 
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int doesCommandHaveKeys(struct redisCommand *cmd);
+int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
@@ -3084,7 +3110,7 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids);
-void updateStatsOnUnblock(client *c, long blocked_us, long reply_us);
+void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */

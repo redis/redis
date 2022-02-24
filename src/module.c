@@ -154,7 +154,8 @@ struct RedisModuleCtx {
                                              gets called for clients blocked
                                              on keys. */
 
-    /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
+    /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST or 
+     * REDISMODULE_CTX_CHANNEL_POS_REQUEST flag set. */
     getKeysResult *keys_result;
 
     struct RedisModulePoolAllocBlock *pa_head;
@@ -173,6 +174,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
                                               when the context is destroyed */
 #define REDISMODULE_CTX_NEW_CLIENT (1<<7)  /* Free client object when the
                                               context is destroyed */
+#define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -781,6 +783,25 @@ int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, 
     return result->numkeys;
 }
 
+/* This function returns the list of channels, with the same interface as
+ * moduleGetCommandKeysViaAPI, for modules that declare "getchannels-api"
+ * during registration. Unlike keys, this is the only way to declare channels. */
+int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCtx ctx;
+    moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_CHANNELS_POS_REQUEST);
+
+    /* Initialize getKeysResult */
+    getKeysPrepareResult(result, MAX_KEYS_BUFFER);
+    ctx.keys_result = result;
+
+    cp->func(&ctx,(void**)argv,argc);
+    /* We currently always use the array allocated by RM_RM_ChannelAtPosWithFlags() and don't try
+     * to optimize for the pre-allocated buffer. */
+    moduleFreeContext(&ctx);
+    return result->numkeys;
+}
+
 /* --------------------------------------------------------------------------
  * ## Commands API
  *
@@ -842,6 +863,62 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
     RM_KeyAtPosWithFlags(ctx, pos, flags);
 }
 
+/* Return non-zero if a module command, that was declared with the
+ * flag "getchannels-api", is called in a special way to get the channel positions
+ * and not to get executed. Otherwise zero is returned. */
+int RM_IsChannelsPositionRequest(RedisModuleCtx *ctx) {
+    return (ctx->flags & REDISMODULE_CTX_CHANNELS_POS_REQUEST) != 0;
+}
+
+/* When a module command is called in order to obtain the position of
+ * channels, since it was flagged as "getchannels-api" during the
+ * registration, the command implementation checks for this special call
+ * using the RedisModule_IsChannelsPositionRequest() API and uses this
+ * function in order to report the channels.
+ * 
+ * The supported flags are:
+ * * REDISMODULE_CMD_CHANNEL_SUBSCRIBE: This command will subscribe to the channel.
+ * * REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE: This command will unsubscribe from this channel.
+ * * REDISMODULE_CMD_CHANNEL_PUBLISH: This command will publish to this channel.
+ * * REDISMODULE_CMD_CHANNEL_PATTERN: Instead of acting on a specific channel, will act on any 
+ *                                    channel specified by the pattern. This is the same access
+ *                                    used by the PSUBSCRIBE and PUNSUBSCRIBE commands available 
+ *                                    in Redis. Not intended to be used with PUBLISH permissions.
+ *
+ * The following is an example of how it could be used:
+ *
+ *     if (RedisModule_IsChannelsPositionRequest(ctx)) {
+ *         RedisModule_ChannelAtPosWithFlags(ctx, 1, REDISMODULE_CMD_CHANNEL_SUBSCRIBE | REDISMODULE_CMD_CHANNEL_PATTERN);
+ *         RedisModule_ChannelAtPosWithFlags(ctx, 1, REDISMODULE_CMD_CHANNEL_PUBLISH);
+ *     }
+ *
+ * Note: One usage of declaring channels is for evaluating ACL permissions. In this context,
+ * unsubscribing is always allowed, so commands will only be checked against subscribe and
+ * publish permissions. This is preferred over using RM_ACLCheckChannelPermissions, since
+ * it allows the ACLs to be checked before the command is executed. */
+void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
+    if (!(ctx->flags & REDISMODULE_CTX_CHANNELS_POS_REQUEST) || !ctx->keys_result) return;
+    if (pos <= 0) return;
+
+    getKeysResult *res = ctx->keys_result;
+
+    /* Check overflow */
+    if (res->numkeys == res->size) {
+        int newsize = res->size + (res->size > 8192 ? 8192 : res->size);
+        getKeysPrepareResult(res, newsize);
+    }
+
+    int new_flags = 0;
+    if (flags & REDISMODULE_CMD_CHANNEL_SUBSCRIBE) new_flags |= CMD_CHANNEL_SUBSCRIBE;
+    if (flags & REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE) new_flags |= CMD_CHANNEL_UNSUBSCRIBE;
+    if (flags & REDISMODULE_CMD_CHANNEL_PUBLISH) new_flags |= CMD_CHANNEL_PUBLISH;
+    if (flags & REDISMODULE_CMD_CHANNEL_PATTERN) new_flags |= CMD_CHANNEL_PATTERN;
+
+    res->keys[res->numkeys].pos = pos;
+    res->keys[res->numkeys].flags = new_flags;
+    res->numkeys++;
+}
+
 /* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
@@ -868,6 +945,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
+        else if (!strcasecmp(t,"getchannels-api")) flags |= CMD_MODULE_GETCHANNELS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
@@ -947,6 +1025,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * * **"allow-busy"**: Permit the command while the server is blocked either by
  *                     a script or by a slow module command, see
  *                     RM_Yield.
+ * * **"getchannels-api"**: The command implements the interface to return
+ *                          the arguments that are channels.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -1359,9 +1439,8 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *
  *     Other flags:
  *
- *     * `REDISMODULE_CMD_KEY_CHANNEL`: The key is not actually a key, but a
- *       shard channel as used by sharded pubsub commands like `SSUBSCRIBE` and
- *       `SPUBLISH` commands.
+ *     * `REDISMODULE_CMD_KEY_NOT_KEY`: The key is not actually a key, but 
+ *       should be routed in cluster mode as if it was a key.
  *
  *     * `REDISMODULE_CMD_KEY_INCOMPLETE`: The keyspec might not point out all
  *       the keys it should cover.
@@ -1703,7 +1782,7 @@ static int64_t moduleConvertKeySpecsFlags(int64_t flags, int from_api) {
         {REDISMODULE_CMD_KEY_INSERT, CMD_KEY_INSERT},
         {REDISMODULE_CMD_KEY_UPDATE, CMD_KEY_UPDATE},
         {REDISMODULE_CMD_KEY_DELETE, CMD_KEY_DELETE},
-        {REDISMODULE_CMD_KEY_CHANNEL, CMD_KEY_CHANNEL},
+        {REDISMODULE_CMD_KEY_NOT_KEY, CMD_KEY_NOT_KEY},
         {REDISMODULE_CMD_KEY_INCOMPLETE, CMD_KEY_INCOMPLETE},
         {REDISMODULE_CMD_KEY_VARIABLE_FLAGS, CMD_KEY_VARIABLE_FLAGS},
         {0,0}};
@@ -7101,6 +7180,7 @@ void moduleHandleBlockedClients(void) {
          * was blocked on keys (RM_BlockClientOnKeys()), because we already
          * called such callback in moduleTryServeClientBlockedOnKey() when
          * the key was signaled as ready. */
+        long long prev_error_replies = server.stat_total_error_replies;
         uint64_t reply_us = 0;
         if (c && !bc->blocked_on_keys && bc->reply_callback) {
             RedisModuleCtx ctx;
@@ -7114,13 +7194,6 @@ void moduleHandleBlockedClients(void) {
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
-        }
-        /* Update stats now that we've finished the blocking operation.
-         * This needs to be out of the reply callback above given that a
-         * module might not define any callback and still do blocking ops.
-         */
-        if (c && !bc->blocked_on_keys) {
-            updateStatsOnUnblock(c, bc->background_duration, reply_us);
         }
 
         /* Free privdata if any. */
@@ -7141,6 +7214,14 @@ void moduleHandleBlockedClients(void) {
         if (c) AddReplyFromClient(c, bc->reply_client);
         moduleReleaseTempClient(bc->reply_client);
         moduleReleaseTempClient(bc->thread_safe_ctx_client);
+
+        /* Update stats now that we've finished the blocking operation.
+         * This needs to be out of the reply callback above given that a
+         * module might not define any callback and still do blocking ops.
+         */
+        if (c && !bc->blocked_on_keys) {
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
+        }
 
         if (c != NULL) {
             /* Before unblocking the client, set the disconnect callback
@@ -7199,10 +7280,11 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
+    long long prev_error_replies = server.stat_total_error_replies;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     if (!bc->blocked_on_keys) {
-        updateStatsOnUnblock(c, bc->background_duration, 0);
+        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
     }
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
@@ -8355,28 +8437,34 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
-/* Check if the key can be accessed by the user, according to the ACLs associated with it
- * and the flags used. The supported flags are:
+/* Check if the key can be accessed by the user according to the ACLs attached to the user
+ * and the flags representing the key access. The flags are the same that are used in the
+ * keyspec for logical operations. These flags are documented in RedisModule_SetCommandInfo as
+ * the REDISMODULE_CMD_KEY_ACCESS, REDISMODULE_CMD_KEY_UPDATE, REDISMODULE_CMD_KEY_INSERT,
+ * and REDISMODULE_CMD_KEY_DELETE flags.
+ * 
+ * If no flags are supplied, the user is still required to have some access to the key for
+ * this command to return successfully.
  *
- * REDISMODULE_KEY_PERMISSION_READ: Can the module read data from the key.
- * REDISMODULE_KEY_PERMISSION_WRITE: Can the module write data to the key.
- *
- * On success a REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned and errno is set to the following values:
+ * If the user is able to access the key then REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to one of the following values:
  * 
  * * EINVAL: The provided flags are invalid.
  * * EACCESS: The user does not have permission to access the key.
  */
 int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int flags) {
-    int acl_flags = 0;
-    if (flags & REDISMODULE_KEY_PERMISSION_READ) acl_flags |= ACL_READ_PERMISSION;
-    if (flags & REDISMODULE_KEY_PERMISSION_WRITE) acl_flags |= ACL_WRITE_PERMISSION;
-    if (!acl_flags || ((flags & REDISMODULE_KEY_PERMISSION_ALL) != flags)) {
+    const int allow_mask = (REDISMODULE_CMD_KEY_ACCESS
+        | REDISMODULE_CMD_KEY_INSERT
+        | REDISMODULE_CMD_KEY_DELETE
+        | REDISMODULE_CMD_KEY_UPDATE);
+
+    if ((flags & allow_mask) != flags) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
 
-    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), acl_flags) != ACL_OK) {
+    int keyspec_flags = moduleConvertKeySpecsFlags(flags, 0);
+    if (ACLUserCheckKeyPerm(user->user, key->ptr, sdslen(key->ptr), keyspec_flags) != ACL_OK) {
         errno = EACCES;
         return REDISMODULE_ERR;
     }
@@ -8384,14 +8472,34 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
     return REDISMODULE_OK;
 }
 
-/* Check if the pubsub channel can be accessed by the user, according to the ACLs associated with it.
- * Glob-style pattern matching is employed, unless the literal flag is
- * set.
+/* Check if the pubsub channel can be accessed by the user based off of the given
+ * access flags. See RM_ChannelAtPosWithFlags for more information about the
+ * possible flags that can be passed in.
  *
- * If the user can access the pubsub channel, REDISMODULE_OK is returned, otherwise
- * REDISMODULE_ERR is returned. */
-int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int literal) {
-    if (ACLUserCheckChannelPerm(user->user, ch->ptr, literal) != ACL_OK)
+ * If the user is able to acecss the pubsub channel then REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to one of the following values:
+ * 
+ * * EINVAL: The provided flags are invalid.
+ * * EACCESS: The user does not have permission to access the pubsub channel. 
+ */
+int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
+    const int allow_mask = (REDISMODULE_CMD_CHANNEL_PUBLISH
+        | REDISMODULE_CMD_CHANNEL_SUBSCRIBE
+        | REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE
+        | REDISMODULE_CMD_CHANNEL_PATTERN);
+
+    if ((flags & allow_mask) != flags) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* Unsubscribe permissions are currently always allowed. */
+    if (flags & REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE){
+        return REDISMODULE_OK;
+    }
+
+    int is_pattern = flags & REDISMODULE_CMD_CHANNEL_PATTERN;
+    if (ACLUserCheckChannelPerm(user->user, ch->ptr, is_pattern) != ACL_OK)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
@@ -11499,6 +11607,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(KeyAtPosWithFlags);
+    REGISTER_API(IsChannelsPositionRequest);
+    REGISTER_API(ChannelAtPosWithFlags);
     REGISTER_API(GetClientId);
     REGISTER_API(GetClientUserNameById);
     REGISTER_API(GetContextFlags);
