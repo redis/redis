@@ -51,5 +51,4 @@ void freeCliConnInfo(cliConnInfo connInfo);
 
 sds escapeJsonString(sds s, const char *p, size_t len);
 
-sds convertBinaryInJson(sds s, const char *p, size_t len);
 #endif /* __CLICOMMON_H */

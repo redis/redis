@@ -239,10 +239,17 @@ start_server {tags {"cli"}} {
         r hset eth test $eth
         assert_equal \"\\xf0e\" [run_cli hget eth test]
         assert_equal \"\xf0e\" [run_cli --json hget eth test]
-        assert_equal \"\\\\xf0\\\\x65\" [run_cli --json --json-binary-encoding hget eth test]
+        assert_equal \"\\\\xf0e\" [run_cli --quoted-json hget eth test]
         # control characters
         r hset control test "Hello\x00\x01\x02\x03World"
         assert_equal \"Hello\\u0000\\u0001\\u0002\\u0003World" [run_cli --json hget control test]
+        # non-string keys
+        r hset numkey 1 One
+        assert_equal \{\"1\":\"One\"\} [run_cli --json hgetall numkey]
+        # non-string, non-printable keys
+        r hset npkey "K\x00\x01ey" "V\x00\x01alue"
+        assert_equal \{\"K\\u0000\\u0001ey\":\"V\\u0000\\u0001alue\"\} [run_cli --json hgetall npkey]
+        assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
 
     test_nontty_cli "Status reply" {

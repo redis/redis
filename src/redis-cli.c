@@ -70,6 +70,7 @@
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
 #define OUTPUT_JSON 3
+#define OUTPUT_QUOTED_JSON 4
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -261,7 +262,6 @@ static struct config {
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
-    int json_binary_encoding;
 } config;
 
 /* User preferences. */
@@ -1176,16 +1176,39 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
-static sds cliFormatReplyJson(sds out, redisReply *r, int binary) {
+/* Append specified buffer to out and return it, using required JSON output
+ * mode. */
+static sds jsonStringOutput(sds out, const char *p, int len, int mode) {
+    if (mode == OUTPUT_JSON) {
+        return escapeJsonString(out, p, len);
+    } else if (mode == OUTPUT_QUOTED_JSON) {
+        /* Need to double-quote backslashes */
+        sds tmp = sdscatrepr(sdsempty(), p, len);
+        int tmplen = sdslen(tmp);
+        char *n = tmp;
+        while (tmplen--) {
+            if (*n == '\\') out = sdscatlen(out, "\\\\", 2);
+            else out = sdscatlen(out, n, 1);
+            n++;
+        }
+
+        sdsfree(tmp);
+        return out;
+    } else {
+        assert(0);
+    }
+}
+
+static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
     unsigned int i;
 
     switch (r->type) {
     case REDIS_REPLY_ERROR:
         out = sdscat(out,"error:");
-        out = escapeJsonString(out,r->str,strlen(r->str));
+        out = jsonStringOutput(out,r->str,strlen(r->str),mode);
         break;
     case REDIS_REPLY_STATUS:
-        out = escapeJsonString(out,r->str,r->len);
+        out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
@@ -1195,11 +1218,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int binary) {
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
-        if (binary == 1) {
-            out = convertBinaryInJson(out,r->str,r->len);
-        } else {
-            out = escapeJsonString(out,r->str,r->len);
-        }
+        out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_NIL:
         out = sdscat(out,"null");
@@ -1212,7 +1231,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int binary) {
     case REDIS_REPLY_PUSH:
         out = sdscat(out,"[");
         for (i = 0; i < r->elements; i++ ) {
-            out = cliFormatReplyJson(out, r->element[i], binary);
+            out = cliFormatReplyJson(out,r->element[i],mode);
             if (i != r->elements-1) out = sdscat(out,",");
         }
         out = sdscat(out,"]");
@@ -1225,22 +1244,20 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int binary) {
                 key->type == REDIS_REPLY_STATUS ||
                 key->type == REDIS_REPLY_STRING ||
                 key->type == REDIS_REPLY_VERB) {
-                    /* Binary data can be stored in Hash key, but don't use binary escape here
-                     * otherwise all keys are also printed as binary string, it would be useless
-                     * for users */
-                    out = cliFormatReplyJson(out, key, 0);
+                    out = cliFormatReplyJson(out,key,mode);
             } else {
                 /* According to JSON spec, JSON map keys must be strings,
                  * and in RESP3, they can be other types. 
                  * The first one(cliFormatReplyJson) is to convert non string type to string
                  * The Second one(escapeJsonString) is to escape the converted string */
-                sds tmp = cliFormatReplyJson(sdsempty(), key, 0);
-                out = escapeJsonString(out,tmp,sdslen(tmp));
-                sdsfree(tmp);
+                sds keystr = cliFormatReplyJson(sdsempty(),key,mode);
+                if (keystr[0] == '"') out = sdscatsds(out,keystr);
+                else out = sdscatfmt(out,"\"%S\"",keystr);
+                sdsfree(keystr);
             }
             out = sdscat(out,":");
 
-            out = cliFormatReplyJson(out, r->element[i+1], binary);
+            out = cliFormatReplyJson(out,r->element[i+1],mode);
             if (i != r->elements-2) out = sdscat(out,",");
         }
         out = sdscat(out,"}");
@@ -1266,8 +1283,8 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
-    } else if (mode == OUTPUT_JSON) {
-        out = cliFormatReplyJson(sdsempty(), reply, config.json_binary_encoding);
+    } else if (mode == OUTPUT_JSON || mode == OUTPUT_QUOTED_JSON) {
+        out = cliFormatReplyJson(sdsempty(), reply, mode);
         out = sdscatlen(out, "\n", 1);
     } else {
         fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
@@ -1658,8 +1675,12 @@ static int parseOptions(int argc, char **argv) {
                 config.resp3 = 2;
             }
             config.output = OUTPUT_JSON;
-        } else if (!strcmp(argv[i],"--json-binary-encoding")) {
-            config.json_binary_encoding = 1;
+        } else if (!strcmp(argv[i],"--quoted-json")) {
+            /* Not overwrite explicit value by -3*/
+            if (config.resp3 == 0) {
+                config.resp3 = 2;
+            }
+            config.output = OUTPUT_QUOTED_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
@@ -1915,11 +1936,6 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (config.output != OUTPUT_JSON && config.json_binary_encoding) {
-        fprintf(stderr,"Option --json-binary-encoding should be used with --json\n");
-        exit(1);
-    }
-
     return i;
 }
 
@@ -1996,7 +2012,7 @@ static void usage(int err) {
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
 "  --json             Output in JSON format (default RESP3, use -2 if you want to use with RESP2).\n"
-"  --json-binary-encoding Output JSON value as escaped binary character with \\x?? style\n"
+"  --quoted-json      Same as --json, but produce ASCII-safe quoted strings, not Unicode.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n",version);
@@ -8521,7 +8537,6 @@ int main(int argc, char **argv) {
     config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.in_multi = 0;
-    config.json_binary_encoding = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

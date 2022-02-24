@@ -373,19 +373,8 @@ void freeCliConnInfo(cliConnInfo connInfo){
 }
 
 /*
- * Escape a string for JSON output(--json)
- * Following characters should be escaped with '\' in JSON
- * " (quotation mark)
- * \ (reverse solidus)
- * b (backspace)
- * f (form feed)
- * n (line feed)
- * r (carriage return)
- * t (tab)
- * 
- * and the characters between 0x00~0x1f are printed as \u00??
- * 
- * ref: https://datatracker.ietf.org/doc/html/rfc7159#section-7
+ * Escape a Unicode string for JSON output (--json), following RFC 7159:
+ * https://datatracker.ietf.org/doc/html/rfc7159#section-7
 */
 sds escapeJsonString(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
@@ -403,15 +392,6 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
         default:
             s = sdscatprintf(s,(*p >= 0 && *p <= 0x1f) ? "\\u%04x" : "%c",*p);
         }
-        p++;
-    }
-    return sdscatlen(s,"\"",1);
-}
-
-sds convertBinaryInJson(sds s, const char *p, size_t len) {
-    s = sdscatlen(s,"\"",1);
-    while(len--) {
-        s = sdscatprintf(s,"\\\\x%02x",(unsigned char)*p);
         p++;
     }
     return sdscatlen(s,"\"",1);
