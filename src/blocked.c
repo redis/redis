@@ -588,8 +588,16 @@ void unblockDeletedStreamReadgroupClients(readyList *rl) {
             if (receiver->btype != BLOCKED_STREAM || !receiver->bpop.xread_group)
                 continue;
 
+            long long prev_error_replies = server.stat_total_error_replies;
+            client *old_client = server.current_client;
+            server.current_client = receiver;
+            monotime replyTimer;
+            elapsedStart(&replyTimer);
             addReplyError(receiver, "-UNBLOCK the stream key no longer exists");
+            updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
             unblockClient(receiver);
+            afterCommand(receiver);
+            server.current_client = old_client;
         }
     }
 }
