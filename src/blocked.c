@@ -619,7 +619,7 @@ void handleClientsBlockedOnKeys(void) {
              * lookup, invalidating the first one.
              * See https://github.com/redis/redis/pull/6554. */
             server.fixed_time_expire++;
-            updateCachedTime(0);
+            updateCachedTime(0, -1);
 
             /* Serve clients blocked on the key. */
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS);
