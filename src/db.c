@@ -557,6 +557,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
+        scanDatabaseForDeletedStreams(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
@@ -1317,7 +1318,7 @@ void copyCommand(client *c) {
  * one or more blocked clients for B[LR]POP or other blocking commands
  * and signal the keys as ready if they are of the right type. See the comment
  * where the function is used for more info. */
-void scanDatabaseForReadyLists(redisDb *db) {
+void scanDatabaseForReadyKeys(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
@@ -1326,6 +1327,31 @@ void scanDatabaseForReadyLists(redisDb *db) {
         if (kde) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
+        }
+    }
+    dictReleaseIterator(di);
+}
+
+/* Since we are unblocking XREADGROUP clients in the event the
+ * key was deleted/overwirtten we must do the same in case the
+ * database was flushed/swaped. */
+void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
+    /* Optimization: If no clients are in type BLOCKED_STREAM,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
+
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        dictEntry *kde = dictFind(emptied->dict, key->ptr);
+        int existed = kde != NULL;
+        int exists = replaced_with && dictFind(replaced_with->dict, key->ptr);
+        if (existed && !exists) {
+            robj *value = dictGetVal(kde);
+            /* We want to try to unblock any client using a blocking XREADGROUP */
+            if (value->type == OBJ_STREAM)
+                signalKeyAsReady(emptied, key, value->type);
         }
     }
     dictReleaseIterator(di);
@@ -1345,6 +1371,9 @@ int dbSwapDatabases(int id1, int id2) {
     if (id1 == id2) return C_OK;
     redisDb aux = server.db[id1];
     redisDb *db1 = &server.db[id1], *db2 = &server.db[id2];
+
+    scanDatabaseForDeletedStreams(db1, db2);
+    scanDatabaseForDeletedStreams(db2, db1);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -1371,9 +1400,9 @@ int dbSwapDatabases(int id1, int id2) {
      *
      * Also the swapdb should make transaction fail if there is any
      * client watching keys */
-    scanDatabaseForReadyLists(db1);
+    scanDatabaseForReadyKeys(db1);
     touchAllWatchedKeysInDb(db1, db2);
-    scanDatabaseForReadyLists(db2);
+    scanDatabaseForReadyKeys(db2);
     touchAllWatchedKeysInDb(db2, db1);
     return C_OK;
 }
@@ -1392,6 +1421,8 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
+
+        scanDatabaseForDeletedStreams(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -1418,7 +1449,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          *
          * Also the swapdb should make transaction fail if there is any
          * client watching keys. */
-        scanDatabaseForReadyLists(activedb);
+        scanDatabaseForReadyKeys(activedb);
         touchAllWatchedKeysInDb(activedb, newdb);
     }
 

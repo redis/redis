@@ -580,7 +580,7 @@ void unblockDeletedStreamReadgroupClients(readyList *rl) {
             if (receiver->btype != BLOCKED_STREAM || !receiver->bpop.xread_group)
                 continue;
 
-            addReplyError(receiver, "-UNBLOCK the stream this client was blocked on no longer exists");
+            addReplyError(receiver, "-UNBLOCK the stream key no longer exists");
             unblockClient(receiver);
         }
     }
@@ -654,6 +654,13 @@ void handleClientsBlockedOnKeys(void) {
                  * regardless of the object type: we don't know what the
                  * module is trying to accomplish right now. */
                 serveClientsBlockedOnKeyByModule(rl);
+                /* If we have XREADGROUP clients blocked on this key, and
+                 * the key is not a stream, it must mean that the key was
+                 * overwritten by either SET or something like
+                 * (MULTI, DEL key, SADD key e, EXEC).
+                 * In this case we need to unblock all these clients. */
+                 if (o->type != OBJ_STREAM)
+                     unblockDeletedStreamReadgroupClients(rl);
             } else {
                 /* Unblock all XREADGROUP clients of this deleted key */
                 unblockDeletedStreamReadgroupClients(rl);
