@@ -1091,7 +1091,7 @@ void deferredAfterErrorReply(client *c, list *errors) {
     listRewind(errors,&li);
     while((ln = listNext(&li))) {
         sds err = ln->value;
-        afterErrorReply(c, err, sdslen(err),0);
+        afterErrorReply(c, err, sdslen(err), 0);
     }
 }
 

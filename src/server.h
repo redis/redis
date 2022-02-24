@@ -2499,7 +2499,7 @@ void addReplyErrorFormat(client *c, const char *fmt, ...)
 void addReplyStatusFormat(client *c, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 #else
-void addReplyErrorFormat(client *c, int flags, const char *fmt, ...);
+void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...);
 void addReplyErrorFormat(client *c, const char *fmt, ...);
 void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
