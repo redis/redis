@@ -10244,6 +10244,13 @@ static uint64_t moduleEventVersions[] = {
  *
  *     * `REDISMODULE_SUBEVENT_CONFIG_CHANGE`
  *
+ *     The data pointer can be casted to a RedisModuleConfigChange
+ *     structure with the following fields:
+ *
+ *         const char **config_names; // An array of C string pointers containing the
+ *                                    // name of each modified configuration item 
+ *         uint32_t num_changes;      // The number of elements in the config_names array
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
