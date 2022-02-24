@@ -660,11 +660,12 @@ void handleClientsBlockedOnKeys(void) {
             /* Serve clients blocked on the key. */
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NONOTIFY | LOOKUP_NOSTATS);
             if (o != NULL) {
-                if (o->type == OBJ_LIST)
+                int objtype = o->type;
+                if (objtype == OBJ_LIST)
                     serveClientsBlockedOnListKey(o,rl);
-                else if (o->type == OBJ_ZSET)
+                else if (objtype == OBJ_ZSET)
                     serveClientsBlockedOnSortedSetKey(o,rl);
-                else if (o->type == OBJ_STREAM)
+                else if (objtype == OBJ_STREAM)
                     serveClientsBlockedOnStreamKey(o,rl);
                 /* We want to serve clients blocked on module keys
                  * regardless of the object type: we don't know what the
@@ -675,7 +676,7 @@ void handleClientsBlockedOnKeys(void) {
                  * overwritten by either SET or something like
                  * (MULTI, DEL key, SADD key e, EXEC).
                  * In this case we need to unblock all these clients. */
-                 if (o->type != OBJ_STREAM)
+                 if (objtype != OBJ_STREAM)
                      unblockDeletedStreamReadgroupClients(rl);
             } else {
                 /* Unblock all XREADGROUP clients of this deleted key */
