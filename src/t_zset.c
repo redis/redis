@@ -2848,7 +2848,7 @@ typedef enum {
 
 typedef struct zrange_result_handler zrange_result_handler;
 
-typedef void (*zrangeResultBeginFunction)(zrange_result_handler *c, long hint);
+typedef void (*zrangeResultBeginFunction)(zrange_result_handler *c, long length);
 typedef void (*zrangeResultFinalizeFunction)(
     zrange_result_handler *c, size_t result_count);
 typedef void (*zrangeResultEmitCBufferFunction)(
@@ -2876,16 +2876,19 @@ struct zrange_result_handler {
     zrangeResultEmitLongLongFunction     emitResultFromLongLong;
 };
 
-/* Result handler methods for responding the ZRANGE to clients. */
-static void zrangeResultBeginClient(zrange_result_handler *handler, long hint) {
-    if (hint > 0) {
+/* Result handler methods for responding the ZRANGE to clients.
+ * length can be used to provide the result length in advance (avoids deferred reply overhead).
+ * length can be set to -1 if the result length is not know in advance.
+ */
+static void zrangeResultBeginClient(zrange_result_handler *handler, long length) {
+    if (length > 0) {
         /* In case of WITHSCORES, respond with a single array in RESP2, and
         * nested arrays in RESP3. We can't use a map response type since the
         * client library needs to know to respect the order. */
         if (handler->withscores && (handler->client->resp == 2)) {
-            hint *= 2;
+            length *= 2;
         }
-        addReplyArrayLen(handler->client, hint);
+        addReplyArrayLen(handler->client, length);
         handler->userdata = NULL;
         return;
     }
@@ -2923,22 +2926,23 @@ static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
     size_t result_count)
 {
-    if (handler->userdata) {
-        /* In case of WITHSCORES, respond with a single array in RESP2, and
-        * nested arrays in RESP3. We can't use a map response type since the
-        * client library needs to know to respect the order. */
-        if (handler->withscores && (handler->client->resp == 2)) {
-            result_count *= 2;
-        }
-
-        setDeferredArrayLen(handler->client, handler->userdata, result_count);
+    /* If the reply size was know at start there's nothing left to do */
+    if (!handler->userdata)
+        return;
+    /* In case of WITHSCORES, respond with a single array in RESP2, and
+     * nested arrays in RESP3. We can't use a map response type since the
+     * client library needs to know to respect the order. */
+    if (handler->withscores && (handler->client->resp == 2)) {
+        result_count *= 2;
     }
+
+    setDeferredArrayLen(handler->client, handler->userdata, result_count);
 }
 
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
-static void zrangeResultBeginStore(zrange_result_handler *handler, long hint)
+static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    UNUSED(hint);
+    UNUSED(length);
     handler->dstobj = createZsetListpackObject();
 }
 
