@@ -266,7 +266,7 @@ start_server {
         r SWAPDB 4 9
         assert_error "*no longer exists*" {$rd read}
         $rd close
-    }
+    } {} {external:skip}
 
     test {Blocking XREAD: key deleted} {
         r DEL mystream
