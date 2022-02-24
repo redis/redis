@@ -84,9 +84,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* Global vars */
 struct redisServer server; /* Server global state */
 
-/* hold the prev error count captured on the last command execution */
-static long long prev_err_count;
-
 /*============================ Internal prototypes ========================== */
 
 static inline int isShutdownInitiated(void);
@@ -3083,14 +3080,16 @@ void propagatePendingCommands() {
     redisOpArrayFree(&server.also_propagate);
 }
 
-/* Reset the error stats count and set cmd stats in case there are any errors
- * that happened sense the last snapshot. the flags indicates what stats need
- * to be updated, options are:
+/* Increment the command failure counters (either rejected_calls or failed_calls).
+ * The decision which counter to increment is done using the flags argument, options are:
  * * ERROR_COMMAND_REJECTED - update rejected_calls
  * * ERROR_COMMAND_FAILED - update failed_calls
  *
- * If cmd is NULL, not stats are updated. */
-void resetErrorCountSnapshot(struct redisCommand *cmd, int flags) {
+ * The function also reset the prev_err_count to make sure we will not count the same error
+ * twice, its possible to pass a NULL cmd value to indicate that the error was counted elsewhere. */
+void incrCommandFailedCalls(struct redisCommand *cmd, int flags) {
+    /* hold the prev error count captured on the last command execution */
+    static long long prev_err_count;
     if (cmd) {
         if ((server.stat_total_error_replies - prev_err_count) > 0) {
             if (flags & ERROR_COMMAND_REJECTED) {
@@ -3165,7 +3164,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    resetErrorCountSnapshot(NULL, 0);
+    incrCommandFailedCalls(NULL, 0);
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
@@ -3183,7 +3182,11 @@ void call(client *c, int flags) {
 
     server.in_nested_call--;
 
-    resetErrorCountSnapshot(real_cmd, ERROR_COMMAND_FAILED);
+    /* Update failed command calls if required.
+     * We leverage a static variable (prev_err_count) to retain
+     * the counter across nested function calls and avoid logging
+     * the same error twice. */
+    incrCommandFailedCalls(real_cmd, ERROR_COMMAND_FAILED);
     if (c->deferred_reply_errors) {
         /* When call is used from a module client, error stats, and total_error_replies
          * isn't updated since these errors, if handled by the module, are internal,

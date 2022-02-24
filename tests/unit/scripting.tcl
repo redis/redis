@@ -1411,9 +1411,9 @@ start_server {tags {"scripting"}} {
             r eval {return redis.call('set','x','y')} 1 x
         }
         assert_equal [errorrstat OOM r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
-        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
 
         # redis.pcall() failure due to Redis state (OOM) returns lua error table with Redis error message without '-' prefix
         r config resetstat
@@ -1430,9 +1430,9 @@ start_server {tags {"scripting"}} {
         # error stats were not incremented
         assert_equal [errorrstat ERR r] {}
         assert_equal [errorrstat OOM r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
-        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval r]
         
         # Returning an error object from lua is handled as a valid RESP error result.
         r config resetstat
@@ -1441,9 +1441,9 @@ start_server {tags {"scripting"}} {
         }
         assert_equal [errorrstat ERR r] {}
         assert_equal [errorrstat OOM r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
-        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
 
         r config set maxmemory 0
         r config resetstat
@@ -1452,9 +1452,9 @@ start_server {tags {"scripting"}} {
             r eval {return redis.call('select',99)} 0
         }
         assert_equal [errorrstat ERR r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_select:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
-        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat select r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
         
         # redis.pcall() failure due to error in Redis command returns lua error table with redis error message without '-' prefix
         r config resetstat
@@ -1469,9 +1469,9 @@ start_server {tags {"scripting"}} {
             } 0
         ] 1
         assert_equal [errorrstat ERR r] {count=1} ;
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_select:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
-        assert_match {*cmdstat_eval:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat select r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval r]
 
         # Script aborted due to scripting specific error state (write cmd with eval_ro) should report script execution error with detailed internal error
         r config resetstat
@@ -1479,9 +1479,9 @@ start_server {tags {"scripting"}} {
             r eval_ro {return redis.call('set','x','y')} 1 x
         }
         assert_equal [errorrstat ERR r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
-        assert_match {*cmdstat_eval_ro:calls=1*rejected_calls=0,failed_calls=1*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval_ro r]
 
         # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
         r config resetstat
@@ -1496,9 +1496,20 @@ start_server {tags {"scripting"}} {
             } 1 x
         ] 1
         assert_equal [errorrstat ERR r] {count=1}
-        assert_equal [totalerrorreplies r] {1}
-        assert_match {*cmdstat_set:calls=0*rejected_calls=1,failed_calls=0*} [r info commandstats]
-        assert_match {*cmdstat_eval_ro:calls=1*rejected_calls=0,failed_calls=0*} [r info commandstats]
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval_ro r]
+
+        r config resetstat
+        # make sure geoadd will failed
+        r set Sicily 1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {
+            r eval {return redis.call('GEOADD', 'Sicily', '13.361389', '38.115556', 'Palermo', '15.087269', '37.502669', 'Catania')} 1 x
+        }
+        assert_equal [errorrstat WRONGTYPE r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat geoadd r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
     } {} {cluster:skip}
     
     test "LUA redis.error_reply API" {

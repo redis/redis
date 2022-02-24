@@ -2778,7 +2778,7 @@ typedef struct {
     int minex, maxex; /* are min or max exclusive? */
 } zlexrangespec;
 
-/* flags for resetErrorCountSnapshot */
+/* flags for incrCommandFailedCalls */
 #define ERROR_COMMAND_REJECTED (1<<0) /* Indicate to update the command rejected stats */
 #define ERROR_COMMAND_FAILED (1<<1) /* Indicate to update the command failed stats */
 
@@ -2837,7 +2837,7 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
 void startCommandExecution();
-void resetErrorCountSnapshot(struct redisCommand *cmd, int flags);
+void incrCommandFailedCalls(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();

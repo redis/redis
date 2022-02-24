@@ -440,11 +440,7 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
 
 /* Do some actions after an error reply was sent (Log if needed, updates stats, etc.)
  * Possible flags:
- * * ERR_REPLY_FLAG_NO_STATS_UPDATE - indicate not to update any error stats,
- *                                    instead we update the failed_calls of the
- *                                    current command because it will not be updated
- *                                    on `call` function when the command invocation
- *                                    will finish. */
+ * * ERR_REPLY_FLAG_NO_STATS_UPDATE - indicate not to update any error stats. */
 void afterErrorReply(client *c, const char *s, size_t len, int flags) {
     /* Module clients fall into two categories:
      * Calls to RM_Call, in which case the error isn't being returned to a client, so should not be counted.
@@ -478,7 +474,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         }
     } else {
         /* stat_total_error_replies will not be updated, which means that
-         * the cmd stats will not be updated, we still want this command
+         * the cmd stats will not be updated as well, we still want this command
          * to be counted as failed so we update it here */
         c->cmd->failed_calls++;
     }
