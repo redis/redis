@@ -3929,3 +3929,102 @@ get_defrag_hint(void* ptr) {
 	assert(ptr != NULL);
 	return iget_defrag_hint(TSDN_NULL, ptr);
 }
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+init_defrag(void) {
+    unsigned long long i;
+    tsd_t *tsd = tsd_fetch();
+    arena_t *arena = arena_choose(tsd, NULL);
+
+    printf("Initing defrag hints\n");
+
+    // TODO: Consider locking: arena->mtx
+    for (i = 0; i < SC_NBINS; i++) {
+        unsigned binshard;
+        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+        const bin_info_t *bin_info = &bin_infos[i];
+        uint64_t used_slabs = bin->stats.nonfull_slabs + (bin->slabcur ? 1 : 0);
+        uint64_t full_slabs = bin->stats.curslabs - bin->stats.nonfull_slabs - (bin->slabcur ? 1 : 0);
+        uint64_t needed_slabs = (bin->stats.curregs - full_slabs * bin_info->nregs) / bin_info->nregs;
+        if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
+        needed_slabs += full_slabs;
+        used_slabs += full_slabs;
+        if (used_slabs != needed_slabs) {
+            int64_t nonfull_to_retain = needed_slabs - full_slabs;
+            if (bin->slabcur) nonfull_to_retain--;
+            printf("%zu: Need %lu slabs but have %lu, non full to retain %ld\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain);
+            extent_list_t slabs_retain;
+            extent_list_init(&slabs_retain);
+            while (nonfull_to_retain--) {
+                extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
+                if (slab == NULL) printf("badger!!!!\n");
+                extent_defrag_retain_set(slab, true);
+                extent_list_append(&slabs_retain, slab);
+            }
+            for (extent_t *slab = extent_list_first(&slabs_retain); slab != NULL; slab = extent_list_first(&slabs_retain)) {
+                extent_list_remove(&slabs_retain, slab);
+                extent_heap_insert(&bin->slabs_nonfull, slab);
+            }
+        }
+
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+    }
+}
+
+static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) {
+    uint64_t c = 0;
+    extent_t *leftmost_child, *sibling;
+
+    if (extent_defrag_retain_get(node)) (*found)++;
+    extent_defrag_retain_set(node, false);
+    c++;
+
+    leftmost_child = phn_lchild_get(extent_t, ph_link, node);
+    if (leftmost_child == NULL) {
+        return c;
+    }
+    c += zero_extent_heap_defrag_retain(leftmost_child, found);
+
+    for (sibling = phn_next_get(extent_t, ph_link, leftmost_child); sibling != NULL; sibling = phn_next_get(extent_t, ph_link, sibling)) {
+        c += zero_extent_heap_defrag_retain(sibling, found);
+    }
+    return c;
+}
+
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+finish_defrag(void) {
+    unsigned long long i;
+    tsd_t *tsd = tsd_fetch();
+    arena_t *arena = arena_choose(tsd, NULL);
+
+    printf("Cleaning up defrag hints\n");
+
+    // TODO: Consider locking: arena->mtx
+    for (i = 0; i < SC_NBINS; i++) {
+        unsigned binshard;
+        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+        extent_t *slab;
+        uint64_t scanned_full = 0, found_full = 0, scanned_non = 0, found_non = 0;
+        ql_foreach(slab, &bin->slabs_full, ql_link) {
+            //printf("badger\n");
+            scanned_full++;
+            if (extent_defrag_retain_get(slab)) found_full++;
+            extent_defrag_retain_set(slab, false);
+        }
+
+        if (bin->slabs_nonfull.ph_root) {
+            scanned_non += zero_extent_heap_defrag_retain(bin->slabs_nonfull.ph_root, &found_non);
+            for (slab = phn_next_get(extent_t, ph_link, bin->slabs_nonfull.ph_root);
+                 slab != NULL; slab = phn_next_get(extent_t, ph_link, slab)) {
+                scanned_non += zero_extent_heap_defrag_retain(slab, &found_non);
+            }
+        }
+
+        const bin_info_t *bin_info = &bin_infos[i];
+        if (found_non || found_full)
+            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);
+
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+    }
+}

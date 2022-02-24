@@ -44,6 +44,8 @@
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
+void je_init_defrag(void);
+void je_finish_defrag(void);
 
 /* forward declarations*/
 void defragDictBucketCallback(dict *d, dictEntry **bucketref);
@@ -1088,6 +1090,8 @@ void computeDefragCycles() {
      /* We allow increasing the aggressiveness during a scan, but don't
       * reduce it. */
     if (cpu_pct > server.active_defrag_running) {
+        if (!server.active_defrag_running)
+            je_init_defrag();
         server.active_defrag_running = cpu_pct;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
@@ -1114,6 +1118,7 @@ void activeDefragCycle(void) {
         if (server.active_defrag_running) {
             /* if active defrag was disabled mid-run, start from fresh next time. */
             server.active_defrag_running = 0;
+            je_finish_defrag();
             if (db)
                 listEmpty(db->defrag_later);
             defrag_later_current_key = NULL;
@@ -1170,6 +1175,7 @@ void activeDefragCycle(void) {
                 cursor = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
+                je_finish_defrag();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
                 if (server.active_defrag_running != 0 && ustime() < endtime)
