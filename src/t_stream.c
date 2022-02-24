@@ -2630,7 +2630,7 @@ void xgroupCommand(client *c) {
 "    * MKSTREAM",
 "      Create the empty stream if it does not exist.",
 "    * ENTRIESREAD entries_read",
-"      Set the group's entries_read counter (internal use)."
+"      Set the group's entries_read counter (internal use).",
 "CREATECONSUMER <key> <groupname> <consumer>",
 "    Create a new consumer in the specified group.",
 "DELCONSUMER <key> <groupname> <consumer>",
