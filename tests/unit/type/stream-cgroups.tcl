@@ -252,9 +252,26 @@ start_server {
         $rd close
     }
 
-    test {Blocking XREADGROUP: swapped DB} {
+    test {Blocking XREADGROUP: swapped DB, key doesn't exist} {
         r SELECT 4
         r FLUSHDB
+        r SELECT 9
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd SELECT 9
+        $rd read
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r SWAPDB 4 9
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    } {0} {external:skip}
+
+    test {Blocking XREADGROUP: swapped DB, key is not a stream} {
+        r SELECT 4
+        r FLUSHDB
+        r LPUSH mystream e1
         r SELECT 9
         r DEL mystream
         r XADD mystream 666 f v

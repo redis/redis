@@ -1344,15 +1344,23 @@ void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
+        int was_stream = 0, is_stream = 0;
+
         dictEntry *kde = dictFind(emptied->dict, key->ptr);
-        int existed = kde != NULL;
-        int exists = replaced_with && dictFind(replaced_with->dict, key->ptr);
-        if (existed && !exists) {
+        if (kde) {
             robj *value = dictGetVal(kde);
-            /* We want to try to unblock any client using a blocking XREADGROUP */
-            if (value->type == OBJ_STREAM)
-                signalKeyAsReady(emptied, key, value->type);
+            was_stream = value->type == OBJ_STREAM;
         }
+        if (replaced_with) {
+            dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
+            if (kde) {
+                robj *value = dictGetVal(kde);
+                is_stream = value->type == OBJ_STREAM;
+            }
+        }
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (was_stream && !is_stream)
+            signalKeyAsReady(emptied, key, OBJ_STREAM);
     }
     dictReleaseIterator(di);
 }
