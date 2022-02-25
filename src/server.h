@@ -279,8 +279,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
                                             * different flags depending on arguments */
 #define CMD_KEY_SORT_PATTERN (1ULL<<11)  /* Means that the specific command key argument is a globing pattern
-                                     * and not a real key (eg 'get' and 'by' in sort command). NOTE:
-                                     * This flag is currently only used for ACLs. */
+                                          * and not a real key (eg 'get' and 'by' in sort command). NOTE:
+                                          * This flag is currently only used for ACLs. */
 
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
