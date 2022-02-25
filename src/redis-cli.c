@@ -1243,8 +1243,9 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
             if (key->type == REDIS_REPLY_ERROR ||
                 key->type == REDIS_REPLY_STATUS ||
                 key->type == REDIS_REPLY_STRING ||
-                key->type == REDIS_REPLY_VERB) {
-                    out = cliFormatReplyJson(out,key,mode);
+                key->type == REDIS_REPLY_VERB)
+            {
+                out = cliFormatReplyJson(out,key,mode);
             } else {
                 /* According to JSON spec, JSON map keys must be strings,
                  * and in RESP3, they can be other types. 
@@ -1670,7 +1671,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--json")) {
-            /* Not overwrite explicit value by -3*/
+            /* Not overwrite explicit value by -3 */
             if (config.resp3 == 0) {
                 config.resp3 = 2;
             }
