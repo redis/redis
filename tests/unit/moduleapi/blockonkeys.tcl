@@ -196,7 +196,7 @@ start_server {tags {"modules"}} {
         } else {
             fail "Clients are not blocked"
         }
-        assert_equal [r client unblock $cid timeout] {0}
+        assert_equal [r client unblock $cid error] {0}
         $rd close
     }
 
