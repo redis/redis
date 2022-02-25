@@ -2962,6 +2962,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 int pubsubPublishMessageShard(robj *channel, robj *message);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
+list *pubsubGetSubscribers(robj *channel);
 int serverPubsubSubscriptionCount();
 int serverPubsubShardSubscriptionCount();
 
