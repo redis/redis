@@ -3,8 +3,13 @@
 source tests/support/cli.tcl
 
 proc cluster_info {r field} {
-    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-        set _ $value
+    # cluster_state is the first field, so we need to use ^ to match it.
+    if {$field == "cluster_state"} {
+        if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
+            set _ $value
+        }
+    } else {
+        set _ [getInfoProperty [$r cluster info] $field]
     }
 }
 
@@ -111,7 +116,7 @@ start_server [list overrides $base_conf] {
 
     $node1_rd close
     $node3_rd close
-    
+
     test "Run blocking command again on cluster node1" {
         $node1 del key9184688
         # key9184688 is mapped to slot 10923 which has been moved to node1
@@ -125,9 +130,9 @@ start_server [list overrides $base_conf] {
             fail "Client not blocked"
         }
     }
-    
+
      test "Kill a cluster node and wait for fail state" {
-        # kill node3 in cluster 
+        # kill node3 in cluster
         exec kill -SIGSTOP $node3_pid
 
         wait_for_condition 1000 50 {
@@ -137,7 +142,7 @@ start_server [list overrides $base_conf] {
             fail "Cluster doesn't fail"
         }
     }
-    
+
      test "Verify command got unblocked after cluster failure" {
         assert_error {*CLUSTERDOWN*} {$node1_rd read}
 
@@ -213,7 +218,76 @@ start_server [list overrides $base_conf] {
                         127.0.0.1:[srv -4 port] \
                         127.0.0.1:[srv 0 port]
         } e
-        assert_match {*node already contains functions*} $e        
+        assert_match {*node already contains functions*} $e
+    }
+# stop 5 servers
+}
+}
+}
+}
+}
+
+# Test redis-cli --cluster create, add-node with cluster-port.
+# Create five nodes, three with custom cluster_port and two with default values.
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+
+    # The first three are used to test --cluster create.
+    # The last two are used to test --cluster add-node
+    set node1_rd [redis_client 0]
+    set node2_rd [redis_client -1]
+    set node3_rd [redis_client -2]
+    set node4_rd [redis_client -3]
+    set node5_rd [redis_client -4]
+
+    test {redis-cli --cluster create with cluster-port} {
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port]@[status $node1_rd cluster_port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]@[status $node3_rd cluster_port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Make sure each node can meet other nodes
+        assert_equal 3 [csi 0 cluster_known_nodes]
+        assert_equal 3 [csi -1 cluster_known_nodes]
+        assert_equal 3 [csi -2 cluster_known_nodes]
+    }
+
+    test {redis-cli --cluster add-node with cluster-port} {
+        # Adding nodes to the cluster
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                           127.0.0.1:[srv -3 port] \
+                           127.0.0.1:[srv 0 port]
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                           127.0.0.1:[srv -4 port]@[status $node5_rd cluster_port] \
+                           127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok} &&
+            [csi -4 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Make sure each node can meet other nodes
+        assert_equal 5 [csi 0 cluster_known_nodes]
+        assert_equal 5 [csi -1 cluster_known_nodes]
+        assert_equal 5 [csi -2 cluster_known_nodes]
+        assert_equal 5 [csi -3 cluster_known_nodes]
+        assert_equal 5 [csi -4 cluster_known_nodes]
     }
 # stop 5 servers
 }
