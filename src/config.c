@@ -277,7 +277,7 @@ typedef struct standardConfig {
 #define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
 #define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
 #define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
-#define PREFERRED_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the preferred name. */
+#define ALIAS_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the alias. */
 
 dict *configs = NULL; /* Runtime config values */
 
@@ -476,14 +476,19 @@ void loadServerConfigFromString(char *config) {
             sdsfreesplitres(argv,argc);
             continue;
         } else {
+            int match = 0;
             for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
                 if (!strcasecmp(argv[0], config->name) && 
                     config->argc_min <= argc && 
                     argc <= config->argc_max) 
                 {
-                    sdsfreesplitres(argv,argc);
-                    continue;
+                    match = 1;
+                    break;
                 }
+            }
+            if (match) {
+                sdsfreesplitres(argv,argc);
+                continue;
             }
         }
 
@@ -724,7 +729,7 @@ void configSetCommand(client *c) {
     apply_fns = zcalloc(sizeof(apply_fn)*config_count);
     config_map_fns = zmalloc(sizeof(int)*config_count);
 
-    /* Find all relevant configs. */
+    /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
         standardConfig *config = lookupConfig(c->argv[2+i*2]->ptr);
         /* Fail if we couldn't find this config */
@@ -859,10 +864,10 @@ void configGetCommand(client *c) {
             char *pattern = o->ptr;
 
             /* Note that hidden configs require an exact match (not a pattern) */
-            if (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
-                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))
+            if (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, de->key)) ||
+                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, de->key, 1)))
             {
-                addReplyBulkCString(c, config->name);
+                addReplyBulkCString(c, de->key);
                 addReplyBulkSds(c, config->interface.get(config->data));
                 matches++;
                 break;
@@ -1589,8 +1594,8 @@ int rewriteConfig(char *path, int force_write) {
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
-        if (!(config->flags & PREFERRED_CONFIG)) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config->data, config->name, state);
+        if (config->flags & ALIAS_CONFIG) continue;
+        if (config->interface.rewrite) config->interface.rewrite(config->data, de->key, state);
     }
     dictReleaseIterator(di);
 
@@ -2925,27 +2930,36 @@ standardConfig static_configs[] = {
     {NULL}
 };
 
-/* Initialize configs to their default values and create the runtime
- * configuration dictionary. */
+/* Create a new config by copying the passed in config. Returns 1 on success
+ * or 0 when their was already a config with the same name.. */
+int registerConfigValue(const char *name, const standardConfig *config, int alias) {
+    standardConfig *new = zmalloc(sizeof(standardConfig));
+    memcpy(new, config, sizeof(standardConfig));
+    if (alias) {
+        new->flags |= ALIAS_CONFIG;
+        new->name = config->alias;
+        new->alias = config->name;
+    }
+
+    return dictAdd(configs, sdsnew(name), new) == DICT_OK;
+}
+
+/* Initialize configs to their default values and create and populate the 
+ * runtime configuration dictionary. */
 void initConfigValues() {
     configs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
         if (config->interface.init) config->interface.init(config->data);
-        standardConfig *primary = zmalloc(sizeof(standardConfig));
-        memcpy(primary, config, sizeof(standardConfig));
-        primary->flags |= PREFERRED_CONFIG;
-        primary->alias = NULL;
         /* Add the primary config to the dictionary. */
-        dictAdd(configs, sdsnew(primary->name), primary);
-        /* Alias is not used at runtime, stead we create
-         * duplicate entries each with their own respective name. */
+        int ret = registerConfigValue(config->name, config, 0);
+        serverAssert(ret);
+
+        /* Aliases are the same as their primary counter parts, but they
+         * also have a flag indicating they are the alias. */
         if (config->alias) {
-            standardConfig *alias = zmalloc(sizeof(standardConfig));
-            memcpy(alias, config, sizeof(standardConfig));
-            alias->name = config->alias;
-            alias->alias = NULL;
-            dictAdd(configs, sdsnew(alias->name), alias);
+            int ret = registerConfigValue(config->alias, config, ALIAS_CONFIG);
+            serverAssert(ret);
         }
     }
 }
