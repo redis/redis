@@ -632,6 +632,9 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
                     freeClient(c);
                     return;
+                } else if (nwritten > 0) {
+                    c->written += nwritten;
+                    return;
                 }
             } else {
                 aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);

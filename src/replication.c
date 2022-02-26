@@ -705,17 +705,11 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
  *
  * On success return C_OK, otherwise C_ERR is returned and we proceed
  * with the usual full resync. */
-int masterTryPartialResynchronization(client *c) {
-    long long psync_offset, psync_len;
+int masterTryPartialResynchronization(client *c, long long psync_offset) {
+    long long psync_len;
     char *master_replid = c->argv[1]->ptr;
     char buf[128];
     int buflen;
-
-    /* Parse the replication offset asked by the slave. Go to full sync
-     * on parse error: this should never happen but we try to handle
-     * it in a robust way compared to aborting. */
-    if (getLongLongFromObjectOrReply(c,c->argv[2],&psync_offset,NULL) !=
-       C_OK) goto need_full_resync;
 
     /* Is the replication ID of this master the same advertised by the wannabe
      * slave via PSYNC? If the replication ID changed this master has a
@@ -977,7 +971,14 @@ void syncCommand(client *c) {
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
-        if (masterTryPartialResynchronization(c) == C_OK) {
+        long long psync_offset;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &psync_offset, NULL) != C_OK) {
+            serverLog(LL_WARNING, "Replica %s asks for synchronization but with a wrong offset",
+                      replicationGetSlaveName(c));
+            return;
+        }
+
+        if (masterTryPartialResynchronization(c, psync_offset) == C_OK) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
         } else {
@@ -1545,6 +1546,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listNode *ln;
     listIter li;
 
+    /* Note: there's a chance we got here from within the REPLCONF ACK command
+     * so we must avoid using freeClient, otherwise we'll crash on our way up. */
+
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -1553,7 +1557,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
-                freeClient(slave);
+                freeClientAsync(slave);
                 serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
             }
@@ -1597,7 +1601,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             } else {
                 if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
-                    freeClient(slave);
+                    freeClientAsync(slave);
                     serverLog(LL_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
                     continue;
                 }
@@ -1609,7 +1613,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
 
                 connSetWriteHandler(slave->conn,NULL);
                 if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
-                    freeClient(slave);
+                    freeClientAsync(slave);
                     continue;
                 }
             }
@@ -2716,7 +2720,7 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC. */
+    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC but is %d",

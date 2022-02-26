@@ -96,8 +96,8 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
-#define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
-#define CLUSTERMSG_TYPE_PUBLISHSHARD 11 /* Pub/Sub Publish shard propagation */
+#define CLUSTERMSG_TYPE_PUBLISHSHARD 10 /* Pub/Sub Publish shard propagation */
+#define CLUSTERMSG_TYPE_COUNT 11        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -134,8 +134,8 @@ typedef struct clusterNode {
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
-    char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    char *hostname;           /* The known hostname for this node */
+    char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
+    sds hostname;               /* The known hostname for this node */
     int port;                   /* Latest known clients port (TLS or plain). */
     int pport;                  /* Latest known clients plaintext port. Only used
                                    if the main clients port is for TLS. */
@@ -339,8 +339,6 @@ typedef struct {
  * changes in clusterMsg be caught at compile time.
  */
 
-/* Avoid static_assert on non-C11 compilers. */
-#if __STDC_VERSION__ >= 201112L
 static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");
 static_assert(offsetof(clusterMsg, totlen) == 4, "unexpected field offset");
 static_assert(offsetof(clusterMsg, ver) == 8, "unexpected field offset");
@@ -362,7 +360,6 @@ static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
 static_assert(offsetof(clusterMsg, state) == 2252, "unexpected field offset");
 static_assert(offsetof(clusterMsg, mflags) == 2253, "unexpected field offset");
 static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
-#endif
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 

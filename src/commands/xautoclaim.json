@@ -6,6 +6,12 @@
         "since": "6.2.0",
         "arity": -6,
         "function": "xautoclaimCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added an element to the reply array, containing deleted entries the command cleared from the PEL"
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "FAST"

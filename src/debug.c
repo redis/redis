@@ -482,6 +482,10 @@ void debugCommand(client *c) {
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
+"REPLYBUFFER-PEAK-RESET-TIME <NEVER||RESET|time>",
+"    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
+"    In case NEVER is provided the last observed peak will never be reset",
+"    In case RESET is provided the peak reset time will be restored to the default value",
 NULL
         };
         addReplyHelp(c, help);
@@ -825,7 +829,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -921,12 +925,12 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.script_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -958,6 +962,16 @@ NULL
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer-peak-reset-time") && c->argc == 3 ) {
+        if (!strcasecmp(c->argv[2]->ptr, "never")) {
+            server.reply_buffer_peak_reset_time = -1;
+        } else if(!strcasecmp(c->argv[2]->ptr, "reset")) {
+            server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
+        } else {
+            if (getLongFromObjectOrReply(c, c->argv[2], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+                return;
+        }
+        addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1681,13 +1695,19 @@ void logStackTrace(void *eip, int uplevel) {
 void logServerInfo(void) {
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = createStringObject("all", strlen("all"));
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
+    infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    releaseInfoSectionDict(section_dict);
+    decrRefCount(argv[0]);
 }
 
 /* Log certain config values, which can be used for debuggin */
@@ -1723,10 +1743,10 @@ void logCurrentClient(void) {
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
-
         decoded = getDecodedObject(cc->argv[j]);
-        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)decoded->ptr);
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        sdsfree(repr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -1764,7 +1784,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 

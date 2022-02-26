@@ -808,7 +808,7 @@ void functionFlushCommand(client *c) {
 
 void functionHelpCommand(client *c) {
     const char *help[] = {
-"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESC <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
+"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",

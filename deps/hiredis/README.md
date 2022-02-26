@@ -1,10 +1,11 @@
-[![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
+
+[![Build Status](https://github.com/redis/hiredis/actions/workflows/build.yml/badge.svg)](https://github.com/redis/hiredis/actions/workflows/build.yml)
 
 **This Readme reflects the latest changed in the master branch. See [v1.0.0](https://github.com/redis/hiredis/tree/v1.0.0) for the Readme and documentation for the latest release ([API/ABI history](https://abi-laboratory.pro/?view=timeline&l=hiredis)).**
 
 # HIREDIS
 
-Hiredis is a minimalistic C client library for the [Redis](http://redis.io/) database.
+Hiredis is a minimalistic C client library for the [Redis](https://redis.io/) database.
 
 It is minimalistic because it just adds minimal support for the protocol, but
 at the same time it uses a high level printf-alike API in order to make it
@@ -21,6 +22,12 @@ Redis version >= 1.2.0.
 
 The library comes with multiple APIs. There is the
 *synchronous API*, the *asynchronous API* and the *reply parsing API*.
+
+## Upgrading to `1.0.2`
+
+<span style="color:red">NOTE:  v1.0.1 erroneously bumped SONAME, which is why it is skipped here.</span>
+
+Version 1.0.2 is simply 1.0.0 with a fix for [CVE-2021-32765](https://github.com/redis/hiredis/security/advisories/GHSA-hfm9-39pp-55p2).  They are otherwise identical.
 
 ## Upgrading to `1.0.0`
 
@@ -169,7 +176,7 @@ Hiredis also supports every new `RESP3` data type which are as follows.  For mor
 
 * **`REDIS_REPLY_MAP`**:
     * An array with the added invariant that there will always be an even number of elements.
-      The MAP is functionally equivelant to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
+      The MAP is functionally equivalent to `REDIS_REPLY_ARRAY` except for the previously mentioned invariant.
 
 * **`REDIS_REPLY_SET`**:
     * An array response where each entry is unique.
@@ -189,7 +196,7 @@ Hiredis also supports every new `RESP3` data type which are as follows.  For mor
 
 * **`REDIS_REPLY_VERB`**:
     * A verbatim string, intended to be presented to the user without modification.
-      The string payload is stored in the `str` memeber, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
+      The string payload is stored in the `str` member, and type data is stored in the `vtype` member (e.g. `txt` for raw text or `md` for markdown).
 
 Replies should be freed using the `freeReplyObject()` function.
 Note that this function will take care of freeing sub-reply objects
@@ -261,9 +268,9 @@ a single call to `read(2)`):
 redisReply *reply;
 redisAppendCommand(context,"SET foo bar");
 redisAppendCommand(context,"GET foo");
-redisGetReply(context,(void *)&reply); // reply for SET
+redisGetReply(context,(void**)&reply); // reply for SET
 freeReplyObject(reply);
-redisGetReply(context,(void *)&reply); // reply for GET
+redisGetReply(context,(void**)&reply); // reply for GET
 freeReplyObject(reply);
 ```
 This API can also be used to implement a blocking subscriber:
@@ -517,7 +524,7 @@ initialize OpenSSL and create a context. You can do that in two ways:
 /* An Hiredis SSL context. It holds SSL configuration and can be reused across
  * many contexts.
  */
-redisSSLContext *ssl;
+redisSSLContext *ssl_context;
 
 /* An error variable to indicate what went wrong, if the context fails to
  * initialize.
@@ -532,17 +539,23 @@ redisSSLContextError ssl_error;
 redisInitOpenSSL();
 
 /* Create SSL context */
-ssl = redisCreateSSLContext(
+ssl_context = redisCreateSSLContext(
     "cacertbundle.crt",     /* File name of trusted CA/ca bundle file, optional */
     "/path/to/certs",       /* Path of trusted certificates, optional */
     "client_cert.pem",      /* File name of client certificate file, optional */
     "client_key.pem",       /* File name of client private key, optional */
     "redis.mydomain.com",   /* Server name to request (SNI), optional */
-    &ssl_error
-    ) != REDIS_OK) {
-        printf("SSL error: %s\n", redisSSLContextGetError(ssl_error);
-        /* Abort... */
-    }
+    &ssl_error);
+
+if(ssl_context == NULL || ssl_error != 0) {
+    /* Handle error and abort... */
+    /* e.g. 
+    printf("SSL error: %s\n", 
+        (ssl_error != 0) ? 
+            redisSSLContextGetError(ssl_error) : "Unknown error");
+    // Abort
+    */
+}
 
 /* Create Redis context and establish connection */
 c = redisConnect("localhost", 6443);
@@ -551,7 +564,7 @@ if (c == NULL || c->err) {
 }
 
 /* Negotiate SSL/TLS */
-if (redisInitiateSSLWithContext(c, ssl) != REDIS_OK) {
+if (redisInitiateSSLWithContext(c, ssl_context) != REDIS_OK) {
     /* Handle error, in c->err / c->errstr */
 }
 ```

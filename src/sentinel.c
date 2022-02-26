@@ -1190,10 +1190,6 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
 
-        /* Remove any sentinel with port number set to 0 */
-        if (match->addr->port == 0)
-            dictDelete(master->sentinels,match->name);
-
         if (match == ri) continue; /* Address already updated for it. */
 
         /* Update the address of the matching Sentinel by copying the address
@@ -2281,6 +2277,16 @@ werr:
     return C_ERR;
 }
 
+/* Call sentinelFlushConfig() produce a success/error reply to the
+ * calling client.
+ */
+static void sentinelFlushConfigAndReply(client *c) {
+    if (sentinelFlushConfig() == C_ERR)
+        addReplyError(c, "Failed to save config file. Check server logs.");
+    else
+        addReply(c, shared.ok);
+}
+
 /* ====================== hiredis connection handling ======================= */
 
 /* Send the AUTH command with the specified master password if needed.
@@ -2868,9 +2874,22 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                     getSentinelRedisInstanceByAddrAndRunID(
                         master->sentinels, token[0],port,NULL);
                 if (other) {
+                    /* If there is already other sentinel with same address (but
+                     * different runid) then remove the old one across all masters */
                     sentinelEvent(LL_NOTICE,"+sentinel-invalid-addr",other,"%@");
-                    other->addr->port = 0; /* It means: invalid address. */
-                    sentinelUpdateSentinelAddressInAllMasters(other);
+                    dictIterator *di;
+                    dictEntry *de;
+
+                    /* Keep a copy of runid. 'other' about to be deleted in loop. */
+                    sds runid_obsolete = sdsnew(other->runid);
+
+                    di = dictGetIterator(sentinel.masters);
+                    while((de = dictNext(di)) != NULL) {
+                        sentinelRedisInstance *master = dictGetVal(de);
+                        removeMatchingSentinelFromMaster(master, runid_obsolete);
+                    }
+                    dictReleaseIterator(di);
+                    sdsfree(runid_obsolete);
                 }
             }
 
@@ -3174,8 +3193,7 @@ void sentinelConfigSetCommand(client *c) {
         return;
     }
 
-    sentinelFlushConfig();
-    addReply(c, shared.ok);
+    sentinelFlushConfigAndReply(c);
 
     /* Drop Sentinel connections to initiate a reconnect if needed. */
     if (drop_conns)
@@ -3445,7 +3463,6 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 }
 
 void sentinelSetDebugConfigParameters(client *c){
-
     int j;
     int badarg = 0; /* Bad argument position for error reporting. */
     char *option;
@@ -3464,7 +3481,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_info_period = ll;
-            
+
         } else if (!strcasecmp(option,"ping-period") && moreargs > 0) {
             /* ping-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3473,7 +3490,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ping_period = ll;
-           
+
         } else if (!strcasecmp(option,"ask-period") && moreargs > 0) {
             /* ask-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3482,7 +3499,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_ask_period = ll;
-           
+
         } else if (!strcasecmp(option,"publish-period") && moreargs > 0) {
             /* publish-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3491,8 +3508,8 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_publish_period = ll;
-           
-        }else if (!strcasecmp(option,"default-down-after") && moreargs > 0) {
+
+        } else if (!strcasecmp(option,"default-down-after") && moreargs > 0) {
             /* default-down-after <milliseconds> */
             robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0) {
@@ -3500,7 +3517,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_default_down_after = ll;
-           
+
         } else if (!strcasecmp(option,"tilt-trigger") && moreargs > 0) {
             /* tilt-trigger <milliseconds> */
             robj *o = c->argv[++j];
@@ -3509,7 +3526,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_trigger = ll;
-           
+
         } else if (!strcasecmp(option,"tilt-period") && moreargs > 0) {
             /* tilt-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3518,7 +3535,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_tilt_period = ll;
-           
+
         } else if (!strcasecmp(option,"slave-reconf-timeout") && moreargs > 0) {
             /* slave-reconf-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3527,7 +3544,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_slave_reconf_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"min-link-reconnect-period") && moreargs > 0) {
             /* min-link-reconnect-period <milliseconds> */
             robj *o = c->argv[++j];
@@ -3536,7 +3553,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_min_link_reconnect_period = ll;
-           
+
         } else if (!strcasecmp(option,"default-failover-timeout") && moreargs > 0) {
             /* default-failover-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3545,7 +3562,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_default_failover_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"election-timeout") && moreargs > 0) {
             /* election-timeout <milliseconds> */
             robj *o = c->argv[++j];
@@ -3554,7 +3571,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_election_timeout = ll;
-           
+
         } else if (!strcasecmp(option,"script-max-runtime") && moreargs > 0) {
             /* script-max-runtime <milliseconds> */
             robj *o = c->argv[++j];
@@ -3563,7 +3580,7 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_script_max_runtime = ll;
-           
+
         } else if (!strcasecmp(option,"script-retry-delay") && moreargs > 0) {
             /* script-retry-delay <milliseconds> */
             robj *o = c->argv[++j];
@@ -3572,27 +3589,25 @@ void sentinelSetDebugConfigParameters(client *c){
                 goto badfmt;
             }
             sentinel_script_retry_delay = ll;
-           
+
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
-                                  "SENTINEL SET '%s'", option);            
+                                  "SENTINEL DEBUG '%s'", option);
+            return;
         }
-
     }
 
     addReply(c,shared.ok);
     return;
 
 badfmt: /* Bad format errors */
-    addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
+    addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL DEBUG '%s'",
         (char*)c->argv[badarg]->ptr,option);
 
     return;
 }
 
-
 void addReplySentinelDebugInfo(client *c) {
-   
     void *mbl;
     int fields = 0;
 
@@ -3621,7 +3636,7 @@ void addReplySentinelDebugInfo(client *c) {
     addReplyBulkCString(c,"DEFAULT-FAILOVER-TIMEOUT");
     addReplyBulkLongLong(c,sentinel_default_failover_timeout);
     fields++;
-    
+
     addReplyBulkCString(c,"TILT-TRIGGER");
     addReplyBulkLongLong(c,sentinel_tilt_trigger);
     fields++;
@@ -3726,8 +3741,9 @@ void sentinelCommand(client *c) {
 "    Set a global Sentinel configuration parameter.",
 "CONFIG GET <param>",
 "    Get global Sentinel configuration parameter.",
-"DEBUG",
+"DEBUG [<param> <value> ...]",
 "    Show a list of configurable time parameters and their values (milliseconds).",
+"    Or update current configurable parameters values (one or more).",
 "GET-MASTER-ADDR-BY-NAME <master-name>",
 "    Return the ip and port number of the master with that name.",
 "FAILOVER <master-name>",
@@ -3929,14 +3945,12 @@ NULL
         if (ri == NULL) {
             addReplyError(c,sentinelCheckCreateInstanceErrors(SRI_MASTER));
         } else {
-            sentinelFlushConfig();
+            sentinelFlushConfigAndReply(c);
             sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
-            addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
         if (c->argc != 2) goto numargserr;
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        sentinelFlushConfigAndReply(c);
         return;
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
@@ -3947,8 +3961,7 @@ NULL
             == NULL) return;
         sentinelEvent(LL_WARNING,"-monitor",ri,"%@");
         dictDelete(sentinel.masters,c->argv[2]->ptr);
-        sentinelFlushConfig();
-        addReply(c,shared.ok);
+        sentinelFlushConfigAndReply(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"ckquorum")) {
         /* SENTINEL CKQUORUM <name> */
         sentinelRedisInstance *ri;
@@ -4092,46 +4105,51 @@ numargserr:
     addReplyErrorArity(c);
 }
 
-#define info_section_from_redis(section_name) do { \
-    if (defsections || allsections || !strcasecmp(section,section_name)) { \
-        sds redissection; \
-        if (sections++) info = sdscat(info,"\r\n"); \
-        redissection = genRedisInfoString(section_name); \
-        info = sdscatlen(info,redissection,sdslen(redissection)); \
-        sdsfree(redissection); \
-    } \
-} while(0)
+void addInfoSectionsToDict(dict *section_dict, char **sections);
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
+    char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
+    int sec_all = 0, sec_everything = 0;
+    static dict *cached_all_info_sectoins = NULL;
+
+    /* Get requested section list. */
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, sentinel_sections, &sec_all, &sec_everything);
+
+    /* Purge unsupported sections from the requested ones. */
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(sections_dict);
+    while((de = dictNext(di)) != NULL) {
+        int i;
+        sds sec = dictGetKey(de);
+        for (i=0; sentinel_sections[i]; i++)
+            if (!strcasecmp(sentinel_sections[i], sec))
+                break;
+        /* section not found? remove it */
+        if (!sentinel_sections[i])
+            dictDelete(sections_dict, sec);
+    }
+    dictReleaseIterator(di);
+
+    /* Insert explicit all sections (don't pass these vars to genRedisInfoString) */
+    if (sec_all || sec_everything) {
+        releaseInfoSectionDict(sections_dict);
+        /* We cache this dict as an optimization. */
+        if (!cached_all_info_sectoins) {
+            cached_all_info_sectoins = dictCreate(&stringSetDictType);
+            addInfoSectionsToDict(cached_all_info_sectoins, sentinel_sections);
+        }
+        sections_dict = cached_all_info_sectoins;
     }
 
-    int defsections = 0, allsections = 0;
-    char *section = c->argc == 2 ? c->argv[1]->ptr : NULL;
-    if (section) {
-        allsections = !strcasecmp(section,"all");
-        defsections = !strcasecmp(section,"default");
-    } else {
-        defsections = 1;
-    }
-
-    int sections = 0;
-    sds info = sdsempty();
-
-    info_section_from_redis("server");
-    info_section_from_redis("clients");
-    info_section_from_redis("cpu");
-    info_section_from_redis("stats");
-
-    if (defsections || allsections || !strcasecmp(section,"sentinel")) {
+    sds info = genRedisInfoString(sections_dict, 0, 0);
+    if (sec_all || (dictFind(sections_dict, "sentinel") != NULL)) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
 
-        if (sections++) info = sdscat(info,"\r\n");
+        if (sdslen(info) != 0)
+            info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Sentinel\r\n"
             "sentinel_masters:%lu\r\n"
@@ -4164,7 +4182,8 @@ void sentinelInfoCommand(client *c) {
         }
         dictReleaseIterator(di);
     }
-
+    if (sections_dict != cached_all_info_sectoins)
+        releaseInfoSectionDict(sections_dict);
     addReplyBulkSds(c, info);
 }
 
@@ -4348,22 +4367,16 @@ void sentinelSetCommand(client *c) {
             break;
         }
     }
-    if (changes && sentinelFlushConfig() == C_ERR) {
-        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-        return;
-    }
-    addReply(c,shared.ok);
+    if (changes) sentinelFlushConfigAndReply(c);
     return;
 
 badfmt: /* Bad format errors */
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
         (char*)c->argv[badarg]->ptr,option);
 seterr:
-    if (changes && sentinelFlushConfig() == C_ERR) {
-        addReplyErrorFormat(c,"Failed to save Sentinel new configuration on disk");
-        return;
-    }
-    return;
+    /* TODO: Handle the case of both bad input and save error, possibly handling
+     * SENTINEL SET atomically. */
+    if (changes) sentinelFlushConfig();
 }
 
 /* Our fake PUBLISH command: it is actually useful only to receive hello messages
