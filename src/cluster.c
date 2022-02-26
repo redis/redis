@@ -4569,7 +4569,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 }
 
 /* Concatenate the slot ownership information to the given SDS string 'ci'.
- * If the slot ownership is in a continguous block, it's represented as start-end pair,
+ * If the slot ownership is in a contiguous block, it's represented as start-end pair,
  * else each slot is added separately. */
 sds representSlotInfo(sds ci, list *slot_info_pair) {
     listIter li;

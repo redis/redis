@@ -66,10 +66,26 @@ set replica [dict create id id port port endpoint 127.0.0.1 ip 127.0.0.1 role re
 
 proc dict_setup_for_verification {node i} {
     upvar $node node_ref
-    set port [expr 30000+$i]
+    if {$::tls} {
+        set tls_port [get_instance_attrib redis $i port]
+        set port [get_instance_attrib redis $i plaintext-port]
+    } else {
+        set port [get_instance_attrib redis $i port]
+    }
     dict set node_ref id [R $i CLUSTER MYID]
     dict set node_ref port $port
     dict set node_ref hostname "host-$i.com"
+}
+
+proc wait_all_nodes_online {} {
+    foreach_redis_id id {
+        if {[instance_is_killed redis $id]} continue
+        wait_for_condition 1000 50 {
+            [s $id loading] eq 0
+        } else {
+            fail "All nodes didn't came online"
+        }
+    }
 }
 
 # Verify various combinations of `CLUSTER SHARDS` response
@@ -77,8 +93,9 @@ proc dict_setup_for_verification {node i} {
 # 2. Single slot(s) + multi slot range owner
 # 3. multi slot range + multi slot range owner
 test "Verify cluster shards response" {
-    # Sleep for 5 sec to let the replica sync
-    after 5000
+    # Wait until all the nodes are online
+    wait_all_nodes_online
+
     set shards [R 0 CLUSTER SHARDS]
     set validation_cnt 0
     foreach shard $shards {
@@ -180,10 +197,6 @@ test "Verify health as fail for killed node" {
     assert_equal $validation_cnt 1
 }
 
-test "Cluster is writable" {
-    cluster_write_test 1
-}
-
 set primary_id 4
 set replica_id 0
 
@@ -199,41 +212,60 @@ test "Instance #0 gets converted into a replica" {
     }
 }
 
-test "Kill the replication link and fill up primary with data" {
-    # kill the replication link
-    R $primary_id client kill type replica
-    # Set 1 MB of data
-    R $primary_id debug populate 1000 key 1000
+proc is_replica_online {info_repl} {
+    set found_position [string first "state=online" $info_repl]
+    set result [expr {$found_position != -1}]
+    return $result
 }
 
-# Need to finalize the definition of loading
-if {false} {
-    test "Verify health as loading of replica" {
-        # Verify prefer hostname behavior
-        R $primary_id config set cluster-preferred-endpoint-type hostname
-        R $primary_id CLUSTER NODES
-        set shards [R $primary_id CLUSTER SHARDS]
-        set validation_cnt 0
-        foreach shard $shards {
-            set slots [dict get $shard slots]
-            set nodes [dict get $shard nodes]
-            set slot_len [llength $slots]
-            if {$slots == $slot0} {
-                assert_equal [llength $nodes] 2
-                dict_setup_for_verification primary $primary_id
-                dict set primary health ONLINE
-                dict set primary endpoint [dict get $primary hostname]
+proc is_in_slots {master_id replica} {
+    set slots [R $master_id cluster slots]
+    set found_position [string first $replica $slots]
+    set result [expr {$found_position != -1}]
+    return $result
+}
 
-                dict_setup_for_verification replica $replica_id
-                dict set replica health LOADING
-                # After restart of replica, hostname is missing.
-                dict remove $replica hostname
-                dict set replica endpoint ?
-                dict_shard_cmp [lindex $nodes 0] $primary
-                dict_shard_cmp [lindex $nodes 1] $replica
-                incr validation_cnt 1
-            }
-        }
-        assert_equal $validation_cnt 1
+test "Add new node as replica" {
+    set new_replica_id 9
+    set replica [R $new_replica_id CLUSTER MYID]
+    R $new_replica_id cluster replicate [R $primary_id CLUSTER MYID]
+
+    wait_for_condition 1000 50 {
+        [is_in_slots $primary_id $replica]
+    } else {
+        fail "New replica didn't appear in the slots"
     }
+
+    wait_for_condition 100 50 {
+        [is_replica_online [R $primary_id info replication]]
+    } else {
+        fail "Replica is down for too long"
+    }
+    set replica_digest [R $new_replica_id debug digest]
+    assert {$replica_digest ne 0}
+
+    # Kill replica client for master and load new data to the primary
+    R $primary_id config set repl-backlog-size 100
+
+    # Set the key load delay so that it will take at least
+    # 2 seconds to fully load the data.
+    R $new_replica_id config set key-load-delay 4000
+
+    # Trigger event loop processing every 1024 bytes, this trigger
+    # allows us to send and receive cluster messages, so we are setting
+    # it low so that the cluster messages are sent more frequently.
+    R $new_replica_id config set loading-process-events-interval-bytes 1024
+
+    R $primary_id multi
+    R $primary_id client kill type replica
+    # populate the correct data
+    set num 100
+    set value [string repeat A 1024]
+    for {set j 0} {$j < $num} {incr j} {
+        # Use hashtag valid for shard #0
+        set key "{ch3}"
+        append key $j
+        R $primary_id set $key $value
+    }
+    R $primary_id exec
 }
