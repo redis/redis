@@ -758,12 +758,14 @@ void configSetCommand(client *c) {
             errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
             err_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
+            continue;
         }
 
         if (server.loading && config->flags & DENY_LOADING_CONFIG) {
             /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
             deny_loading_error = 1;
             invalid_args = 1;
+            continue;
         }
 
         /* If this config appears twice then fail */
