@@ -546,7 +546,7 @@ dictType sdsHashDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
+    dictVanillaFree,            /* val destructor */
     NULL                        /* allow to expand */
 };
 
