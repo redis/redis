@@ -885,7 +885,7 @@ void configGetCommand(client *c) {
 
             if (dictFind(matches, config->name)) continue;
             if (stringmatch(name, de->key, 1)) {
-                dictAdd(matches, (char *) config->name, NULL);
+                dictAdd(matches, de->key, NULL);
                 addReplyBulkCString(c, config->name);
                 addReplyBulkSds(c, config->interface.get(config->data));
             }
