@@ -50,6 +50,7 @@ void freeClientMultiState(client *c) {
 
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
+        decrCommandRefCount(mc->cmd);
         zfree(mc->argv);
     }
     zfree(c->mstate.commands);
@@ -70,6 +71,7 @@ void queueMultiCommand(client *c) {
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
+    incrCommandRefCount(mc->cmd);
     mc->argc = c->argc;
     mc->argv = c->argv;
     mc->argv_len = c->argv_len;

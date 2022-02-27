@@ -3484,7 +3484,9 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    decrCommandRefCount(c->lastcmd);
     c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
+    incrCommandRefCount(c->lastcmd);
     if (!c->cmd) {
         if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command

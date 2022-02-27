@@ -32,6 +32,37 @@ start_server {tags {"modules"}} {
     test "Unload the module - test" {
         assert_equal {OK} [r module unload test]
     }
+
+    test "Unload the module in multi - test" {
+        r module load $testmodule
+        r multi
+        r module unload test
+        r test.basics
+        assert_error {*Invalid command: test.basics*} {r exec}
+    }
+
+    test "Unload the module when module command already in multi queue - test" {
+        set rd [redis_client]
+        r module load $testmodule
+        r multi
+        r test.basics
+        assert_equal {OK} [$rd module unload test]
+        # Check that execute test.basics command in mulit will fail.
+        assert_error {*Invalid command: test.basics*} {r exec}
+        $rd close
+    }
+
+    test "Unload the module when module command was referenced by client - test" {
+        set rd [redis_client]
+        r module load $testmodule
+        r test.basics
+        assert_equal {OK} [$rd module unload test]
+        # Check test.basics command was removed from command list.
+        assert_error {*ERR unknown command 'test.basics'*} {$rd test.basics}
+        # Check test.basics command is still being referenced.
+        assert_match "*cmd=test.basics*" [$rd client list]
+        $rd close
+    }
 }
 
 start_server {tags {"modules external:skip"} overrides {enable-module-command no}} {

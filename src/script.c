@@ -509,7 +509,9 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         return;
     }
 
+    decrCommandRefCount(c->lastcmd);
     c->cmd = c->lastcmd = cmd;
+    incrCommandRefCount(c->lastcmd);
 
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {

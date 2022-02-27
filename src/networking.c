@@ -1560,6 +1560,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    decrCommandRefCount(c->lastcmd);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 

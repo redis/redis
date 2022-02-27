@@ -734,6 +734,15 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommand *cp = (void*)(unsigned long)c->cmd->getkeys_proc;
     RedisModuleCtx ctx;
+
+    /* Note that if cp->proc is NULL means that the module of this command
+     * has been unloaded elsewhere, we need to skip it. */
+    if (cp->func == NULL) {
+        addReplyErrorFormat(c, "Invalid command: %s, the module of this command has been unloaded",
+                            c->cmd->fullname);
+        return;
+    }
+
     moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_NONE);
 
     ctx.client = c;
@@ -1119,6 +1128,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->calls = 0;
     cp->rediscmd->rejected_calls = 0;
     cp->rediscmd->failed_calls = 0;
+    cp->rediscmd->refcount = 1;
     return cp;
 }
 
@@ -5658,7 +5668,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = ENOENT;
         goto cleanup;
     }
+    decrCommandRefCount(c->lastcmd);
     c->cmd = c->lastcmd = cmd;
+    incrCommandRefCount(c->lastcmd);
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
@@ -10642,19 +10654,14 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
-/* Free the command registered with the specified module.
+/* Free the module command.
  * On success C_OK is returned, otherwise C_ERR is returned.
  *
  * Note that caller needs to handle the deletion of the command table dict,
  * and after that needs to free the command->fullname and the command itself.
  */
-int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
-    if (cmd->proc != RedisModuleCommandDispatcher)
-        return C_ERR;
-
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
-    if (cp->module != module)
-        return C_ERR;
+void moduleFreeCommand(struct redisCommand *cmd) {
+    serverAssert(cmd->flags & CMD_MODULE);
 
     /* Free everything except cmd->fullname and cmd itself. */
     for (int j = 0; j < cmd->key_specs_num; j++) {
@@ -10679,6 +10686,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         cmd->latency_histogram = NULL;
     }
     zfree(cmd->args);
+    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
     zfree(cp);
 
     if (cmd->subcommands_dict) {
@@ -10686,18 +10694,31 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
         while ((de = dictNext(di)) != NULL) {
             struct redisCommand *sub = dictGetVal(de);
-            if (moduleFreeCommand(module, sub) != C_OK) continue;
+            RedisModuleCommand *cp = (void*)(unsigned long)sub->getkeys_proc;
 
             serverAssert(dictDelete(cmd->subcommands_dict, sub->declared_name) == DICT_OK);
-            sdsfree((sds)sub->declared_name);
-            sdsfree(sub->fullname);
-            zfree(sub);
+            cp->func = NULL;
+            decrCommandRefCount(sub);
         }
         dictReleaseIterator(di);
         dictRelease(cmd->subcommands_dict);
     }
+}
 
-    return C_OK;
+void incrCommandRefCount(struct redisCommand *cmd) {
+    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
+    cmd->refcount++;
+}
+
+void decrCommandRefCount(struct redisCommand *cmd) {
+    if (!cmd || !(cmd->flags & CMD_MODULE)) return;
+    serverAssert(cmd->refcount > 0);
+    if (--cmd->refcount == 0) {
+        moduleFreeCommand(cmd);
+        sdsfree((sds)cmd->declared_name);
+        sdsfree(cmd->fullname);
+        zfree(cmd);
+    }
 }
 
 void moduleUnregisterCommands(struct RedisModule *module) {
@@ -10706,13 +10727,13 @@ void moduleUnregisterCommands(struct RedisModule *module) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (moduleFreeCommand(module, cmd) != C_OK) continue;
+        RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+        if (!(cmd->flags & CMD_MODULE) || cp->module != module) continue;
 
         serverAssert(dictDelete(server.commands, cmd->fullname) == DICT_OK);
         serverAssert(dictDelete(server.orig_commands, cmd->fullname) == DICT_OK);
-        sdsfree((sds)cmd->declared_name);
-        sdsfree(cmd->fullname);
-        zfree(cmd);
+        cp->func = NULL;
+        decrCommandRefCount(cmd);
     }
     dictReleaseIterator(di);
 }
