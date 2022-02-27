@@ -471,14 +471,15 @@ void luaPushErrorBuff(lua_State *lua, sds err_buffer) {
     /* Trim newline at end of string. If we reuse the ready-made Redis error objects (case 1 above) then we might
      * have a newline that needs to be trimmed. In any case the lua Redis error table shouldn't end with a newline. */
     msg = sdstrim(msg, "\r\n");
-    msg = sdscatfmt(error_code, " %s", msg);
+    sds final_msg = sdscatfmt(error_code, " %s", msg);
 
     lua_newtable(lua);
     lua_pushstring(lua,"err");
-    lua_pushstring(lua, msg);
+    lua_pushstring(lua, final_msg);
     lua_settable(lua,-3);
 
     sdsfree(msg);
+    sdsfree(final_msg);
 }
 
 void luaPushError(lua_State *lua, const char *error) {
