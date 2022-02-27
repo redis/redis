@@ -3135,6 +3135,28 @@ void propagatePendingCommands() {
     redisOpArrayFree(&server.also_propagate);
 }
 
+void checkedCall(client *c, int flags) {
+    /* Only allow a subset of commands in the context of Pub/Sub if the
+     * connection is in RESP2 mode. With RESP3 there are no limits. */
+    if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
+        c->cmd->proc != pingCommand &&
+        c->cmd->proc != subscribeCommand &&
+        c->cmd->proc != ssubscribeCommand &&
+        c->cmd->proc != unsubscribeCommand &&
+        c->cmd->proc != sunsubscribeCommand &&
+        c->cmd->proc != psubscribeCommand &&
+        c->cmd->proc != punsubscribeCommand &&
+        c->cmd->proc != quitCommand &&
+        c->cmd->proc != resetCommand) {
+        rejectCommandFormat(c,
+            "Can't execute '%s': only (P|S)SUBSCRIBE / "
+            "(P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+            c->cmd->fullname);
+        return;
+    }
+    call(c, flags);
+}
+
 /* Call() is the core of Redis execution of a command.
  *
  * The following flags can be passed:
@@ -3714,25 +3736,6 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow a subset of commands in the context of Pub/Sub if the
-     * connection is in RESP2 mode. With RESP3 there are no limits. */
-    if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
-        c->cmd->proc != pingCommand &&
-        c->cmd->proc != subscribeCommand &&
-        c->cmd->proc != ssubscribeCommand &&
-        c->cmd->proc != unsubscribeCommand &&
-        c->cmd->proc != sunsubscribeCommand &&
-        c->cmd->proc != psubscribeCommand &&
-        c->cmd->proc != punsubscribeCommand &&
-        c->cmd->proc != quitCommand &&
-        c->cmd->proc != resetCommand) {
-        rejectCommandFormat(c,
-            "Can't execute '%s': only (P|S)SUBSCRIBE / "
-            "(P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-            c->cmd->fullname);
-        return C_OK;
-    }
-
     /* Only allow commands with flag "t", such as INFO, REPLICAOF and so on,
      * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
@@ -3808,7 +3811,7 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
+        checkedCall(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
