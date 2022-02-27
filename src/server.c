@@ -526,6 +526,18 @@ dictType stringSetDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Dict for case-insensitive search using sds object without a value. The
+ * key does not have a destructor. */
+dictType exteranlStringSetType = {
+    distCStrCaseHash,           /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    distCStrKeyCaseCompare,     /* key compare */
+    NULL,                       /* key destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 /* Dict for case-insensitive search using sds objects with a zmalloc
  * allocated object as the value. */
 dictType sdsHashDictType = {

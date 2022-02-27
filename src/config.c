@@ -854,30 +854,47 @@ end:
 
 void configGetCommand(client *c) {
     void *replylen = addReplyDeferredLen(c);
-    int matches = 0;
+    dict *matches = dictCreate(&exteranlStringSetType);
     int i;
 
-    dictIterator *di = dictGetIterator(configs);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        standardConfig *config = dictGetVal(de);
-        for (i = 0; i < c->argc - 2; i++) {
-            robj *o = c->argv[2+i];
-            char *pattern = o->ptr;
+    for (i = 0; i < c->argc - 2; i++) {
+        robj *o = c->argv[2+i];
+        sds name = o->ptr;
 
-            /* Note that hidden configs require an exact match (not a pattern) */
-            if (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, de->key)) ||
-                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, de->key, 1)))
-            {
-                addReplyBulkCString(c, de->key);
+        /* If the string doesn't contain glob patterns, just directly
+         * look up the key in the dictionary. */
+        if (!stringContains(name, sdslen(name), "[*?")) {
+            if (dictFind(matches, name)) continue;
+            standardConfig *config = lookupConfig(name);
+
+            if (config) {
+                dictAdd(matches, name, NULL);
+                addReplyBulkCString(c, config->name);
                 addReplyBulkSds(c, config->interface.get(config->data));
-                matches++;
-                break;
+            }
+            continue;
+        }
+
+        /* Otherwise, do a match against all items in the dictionary. */
+        dictIterator *di = dictGetIterator(configs);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            standardConfig *config = dictGetVal(de);
+            /* Note that hidden configs require an exact match (not a pattern) */
+            if (config->flags & HIDDEN_CONFIG) continue;
+
+            if (dictFind(matches, config->name)) continue;
+            if (stringmatch(name, de->key, 1)) {
+                dictAdd(matches, (char *) config->name, NULL);
+                addReplyBulkCString(c, config->name);
+                addReplyBulkSds(c, config->interface.get(config->data));
             }
         }
+        dictReleaseIterator(di);
     }
-    dictReleaseIterator(di);
-    setDeferredMapLen(c,replylen,matches);
+    serverLog(LL_WARNING, "%lu", dictSize(matches));
+    setDeferredMapLen(c,replylen,dictSize(matches));
+    dictRelease(matches);
 }
 
 /*-----------------------------------------------------------------------------

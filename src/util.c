@@ -173,6 +173,21 @@ int stringmatch(const char *pattern, const char *string, int nocase) {
     return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
 }
 
+/* Return true if the string contains any of the characters in the
+ * null terminated string matchers. */
+int stringContains(const char *string, int stringlen, const char *matchers) {
+    for(int i = 0; i < stringlen; i++) {
+        const char *c = matchers;
+        while(*c != '\0') {
+            if (string[i] == *c) {
+                return 1;
+            }
+            c++;
+        }
+    }
+    return 0;
+}
+
 /* Fuzz stringmatchlen() trying to crash it with bad input. */
 int stringmatchlen_fuzz_test(void) {
     char str[32];
