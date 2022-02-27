@@ -5658,7 +5658,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = ENOENT;
         goto cleanup;
     }
-    c->cmd = c->lastcmd = cmd;
+    c->cmd = c->lastcmd = c->realcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {

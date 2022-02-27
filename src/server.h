@@ -1096,6 +1096,9 @@ typedef struct client {
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    struct redisCommand *realcmd; /* The original command that was executed by the client,
+                                     Used to update error stats in case the c->cmd was modified
+                                     during the command invocation (like on GEOADD for example). */
     user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */
@@ -2394,6 +2397,9 @@ int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);
 void redisSetCpuAffinity(const char *cpulist);
 
+/* afterErrorReply flags */
+#define ERR_REPLY_FLAG_NO_STATS_UPDATE (1ULL<<0) /* Indicating that we should not update
+                                                    error stats after sending error reply */
 /* networking.c -- Networking and Client related operations */
 client *createClient(connection *conn);
 void freeClient(client *c);
@@ -2433,6 +2439,8 @@ void addReplyBulkSds(client *c, sds s);
 void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);
+void afterErrorReply(client *c, const char *s, size_t len, int flags);
+void addReplyErrorSdsEx(client *c, sds err, int flags);
 void addReplyErrorSds(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
@@ -2505,11 +2513,14 @@ int authRequired(client *c);
 void clientInstallWriteHandler(client *c);
 
 #ifdef __GNUC__
+void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
 void addReplyErrorFormat(client *c, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 void addReplyStatusFormat(client *c, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 #else
+void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...);
 void addReplyErrorFormat(client *c, const char *fmt, ...);
 void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
@@ -2788,6 +2799,10 @@ typedef struct {
     int minex, maxex; /* are min or max exclusive? */
 } zlexrangespec;
 
+/* flags for incrCommandFailedCalls */
+#define ERROR_COMMAND_REJECTED (1<<0) /* Indicate to update the command rejected stats */
+#define ERROR_COMMAND_FAILED (1<<1) /* Indicate to update the command failed stats */
+
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
@@ -2842,6 +2857,8 @@ struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
+void startCommandExecution();
+int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();

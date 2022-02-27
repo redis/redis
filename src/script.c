@@ -505,32 +505,31 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     argc = c->argc;
 
     struct redisCommand *cmd = lookupCommand(argv, argc);
+    c->cmd = c->lastcmd = c->realcmd = cmd;
     if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
-        return;
+        goto error;
     }
-
-    c->cmd = c->lastcmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         *err = sdsnew("This Redis command is not allowed from script");
-        return;
+        goto error;
     }
 
     if (scriptVerifyAllowStale(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyACL(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyOOM(run_ctx, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (cmd->flags & CMD_WRITE) {
@@ -539,7 +538,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
-        return;
+        goto error;
     }
 
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
@@ -551,6 +550,11 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+    return;
+
+error:
+    afterErrorReply(c, *err, sdslen(*err), 0);
+    incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
 /* Returns the time when the script invocation started */

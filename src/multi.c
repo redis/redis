@@ -189,7 +189,7 @@ void execCommand(client *c) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->argv_len = c->mstate.commands[j].argv_len;
-        c->cmd = c->mstate.commands[j].cmd;
+        c->cmd = c->realcmd = c->mstate.commands[j].cmd;
 
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
@@ -240,7 +240,7 @@ void execCommand(client *c) {
     c->argv = orig_argv;
     c->argv_len = orig_argv_len;
     c->argc = orig_argc;
-    c->cmd = orig_cmd;
+    c->cmd = c->realcmd = orig_cmd;
     discardTransaction(c);
 
     server.in_exec = 0;

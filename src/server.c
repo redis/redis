@@ -3135,6 +3135,34 @@ void propagatePendingCommands() {
     redisOpArrayFree(&server.also_propagate);
 }
 
+/* Increment the command failure counters (either rejected_calls or failed_calls).
+ * The decision which counter to increment is done using the flags argument, options are:
+ * * ERROR_COMMAND_REJECTED - update rejected_calls
+ * * ERROR_COMMAND_FAILED - update failed_calls
+ *
+ * The function also reset the prev_err_count to make sure we will not count the same error
+ * twice, its possible to pass a NULL cmd value to indicate that the error was counted elsewhere.
+ *
+ * The function returns true if stats was updated and false if not. */
+int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
+    /* hold the prev error count captured on the last command execution */
+    static long long prev_err_count = 0;
+    int res = 0;
+    if (cmd) {
+        if ((server.stat_total_error_replies - prev_err_count) > 0) {
+            if (flags & ERROR_COMMAND_REJECTED) {
+                cmd->rejected_calls++;
+                res = 1;
+            } else if (flags & ERROR_COMMAND_FAILED) {
+                cmd->failed_calls++;
+                res = 1;
+            }
+        }
+    }
+    prev_err_count = server.stat_total_error_replies;
+    return res;
+}
+
 /* Call() is the core of Redis execution of a command.
  *
  * The following flags can be passed:
@@ -3176,8 +3204,7 @@ void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
     uint64_t client_old_flags = c->flags;
-    struct redisCommand *real_cmd = c->cmd;
-    static long long prev_err_count;
+    struct redisCommand *real_cmd = c->realcmd;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3198,7 +3225,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    prev_err_count = server.stat_total_error_replies;
+    incrCommandStatsOnError(NULL, 0);
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
@@ -3216,13 +3243,9 @@ void call(client *c, int flags) {
 
     server.in_nested_call--;
 
-    /* Update failed command calls if required.
-     * We leverage a static variable (prev_err_count) to retain
-     * the counter across nested function calls and avoid logging
-     * the same error twice. */
-    if ((server.stat_total_error_replies - prev_err_count) > 0) {
-        real_cmd->failed_calls++;
-    } else if (c->deferred_reply_errors) {
+    /* Update failed command calls if required. */
+
+    if (!incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED) && c->deferred_reply_errors) {
         /* When call is used from a module client, error stats, and total_error_replies
          * isn't updated since these errors, if handled by the module, are internal,
          * and not reflected to users. however, the commandstats does show these calls
@@ -3348,7 +3371,6 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire--;
     server.stat_numcommands++;
-    prev_err_count = server.stat_total_error_replies;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
@@ -3484,7 +3506,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
+    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
         if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command
