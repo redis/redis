@@ -734,7 +734,7 @@ void configSetCommand(client *c) {
         standardConfig *config = lookupConfig(c->argv[2+i*2]->ptr);
         /* Fail if we couldn't find this config */
         if (!config) {
-            if (!invalid_args && !set_configs[i]) {
+            if (!invalid_args) {
                 invalid_arg_name = c->argv[2+i*2]->ptr;
                 invalid_args = 1;
             }
