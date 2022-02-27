@@ -562,7 +562,7 @@ void serveClientsBlockedOnKeyByModule(readyList *rl) {
 /* Helper function for handleClientsBlockedOnKeys(). This function is called
  * when there may be clients blocked, via XREADGROUP, on an existing stream which
  * was deleted. We need to unblock the clients in that case.
- * The idea is that if a client is blocked via XREADGROUP is different from
+ * The idea is that a client that is blocked via XREADGROUP is different from
  * any other blocking type in the sense that it depends on the existence of both
  * the key and the group. Even if the key is deleted and then revived with XADD
  * it won't help any clients blocked on XREADGROUP because the group no longer
