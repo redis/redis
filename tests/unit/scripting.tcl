@@ -73,7 +73,7 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Lua error reply -> Redis protocol type conversion} {
         catch {
-            run_script {return {err='this is an error'}} 0
+            run_script {return {err='ERR this is an error'}} 0
         } e
         set _ $e
     } {ERR this is an error}
@@ -152,7 +152,7 @@ start_server {tags {"scripting"}} {
             local foo = redis.pcall('incr',KEYS[1])
             return {type(foo),foo['err']}
         } 1 mykey
-    } {table {value is not an integer or out of range}}
+    } {table {ERR value is not an integer or out of range}}
 
     test {EVAL - Redis nil bulk reply -> Lua type conversion} {
         r del mykey
@@ -1420,7 +1420,7 @@ start_server {tags {"scripting"}} {
         assert_equal [
             r eval {
                 local t = redis.pcall('set','x','y')
-                if t['err'] == "command not allowed when used memory > 'maxmemory'." then
+                if t['err'] == "OOM command not allowed when used memory > 'maxmemory'." then
                     return 1
                 else
                     return 0
@@ -1461,7 +1461,7 @@ start_server {tags {"scripting"}} {
         assert_equal [
             r eval {
                 local t = redis.pcall('select',99)
-                if t['err'] == "DB index is out of range" then
+                if t['err'] == "ERR DB index is out of range" then
                     return 1
                 else
                     return 0
@@ -1488,7 +1488,7 @@ start_server {tags {"scripting"}} {
         assert_equal [
             r eval_ro {
                 local t = redis.pcall('set','x','y')
-                if t['err'] == "Write commands are not allowed from read-only scripts." then
+                if t['err'] == "ERR Write commands are not allowed from read-only scripts." then
                     return 1
                 else
                     return 0

@@ -59,7 +59,6 @@
 #define REDIS_API_NAME "redis"
 
 typedef struct errorInfo {
-    sds error_code;
     sds msg;
     sds source;
     sds line;

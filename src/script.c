@@ -554,7 +554,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
 
 error:
     afterErrorReply(c, *err, sdslen(*err), 0);
-    incrCommandFailedCalls(cmd, ERROR_COMMAND_REJECTED);
+    incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
 /* Returns the time when the script invocation started */

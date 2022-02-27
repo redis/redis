@@ -431,10 +431,9 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
 
 /* This function is used in order to push an error on the Lua stack in the
  * format used by redis.pcall to return errors, which is a lua table
- * with an "err" field set to the error string and "err_code" field which
- * is also a Lua string representing the error code. Note that this
- * table is never a valid reply by proper commands, since the returned
- * tables are otherwise always indexed by integers, never by strings.
+ * with an "err" field set to the error string including the error code.
+ * Note that this table is never a valid reply by proper commands,
+ * since the returned tables are otherwise always indexed by integers, never by strings.
  *
  * The function takes ownership on the given err_buffer. */
 void luaPushErrorBuff(lua_State *lua, sds err_buffer) {
@@ -472,17 +471,14 @@ void luaPushErrorBuff(lua_State *lua, sds err_buffer) {
     /* Trim newline at end of string. If we reuse the ready-made Redis error objects (case 1 above) then we might
      * have a newline that needs to be trimmed. In any case the lua Redis error table shouldn't end with a newline. */
     msg = sdstrim(msg, "\r\n");
+    msg = sdscatfmt(error_code, " %s", msg);
 
     lua_newtable(lua);
     lua_pushstring(lua,"err");
     lua_pushstring(lua, msg);
     lua_settable(lua,-3);
-    lua_pushstring(lua,"err_code");
-    lua_pushstring(lua, error_code);
-    lua_settable(lua,-3);
 
     sdsfree(msg);
-    sdsfree(error_code);
 }
 
 void luaPushError(lua_State *lua, const char *error) {
@@ -548,8 +544,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
             luaExtractErrorInformation(lua, &err_info);
             addReplyErrorFormatEx(c,
                                   err_info.ignore_err_stats_update? ERR_REPLY_FLAG_NO_STATS_UPDATE: 0,
-                                  "-%s %s",
-                                  err_info.error_code? err_info.error_code : "ERR",
+                                  "-%s",
                                   err_info.msg);
             luaErrorInformationDiscard(&err_info);
             lua_pop(lua,1); /* pop the result table */
@@ -1449,24 +1444,17 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 
 void luaErrorInformationDiscard(errorInfo *err_info) {
     if (err_info->msg) sdsfree(err_info->msg);
-    if (err_info->error_code) sdsfree(err_info->error_code);
     if (err_info->source) sdsfree(err_info->source);
     if (err_info->line) sdsfree(err_info->line);
 }
 
 void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info) {
     if (lua_isstring(lua, -1)) {
-        err_info->msg = sdsnew(lua_tostring(lua, -1));
-        err_info->error_code = sdsnew("ERR");
+        err_info->msg = sdscatfmt(sdsempty(), "ERR %s", lua_tostring(lua, -1));
         err_info->line = NULL;
         err_info->source = NULL;
         err_info->ignore_err_stats_update = 0;
     }
-    lua_getfield(lua, -1, "err_code");
-    if (lua_isstring(lua, -1)) {
-        err_info->error_code = sdsnew(lua_tostring(lua, -1));
-    }
-    lua_pop(lua, 1);
 
     lua_getfield(lua, -1, "err");
     if (lua_isstring(lua, -1)) {
@@ -1551,7 +1539,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
 
     if (err) {
         /* Error object is a table of the following format:
-         * {err='<error msg>', err_code='<error code>', source='<source file>', line=<line>}
+         * {err='<error msg>', source='<source file>', line=<line>}
          * We can construct the error message from this information */
         if (!lua_istable(lua, -1)) {
             /* Should not happened, and we should considered assert it */
@@ -1560,8 +1548,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
             errorInfo err_info = {0};
             sds final_msg = sdsempty();
             luaExtractErrorInformation(lua, &err_info);
-            final_msg = sdscatfmt(final_msg, "-%s %s",
-                                  err_info.error_code,
+            final_msg = sdscatfmt(final_msg, "-%s",
                                   err_info.msg);
             if (err_info.line && err_info.source) {
                 final_msg = sdscatfmt(final_msg, " script: %s, on %s:%s.",
