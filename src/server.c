@@ -526,8 +526,8 @@ dictType stringSetDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Dict for case-insensitive search using sds object without a value. The
- * key does not have a destructor. */
+/* Dict for for case-insensitive search using null terminated C strings.
+ * The key does not have a destructor. */
 dictType externalStringSetType = {
     distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
