@@ -113,6 +113,10 @@
 #define redis_fsync(fd) fsync(fd)
 #endif
 
+#if defined(__FreeBSD__)
+#define HAVE_SOCKOPTID 1
+#endif
+
 #if __GNUC__ >= 4
 #define redis_unreachable __builtin_unreachable
 #else

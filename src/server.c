@@ -2294,6 +2294,7 @@ int listenToPort(int port, socketFds *sfd) {
             closeSocketListeners(sfd);
             return C_ERR;
         }
+        anetSockId(NULL, sfd->fd[sfd->count], server.soid);
         anetNonBlock(NULL,sfd->fd[sfd->count]);
         anetCloexec(sfd->fd[sfd->count]);
         sfd->count++;

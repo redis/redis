@@ -2971,6 +2971,7 @@ standardConfig static_configs[] = {
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
     createUIntConfig("unixsocketperm", NULL, IMMUTABLE_CONFIG, 0, 0777, server.unixsocketperm, 0, OCTAL_CONFIG, NULL, NULL),
+    createUIntConfig("socket-id", NULL, MODIFIABLE_CONFIG, 0, UINT_MAX, server.soid, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned Long configs */
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */

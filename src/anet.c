@@ -49,6 +49,8 @@
 #include "anet.h"
 #include "config.h"
 
+#define UNUSED(x) (void)(x)
+
 static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
@@ -679,4 +681,20 @@ error:
     close(fds[0]);
     close(fds[1]);
     return -1;
+}
+
+int anetSockId(char *err, int fd, uint32_t id)
+{
+#ifdef HAVE_SOCKOPTID
+        if (setsockopt(fd, SOL_SOCKET, SO_USER_COOKIE, (void *)&id, sizeof(id)) == -1) {
+            anetSetError(err, "setsockopt: %s", strerror(errno));
+	    return ANET_ERR;
+        }
+	return ANET_OK;
+#else
+        UNUSED(fd);
+        if (id > 0)
+            anetSetError(err,"anetSockid unsupported on this platform");
+        return ANET_OK;
+#endif
 }
