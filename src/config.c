@@ -854,7 +854,7 @@ end:
 
 void configGetCommand(client *c) {
     void *replylen = addReplyDeferredLen(c);
-    dict *matches = dictCreate(&exteranlStringSetType);
+    dict *matches = dictCreate(&externalStringSetType);
     int i;
 
     for (i = 0; i < c->argc - 2; i++) {
