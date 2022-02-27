@@ -4111,7 +4111,7 @@ void addInfoSectionsToDict(dict *section_dict, char **sections);
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;
-    static dict *cached_all_info_sectoins = NULL;
+    static dict *cached_all_info_sections = NULL;
 
     /* Get requested section list. */
     dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, sentinel_sections, &sec_all, &sec_everything);
@@ -4135,11 +4135,11 @@ void sentinelInfoCommand(client *c) {
     if (sec_all || sec_everything) {
         releaseInfoSectionDict(sections_dict);
         /* We cache this dict as an optimization. */
-        if (!cached_all_info_sectoins) {
-            cached_all_info_sectoins = dictCreate(&stringSetDictType);
-            addInfoSectionsToDict(cached_all_info_sectoins, sentinel_sections);
+        if (!cached_all_info_sections) {
+            cached_all_info_sections = dictCreate(&stringSetDictType);
+            addInfoSectionsToDict(cached_all_info_sections, sentinel_sections);
         }
-        sections_dict = cached_all_info_sectoins;
+        sections_dict = cached_all_info_sections;
     }
 
     sds info = genRedisInfoString(sections_dict, 0, 0);
@@ -4182,7 +4182,7 @@ void sentinelInfoCommand(client *c) {
         }
         dictReleaseIterator(di);
     }
-    if (sections_dict != cached_all_info_sectoins)
+    if (sections_dict != cached_all_info_sections)
         releaseInfoSectionDict(sections_dict);
     addReplyBulkSds(c, info);
 }
