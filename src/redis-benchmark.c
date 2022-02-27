@@ -125,6 +125,7 @@ static struct config {
     int enable_tracking;
     pthread_mutex_t liveclients_mutex;
     pthread_mutex_t is_updating_slots_mutex;
+    int resp3; /* use RESP3 */
 } config;
 
 typedef struct _client {
@@ -751,6 +752,15 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             (int)sdslen(config.input_dbnumstr),config.input_dbnumstr);
         c->prefix_pending++;
     }
+
+    if (config.resp3) {
+        char *buf = NULL;
+        int len = redisFormatCommand(&buf, "HELLO 3");
+        c->obuf = sdscatlen(c->obuf, buf, len);
+        free(buf);
+        c->prefix_pending++;
+    }
+
     c->prefixlen = sdslen(c->obuf);
     /* Append the request itself. */
     if (from) {
@@ -1443,6 +1453,8 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-benchmark",&config.conn_info,&config.tls);
             config.input_dbnumstr = sdsfromlonglong(config.conn_info.input_dbnum);
+        } else if (!strcmp(argv[i],"-3")) {
+            config.resp3 = 1;
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1569,6 +1581,7 @@ usage:
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
+" -3                 Start session in RESP3 protocol mode.\n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
 "                    If the command is supplied on the command line in cluster\n"
@@ -1742,6 +1755,7 @@ int main(int argc, char **argv) {
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
     config.enable_tracking = 0;
+    config.resp3 = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
