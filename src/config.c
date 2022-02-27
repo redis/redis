@@ -892,7 +892,6 @@ void configGetCommand(client *c) {
         }
         dictReleaseIterator(di);
     }
-    serverLog(LL_WARNING, "%lu", dictSize(matches));
     setDeferredMapLen(c,replylen,dictSize(matches));
     dictRelease(matches);
 }
