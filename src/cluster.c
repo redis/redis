@@ -4966,38 +4966,38 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
 
 /* Add detailed information of a node to the output buffer of the given client. */
 void addNodeDetailsToShardReply(client *c, clusterNode *node) {
-    int reply_cnt = 0;
+    int reply_count = 0;
     void *node_replylen = addReplyDeferredLen(c);
     addReplyBulkCString(c, "id");
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
-    reply_cnt++;
+    reply_count++;
 
     int port = server.cluster_announce_port ? server.cluster_announce_port : server.port;
     if (port) {
         addReplyBulkCString(c, "port");
         addReplyLongLong(c, node->port);
-        reply_cnt++;
+        reply_count++;
     }
 
     int tls_port = server.cluster_announce_tls_port ? server.cluster_announce_tls_port : server.tls_port;
     if (tls_port) {
         addReplyBulkCString(c, "tls-port");
         addReplyLongLong(c, tls_port);
-        reply_cnt++;
+        reply_count++;
     }
 
     addReplyBulkCString(c, "ip");
     addReplyBulkCString(c, node->ip);
-    reply_cnt++;
+    reply_count++;
 
     addReplyBulkCString(c, "endpoint");
     addReplyBulkCString(c, getPreferredEndpoint(node));
-    reply_cnt++;
+    reply_count++;
 
     if (node->hostname) {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCString(c, node->hostname);
-        reply_cnt++;
+        reply_count++;
     }
 
     long long node_offset;
@@ -5009,32 +5009,31 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 
     addReplyBulkCString(c, "role");
     addReplyBulkCString(c, nodeIsSlave(node) ? "replica" : "master");
-    reply_cnt++;
+    reply_count++;
 
     addReplyBulkCString(c, "replication-offset");
     addReplyLongLong(c, node_offset);
-    reply_cnt++;
+    reply_count++;
 
     addReplyBulkCString(c, "health");
     const char *health_msg = NULL;
     if (nodeFailed(node)) {
-        health_msg = "FAIL";
+        health_msg = "fail";
     } else if (nodeIsSlave(node) && node_offset == 0) {
-        health_msg = "LOADING";
+        health_msg = "loading";
     } else {
-        health_msg = "ONLINE";
+        health_msg = "online";
     }
     addReplyBulkCString(c, health_msg);
-    reply_cnt++;
+    reply_count++;
 
-    setDeferredMapLen(c, node_replylen, reply_cnt);
+    setDeferredMapLen(c, node_replylen, reply_count);
 }
 
-/* Add to the output buffer of the given client, add the slot_info_pair i.e. list of
- * start/end slot pairs. Also, add information regarding the node and it's set of replica(s).  */
-void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_pair) {
+/* Add the shard reply of a single shard based off the given master node. */
+void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info_pair) {
     addReplyMapLen(c, 2);
-    addReplyBulkCString(c,"slots");
+    addReplyBulkCString(c, "slots");
     uint16_t slot_pair_count = 0;
     if (slot_info_pair) {
         slot_pair_count = listLength(slot_info_pair);
@@ -5052,20 +5051,21 @@ void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_p
         /* If no slot info pair is provided, the node owns no slots */
         addReplyArrayLen(c, 0);
     }
-    addReplyBulkCString(c,"nodes");
+
+    addReplyBulkCString(c, "nodes");
     list *nodes_for_slot = clusterGetNodesServingMySlots(node);
-    if (nodes_for_slot) {
-        addReplyArrayLen(c, listLength(nodes_for_slot));
-        if (listLength(nodes_for_slot) != 0) {
-            listIter li;
-            listNode *ln;
-            listRewind(nodes_for_slot, &li);
-            while ((ln = listNext(&li))) {
-                clusterNode *node = listNodeValue(ln);
-                addNodeDetailsToShardReply(c, node);
-            }
-            listRelease(nodes_for_slot);
+    /* At least the provided node should be serving its slots */
+    serverAssert(nodes_for_slot);
+    addReplyArrayLen(c, listLength(nodes_for_slot));
+    if (listLength(nodes_for_slot) != 0) {
+        listIter li;
+        listNode *ln;
+        listRewind(nodes_for_slot, &li);
+        while ((ln = listNext(&li))) {
+            clusterNode *node = listNodeValue(ln);
+            addNodeDetailsToShardReply(c, node);
         }
+        listRelease(nodes_for_slot);
     }
 }
 
@@ -5074,7 +5074,8 @@ void addNodeReplyForClusterShard(client *c, clusterNode *node, list *slot_info_p
  * information about each node. */
 void clusterReplyShards(client *c) {
     void *shard_replylen = addReplyDeferredLen(c);
-    int shard_cnt = 0;
+    int shard_count = 0;
+    /* This call will add slot_info_pair to all nodes */
     clusterGenNodesSlotsInfo(0);
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
@@ -5085,19 +5086,22 @@ void clusterReplyShards(client *c) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *n = dictGetVal(de);
         if (nodeIsSlave(n)) {
+            /* You can force a replica to own slots, even though it'll get reverted,
+             * so freeing the slot pair here just in case. */
+            if (n->slot_info_pair) listRelease(n->slot_info_pair);
+            n->slot_info_pair = NULL;
             continue;
         }
-        shard_cnt++;
+        shard_count++;
+        /* n->slot_info_pair is set to NULL when the the node owns no slots. */
+        addShardReplyForClusterShards(c, n, n->slot_info_pair);
         if (n->slot_info_pair) {
-            addNodeReplyForClusterShard(c, n, n->slot_info_pair);
             listRelease(n->slot_info_pair);
             n->slot_info_pair = NULL;
-        } else {
-            addNodeReplyForClusterShard(c, n, NULL);
         }
     }
     dictReleaseIterator(di);
-    setDeferredArrayLen(c, shard_replylen, shard_cnt);
+    setDeferredArrayLen(c, shard_replylen, shard_count);
 }
 
 void clusterReplyMultiBulkSlots(client * c) {
@@ -5194,7 +5198,7 @@ void clusterCommand(client *c) {
 "    Return information about slots range mappings. Each range is made of:",
 "    start, end, master and replicas IP addresses, ports and ids",
 "SHARDS",
-"    Return information about slots range mappings and the nodes associated to it.",
+"    Return information about slot range mappings and the nodes associated with them.",
 "LINKS",
 "    Return information about all network links between this node and its peers.",
 "    Output format is an array where each array element is a map containing attributes of a link",

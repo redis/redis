@@ -1,7 +1,7 @@
 {
   "SHARDS": {
     "summary": "Get array of cluster slots to node mappings",
-    "complexity": "O(N) where N is the total number of Cluster nodes",
+    "complexity": "O(N) where N is the total number of cluster nodes",
     "group": "cluster",
     "since": "7.0.0",
     "arity": 2,

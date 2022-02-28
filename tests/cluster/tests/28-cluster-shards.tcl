@@ -17,8 +17,8 @@ proc cluster_create_with_split_slots {masters replicas} {
     set ::cluster_replica_nodes $replicas
 }
 
-# Get the shard with the specific node_id from the
-# given reference node.
+# Get the node info with the specific node_id from the
+# given reference node. Valid type options are "node" and "shard"
 proc get_node_info_from_shard {id reference {type node}} {
     set shards_response [R $reference CLUSTER SHARDS]
     foreach shard_response $shards_response {
@@ -77,7 +77,7 @@ test "Verify information about the shards" {
 
             if {$i < 4} {
                 assert_equal "master" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] role]
-                assert_equal "ONLINE" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] health]
+                assert_equal "online" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] health]
             } else {
                 assert_equal "replica" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] role]
                 # Replica could be in online or loading
@@ -93,7 +93,6 @@ test "Verify no slot shard" {
     assert_equal {} [dict get [get_node_info_from_shard $node_8_id 0 "shard"] slots]
 }
 
-set current_epoch [CI 2 cluster_current_epoch]
 set node_0_id [R 0 CLUSTER MYID]
 
 test "Kill a node and tell the replica to immediately takeover" {
@@ -101,12 +100,12 @@ test "Kill a node and tell the replica to immediately takeover" {
     R 4 cluster failover force
 }
 
-# Primary 0 node should report as fail.
+# Primary 0 node should report as fail, wait until the new primary acknowledges it.
 test "Verify health as fail for killed node" {
     wait_for_condition 50 100 {
-        "FAIL" eq [dict get [get_node_info_from_shard $node_0_id 4 "node"] "health"]
+        "fail" eq [dict get [get_node_info_from_shard $node_0_id 4 "node"] "health"]
     } else {
-        fail "Replica never detected the node failed"
+        fail "New primary never detected the node failed"
     }
 }
 
@@ -121,7 +120,7 @@ test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
         [RI $replica_id role] eq {slave}
     } else {
-        fail "Old master was not converted into replica"
+        fail "Old primary was not converted into replica"
     }
 }
 
@@ -129,15 +128,15 @@ test "Test the replica reports a loading state while it's loading" {
     # Test the command is good for verifying everything moves to a happy state
     set replica_cluster_id [R $replica_id CLUSTER MYID]
     wait_for_condition 50 100 {
-        [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health] eq "ONLINE"
+        [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health] eq "online"
     } else {
-        fail "Replica never transitioned to ONLINE"
+        fail "Replica never transitioned to online"
     }
 
     # Set 1 MB of data, so there is something to load on full sync
     R $primary_id debug populate 1000 key 1000
 
-    # Kill replica client for master and load new data to the primary
+    # Kill replica client for primary and load new data to the primary
     R $primary_id config set repl-backlog-size 100
 
     # Set the key load delay so that it will take at least
@@ -164,20 +163,20 @@ test "Test the replica reports a loading state while it's loading" {
 
     # The replica should reconnect and start a full sync, it will gossip about it's health to the primary.
     wait_for_condition 50 100 {
-        "LOADING" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
+        "loading" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
-        fail "Replica never transitioned to LOADING"
+        fail "Replica never transitioned to loading"
     }
 
     # Speed up the key loading and verify everything resumes
     R $replica_id config set key-load-delay 0
 
     wait_for_condition 50 100 {
-        "ONLINE" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
+        "online" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
-        fail "Replica never transitioned to ONLINE"
+        fail "Replica never transitioned to online"
     }
 
     # Final sanity, the replica agrees it is online. 
-    assert_equal "ONLINE" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
+    assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
