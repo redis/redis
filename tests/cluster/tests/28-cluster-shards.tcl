@@ -63,10 +63,14 @@ test "Verify information about the shards" {
     }
     set slots [list $::slot0 $::slot1 $::slot2 $::slot3 $::slot0 $::slot1 $::slot2 $::slot3]
 
+    # Verify on each node (primary/replica), the response of the `CLUSTER SLOTS` command is consistent.
     for {set ref 0} {$ref < $::cluster_master_nodes + $::cluster_replica_nodes} {incr ref} {
         for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
             assert_equal [lindex $slots $i] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "shard"] slots]
             assert_equal "host-$i.com" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] hostname]
+            assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] ip]
+            # Default value of 'cluster-preferred-endpoint-type' is ip.
+            assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] endpoint]
 
             if {$::tls} {
                 assert_equal [get_instance_attrib redis $i plaintext-port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
@@ -174,7 +178,7 @@ test "Test the replica reports a loading state while it's loading" {
     wait_for_condition 50 100 {
         "online" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
-        fail "Replica never transitioned to online"
+        fail "Replica snever transitioned to online"
     }
 
     # Final sanity, the replica agrees it is online. 

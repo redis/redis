@@ -5030,7 +5030,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     setDeferredMapLen(c, node_replylen, reply_count);
 }
 
-/* Add the shard reply of a single shard based off the given master node. */
+/* Add the shard reply of a single shard based off the given primary node. */
 void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info_pair) {
     addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
