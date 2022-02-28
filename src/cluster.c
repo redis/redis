@@ -74,7 +74,7 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 sds representClusterNodeFlags(sds ci, uint16_t flags);
-sds representSlotInfo(sds ci, list *slot_info_pair);
+sds representSlotInfo(sds ci, list *slot_info_pairs);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
@@ -943,7 +943,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->configEpoch = 0;
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
-    node->slot_info_pair = NULL;
+    node->slot_info_pairs = NULL;
     node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
@@ -4565,10 +4565,10 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 /* Concatenate the slot ownership information to the given SDS string 'ci'.
  * If the slot ownership is in a contiguous block, it's represented as start-end pair,
  * else each slot is added separately. */
-sds representSlotInfo(sds ci, list *slot_info_pair) {
+sds representSlotInfo(sds ci, list *slot_info_pairs) {
     listIter li;
     listNode *ln;
-    listRewind(slot_info_pair, &li);
+    listRewind(slot_info_pairs, &li);
     while((ln = listNext(&li))) {
         unsigned long start = (unsigned long)ln->value;
         ln = listNext(&li);
@@ -4632,8 +4632,8 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
 
     /* Slots served by this instance. If we already have slots info,
      * append it directly, otherwise, generate slots only if it has. */
-    if (node->slot_info_pair) {
-        ci = representSlotInfo(ci, node->slot_info_pair);
+    if (node->slot_info_pairs) {
+        ci = representSlotInfo(ci, node->slot_info_pairs);
     } else if (node->numslots > 0) {
         start = -1;
         for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -4693,11 +4693,11 @@ void clusterGenNodesSlotsInfo(int filter) {
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
             if (!(n->flags & filter)) {
-                if (n->slot_info_pair == NULL) {
-                    n->slot_info_pair = listCreate();
+                if (n->slot_info_pairs == NULL) {
+                    n->slot_info_pairs = listCreate();
                 }
-                listAddNodeTail(n->slot_info_pair, (void *)(unsigned long)start);
-                listAddNodeTail(n->slot_info_pair, (void *)(unsigned long)(i-1));
+                listAddNodeTail(n->slot_info_pairs, (void *)(unsigned long)start);
+                listAddNodeTail(n->slot_info_pairs, (void *)(unsigned long)(i-1));
             }
             if (i == CLUSTER_SLOTS) break;
             n = server.cluster->slots[i];
@@ -4740,9 +4740,9 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
         ci = sdscatlen(ci,"\n",1);
 
         /* Release slots info. */
-        if (node->slot_info_pair != NULL) {
-            listRelease(node->slot_info_pair);
-            node->slot_info_pair = NULL;
+        if (node->slot_info_pairs != NULL) {
+            listRelease(node->slot_info_pairs);
+            node->slot_info_pairs = NULL;
         }
     }
     dictReleaseIterator(di);
@@ -5031,16 +5031,16 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 }
 
 /* Add the shard reply of a single shard based off the given primary node. */
-void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info_pair) {
+void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info_pairs) {
     addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
     uint16_t slot_pair_count = 0;
-    if (slot_info_pair) {
-        slot_pair_count = listLength(slot_info_pair);
+    if (slot_info_pairs) {
+        slot_pair_count = listLength(slot_info_pairs);
         serverAssert((slot_pair_count % 2) == 0);
         addReplyArrayLen(c, slot_pair_count);
         listIter li;
-        listRewind(slot_info_pair, &li);
+        listRewind(slot_info_pairs, &li);
         listNode *ln;
         while((ln = listNext(&li))) {
             addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
@@ -5075,7 +5075,7 @@ void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info
 void clusterReplyShards(client *c) {
     void *shard_replylen = addReplyDeferredLen(c);
     int shard_count = 0;
-    /* This call will add slot_info_pair to all nodes */
+    /* This call will add slot_info_pairs to all nodes */
     clusterGenNodesSlotsInfo(0);
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
     dictEntry *de;
@@ -5088,16 +5088,16 @@ void clusterReplyShards(client *c) {
         if (nodeIsSlave(n)) {
             /* You can force a replica to own slots, even though it'll get reverted,
              * so freeing the slot pair here just in case. */
-            if (n->slot_info_pair) listRelease(n->slot_info_pair);
-            n->slot_info_pair = NULL;
+            if (n->slot_info_pairs) listRelease(n->slot_info_pairs);
+            n->slot_info_pairs = NULL;
             continue;
         }
         shard_count++;
-        /* n->slot_info_pair is set to NULL when the the node owns no slots. */
-        addShardReplyForClusterShards(c, n, n->slot_info_pair);
-        if (n->slot_info_pair) {
-            listRelease(n->slot_info_pair);
-            n->slot_info_pair = NULL;
+        /* n->slot_info_pairs is set to NULL when the the node owns no slots. */
+        addShardReplyForClusterShards(c, n, n->slot_info_pairs);
+        if (n->slot_info_pairs) {
+            listRelease(n->slot_info_pairs);
+            n->slot_info_pairs = NULL;
         }
     }
     dictReleaseIterator(di);

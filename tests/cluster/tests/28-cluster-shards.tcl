@@ -159,8 +159,7 @@ test "Test the replica reports a loading state while it's loading" {
     set value [string repeat A 1024]
     for {set j 0} {$j < $num} {incr j} {
         # Use hashtag valid for shard #0
-        set key "{ch3}"
-        append key $j
+        set key "{ch3}$j"
         R $primary_id set $key $value
     }
     R $primary_id exec
@@ -178,7 +177,7 @@ test "Test the replica reports a loading state while it's loading" {
     wait_for_condition 50 100 {
         "online" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
-        fail "Replica snever transitioned to online"
+        fail "Replica never transitioned to online"
     }
 
     # Final sanity, the replica agrees it is online. 
