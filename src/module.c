@@ -5103,6 +5103,7 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
         errno = EBADF;
         return REDISMODULE_ERR;
     }
+	streamIteratorStop(key->iter);
     zfree(key->iter);
     key->iter = NULL;
     return REDISMODULE_OK;
