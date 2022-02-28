@@ -4971,44 +4971,55 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCString(c, "id");
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
     reply_cnt++;
+
     int port = server.cluster_announce_port ? server.cluster_announce_port : server.port;
     if (port) {
         addReplyBulkCString(c, "port");
         addReplyLongLong(c, node->port);
         reply_cnt++;
     }
+
     int tls_port = server.cluster_announce_tls_port ? server.cluster_announce_tls_port : server.tls_port;
     if (tls_port) {
-        addReplyBulkCString(c, "tls_port");
+        addReplyBulkCString(c, "tls-port");
         addReplyLongLong(c, tls_port);
         reply_cnt++;
     }
+
     addReplyBulkCString(c, "ip");
     addReplyBulkCString(c, node->ip);
     reply_cnt++;
+
     addReplyBulkCString(c, "endpoint");
     addReplyBulkCString(c, getPreferredEndpoint(node));
     reply_cnt++;
+
     if (node->hostname) {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCString(c, node->hostname);
         reply_cnt++;
     }
-    addReplyBulkCString(c, "role");
-    if (nodeIsSlave(node)) {
-        addReplyBulkCString(c, "replica");
-        addReplyBulkCString(c, "replication-offset");
-        addReplyLongLong(c, node->repl_offset);
-        reply_cnt+=2;
+
+    long long node_offset;
+    if (node->flags & CLUSTER_NODE_MYSELF) {
+        node_offset = nodeIsSlave(node) ? replicationGetSlaveOffset() : server.master_repl_offset;
     } else {
-        addReplyBulkCString(c, "master");
-        reply_cnt++;
+        node_offset = node->repl_offset;
     }
+
+    addReplyBulkCString(c, "role");
+    addReplyBulkCString(c, nodeIsSlave(node) ? "replica" : "master");
+    reply_cnt++;
+
+    addReplyBulkCString(c, "replication-offset");
+    addReplyLongLong(c, node_offset);
+    reply_cnt++;
+
     addReplyBulkCString(c, "health");
     const char *health_msg = NULL;
     if (nodeFailed(node)) {
         health_msg = "FAIL";
-    } else if (nodeIsSlave(node) && node->repl_offset == 0) {
+    } else if (nodeIsSlave(node) && node_offset == 0) {
         health_msg = "LOADING";
     } else {
         health_msg = "ONLINE";

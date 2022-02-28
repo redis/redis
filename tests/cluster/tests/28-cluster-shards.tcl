@@ -17,7 +17,29 @@ proc cluster_create_with_split_slots {masters replicas} {
     set ::cluster_replica_nodes $replicas
 }
 
-test "Create a 4 nodes cluster" {
+# Get the shard with the specific node_id from the
+# given reference node.
+proc get_node_info_from_shard {id reference {type node}} {
+    set shards_response [R $reference CLUSTER SHARDS]
+    foreach shard_response $shards_response {
+        set nodes [dict get $shard_response nodes]
+        foreach node $nodes {
+            if {[dict get $node id] eq $id} {
+                if {$type eq "node"} {
+                    return $node
+                } elseif {$type eq "shard"} {
+                    return $shard_response
+                } else {
+                    return {}
+                }
+            }
+        }
+    }
+    # No shard found, return nothing
+    return {}
+}
+
+test "Create a 8 nodes cluster with 4 shards" {
     cluster_create_with_split_slots 4 4
 }
 
@@ -25,176 +47,67 @@ test "Cluster should start ok" {
     assert_cluster_state ok
 }
 
-test "Cluster is writable" {
-    cluster_write_test 0
-}
-
-proc dict_shard_cmp {actual expected} {
-    set keys [dict keys $actual]
-    foreach key $keys {
-        if {$key == "replication-offset"} {
-            set health [dict get $actual health]
-            if {$health == "ONLINE"} {
-                assert {[dict get $actual $key] > 0}
-            } else {
-                assert {[dict get $actual $key] == 0}
-            }
-        } else {
-            assert_equal [dict get $actual $key] [dict get $expected $key]
-        }
-    }
-}
-
 test "Set cluster hostnames and verify they are propagated" {
     for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
         R $j config set cluster-announce-hostname "host-$j.com"
     }
 
-    wait_for_condition 50 100 {
-        [are_hostnames_propagated "host-*.com"] eq 1
-    } else {
-        fail "cluster hostnames were not propagated"
-    }
-
-    # Now that everything is propagated, assert everyone agrees
+    # Wait for everyone to agree about the state
     wait_for_cluster_propagation
 }
 
-# Fixed values
-set primary [dict create id id port port endpoint 127.0.0.1 ip 127.0.0.1 role master health ONLINE]
-set replica [dict create id id port port endpoint 127.0.0.1 ip 127.0.0.1 role replica health ONLINE]
-
-proc dict_setup_for_verification {node i} {
-    upvar $node node_ref
-    if {$::tls} {
-        set tls_port [get_instance_attrib redis $i port]
-        set port [get_instance_attrib redis $i plaintext-port]
-    } else {
-        set port [get_instance_attrib redis $i port]
+test "Verify information about the shards" {
+    set ids {}
+    for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+        lappend ids [R $j CLUSTER MYID]
     }
-    dict set node_ref id [R $i CLUSTER MYID]
-    dict set node_ref port $port
-    dict set node_ref hostname "host-$i.com"
+    set slots [list $::slot0 $::slot1 $::slot2 $::slot3 $::slot0 $::slot1 $::slot2 $::slot3]
+
+    for {set ref 0} {$ref < $::cluster_master_nodes + $::cluster_replica_nodes} {incr ref} {
+        for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
+            assert_equal [lindex $slots $i] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "shard"] slots]
+            assert_equal "host-$i.com" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] hostname]
+
+            if {$::tls} {
+                assert_equal [get_instance_attrib redis $i plaintext-port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
+                assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
+            } else {
+                assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
+            }
+
+            if {$i < 4} {
+                assert_equal "master" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] role]
+                assert_equal "ONLINE" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] health]
+            } else {
+                assert_equal "replica" [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] role]
+                # Replica could be in online or loading
+            }
+        }
+    }    
 }
 
-proc wait_all_nodes_online {} {
-    foreach_redis_id id {
-        if {[instance_is_killed redis $id]} continue
-        wait_for_condition 1000 50 {
-            [s $id loading] eq 0
-        } else {
-            fail "All nodes didn't came online"
-        }
-    }
+test "Verify no slot shard" {
+    # Node 8 has no slots assigned
+    set node_8_id [R 8 CLUSTER MYID]
+    assert_equal {} [dict get [get_node_info_from_shard $node_8_id 8 "shard"] slots]
+    assert_equal {} [dict get [get_node_info_from_shard $node_8_id 0 "shard"] slots]
 }
-
-# Verify various combinations of `CLUSTER SHARDS` response
-# 1. Single slot owner
-# 2. Single slot(s) + multi slot range owner
-# 3. multi slot range + multi slot range owner
-test "Verify cluster shards response" {
-    # Wait until all the nodes are online
-    wait_all_nodes_online
-
-    set shards [R 0 CLUSTER SHARDS]
-    set validation_cnt 0
-    foreach shard $shards {
-        set slots [dict get $shard slots]
-        set nodes [dict get $shard nodes]
-        if { $slots == $::slot3 } {
-            assert_equal [llength $nodes] 2
-            dict_setup_for_verification primary 3
-            dict_setup_for_verification replica 7
-            dict_shard_cmp [lindex $nodes 0] $primary
-            dict_shard_cmp [lindex $nodes 1] $replica
-            incr validation_cnt
-        }
-        if { $slots == $::slot2 } {
-            assert_equal [llength $nodes] 2
-            dict_setup_for_verification primary 2
-            dict_setup_for_verification replica 6
-            dict_shard_cmp [lindex $nodes 0] $primary
-            dict_shard_cmp [lindex $nodes 1] $replica
-            incr validation_cnt
-        }
-        if { $slots == $::slot1 } {
-            assert_equal [llength $nodes] 2
-            dict_setup_for_verification primary 1
-            dict_setup_for_verification replica 5
-            dict_shard_cmp [lindex $nodes 0] $primary
-            dict_shard_cmp [lindex $nodes 1] $replica
-            incr validation_cnt
-        }
-        if { $slots == $::slot0 } {
-            assert_equal [llength $nodes] 2
-            dict_setup_for_verification primary 0
-            dict_setup_for_verification replica 4
-            dict_shard_cmp [lindex $nodes 0] $primary
-            dict_shard_cmp [lindex $nodes 1] $replica
-            incr validation_cnt
-       }
-    }
-    assert_equal $validation_cnt 4
-}
-
-# Remove the only slot owned by primary 3, slots array should be empty.
-test "Verify no slots shard" {
-    R 3 cluster DELSLOTSRANGE 1001 1001
-    set shards [R 3 CLUSTER SHARDS]
-    set validation_cnt 0
-    foreach shard $shards {
-        set slots [dict get $shard slots]
-        set nodes [dict get $shard nodes]
-        if {[llength $slots] == 0 && [llength $nodes] == 2} {
-                dict_setup_for_verification primary 3
-                dict_setup_for_verification replica 7
-                dict_shard_cmp [lindex $nodes 0] $primary
-                dict_shard_cmp [lindex $nodes 1] $replica
-                incr validation_cnt 1
-        }
-    }
-    assert_equal $validation_cnt 1
-    R 3 cluster ADDSLOTSRANGE 1001 1001
-}
-
-set id0 [R 0 CLUSTER MYID]
 
 set current_epoch [CI 2 cluster_current_epoch]
+set node_0_id [R 0 CLUSTER MYID]
 
-test "Killing one primary node" {
+test "Kill a node and tell the replica to immediately takeover" {
     kill_instance redis 0
-}
-
-test "Wait for failover" {
-    wait_for_condition 1000 50 {
-        [CI 2 cluster_current_epoch] > $current_epoch
-    } else {
-        fail "No failover detected"
-    }
-}
-
-test "Cluster should eventually be up again" {
-    assert_cluster_state ok
+    R 4 cluster failover force
 }
 
 # Primary 0 node should report as fail.
 test "Verify health as fail for killed node" {
-    set shards [R 1 CLUSTER SHARDS]
-    set validation_cnt 0
-    foreach shard $shards {
-        set slots [dict get $shard slots]
-        set nodes [dict get $shard nodes]
-        set slot_len [llength $slots]
-        if {$slot_len == 0 && [dict get [lindex $nodes 0] id] == $id0} {
-            dict set primary id $id0
-            dict set primary hostname "host-0.com"
-            dict set primary port 30000
-            dict set primary health FAIL
-            dict_shard_cmp [lindex $nodes 0] $primary
-            incr validation_cnt 1
-        }
+    wait_for_condition 50 100 {
+        "FAIL" eq [dict get [get_node_info_from_shard $node_0_id 4 "node"] "health"]
+    } else {
+        fail "Replica never detected the node failed"
     }
-    assert_equal $validation_cnt 1
 }
 
 set primary_id 4
@@ -212,49 +125,29 @@ test "Instance #0 gets converted into a replica" {
     }
 }
 
-proc is_replica_online {info_repl} {
-    set found_position [string first "state=online" $info_repl]
-    set result [expr {$found_position != -1}]
-    return $result
-}
-
-proc is_in_slots {master_id replica} {
-    set slots [R $master_id cluster slots]
-    set found_position [string first $replica $slots]
-    set result [expr {$found_position != -1}]
-    return $result
-}
-
-test "Add new node as replica" {
-    set new_replica_id 9
-    set replica [R $new_replica_id CLUSTER MYID]
-    R $new_replica_id cluster replicate [R $primary_id CLUSTER MYID]
-
-    wait_for_condition 1000 50 {
-        [is_in_slots $primary_id $replica]
+test "Test the replica reports a loading state while it's loading" {
+    # Test the command is good for verifying everything moves to a happy state
+    set replica_cluster_id [R $replica_id CLUSTER MYID]
+    wait_for_condition 50 100 {
+        [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health] eq "ONLINE"
     } else {
-        fail "New replica didn't appear in the slots"
+        fail "Replica never transitioned to ONLINE"
     }
 
-    wait_for_condition 100 50 {
-        [is_replica_online [R $primary_id info replication]]
-    } else {
-        fail "Replica is down for too long"
-    }
-    set replica_digest [R $new_replica_id debug digest]
-    assert {$replica_digest ne 0}
+    # Set 1 MB of data, so there is something to load on full sync
+    R $primary_id debug populate 1000 key 1000
 
     # Kill replica client for master and load new data to the primary
     R $primary_id config set repl-backlog-size 100
 
     # Set the key load delay so that it will take at least
     # 2 seconds to fully load the data.
-    R $new_replica_id config set key-load-delay 4000
+    R $replica_id config set key-load-delay 4000
 
     # Trigger event loop processing every 1024 bytes, this trigger
     # allows us to send and receive cluster messages, so we are setting
     # it low so that the cluster messages are sent more frequently.
-    R $new_replica_id config set loading-process-events-interval-bytes 1024
+    R $replica_id config set loading-process-events-interval-bytes 1024
 
     R $primary_id multi
     R $primary_id client kill type replica
@@ -268,4 +161,23 @@ test "Add new node as replica" {
         R $primary_id set $key $value
     }
     R $primary_id exec
+
+    # The replica should reconnect and start a full sync, it will gossip about it's health to the primary.
+    wait_for_condition 50 100 {
+        "LOADING" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
+    } else {
+        fail "Replica never transitioned to LOADING"
+    }
+
+    # Speed up the key loading and verify everything resumes
+    R $replica_id config set key-load-delay 0
+
+    wait_for_condition 50 100 {
+        "ONLINE" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
+    } else {
+        fail "Replica never transitioned to ONLINE"
+    }
+
+    # Final sanity, the replica agrees it is online. 
+    assert_equal "ONLINE" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
