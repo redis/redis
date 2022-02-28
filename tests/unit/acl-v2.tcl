@@ -305,6 +305,12 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "ERR Command 'not-a-command' not found" $e
     }
 
+    test {Test various commands for command permissions} {
+        r ACL setuser command-test -@all
+        assert_equal "This user has no permissions to run the 'set' command" [r ACL DRYRUN command-test set somekey somevalue]
+        assert_equal "This user has no permissions to run the 'get' command" [r ACL DRYRUN command-test get somekey]
+    }
+
     test {Test various odd commands for key permissions} {
         r ACL setuser command-test +@all %R~read* %W~write* %RW~rw*
 
