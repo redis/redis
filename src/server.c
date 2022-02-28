@@ -720,6 +720,10 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     const size_t buffer_target_shrink_size = c->buf_usable_size/2;
     const size_t buffer_target_expand_size = c->buf_usable_size*2;
 
+    /* in case the resizing is disabled retuirn immediately */
+    if(!server.reply_buffer_resizing_enabled)
+        return 0;
+
     if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
         c->buf_peak < buffer_target_shrink_size )
     {
@@ -2405,6 +2409,7 @@ void initServer(void) {
     server.thp_enabled = 0;
     server.cluster_drop_packet_filter = -1;
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
+    server.reply_buffer_resizing_enabled = 1;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)

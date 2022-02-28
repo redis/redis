@@ -3,7 +3,7 @@ proc get_reply_buffer_size {cname} {
     set clients [split [string trim [r client list]] "\r\n"]
     set c [lsearch -inline $clients *name=$cname*]
     if {![regexp rbs=(\[a-zA-Z0-9-\]+) $c - rbufsize]} {
-        error "field rbus not found in $c"
+        error "field rbs not found in $c"
     }
     return $rbufsize
 }
@@ -12,7 +12,7 @@ start_server {tags {"replybufsize"}} {
     
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
-        r debug replybuffer-peak-reset-time 100
+        r debug replybuffer peak-reset-time 100
         
         # Create a simple idle test client
         variable tc [redis_client]
@@ -29,7 +29,7 @@ start_server {tags {"replybufsize"}} {
         r set bigval [string repeat x 32768]
         
         # In order to reduce test time we can set the peak reset time very low
-        r debug replybuffer-peak-reset-time never
+        r debug replybuffer peak-reset-time never
         
         wait_for_condition 10 100 {
             [$tc get bigval ; get_reply_buffer_size test_client] >= 16384 && [get_reply_buffer_size test_client] < 32768
@@ -39,7 +39,7 @@ start_server {tags {"replybufsize"}} {
         }
    
         # Restore the peak reset time to default
-        r debug replybuffer-peak-reset-time reset
+        r debug replybuffer peak-reset-time reset
         
         $tc close
     } {0} {needs:debug}

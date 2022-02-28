@@ -482,10 +482,12 @@ void debugCommand(client *c) {
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
-"REPLYBUFFER-PEAK-RESET-TIME <NEVER||RESET|time>",
+"REPLYBUFFER PEAK-RESET-TIME <NEVER||RESET|time>",
 "    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
 "    In case NEVER is provided the last observed peak will never be reset",
 "    In case RESET is provided the peak reset time will be restored to the default value",
+"REPLYBUFFER RESIZING <on|off>",
+"    Enable or disable the replay buffer resize cron job",
 NULL
         };
         addReplyHelp(c, help);
@@ -962,14 +964,25 @@ NULL
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer-peak-reset-time") && c->argc == 3 ) {
-        if (!strcasecmp(c->argv[2]->ptr, "never")) {
-            server.reply_buffer_peak_reset_time = -1;
-        } else if(!strcasecmp(c->argv[2]->ptr, "reset")) {
-            server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
-        } else {
-            if (getLongFromObjectOrReply(c, c->argv[2], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+    } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer") && c->argc == 4 ) {
+        if(!strcasecmp(c->argv[2]->ptr, "peak-reset-time")) {
+            if (!strcasecmp(c->argv[3]->ptr, "never")) {
+                server.reply_buffer_peak_reset_time = -1;
+            } else if(!strcasecmp(c->argv[3]->ptr, "reset")) {
+                server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
+            } else {
+                if (getLongFromObjectOrReply(c, c->argv[3], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+                    return;
+            }
+        } else if(!strcasecmp(c->argv[2]->ptr,"resizing")) {
+            if (!strcasecmp(c->argv[3]->ptr, "on")) {
+                server.reply_buffer_resizing_enabled = 1;
+            } else if(!strcasecmp(c->argv[3]->ptr, "off")) {
+                server.reply_buffer_resizing_enabled = 0;
+            } else {
+                addReplyErrorFormat(c, "Argument must be either 'on' or 'off'");
                 return;
+            }
         }
         addReply(c, shared.ok);
     } else {

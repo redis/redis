@@ -395,7 +395,7 @@ start_server {} {
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
-        r debug replybuffer-peak-reset-time never
+        r debug replybuffer resizing off
         r config set maxmemory-clients 0
         r client setname control
         r client no-evict on
@@ -438,8 +438,8 @@ start_server {} {
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == [expr $client_count / 2]}
 
-        # Restore the peak reset time to default
-        r debug replybuffer-peak-reset-time reset
+        # Restore the reply buffer resize to default
+        r debug replybuffer resizing on
         
         foreach rr $rrs {$rr close}
     } {} {needs:debug}
@@ -454,7 +454,7 @@ start_server {} {
         r client setname control
         r client no-evict on
         r config set maxmemory-clients 0
-        r debug replybuffer-peak-reset-time never
+        r debug replybuffer resizing off
         
         # Run over all sizes and create some clients using up that size
         set total_client_mem 0
@@ -505,8 +505,8 @@ start_server {} {
             }
         }
         
-        # Restore the peak reset time to default
-        r debug replybuffer-peak-reset-time reset
+        # Restore the reply buffer resize to default
+        r debug replybuffer resizing on
         
         foreach rr $rrs {$rr close}
     } {} {needs:debug}
