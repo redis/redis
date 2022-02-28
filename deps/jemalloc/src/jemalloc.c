@@ -3921,13 +3921,40 @@ jemalloc_postfork_child(void) {
 
 /******************************************************************************/
 
+JEMALLOC_EXPORT int badger = 0;
+
 /* Helps the application decide if a pointer is worth re-allocating in order to reduce fragmentation.
  * returns 1 if the allocation should be moved, and 0 if the allocation be kept.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
 get_defrag_hint(void* ptr) {
 	assert(ptr != NULL);
-	return iget_defrag_hint(TSDN_NULL, ptr);
+    tsdn_t *tsdn = TSDN_NULL;
+    int defrag = 0;
+    rtree_ctx_t rtree_ctx_fallback;
+    rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
+    szind_t szind;
+    bool is_slab;
+    rtree_szind_slab_read(tsdn, &extents_rtree, rtree_ctx, (uintptr_t)ptr, true, &szind, &is_slab);
+    if (likely(is_slab)) {
+        /* Small allocation. */
+        extent_t *slab = iealloc(tsdn, ptr);
+        arena_t *arena = extent_arena_get(slab);
+        szind_t binind = extent_szind_get(slab);
+        unsigned binshard = extent_binshard_get(slab);
+        bin_t *bin = &arena->bins[binind].bin_shards[binshard];
+        malloc_mutex_lock(tsdn, &bin->lock);
+        /* Don't bother moving allocations from the slab currently used for new allocations */
+        if (slab != bin->slabcur) {
+            if (!extent_defrag_retain_get(slab)) {
+                defrag = 1;
+                if (badger && binind == 10)
+                    printf("sn %zu\n", extent_sn_get(slab));
+            }
+        }
+        malloc_mutex_unlock(tsdn, &bin->lock);
+    }
+    return defrag;
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
@@ -3936,7 +3963,10 @@ init_defrag(void) {
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    /*printf("Initing defrag hints\n");*/
+    printf("Initing defrag hints\n");
+    nstime_t t,tt;
+    nstime_init(&t,0);
+    nstime_update(&t);
 
     // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
@@ -3952,12 +3982,14 @@ init_defrag(void) {
         if (used_slabs != needed_slabs) {
             int64_t nonfull_to_retain = needed_slabs - full_slabs;
             if (bin->slabcur) nonfull_to_retain--;
-            /*printf("%zu: Need %lu slabs but have %lu, non full to retain %ld\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain);*/
+            printf("%zu: Need %lu slabs but have %lu, non full to retain %ld (out of %ld)\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain, used_slabs - full_slabs - (bin->slabcur ? 1 : 0));
             extent_list_t slabs_retain;
             extent_list_init(&slabs_retain);
             while (nonfull_to_retain--) {
                 extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
                 //if (slab == NULL) printf("badger!!!!\n");
+                if (extent_defrag_retain_get(slab))
+                    printf("badger!!!!\n");
                 extent_defrag_retain_set(slab, true);
                 extent_list_append(&slabs_retain, slab);
             }
@@ -3969,6 +4001,9 @@ init_defrag(void) {
 
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
+    nstime_init(&tt,0);
+    nstime_update(&tt);
+    printf("Init took: %.6fms\n",(tt.ns-t.ns)/1000000.0);
 }
 
 static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) {
@@ -3991,14 +4026,13 @@ static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) 
     return c;
 }
 
-
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 finish_defrag(void) {
     unsigned long long i;
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    /*printf("Cleaning up defrag hints\n");*/
+    printf("Cleaning up defrag hints\n");
 
     // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
@@ -4021,9 +4055,52 @@ finish_defrag(void) {
             }
         }
 
-        /*const bin_info_t *bin_info = &bin_infos[i];
+        const bin_info_t *bin_info = &bin_infos[i];
         if (found_non || found_full)
-            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);*/
+            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);
+
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+    }
+}
+
+static void print_and_iter(extent_t *node) {
+    extent_t *leftmost_child, *sibling;
+
+    printf("%zu-%p: free %u\n", extent_sn_get(node), extent_addr_get(node), extent_nfree_get(node));
+
+    leftmost_child = phn_lchild_get(extent_t, ph_link, node);
+    if (leftmost_child == NULL) {
+        return;
+    }
+    print_and_iter(leftmost_child);
+
+    for (sibling = phn_next_get(extent_t, ph_link, leftmost_child); sibling != NULL; sibling = phn_next_get(extent_t, ph_link, sibling)) {
+        print_and_iter(sibling);
+    }
+    return;
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+print_some_je_stats(void) {
+    unsigned long long i;
+    tsd_t *tsd = tsd_fetch();
+    arena_t *arena = arena_choose(tsd, NULL);
+
+    printf("Cleaning up defrag hints\n");
+
+    // TODO: Consider locking: arena->mtx
+    for (i = 0; i < SC_NBINS; i++) {
+        unsigned binshard;
+        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+        extent_t *slab;
+
+        if (bin->slabs_nonfull.ph_root && i == 10) {
+            print_and_iter(bin->slabs_nonfull.ph_root);
+            for (slab = phn_next_get(extent_t, ph_link, bin->slabs_nonfull.ph_root);
+                 slab != NULL; slab = phn_next_get(extent_t, ph_link, slab)) {
+                print_and_iter(slab);
+            }
+        }
 
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }

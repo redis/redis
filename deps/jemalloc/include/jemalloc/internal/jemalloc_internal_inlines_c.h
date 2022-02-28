@@ -219,20 +219,4 @@ ixalloc(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t extra,
 	    newsize);
 }
 
-JEMALLOC_ALWAYS_INLINE int
-iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
-	rtree_ctx_t rtree_ctx_fallback;
-	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
-	szind_t szind;
-	bool is_slab;
-	rtree_szind_slab_read(tsdn, &extents_rtree, rtree_ctx, (uintptr_t)ptr, true, &szind, &is_slab);
-	if (likely(is_slab)) {
-		/* Small allocation. */
-		extent_t *slab = iealloc(tsdn, ptr);
-        return (int)!extent_defrag_retain_get(slab);
-
-	}
-	return 0;
-}
-
 #endif /* JEMALLOC_INTERNAL_INLINES_C_H */

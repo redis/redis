@@ -384,6 +384,8 @@ void mallctl_string(client *c, robj **argv, int argc) {
 }
 #endif
 
+void je_print_some_je_stats(void);
+
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
