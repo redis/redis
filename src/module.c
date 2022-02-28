@@ -2284,7 +2284,10 @@ static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
         signalModifiedKey(key->ctx->client,key->db,key->key);
-    if (key->iter) zfree(key->iter);
+    if (key->iter) {
+        streamIteratorStop(key->iter);
+        zfree(key->iter);
+    }
     RM_ZsetRangeStop(key);
     if (key && key->value && key->value->type == OBJ_STREAM &&
         key->u.stream.signalready) {
@@ -3541,6 +3544,7 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
         errno = EBADF;
         return REDISMODULE_ERR;
     }
+    streamIteratorStop(key->iter);
     zfree(key->iter);
     key->iter = NULL;
     return REDISMODULE_OK;
