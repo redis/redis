@@ -47,8 +47,8 @@ typedef long long ssize_t;
 
 #define HIREDIS_MAJOR 1
 #define HIREDIS_MINOR 0
-#define HIREDIS_PATCH 0
-#define HIREDIS_SONAME 1.0.0
+#define HIREDIS_PATCH 3
+#define HIREDIS_SONAME 1.0.3-dev
 
 /* Connection type can be blocking or non-blocking and is set in the
  * least significant bit of the flags field in redisContext. */
@@ -80,11 +80,17 @@ typedef long long ssize_t;
 /* Flag that is set when we should set SO_REUSEADDR before calling bind() */
 #define REDIS_REUSEADDR 0x80
 
+/* Flag that is set when the async connection supports push replies. */
+#define REDIS_SUPPORTS_PUSH 0x100
+
 /**
  * Flag that indicates the user does not want the context to
  * be automatically freed upon error
  */
 #define REDIS_NO_AUTO_FREE 0x200
+
+/* Flag that indicates the user does not want replies to be automatically freed */
+#define REDIS_NO_AUTO_FREE_REPLIES 0x400
 
 #define REDIS_KEEPALIVE_INTERVAL 15 /* seconds */
 
@@ -112,7 +118,8 @@ typedef struct redisReply {
     double dval; /* The double when type is REDIS_REPLY_DOUBLE */
     size_t len; /* Length of string */
     char *str; /* Used for REDIS_REPLY_ERROR, REDIS_REPLY_STRING
-                  REDIS_REPLY_VERB, and REDIS_REPLY_DOUBLE (in additional to dval). */
+                  REDIS_REPLY_VERB, REDIS_REPLY_DOUBLE (in additional to dval),
+                  and REDIS_REPLY_BIGNUM. */
     char vtype[4]; /* Used for REDIS_REPLY_VERB, contains the null
                       terminated 3 character content type, such as "txt". */
     size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
@@ -127,8 +134,8 @@ void freeReplyObject(void *reply);
 /* Functions to format a command according to the protocol. */
 int redisvFormatCommand(char **target, const char *format, va_list ap);
 int redisFormatCommand(char **target, const char *format, ...);
-int redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
-int redisFormatSdsCommandArgv(hisds *target, int argc, const char ** argv, const size_t *argvlen);
+long long redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
+long long redisFormatSdsCommandArgv(hisds *target, int argc, const char ** argv, const size_t *argvlen);
 void redisFreeCommand(char *cmd);
 void redisFreeSdsCommand(hisds cmd);
 
@@ -151,6 +158,11 @@ struct redisSsl;
 
 /* Don't automatically intercept and free RESP3 PUSH replies. */
 #define REDIS_OPT_NO_PUSH_AUTOFREE 0x08
+
+/**
+ * Don't automatically free replies
+ */
+#define REDIS_OPT_NOAUTOFREEREPLIES 0x10
 
 /* In Unix systems a file descriptor is a regular signed int, with -1
  * representing an invalid descriptor. In Windows it is a SOCKET
@@ -255,7 +267,7 @@ typedef struct redisContext {
     } unix_sock;
 
     /* For non-blocking connect */
-    struct sockadr *saddr;
+    struct sockaddr *saddr;
     size_t addrlen;
 
     /* Optional data and corresponding destructor users can use to provide

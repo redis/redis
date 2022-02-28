@@ -1,7 +1,7 @@
 {
     "FCALL_RO": {
-        "summary": "PATCH__TBD__7__",
-        "complexity": "PATCH__TBD__6__",
+        "summary": "Invoke a read-only function",
+        "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",
         "arity": -3,

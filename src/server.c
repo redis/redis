@@ -289,6 +289,33 @@ uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
+/* Dict hash function for null terminated string */
+uint64_t distCStrHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict hash function for null terminated string */
+uint64_t distCStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict compare function for null terminated string */
+int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+    int l1,l2;
+    UNUSED(d);
+
+    l1 = strlen((char*)key1);
+    l2 = strlen((char*)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
+}
+
+/* Dict case insensitive compare function for null terminated string */
+int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return strcasecmp(key1, key2) == 0;
+}
+
 int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
@@ -487,14 +514,13 @@ dictType migrateCacheDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Replication cached script dict (server.repl_scriptcache_dict).
- * Keys are sds SHA1 strings, while values are not used at all in the current
- * implementation. */
-dictType replScriptCacheDictType = {
-    dictSdsCaseHash,            /* hash function */
+/* Dict for for case-insensitive search using null terminated C strings.
+ * The keys stored in dict are sds though. */
+dictType stringSetDictType = {
+    distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    distCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -676,6 +702,51 @@ int clientsCronResizeQueryBuffer(client *c) {
         {
             c->pending_querybuf = sdsRemoveFreeSpace(c->pending_querybuf);
         }
+    }
+    return 0;
+}
+
+/* The client output buffer can be adjusted to better fit the memory requirements.
+ *
+ * the logic is:
+ * in case the last observed peak size of the buffer equals the buffer size - we double the size
+ * in case the last observed peak size of the buffer is less than half the buffer size - we shrink by half.
+ * The buffer peak will be reset back to the buffer position every server.reply_buffer_peak_reset_time milliseconds
+ * The function always returns 0 as it never terminates the client. */
+int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
+
+    size_t new_buffer_size = 0;
+    char *oldbuf = NULL;
+    const size_t buffer_target_shrink_size = c->buf_usable_size/2;
+    const size_t buffer_target_expand_size = c->buf_usable_size*2;
+
+    if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
+        c->buf_peak < buffer_target_shrink_size )
+    {
+        new_buffer_size = max(PROTO_REPLY_MIN_BYTES,c->buf_peak+1);
+        server.stat_reply_buffer_shrinks++;
+    } else if (buffer_target_expand_size < PROTO_REPLY_CHUNK_BYTES*2 &&
+        c->buf_peak == c->buf_usable_size)
+    {
+        new_buffer_size = min(PROTO_REPLY_CHUNK_BYTES,buffer_target_expand_size);
+        server.stat_reply_buffer_expands++;
+    }
+
+    /* reset the peak value each server.reply_buffer_peak_reset_time seconds. in case the client will be idle
+     * it will start to shrink.
+     */
+    if (server.reply_buffer_peak_reset_time >=0 &&
+        now_ms - c->buf_peak_last_reset_time >= server.reply_buffer_peak_reset_time)
+    {
+        c->buf_peak = c->bufpos;
+        c->buf_peak_last_reset_time = now_ms;
+    }
+
+    if (new_buffer_size) {
+        oldbuf = c->buf;
+        c->buf = zmalloc_usable(new_buffer_size, &c->buf_usable_size);
+        memcpy(c->buf,oldbuf,c->bufpos);
+        zfree(oldbuf);
     }
     return 0;
 }
@@ -873,6 +944,8 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronResizeOutputBuffer(c,now)) continue;
+
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
 
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
@@ -1234,7 +1307,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
     /* Just for the sake of defensive programming, to avoid forgetting to
-     * call this function when need. */
+     * call this function when needed. */
     updateDictResizePolicy();
 
 
@@ -1694,6 +1767,7 @@ void createSharedObjects(void) {
     shared.retrycount = createStringObject("RETRYCOUNT",10);
     shared.force = createStringObject("FORCE",5);
     shared.justid = createStringObject("JUSTID",6);
+    shared.entriesread = createStringObject("ENTRIESREAD",11);
     shared.lastid = createStringObject("LASTID",6);
     shared.default_username = createStringObject("default",7);
     shared.ping = createStringObject("ping",4);
@@ -1717,6 +1791,10 @@ void createSharedObjects(void) {
             sdscatprintf(sdsempty(),"*%d\r\n",j));
         shared.bulkhdr[j] = createObject(OBJ_STRING,
             sdscatprintf(sdsempty(),"$%d\r\n",j));
+        shared.maphdr[j] = createObject(OBJ_STRING,
+            sdscatprintf(sdsempty(),"%%%d\r\n",j));
+        shared.sethdr[j] = createObject(OBJ_STRING,
+            sdscatprintf(sdsempty(),"~%d\r\n",j));
     }
     /* The following two shared objects, minstring and maxstring, are not
      * actually used for their value but as a special object meaning
@@ -1891,7 +1969,7 @@ int restartServer(int flags, mstime_t delay) {
         rewriteConfig(server.configfile, 0) == -1)
     {
         serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
-                             "failed");
+                             "failed: %s", strerror(errno));
         return C_ERR;
     }
 
@@ -2256,12 +2334,16 @@ void resetServerStats(void) {
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
+    server.stat_aof_rewrites = 0;
+    server.stat_rdb_saves = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
     server.aof_delayed_fsync = 0;
+    server.stat_reply_buffer_shrinks = 0;
+    server.stat_reply_buffer_expands = 0;
     lazyfreeResetStats();
 }
 
@@ -2322,6 +2404,7 @@ void initServer(void) {
     server.blocking_op_nesting = 0;
     server.thp_enabled = 0;
     server.cluster_drop_packet_filter = -1;
+    server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     resetReplicationBuffer();
 
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
@@ -2631,12 +2714,14 @@ void setImplicitACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
-/* Recursively populate the args structure and return the number of args. */
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
 int populateArgsStructure(struct redisCommandArg *args) {
     if (!args)
         return 0;
     int count = 0;
     while (args->name) {
+        serverAssert(count < INT_MAX);
         args->num_args = populateArgsStructure(args->subargs);
         count++;
         args++;
@@ -3050,6 +3135,34 @@ void propagatePendingCommands() {
     redisOpArrayFree(&server.also_propagate);
 }
 
+/* Increment the command failure counters (either rejected_calls or failed_calls).
+ * The decision which counter to increment is done using the flags argument, options are:
+ * * ERROR_COMMAND_REJECTED - update rejected_calls
+ * * ERROR_COMMAND_FAILED - update failed_calls
+ *
+ * The function also reset the prev_err_count to make sure we will not count the same error
+ * twice, its possible to pass a NULL cmd value to indicate that the error was counted elsewhere.
+ *
+ * The function returns true if stats was updated and false if not. */
+int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
+    /* hold the prev error count captured on the last command execution */
+    static long long prev_err_count = 0;
+    int res = 0;
+    if (cmd) {
+        if ((server.stat_total_error_replies - prev_err_count) > 0) {
+            if (flags & ERROR_COMMAND_REJECTED) {
+                cmd->rejected_calls++;
+                res = 1;
+            } else if (flags & ERROR_COMMAND_FAILED) {
+                cmd->failed_calls++;
+                res = 1;
+            }
+        }
+    }
+    prev_err_count = server.stat_total_error_replies;
+    return res;
+}
+
 /* Call() is the core of Redis execution of a command.
  *
  * The following flags can be passed:
@@ -3091,8 +3204,7 @@ void call(client *c, int flags) {
     long long dirty;
     monotime call_timer;
     uint64_t client_old_flags = c->flags;
-    struct redisCommand *real_cmd = c->cmd;
-    static long long prev_err_count;
+    struct redisCommand *real_cmd = c->realcmd;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3113,7 +3225,7 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
-    prev_err_count = server.stat_total_error_replies;
+    incrCommandStatsOnError(NULL, 0);
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
@@ -3131,11 +3243,13 @@ void call(client *c, int flags) {
 
     server.in_nested_call--;
 
-    /* Update failed command calls if required.
-     * We leverage a static variable (prev_err_count) to retain
-     * the counter across nested function calls and avoid logging
-     * the same error twice. */
-    if ((server.stat_total_error_replies - prev_err_count) > 0) {
+    /* Update failed command calls if required. */
+
+    if (!incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED) && c->deferred_reply_errors) {
+        /* When call is used from a module client, error stats, and total_error_replies
+         * isn't updated since these errors, if handled by the module, are internal,
+         * and not reflected to users. however, the commandstats does show these calls
+         * (made by RM_Call), so it should log if they failed or succeeded. */
         real_cmd->failed_calls++;
     }
 
@@ -3257,7 +3371,6 @@ void call(client *c, int flags) {
 
     server.fixed_time_expire--;
     server.stat_numcommands++;
-    prev_err_count = server.stat_total_error_replies;
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
@@ -3393,7 +3506,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv,c->argc);
+    c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
     if (!c->cmd) {
         if (isContainerCommandBySds(c->argv[0]->ptr)) {
             /* If we can't find the command but argv[0] by itself is a command
@@ -4146,8 +4259,9 @@ void addReplyFlagsForKeyArgs(client *c, uint64_t flags) {
         {CMD_KEY_UPDATE,          "update"},
         {CMD_KEY_INSERT,          "insert"},
         {CMD_KEY_DELETE,          "delete"},
-        {CMD_KEY_CHANNEL,         "channel"},
+        {CMD_KEY_NOT_KEY,         "not_key"},
         {CMD_KEY_INCOMPLETE,      "incomplete"},
+        {CMD_KEY_VARIABLE_FLAGS,  "variable_flags"},
         {0,NULL}
     };
     addReplyCommandFlags(c, flags, docFlagNames);
@@ -4435,7 +4549,9 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
 /* Output the representation of a Redis command. Used by the COMMAND DOCS. */
 void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     /* Count our reply len so we don't have to use deferred reply. */
-    long maplen = 3;
+    long maplen = 1;
+    if (cmd->summary) maplen++;
+    if (cmd->since) maplen++;
     if (cmd->complexity) maplen++;
     if (cmd->doc_flags) maplen++;
     if (cmd->deprecated_since) maplen++;
@@ -4445,12 +4561,16 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->subcommands_dict) maplen++;
     addReplyMapLen(c, maplen);
 
-    addReplyBulkCString(c, "summary");
-    addReplyBulkCString(c, cmd->summary);
+    if (cmd->summary) {
+        addReplyBulkCString(c, "summary");
+        addReplyBulkCString(c, cmd->summary);
+    }
+    if (cmd->since) {
+        addReplyBulkCString(c, "since");
+        addReplyBulkCString(c, cmd->since);
+    }
 
-    addReplyBulkCString(c, "since");
-    addReplyBulkCString(c, cmd->since);
-
+    /* Always have the group, for module commands the group is always "module". */
     addReplyBulkCString(c, "group");
     addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
 
@@ -4484,10 +4604,8 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     }
 }
 
-/* Helper for COMMAND(S) command
- *
- * COMMAND(S) GETKEYS cmd arg1 arg2 ... */
-void getKeysSubcommand(client *c) {
+/* Helper for COMMAND GETKEYS and GETKEYSANDFLAGS */
+void getKeysSubcommandImpl(client *c, int with_flags) {
     struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
     getKeysResult result = GETKEYS_RESULT_INIT;
     int j;
@@ -4505,7 +4623,7 @@ void getKeysSubcommand(client *c) {
         return;
     }
 
-    if (!getKeysFromCommand(cmd,c->argv+2,c->argc-2,&result)) {
+    if (!getKeysFromCommandWithSpecs(cmd,c->argv+2,c->argc-2,GET_KEYSPEC_DEFAULT,&result)) {
         if (cmd->flags & CMD_NO_MANDATORY_KEYS) {
             addReplyArrayLen(c,0);
         } else {
@@ -4513,9 +4631,27 @@ void getKeysSubcommand(client *c) {
         }
     } else {
         addReplyArrayLen(c,result.numkeys);
-        for (j = 0; j < result.numkeys; j++) addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+        for (j = 0; j < result.numkeys; j++) {
+            if (!with_flags) {
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+            } else {
+                addReplyArrayLen(c,2);
+                addReplyBulk(c,c->argv[result.keys[j].pos+2]);
+                addReplyFlagsForKeyArgs(c,result.keys[j].flags);
+            }
+        }
     }
     getKeysFreeResult(&result);
+}
+
+/* COMMAND GETKEYSANDFLAGS cmd arg1 arg2 ... */
+void commandGetKeysAndFlagsCommand(client *c) {
+    getKeysSubcommandImpl(c, 1);
+}
+
+/* COMMAND GETKEYS cmd arg1 arg2 ... */
+void getKeysSubcommand(client *c) {
+    getKeysSubcommandImpl(c, 0);
 }
 
 /* COMMAND (no args) */
@@ -4734,6 +4870,8 @@ void commandHelpCommand(client *c) {
 "    commands are returned.",
 "GETKEYS <full-command>",
 "    Return the keys from a full Redis command.",
+"GETKEYSANDFLAGS <full-command>",
+"    Return the keys and the access flags from a full Redis command.",
 NULL
     };
 
@@ -4867,25 +5005,78 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     return info;
 }
 
+/* Takes a null terminated sections list, and adds them to the dict. */
+void addInfoSectionsToDict(dict *section_dict, char **sections) {
+    while (*sections) {
+        sds section = sdsnew(*sections);
+        if (dictAdd(section_dict, section, NULL)==DICT_ERR)
+            sdsfree(section);
+        sections++;
+    }
+}
+
+/* Cached copy of the default sections, as an optimization. */
+static dict *cached_default_info_sections = NULL;
+
+void releaseInfoSectionDict(dict *sec) {
+    if (sec != cached_default_info_sections)
+        dictRelease(sec);
+}
+
+/* Create a dictionary with unique section names to be used by genRedisInfoString.
+ * 'argv' and 'argc' are list of arguments for INFO.
+ * 'defaults' is an optional null terminated list of default sections.
+ * 'out_all' and 'out_everything' are optional.
+ * The resulting dictionary should be released with releaseInfoSectionDict. */
+dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything) {
+    char *default_sections[] = {
+        "server", "clients", "memory", "persistence", "stats", "replication",
+        "cpu", "module_list", "errorstats", "cluster", "keyspace", NULL};
+    if (!defaults)
+        defaults = default_sections;
+
+    if (argc == 0) {
+        /* In this case we know the dict is not gonna be modified, so we cache
+         * it as an optimization for a common case. */
+        if (cached_default_info_sections)
+            return cached_default_info_sections;
+        cached_default_info_sections = dictCreate(&stringSetDictType);
+        dictExpand(cached_default_info_sections, 16);
+        addInfoSectionsToDict(cached_default_info_sections, defaults);
+        return cached_default_info_sections;
+    }
+
+    dict *section_dict = dictCreate(&stringSetDictType);
+    dictExpand(section_dict, min(argc,16));
+    for (int i = 0; i < argc; i++) {
+        if (!strcasecmp(argv[i]->ptr,"default")) {
+            addInfoSectionsToDict(section_dict, defaults);
+        } else if (!strcasecmp(argv[i]->ptr,"all")) {
+            if (out_all) *out_all = 1;
+        } else if (!strcasecmp(argv[i]->ptr,"everything")) {
+            if (out_everything) *out_everything = 1;
+            if (out_all) *out_all = 1;
+        } else {
+            sds section = sdsnew(argv[i]->ptr);
+            if (dictAdd(section_dict, section, NULL) != DICT_OK)
+                sdsfree(section);
+        }
+    }
+    return section_dict;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(const char *section) {
+sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
-    int allsections = 0, defsections = 0, everything = 0, modules = 0;
     int sections = 0;
-
-    if (section == NULL) section = "default";
-    allsections = strcasecmp(section,"all") == 0;
-    defsections = strcasecmp(section,"default") == 0;
-    everything = strcasecmp(section,"everything") == 0;
-    modules = strcasecmp(section,"modules") == 0;
-    if (everything) allsections = 1;
+    if (everything) all_sections = 1;
 
     /* Server */
-    if (allsections || defsections || !strcasecmp(section,"server")) {
+    if (all_sections || (dictFind(section_dict,"server") != NULL)) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
@@ -4975,7 +5166,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Clients */
-    if (allsections || defsections || !strcasecmp(section,"clients")) {
+    if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
         getExpansiveClientsInfo(&maxin,&maxout);
         if (sections++) info = sdscat(info,"\r\n");
@@ -4999,7 +5190,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Memory */
-    if (allsections || defsections || !strcasecmp(section,"memory")) {
+    if (all_sections || (dictFind(section_dict,"memory") != NULL)) {
         char hmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
@@ -5144,7 +5335,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Persistence */
-    if (allsections || defsections || !strcasecmp(section,"persistence")) {
+    if (all_sections || (dictFind(section_dict,"persistence") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         double fork_perc = 0;
         if (server.stat_module_progress) {
@@ -5171,6 +5362,7 @@ sds genRedisInfoString(const char *section) {
             "rdb_last_bgsave_status:%s\r\n"
             "rdb_last_bgsave_time_sec:%jd\r\n"
             "rdb_current_bgsave_time_sec:%jd\r\n"
+            "rdb_saves:%lld\r\n"
             "rdb_last_cow_size:%zu\r\n"
             "rdb_last_load_keys_expired:%lld\r\n"
             "rdb_last_load_keys_loaded:%lld\r\n"
@@ -5180,6 +5372,7 @@ sds genRedisInfoString(const char *section) {
             "aof_last_rewrite_time_sec:%jd\r\n"
             "aof_current_rewrite_time_sec:%jd\r\n"
             "aof_last_bgrewrite_status:%s\r\n"
+            "aof_rewrites:%lld\r\n"
             "aof_last_write_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
@@ -5199,6 +5392,7 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)server.rdb_save_time_last,
             (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                 -1 : time(NULL)-server.rdb_save_time_start),
+            server.stat_rdb_saves,
             server.stat_rdb_cow_bytes,
             server.rdb_last_load_keys_expired,
             server.rdb_last_load_keys_loaded,
@@ -5209,6 +5403,7 @@ sds genRedisInfoString(const char *section) {
             (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
+            server.stat_aof_rewrites,
             (server.aof_last_write_status == C_OK &&
                 aof_bio_fsync_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,
@@ -5273,7 +5468,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Stats */
-    if (allsections || defsections || !strcasecmp(section,"stats")) {
+    if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
@@ -5330,7 +5525,9 @@ sds genRedisInfoString(const char *section) {
             "total_reads_processed:%lld\r\n"
             "total_writes_processed:%lld\r\n"
             "io_threaded_reads_processed:%lld\r\n"
-            "io_threaded_writes_processed:%lld\r\n",
+            "io_threaded_writes_processed:%lld\r\n"
+            "reply_buffer_shrinks:%lld\r\n"
+            "reply_buffer_expands:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5373,11 +5570,13 @@ sds genRedisInfoString(const char *section) {
             stat_total_reads_processed,
             stat_total_writes_processed,
             server.stat_io_reads_processed,
-            server.stat_io_writes_processed);
+            server.stat_io_writes_processed,
+            server.stat_reply_buffer_shrinks,
+            server.stat_reply_buffer_expands);
     }
 
     /* Replication */
-    if (allsections || defsections || !strcasecmp(section,"replication")) {
+    if (all_sections || (dictFind(section_dict,"replication") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Replication\r\n"
@@ -5513,7 +5712,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* CPU */
-    if (allsections || defsections || !strcasecmp(section,"cpu")) {
+    if (all_sections || (dictFind(section_dict,"cpu") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
 
         struct rusage self_ru, c_ru;
@@ -5541,20 +5740,21 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Modules */
-    if (allsections || defsections || !strcasecmp(section,"modules")) {
+    if (all_sections || (dictFind(section_dict,"module_list") != NULL) || (dictFind(section_dict,"modules") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,"# Modules\r\n");
         info = genModulesInfoString(info);
     }
 
     /* Command statistics */
-    if (allsections || !strcasecmp(section,"commandstats")) {
+    if (all_sections || (dictFind(section_dict,"commandstats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
         info = genRedisInfoStringCommandStats(info, server.commands);
     }
+
     /* Error statistics */
-    if (allsections || defsections || !strcasecmp(section,"errorstats")) {
+    if (all_sections || (dictFind(section_dict,"errorstats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscat(info, "# Errorstats\r\n");
         raxIterator ri;
@@ -5573,7 +5773,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Latency by percentile distribution per command */
-    if (allsections || !strcasecmp(section,"latencystats")) {
+    if (all_sections || (dictFind(section_dict,"latencystats") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
@@ -5582,7 +5782,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Cluster */
-    if (allsections || defsections || !strcasecmp(section,"cluster")) {
+    if (all_sections || (dictFind(section_dict,"cluster") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
@@ -5591,7 +5791,7 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Key space */
-    if (allsections || defsections || !strcasecmp(section,"keyspace")) {
+    if (all_sections || (dictFind(section_dict,"keyspace") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
@@ -5610,10 +5810,10 @@ sds genRedisInfoString(const char *section) {
     /* Get info from modules.
      * if user asked for "everything" or "modules", or a specific section
      * that's not found yet. */
-    if (everything || modules ||
-        (!allsections && !defsections && sections==0)) {
+    if (everything || dictFind(section_dict, "modules") != NULL || sections < (int)dictSize(section_dict)) {
+
         info = modulesCollectInfo(info,
-                                  everything || modules ? NULL: section,
+                                  everything || dictFind(section_dict, "modules") != NULL ? NULL: section_dict,
                                   0, /* not a crash report */
                                   sections);
     }
@@ -5625,16 +5825,14 @@ void infoCommand(client *c) {
         sentinelInfoCommand(c);
         return;
     }
-
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-
-    if (c->argc > 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
-    }
-    sds info = genRedisInfoString(section);
+    int all_sections = 0;
+    int everything = 0;
+    dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, NULL, &all_sections, &everything);
+    sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
     sdsfree(info);
+    releaseInfoSectionDict(sections_dict);
+    return;
 }
 
 void monitorCommand(client *c) {

@@ -33,6 +33,15 @@ start_server {tags {"introspection"}} {
         assert_match {} [cmdstat zadd]
     } {} {needs:config-resetstat}
 
+    test {errors stats for GEOADD} {
+        r config resetstat
+        # make sure geo command will failed
+        r set foo 1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r GEOADD foo 0 0 bar}
+        assert_match {*calls=1*,rejected_calls=0,failed_calls=1*} [cmdstat geoadd]
+        assert_match {} [cmdstat zadd]
+    } {} {needs:config-resetstat}
+
     test {command stats for EXPIRE} {
         r config resetstat
         r SET foo bar
@@ -79,6 +88,13 @@ start_server {tags {"introspection"}} {
 
     test {COMMAND GETKEYS GET} {
         assert_equal {key} [r command getkeys get key]
+    }
+
+    test {COMMAND GETKEYSANDFLAGS} {
+        assert_equal {{k1 {OW update}}} [r command getkeysandflags set k1 v1]
+        assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags mset k1 v1 k2 v2]
+        assert_equal {{k1 {RW access delete}} {k2 {RW insert}}} [r command getkeysandflags LMOVE k1 k2 left right]
+        assert_equal {{k1 {RO access}} {k2 {OW update}}} [r command getkeysandflags sort k1 store k2]
     }
 
     test {COMMAND GETKEYS MEMORY USAGE} {

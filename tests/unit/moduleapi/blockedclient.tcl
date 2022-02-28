@@ -180,6 +180,37 @@ start_server {tags {"modules"}} {
         assert_no_match "*name=myclient*" $clients
     }
 
+    test {module client error stats} {
+        r config resetstat
+
+        # simple module command that replies with string error
+        assert_error "NULL reply returned" {r do_rm_call hgetalllll}
+        assert_equal [errorrstat NULL r] {count=1}
+
+        # module command that replies with string error from bg thread
+        assert_error "NULL reply returned" {r do_bg_rm_call hgetalllll}
+        assert_equal [errorrstat NULL r] {count=2}
+
+        # module command that returns an arity error
+        r do_rm_call set x x
+        assert_error "ERR wrong number of arguments for 'do_rm_call' command" {r do_rm_call}
+        assert_equal [errorrstat ERR r] {count=1}
+
+        # RM_Call that propagates an error
+        assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
+        assert_equal [errorrstat WRONGTYPE r] {count=1}
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat hgetall r]
+
+        # RM_Call from bg thread that propagates an error
+        assert_error "WRONGTYPE*" {r do_bg_rm_call hgetall x}
+        assert_equal [errorrstat WRONGTYPE r] {count=2}
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat hgetall r]
+
+        assert_equal [s total_error_replies] 5
+        assert_match {*calls=4,*,rejected_calls=0,failed_calls=3} [cmdrstat do_rm_call r]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
+    }
+
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
     }

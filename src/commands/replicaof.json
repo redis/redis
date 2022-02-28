@@ -9,7 +9,6 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "ALLOW_BUSY",
             "NOSCRIPT",
             "STALE"
         ],
