@@ -217,7 +217,7 @@ start_server {} {
         r debug pause-cron 0
         $rr close
         $redirected_c close
-    }
+    } {0} {needs:debug}
 
     test "client evicted due to client tracking prefixes" {
         r flushdb
@@ -442,7 +442,7 @@ start_server {} {
         r debug replybuffer-peak-reset-time reset
         
         foreach rr $rrs {$rr close}
-    }
+    } {} {needs:debug}
 }
 
 start_server {} {
