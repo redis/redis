@@ -37,7 +37,7 @@
             {
                 "name": "library-description",
                 "type": "string",
-                "token": "DESC",
+                "token": "DESCRIPTION",
                 "optional": true
             },
             {

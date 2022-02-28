@@ -29,11 +29,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
-    int spec_id;
-#endif
-
-    if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+    if (RedisModule_Init(ctx, "subcommands", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"subcommands.bitarray",NULL,"",0,0,0) == REDISMODULE_ERR)
@@ -43,28 +39,40 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateSubcommand(parent,"set",cmd_set,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|set");
-
-#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
-    if (RedisModule_AddCommandKeySpec(subcmd,"RW UPDATE",&spec_id) == REDISMODULE_ERR)
+    RedisModuleCommandInfo cmd_set_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            {
+                .flags = REDISMODULE_CMD_KEY_RW | REDISMODULE_CMD_KEY_UPDATE,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {0}
+        }
+    };
+    if (RedisModule_SetCommandInfo(subcmd, &cmd_set_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-#endif
 
     if (RedisModule_CreateSubcommand(parent,"get",cmd_get,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     subcmd = RedisModule_GetCommand(ctx,"subcommands.bitarray|get");
-
-#ifdef INCLUDE_UNRELEASED_KEYSPEC_API
-    if (RedisModule_AddCommandKeySpec(subcmd,"RO ACCESS",&spec_id) == REDISMODULE_ERR)
+    RedisModuleCommandInfo cmd_get_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .key_specs = (RedisModuleCommandKeySpec[]){
+            {
+                .flags = REDISMODULE_CMD_KEY_RO | REDISMODULE_CMD_KEY_ACCESS,
+                .begin_search_type = REDISMODULE_KSPEC_BS_INDEX,
+                .bs.index.pos = 1,
+                .find_keys_type = REDISMODULE_KSPEC_FK_RANGE,
+                .fk.range = {0,1,0}
+            },
+            {0}
+        }
+    };
+    if (RedisModule_SetCommandInfo(subcmd, &cmd_get_info) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecBeginSearchIndex(subcmd,spec_id,1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-    if (RedisModule_SetCommandKeySpecFindKeysRange(subcmd,spec_id,0,1,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-#endif
 
     /* Get the name of the command currently running. */
     if (RedisModule_CreateCommand(ctx,"subcommands.parent_get_fullname",cmd_get_fullname,"",0,0,0) == REDISMODULE_ERR)

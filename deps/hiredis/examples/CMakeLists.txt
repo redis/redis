@@ -21,7 +21,7 @@ ENDIF()
 
 FIND_PATH(LIBEVENT event.h)
 if (LIBEVENT)
-    ADD_EXECUTABLE(example-libevent example-libevent)
+    ADD_EXECUTABLE(example-libevent example-libevent.c)
     TARGET_LINK_LIBRARIES(example-libevent hiredis event)
 ENDIF()
 

@@ -1,4 +1,95 @@
 ================================================================================
+Redis 7.0 RC1   Released Mon Feb 28 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency LOW: This is another Release Candidate of Redis 7.0.
+
+New Features
+============
+
+* Add stream consumer group lag tracking and reporting (#9127)
+* Add API for functions and eval Lua scripts to check ACL explicitly (#10220)
+
+New user commands or command arguments
+--------------------------------------
+
+* COMMAND GETKEYSANDFLAGS sub-command (#10237)
+* INFO command can take multiple section arguments (#6891)
+* XGROUP CREATE and SETID: new ENTRIESREAD optional argument (#9127)
+* XSETID new ENTRIESADDED and MAXDELETEDID optional arguments (#9127)
+
+Command replies that have been extended
+---------------------------------------
+
+* XINFO reports consumer group lag and a few other fields (#9127)
+* XAUTOCLAIM returns a new element with a list of deletes IDs (#10227)
+
+Potentially Breaking Changes
+============================
+
+* X[AUTO]CLAIM skips deleted entries instead of replying with Nil, and deletes
+  them from the pending entry list (#10227)
+* Fix messed up error codes returned from EVAL scripts (#10218, #10329)
+* COMMAND INFO, Renames key-spec "CHANNEL" flag to be "NOT_KEY" (#10299)
+
+Performance and resource utilization improvements
+=================================================
+
+* Reduce system calls and small packets for client replies (#9934)
+* Reduce memory usage of stale clients (#9822)
+* Fix regression in Z[REV]RANGE commands (by-rank) introduced in Redis 6.2 (#10337)
+
+Changes in CLI tools
+===================
+
+* Adapt redis-check-aof tool for Multi Part AOF (#10061)
+* Enable redis-benchmark to use RESP3 protocol mode (#10335)
+
+Platform / toolchain support related improvements
+=================================================
+
+* Fix OpenSSL 3.0.x related issues (#10291)
+
+INFO fields and introspection changes
+=====================================
+
+* COMMAND INFO key-specs has new variable_flags flag (#10237, #10148)
+* INFO stats: add aof_rewrites and rdb_snapshots counters (#10178)
+* INFO stats: add reply_buffer_shrinks and reply_buffer_expends (#9822)
+* INFO modules: add no-implicit-signal-modified module option (#10284)
+
+Module API changes
+==================
+
+* Add RM_SetCommandInfo API to set command metadata for the new COMMAND
+  introspection features and ACL key permissions (#10108)
+* Add RM_KeyAtPosWithFlags and RM_GetCommandKeysWithFlags APIs (#10237)
+* Add getchannels-api command flag and RM_IsChannelsPositionRequest,
+  RM_ChannelAtPosWithFlags APIs (#10299)
+* Change RM_ACLCheckChannelPermissions and RM_ACLCheckKeyPermissions APIs
+  (released in RC1) to take different flags (#10299)
+* Fix RM_SetModuleOptions flag collision. Bug in 7.0 RC1 header file, modules
+  that used OPTIONS_HANDLE_REPL_ASYNC_LOAD will mess up key invalidations (#10284)
+
+Bug Fixes
+=========
+
+* Modules: Fix thread safety violation when a module thread adds an error reply,
+  broken in 6.2 (#10278)
+* Lua: Fix Eval scripts active defrag, broken 7.0 in RC1 (#10271)
+* Fix geo search bounding box check causing missing results (#10018)
+* Lua: Add checks for min-slave-* configs when evaluating Lua scripts and
+  Functions (#10160)
+* Modules: Prevent crashes and memory leaks when MODULE UNLOAD is used on module
+  with a pending timer (#10187)
+* Fix error stats and failed command stats for blocked clients (#10309)
+* Lua/Modules: Fix missing and duplicate error stats for scripts and modules (#10329, #10278)
+* Check target node is a primary during cluster setslot (#10277)
+* Fix key deletion not to invalidate WATCH when used on a logically expired key (#10256)
+* Sentinel: return an error if configuration save fails (#10151)
+* Sentinel: fix a free-after-use issue re-registering Sentinels (#10333)
+
+================================================================================
 Redis 7.0 RC1   Released Mon Jan 31 12:00:00 IST 2022
 ================================================================================
 

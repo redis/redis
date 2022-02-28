@@ -20,7 +20,7 @@
         ],
         "arguments": [
             {
-                "name": "function-name",
+                "name": "library-name",
                 "type": "string"
             }
         ]

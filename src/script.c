@@ -146,6 +146,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
 
+            /* Deny writes if we're unale to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
             if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
@@ -162,6 +163,17 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
             if (ro) {
                 addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
+                return C_ERR;
+            }
+
+            /* Don't accept write commands if there are not enough good slaves and
+             * user configured the min-slaves-to-write option. */
+            if (server.masterhost == NULL &&
+                server.repl_min_slaves_max_lag &&
+                server.repl_min_slaves_to_write &&
+                server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+            {
+                addReplyErrorObject(caller, shared.noreplicaserr);
                 return C_ERR;
             }
         }
@@ -359,6 +371,19 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
         return C_ERR;
     }
 
+    /* Don't accept write commands if there are not enough good slaves and
+     * user configured the min-slaves-to-write option. Note this only reachable
+     * for Eval scripts that didn't declare flags, see the other check in
+     * scriptPrepareForRun */
+    if (server.masterhost == NULL &&
+        server.repl_min_slaves_max_lag &&
+        server.repl_min_slaves_to_write &&
+        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+    {
+        *err = sdsdup(shared.noreplicaserr->ptr);
+        return C_ERR;
+    }
+
     return C_OK;
 }
 
@@ -480,32 +505,31 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     argc = c->argc;
 
     struct redisCommand *cmd = lookupCommand(argv, argc);
+    c->cmd = c->lastcmd = c->realcmd = cmd;
     if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
-        return;
+        goto error;
     }
-
-    c->cmd = c->lastcmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         *err = sdsnew("This Redis command is not allowed from script");
-        return;
+        goto error;
     }
 
     if (scriptVerifyAllowStale(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyACL(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyOOM(run_ctx, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (cmd->flags & CMD_WRITE) {
@@ -514,7 +538,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
-        return;
+        goto error;
     }
 
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
@@ -526,6 +550,11 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+    return;
+
+error:
+    afterErrorReply(c, *err, sdslen(*err), 0);
+    incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
 /* Returns the time when the script invocation started */

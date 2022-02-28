@@ -64,7 +64,7 @@ start_server {tags {"modules"}} {
     }
 
     test {module info one module} {
-        set info [r info INFOTEST]
+        set info [r info INFOtest] ;# test case insensitive compare
         # info all does not contain modules
         assert { [string match "*Spanish*" $info] }
         assert { ![string match "*used_memory*" $info] }
@@ -72,7 +72,7 @@ start_server {tags {"modules"}} {
     } {-2}
 
     test {module info one section} {
-        set info [r info INFOTEST_SPANISH]
+        set info [r info INFOtest_SpanisH] ;# test case insensitive compare
         assert { ![string match "*used_memory*" $info] }
         assert { ![string match "*Italian*" $info] }
         assert { ![string match "*infotest_global*" $info] }
@@ -89,6 +89,31 @@ start_server {tags {"modules"}} {
         set info [r info infotest_unsafe]
         assert_match {*infotest_unsafe_field:value=1*} $info
     }
+
+    test {module info multiply sections without all, everything, default keywords} {
+        set info [r info replication INFOTEST]
+        assert { [string match "*Spanish*" $info] }
+        assert { ![string match "*used_memory*" $info] }
+        assert { [string match "*repl_offset*" $info] }
+    }
+
+    test {module info multiply sections with all keyword and modules} {
+        set info [r info all modules]
+        assert { [string match "*cluster*" $info] }
+        assert { [string match "*cmdstat_info*" $info] }
+        assert { [string match "*infotest_global*" $info] }
+    }
+
+    test {module info multiply sections with everything keyword} {
+        set info [r info replication everything cpu]
+        assert { [string match "*client_recent*" $info] }
+        assert { [string match "*cmdstat_info*" $info] }
+        assert { [string match "*Italian*" $info] }
+        # check that we didn't get the same info twice
+        assert { ![string match "*used_cpu_user_children*used_cpu_user_children*" $info] }
+        assert { ![string match "*Italian*Italian*" $info] }
+        field $info infotest_dos
+    } {2}
 
     test "Unload the module - infotest" {
         assert_equal {OK} [r module unload infotest]
