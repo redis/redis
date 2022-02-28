@@ -217,7 +217,7 @@ start_server {} {
         r debug pause-cron 0
         $rr close
         $redirected_c close
-    }
+    } {0} {needs:debug}
 
     test "client evicted due to client tracking prefixes" {
         r flushdb
@@ -395,6 +395,7 @@ start_server {} {
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
+        r debug replybuffer-peak-reset-time never
         r config set maxmemory-clients 0
         r client setname control
         r client no-evict on
@@ -437,8 +438,11 @@ start_server {} {
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == [expr $client_count / 2]}
 
+        # Restore the peak reset time to default
+        r debug replybuffer-peak-reset-time reset
+        
         foreach rr $rrs {$rr close}
-    }
+    } {} {needs:debug}
 }
 
 start_server {} {
