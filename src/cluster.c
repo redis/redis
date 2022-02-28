@@ -5026,7 +5026,7 @@ void clusterCommand(client *c) {
 "    Reset current node (default: soft).",
 "SET-CONFIG-EPOCH <epoch>",
 "    Set config epoch of current node.",
-"SETSLOT <slot> (IMPORTING|MIGRATING|STABLE|NODE <node-id>)",
+"SETSLOT <slot> (IMPORTING <node-id>|MIGRATING <node-id>|STABLE|NODE <node-id>)",
 "    Set slot state.",
 "REPLICAS <node-id>",
 "    Return <node-id> replicas.",
