@@ -486,7 +486,7 @@ void debugCommand(client *c) {
 "    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
 "    In case NEVER is provided the last observed peak will never be reset",
 "    In case RESET is provided the peak reset time will be restored to the default value",
-"REPLYBUFFER RESIZING <on|off>",
+"REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the replay buffer resize cron job",
 NULL
         };
@@ -975,14 +975,10 @@ NULL
                     return;
             }
         } else if(!strcasecmp(c->argv[2]->ptr,"resizing")) {
-            if (!strcasecmp(c->argv[3]->ptr, "on")) {
-                server.reply_buffer_resizing_enabled = 1;
-            } else if(!strcasecmp(c->argv[3]->ptr, "off")) {
-                server.reply_buffer_resizing_enabled = 0;
-            } else {
-                addReplyErrorFormat(c, "Argument must be either 'on' or 'off'");
-                return;
-            }
+            server.reply_buffer_resizing_enabled = atoi(c->argv[3]->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
         }
         addReply(c, shared.ok);
     } else {
