@@ -10,6 +10,28 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "mode",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "crash-after-election",
+                        "type": "flag"
+                    },
+                    {
+                        "name": "crash-after-promotion",
+                        "type": "flag"
+                    },
+                    {
+                        "name": "help",
+                        "type": "flag"
+                    }
+
+                ]
+            }
+            
         ]
     }
 }

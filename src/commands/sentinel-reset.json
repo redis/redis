@@ -11,6 +11,12 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "string"
+            }
         ]
     }
 }
