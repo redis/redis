@@ -853,46 +853,50 @@ end:
  *----------------------------------------------------------------------------*/
 
 void configGetCommand(client *c) {
-    void *replylen = addReplyDeferredLen(c);
-    dict *matches = dictCreate(&externalStringSetType);
     int i;
-
+    dictEntry *de;
+    dictIterator *di;
+    /* Create a dictionary to store the matched configs */
+    dict *matches = dictCreate(&externalStringType);
     for (i = 0; i < c->argc - 2; i++) {
         robj *o = c->argv[2+i];
         sds name = o->ptr;
 
         /* If the string doesn't contain glob patterns, just directly
          * look up the key in the dictionary. */
-        if (!stringContains(name, sdslen(name), "[*?")) {
+        if (!strpbrk(name, "[*?")) {
             if (dictFind(matches, name)) continue;
             standardConfig *config = lookupConfig(name);
 
             if (config) {
-                dictAdd(matches, name, NULL);
-                addReplyBulkCString(c, config->name);
-                addReplyBulkSds(c, config->interface.get(config->data));
+                dictAdd(matches, name, config);
             }
             continue;
         }
 
         /* Otherwise, do a match against all items in the dictionary. */
-        dictIterator *di = dictGetIterator(configs);
-        dictEntry *de;
+        di = dictGetIterator(configs);
+        
         while ((de = dictNext(di)) != NULL) {
             standardConfig *config = dictGetVal(de);
             /* Note that hidden configs require an exact match (not a pattern) */
             if (config->flags & HIDDEN_CONFIG) continue;
-
             if (dictFind(matches, config->name)) continue;
             if (stringmatch(name, de->key, 1)) {
-                dictAdd(matches, de->key, NULL);
-                addReplyBulkCString(c, config->name);
-                addReplyBulkSds(c, config->interface.get(config->data));
+                dictAdd(matches, de->key, config);
             }
         }
         dictReleaseIterator(di);
     }
-    setDeferredMapLen(c,replylen,dictSize(matches));
+    
+    di = dictGetIterator(matches);
+    addReplyMapLen(c, dictSize(matches));
+    while ((de = dictNext(di)) != NULL) {
+        standardConfig *config = (standardConfig *) dictGetVal(de);
+        addReplyBulkCString(c, de->key);
+        addReplyBulkSds(c, config->interface.get(config->data));
+    }
+    dictReleaseIterator(di);
     dictRelease(matches);
 }
 

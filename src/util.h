@@ -47,7 +47,6 @@ typedef enum {
 
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
 int stringmatch(const char *p, const char *s, int nocase);
-int stringContains(const char *string, int stringlen, const char *matcher);
 int stringmatchlen_fuzz_test(void);
 unsigned long long memtoull(const char *p, int *err);
 const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen);
