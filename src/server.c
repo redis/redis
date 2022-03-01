@@ -527,7 +527,7 @@ dictType stringSetDictType = {
 };
 
 /* Dict for for case-insensitive search using null terminated C strings.
- * The key and values do not have a destructor. */
+ * The key and value do not have a destructor. */
 dictType externalStringType = {
     distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
