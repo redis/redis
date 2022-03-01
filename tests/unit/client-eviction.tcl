@@ -415,6 +415,11 @@ start_server {} {
             } else {
                 fail "Failed to fill qbuf for test"
             }
+            # In theory all these clients should use the same amount of memory (~1mb). But in practice
+            # some allocators (libc) can return different allocation sizes for the same malloc argument causing
+            # some clients to use slightly more memory than others. We find the largest client and make sure
+            # all clients are roughly the same size (+-1%). Then we can safely set the client eviction limit and
+            # expect consistent results in the test.
             set cmem [client_field client$j tot-mem]
             if {$max_client_mem > 0} {
                 set size_ratio [expr $max_client_mem.0/$cmem.0]
