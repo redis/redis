@@ -1506,7 +1506,6 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
 static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int keyspec_flags) {
-    const char *hash_redirect = NULL;
     int is_sort_pattern = keyspec_flags & CMD_KEY_SORT_PATTERN;
 
     /* The selector can access any key */
@@ -1515,11 +1514,6 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     listIter li;
     listNode *ln;
     listRewind(selector->patterns,&li);
-
-    /* The sort and sort_ro command have a special syntax for patterns
-     * that can include '->', so strip that off here. */
-    if (is_sort_pattern && (hash_redirect = strstr(key,"->")))
-        keylen = hash_redirect-key;
 
     int key_flags = 0;
     if (keyspec_flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
@@ -1538,7 +1532,7 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
                 return ACL_OK;
             }
         } else {
-            if ((size_t)keylen == plen && !memcmp(pattern->pattern,key,plen)) {
+            if (!strcmp(pattern->pattern,"*")) {
                 return ACL_OK;
             }
         }
