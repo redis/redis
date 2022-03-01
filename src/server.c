@@ -526,6 +526,30 @@ dictType stringSetDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Dict for for case-insensitive search using null terminated C strings.
+ * The key and value do not have a destructor. */
+dictType externalStringType = {
+    distCStrCaseHash,           /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    distCStrKeyCaseCompare,     /* key compare */
+    NULL,                       /* key destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* Dict for case-insensitive search using sds objects with a zmalloc
+ * allocated object as the value. */
+dictType sdsHashDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictVanillaFree,            /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 int htNeedsResize(dict *dict) {
     long long size, used;
 
