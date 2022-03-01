@@ -2799,7 +2799,7 @@ setuser_cleanup:
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {
                 err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command", c->cmd->fullname);
+                    "the '%s' command", cmd->fullname);
             } else if (result == ACL_DENIED_KEY) {
                 err = sdscatfmt(err, "This user has no permissions to access "
                     "the '%s' key", c->argv[idx + 3]->ptr);
