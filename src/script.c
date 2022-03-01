@@ -387,6 +387,16 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     return C_OK;
 }
 
+static int scriptVerifyMayReplicate(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->c->cmd->flags & CMD_MAY_REPLICATE &&
+        server.client_pause_type == CLIENT_PAUSE_WRITE) {
+        *err = sdsnew("May-replicate commands are not allowed when client pause write.");
+        return C_ERR;
+    }
+
+    return C_OK;
+}
+
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
     if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
         /* Allow running any command even if OOM reached */
@@ -525,6 +535,10 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
+        goto error;
+    }
+
+    if (scriptVerifyMayReplicate(run_ctx, err) != C_OK) {
         goto error;
     }
 
