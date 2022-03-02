@@ -18,15 +18,15 @@
                 "arguments": [
                     {
                         "name": "crash-after-election",
-                        "type": "flag"
+                        "type": "pure-token"
                     },
                     {
                         "name": "crash-after-promotion",
-                        "type": "flag"
+                        "type": "pure-token"
                     },
                     {
                         "name": "help",
-                        "type": "flag"
+                        "type": "pure-token"
                     }
 
                 ]

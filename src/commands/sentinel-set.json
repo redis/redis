@@ -15,7 +15,7 @@
         "arguments": [
             {
                 "name": "master-name",
-                "type": "string",
+                "type": "string"
             },
             {
                 "name": "option_value",
