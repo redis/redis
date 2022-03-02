@@ -12,6 +12,11 @@
             "NOSCRIPT",
             "LOADING",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:SPECIAL"
         ]
     }
 }
