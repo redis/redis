@@ -13,10 +13,9 @@ int getBoolConfigCommand(const char *name, void *privdata) {
     return 0;
 }
 
-int setBoolConfigCommand(const char *name, int new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setBoolConfigCommand(const char *name, int new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(privdata);
     REDISMODULE_NOT_USED(err);
-    REDISMODULE_NOT_USED(is_startup);
     if (!strcasecmp(name, "test")) {
         bool_config = new;
         return 1;

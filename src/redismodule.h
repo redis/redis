@@ -290,11 +290,6 @@ typedef enum {
     REDISMODULE_KSPEC_FK_KEYNUM
 } RedisModuleKeySpecFindKeysType;
 
-typedef enum {
-    REDISMODULE_CONFIG_SET_RUNTIME,  /* This config set is from a config set command */
-    REDISMODULE_CONFIG_SET_STARTUP /* This config set is on a module load */
-} RedisModuleConfigSetContext;
-
 /* Key-spec flags. For details, see the documentation of
  * RedisModule_SetCommandInfo and the key-spec flags in server.h. */
 #define REDISMODULE_CMD_KEY_RO (1ULL<<0)
@@ -804,10 +799,10 @@ typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, 
 typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetEnumFunc)(const char *name, void *privdata);
-typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
+typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, const char **err);
 typedef int (*RedisModuleConfigApplyFunc)(const char **err);
 
 typedef struct RedisModuleTypeMethods {

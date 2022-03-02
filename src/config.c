@@ -413,7 +413,7 @@ int standardConfigSet(standardConfig *config, sds *argv, int argc, const char **
             *errstr = "wrong number of arguments";
             return 0;
         }
-        return moduleConfigSetCommand(config->name, argv[0], REDISMODULE_CONFIG_SET_RUNTIME, errstr, config->privdata);
+        return moduleConfigSetCommand(config->name, argv[0], errstr, config->privdata);
     }
     return config->interface.set(config->data, argv, argc, errstr);
 }

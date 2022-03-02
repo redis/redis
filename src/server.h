@@ -2961,7 +2961,7 @@ int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
 sds moduleConfigGetCommand(const char *parameter, void *privdata);
-int moduleConfigSetCommand(const char *parameter, char *strval, RedisModuleConfigSetContext set_ctx, const char **err, void *privdata);
+int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata);
 void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);
 
 /* db.c -- Keyspace access API */

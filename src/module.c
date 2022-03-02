@@ -400,10 +400,10 @@ typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *pri
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetEnumFunc)(const char *name, void *privdata);
 /* The function signatures for module config set callbacks. These are identical to the ones exposed in redismodule.h. */
-typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
-typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleConfigSetContext set_context, const char **err);
+typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, const char **err);
 /* Apply signature, matches apply_fn in config.c */
 typedef int (*RedisModuleConfigApplyFunc)(const char **err);
 
@@ -11059,7 +11059,7 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
 /* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
-int parseAndSetBoolConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetBoolConfig(ModuleConfig *config, char *strval, const char **err) {
     int yn = yesnotoi(strval);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
@@ -11067,13 +11067,13 @@ int parseAndSetBoolConfig(ModuleConfig *config, char *strval, RedisModuleConfigS
     }
     int prev = config->get_fn.get_bool(config->name, config->privdata);
     if (prev != yn) {
-        return config->set_fn.set_bool(config->name, yn, config->privdata, set_ctx, err);
+        return config->set_fn.set_bool(config->name, yn, config->privdata, err);
     }
     return 2;
 }
 
 /* Note that for the time being, module configurations are not supporting OCTO and Percent */
-int parseAndSetNumericConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetNumericConfig(ModuleConfig *config, char *strval, const char **err) {
     long long ll;
     sds str_val = sdsnew(strval);
     if (config->flags & REDISMODULE_CONFIG_MEMORY) {
@@ -11099,19 +11099,19 @@ int parseAndSetNumericConfig(ModuleConfig *config, char *strval, RedisModuleConf
     }
     long long value = config->get_fn.get_numeric(config->name, config->privdata);
     if (ll != value) {
-        return config->set_fn.set_numeric(config->name, ll, config->privdata, set_ctx, err);
+        return config->set_fn.set_numeric(config->name, ll, config->privdata, err);
     }
     return 2;
 }
 
-int parseAndSetStringConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetStringConfig(ModuleConfig *config, char *strval, const char **err) {
     RedisModuleString *prev = config->get_fn.get_string(config->name, config->privdata);
     if (prev && !strcmp(prev->ptr, strval)) {
         return 2;
     }
 
     RedisModuleString *new = createStringObject(strval, strlen(strval));
-    int return_code = config->set_fn.set_string(config->name, new, config->privdata, set_ctx, err);
+    int return_code = config->set_fn.set_string(config->name, new, config->privdata, err);
     if (prev) decrRefCount(prev);
     decrRefCount(new);
     return return_code;
@@ -11120,7 +11120,7 @@ int parseAndSetStringConfig(ModuleConfig *config, char *strval, RedisModuleConfi
 #define ENUM_ERROR_SIZE 256
 static char enum_error[ENUM_ERROR_SIZE];
 
-int parseAndSetEnumConfig(ModuleConfig *config, char *strval, RedisModuleConfigSetContext set_ctx, const char **err) {
+int parseAndSetEnumConfig(ModuleConfig *config, char *strval, const char **err) {
     int prev = config->get_fn.get_enum(config->name, config->privdata);
 
     for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
@@ -11128,7 +11128,7 @@ int parseAndSetEnumConfig(ModuleConfig *config, char *strval, RedisModuleConfigS
         if (!strcasecmp(strval, enum_val.name)) {
             int int_val = enum_val.val;
             if (int_val == prev) return 2;
-            return config->set_fn.set_enum(config->name, int_val, config->privdata, set_ctx, err);
+            return config->set_fn.set_enum(config->name, int_val, config->privdata, err);
         }
     }
     
@@ -11148,29 +11148,25 @@ int parseAndSetEnumConfig(ModuleConfig *config, char *strval, RedisModuleConfigS
 }
 
 /* Controller function called from config.c to actually set the value of the config */
-int moduleConfigSetCommand(const char *parameter, char *strval, RedisModuleConfigSetContext set_ctx, const char **err, void *privdata) {
+int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata) {
     char *config_name = strchr(parameter, '.') + 1;
     ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
     
     if (!module_config) {
         /* If this is a start-up and we didn't find the module config. Reject the set.*/
-        if (set_ctx == REDISMODULE_CONFIG_SET_STARTUP) {
-            *err = "No config found with specified name.";
-            return 0;
-        }
-        /* In a runtime context this is likely an indication that something is wrong with the server. */
-        serverPanic("Could not find module configuration for config set command.");
+        *err = "No config found with specified name.";
+        return 0;
     }
     
     switch(module_config->type) {
         case REDISMODULE_CONFIG_BOOL:
-            return parseAndSetBoolConfig(module_config, strval, set_ctx, err);
+            return parseAndSetBoolConfig(module_config, strval, err);
         case REDISMODULE_CONFIG_STRING:
-            return parseAndSetStringConfig(module_config, strval, set_ctx, err);
+            return parseAndSetStringConfig(module_config, strval, err);
         case REDISMODULE_CONFIG_NUMERIC:
-            return parseAndSetNumericConfig(module_config, strval, set_ctx, err);
+            return parseAndSetNumericConfig(module_config, strval, err);
         case REDISMODULE_CONFIG_ENUM:
-            return parseAndSetEnumConfig(module_config, strval, set_ctx, err);
+            return parseAndSetEnumConfig(module_config, strval, err);
         default:
             serverPanic("Could not resolve type of module config %s", parameter);
             return 0;
@@ -11317,7 +11313,7 @@ int loadModuleConfigs(RedisModule *module) {
             sdsfreesplitres(config_pair, count);
             return REDISMODULE_ERR;
         }
-        if (!moduleConfigSetCommand(config_pair[0], config_pair[1], REDISMODULE_CONFIG_SET_STARTUP, &err, module)) {
+        if (!moduleConfigSetCommand(config_pair[0], config_pair[1], &err, module)) {
             serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", config_pair[0], err);
             sdsfreesplitres(config_pair, count);
             return REDISMODULE_ERR;
@@ -11460,7 +11456,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
  *         return strval;
  *     }
  *     
- *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+ *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
           if (adjustable) {
               RedisModule_RetainString(NULL, new);
               strval = new;
@@ -11503,7 +11499,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
             return enum_val;
         }
         
-        int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+        int setEnumConfigCommand(const char *name, int val, void *privdata, const char **err) {
             enum_val = val;
             return 1;
         }

@@ -1,4 +1,5 @@
 #include "redismodule.h"
+#include <strings.h>
 int mutable_bool_val = 1;
 int immutable_bool_val = 0;
 long long longval = -1;
@@ -15,10 +16,9 @@ int getBoolConfigCommand(const char *name, void *privdata) {
     return (*(int *)privdata);
 }
 
-int setBoolConfigCommand(const char *name, int new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setBoolConfigCommand(const char *name, int new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
-    REDISMODULE_NOT_USED(is_startup);
     *(int *)privdata = new;
     return 1;
 }
@@ -28,10 +28,9 @@ long long getNumericConfigCommand(const char *name, void *privdata) {
     return (*(long long *) privdata);
 }
 
-int setNumericConfigCommand(const char *name, long long new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setNumericConfigCommand(const char *name, long long new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
-    REDISMODULE_NOT_USED(is_startup);
     *(long long *)privdata = new;
     return 1;
 }
@@ -40,18 +39,15 @@ RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
     REDISMODULE_NOT_USED(name);
     return (*(RedisModuleString **) privdata);
 }
-int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
-    REDISMODULE_NOT_USED(is_startup);
+    size_t len;
     /* This reject should not pass Address Sanitizer if we're not properly freeing rejected strings */
-    RedisModuleString *reject = RedisModule_CreateString(NULL, "rejectisfreed", 13);
-    if (!RedisModule_StringCompare(new, reject)) {
+    if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
         if (strval) RedisModule_RetainString(NULL, *(RedisModuleString **)privdata);
-        RedisModule_FreeString(NULL, reject);
         return 0;
     }
-    RedisModule_FreeString(NULL, reject);
     RedisModule_RetainString(NULL, new);
     *(RedisModuleString **)privdata = new;
     return 1;
@@ -63,11 +59,10 @@ int getEnumConfigCommand(const char *name, void *privdata) {
     return enumval;
 }
 
-int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleConfigSetContext is_startup, const char **err) {
+int setEnumConfigCommand(const char *name, int val, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
-    REDISMODULE_NOT_USED(is_startup);
     /* We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide */
     enumval = val;
     return 1;
