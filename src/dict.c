@@ -114,7 +114,7 @@ static void _dictReset(dict *d) {
 dict *dictCreate(dictType *type) {
     dict *d = zmalloc(sizeof(*d));
 
-    _dictInit(d, type);
+    _dictInit(d,type);
     return d;
 }
 
@@ -168,8 +168,7 @@ int _dictResize(dict *d, unsigned long size, int *malloc_failed) {
     if (d->ht_size_exp < new_ht_size_exp) {
         /* Realloc the hash table (without initializing new buckets to NULL) */
         if (malloc_failed) {
-            new_ht_table = ztryrealloc(d->ht_table,
-                                       newsize * sizeof(dictEntry *));
+            new_ht_table = ztryrealloc(d->ht_table,newsize * sizeof(dictEntry *));
             *malloc_failed = new_ht_table == NULL;
             if (*malloc_failed)
                 return DICT_ERR;
