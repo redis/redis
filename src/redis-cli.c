@@ -3149,7 +3149,7 @@ static void freeClusterManager(void) {
         dictRelease(clusterManagerUncoveredSlots);
 }
 
-/* We can specify the cluster-node of the node through the bus_port parameter.
+/* We can specify the cluster-port of the node through the bus_port parameter.
  * Note the value can be 0, it means:
  *   1. It is not specified in --cluster create, use port + 10000 as its value.
  *   2. We don't need to know it, at this point this value may be wrong.

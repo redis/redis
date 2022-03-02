@@ -3,9 +3,7 @@
 source tests/support/cli.tcl
 
 proc cluster_info {r field} {
-    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-        set _ $value
-    }
+    set _ [getInfoProperty [$r cluster info] $field]
 }
 
 # Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".

@@ -3,14 +3,7 @@
 source tests/support/cli.tcl
 
 proc cluster_info {r field} {
-    # cluster_state is the first field, so we need to use ^ to match it.
-    if {$field == "cluster_state"} {
-        if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-            set _ $value
-        }
-    } else {
-        set _ [getInfoProperty [$r cluster info] $field]
-    }
+    set _ [getInfoProperty [$r cluster info] $field]
 }
 
 # Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
