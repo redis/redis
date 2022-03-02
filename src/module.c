@@ -5599,7 +5599,7 @@ fmterr:
  *     * 'S' -- Run the command in a safe mode, this means that it will raise an error
  *              if a dangerous command is invoke (like shutdown). All the commands
  *              which are flag with the no-script flag is considered dangerous.
- *     * 'W' -- Do not allow to run any write command (flaged with the write flag).
+ *     * 'W' -- Do not allow to run any write command (flagged with the write flag).
  *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
