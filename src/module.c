@@ -352,6 +352,9 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_RESP_3 (1<<3)
 #define REDISMODULE_ARGV_RESP_AUTO (1<<4)
 #define REDISMODULE_ARGV_CHECK_ACL (1<<5)
+#define REDISMODULE_ARGV_SAFE_MODE (1<<6)
+#define REDISMODULE_ARGV_NO_WRITES (1<<7)
+#define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5548,6 +5551,12 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_AUTO;
         } else if (*p == 'C') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CHECK_ACL;
+        } else if (*p == 'S') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_SAFE_MODE;
+        } else if (*p == 'W') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_WRITES;
+        } else if (*p == 'E') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
         } else {
             goto fmterr;
         }
@@ -5587,6 +5596,14 @@ fmterr:
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Check if command can be executed according to ACL rules.
+ *     * 'S' -- Run the command in a safe mode, this means that it will raise an error
+ *              if a dangerous command is invoke (like shutdown). All the commands
+ *              which are flag with the no-script flag is considered dangerous.
+ *     * 'W' -- Do not allow to run any write command (flaged with the write flag).
+ *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
+ *              invoking the command, the error is returned using errno mechanism.
+ *              This flag allows to get the error also as an error CallReply with
+ *              relevant error message.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5620,11 +5637,13 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     va_list ap;
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
+    int error_as_call_replies = 0; /* return errors as RedisModuleCallReply object */
 
     /* Handle arguments. */
     va_start(ap, fmt);
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
+    error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
     c = moduleAllocTempClient();
@@ -5647,6 +5666,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) {
+        /* We do not return a call reply here this is an error that should only
+         * be catch by the module indicating wrong fmt was given, the module should
+         * handle this error and decide how to continue. It is not an error that
+         * should be propagated to the user. */
         errno = EBADF;
         goto cleanup;
     }
@@ -5660,6 +5683,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     cmd = lookupCommand(c->argv,c->argc);
     if (!cmd) {
         errno = ENOENT;
+        if (error_as_call_replies) {
+            sds msg = sdscatfmt(sdsempty(),"ERR Unknown Redis "
+                                           "command %s.",c->argv[0]->ptr);
+            reply = callReplyCreateError(msg, ctx);
+        }
         goto cleanup;
     }
     c->cmd = c->lastcmd = c->realcmd = cmd;
@@ -5667,7 +5695,38 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         errno = EINVAL;
+        if (error_as_call_replies) {
+            sds msg = sdscatfmt(sdsempty(), "ERR Wrong number of "
+                                            "args calling Redis command %s.", c->argv[0]->ptr);
+            reply = callReplyCreateError(msg, ctx);
+        }
         goto cleanup;
+    }
+
+    if (flags & REDISMODULE_ARGV_SAFE_MODE) {
+        /* Basically on safe mode we want to only allow commands that can
+         * be executed on scripts (CMD_NOSCRIPT is not set on the command flags) */
+        if (cmd->flags & CMD_NOSCRIPT) {
+            errno = EACCES;
+            if (error_as_call_replies) {
+                sds msg = sdscatfmt(sdsempty(), "ERR Unsafe command "
+                                                "%s was called.", c->argv[0]->ptr);
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+    }
+
+    if ((flags & REDISMODULE_ARGV_NO_WRITES) && (cmd->flags & CMD_WRITE)) {
+        if (cmd->flags & CMD_WRITE) {
+            errno = EACCES;
+            if (error_as_call_replies) {
+                sds msg = sdscatfmt(sdsempty(), "ERR Write command %s was "
+                                                "called while write is not allowed.", c->argv[0]->ptr);
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
     }
 
     /* Check if the user can run this command according to the current
@@ -5678,12 +5737,34 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
         if (ctx->client->user == NULL) {
             errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("ERR acl verification failed, context is not attached to a client.");
+                reply = callReplyCreateError(msg, ctx);
+            }
             goto cleanup;
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
+            if (error_as_call_replies) {
+                sds msg = NULL;
+                switch (acl_retval) {
+                case ACL_DENIED_CMD:
+                    msg = sdsnew("ERR acl verification failed, the user can't run this command or subcommand.");
+                    break;
+                case ACL_DENIED_KEY:
+                    msg = sdsnew("ERR acl verification failed, the user can't access at least one of the keys mentioned in the command arguments.");
+                    break;
+                case ACL_DENIED_CHANNEL:
+                    msg = sdsnew("ERR acl verification failed, the user can't publish to the channel mentioned in the command.");
+                    break;
+                default:
+                    msg = sdsnew("ERR acl verification failed, the user lacking the permissions for the command.");
+                    break;
+                }
+                reply = callReplyCreateError(msg, ctx);
+            }
             errno = EACCES;
             goto cleanup;
         }
@@ -5700,12 +5781,25 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
+            sds msg = NULL;
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
+                if (error_as_call_replies) {
+                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a write command %s while the cluster is down and readonly", c->argv[0]->ptr);
+                }
                 errno = EROFS;
             } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
+                if (error_as_call_replies) {
+                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a command %s while the cluster is down", c->argv[0]->ptr);
+                }
                 errno = ENETDOWN;
             } else {
+                if (error_as_call_replies) {
+                    msg = sdsnew("ERR attempted to access a non local key in a cluster node");
+                }
                 errno = EPERM;
+            }
+            if (msg) {
+                reply = callReplyCreateError(msg, ctx);
             }
             goto cleanup;
         }
@@ -5748,9 +5842,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
     reply = callReplyCreate(proto, c->deferred_reply_errors, ctx);
     c->deferred_reply_errors = NULL; /* now the responsibility of the reply object. */
-    autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
+    if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
     if (ctx->module) ctx->module->in_call--;
     moduleReleaseTempClient(c);
     return reply;

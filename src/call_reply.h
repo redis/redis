@@ -35,6 +35,7 @@
 typedef struct CallReply CallReply;
 
 CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_data);
+CallReply *callReplyCreateError(sds reply, void *private_data);
 int callReplyType(CallReply *rep);
 const char *callReplyGetString(CallReply *rep, size_t *len);
 long long callReplyGetLongLong(CallReply *rep);
