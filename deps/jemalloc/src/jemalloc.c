@@ -3957,6 +3957,16 @@ get_defrag_hint(void* ptr) {
     return defrag;
 }
 
+static long long ustime(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust;
+}
+
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 init_defrag(void) {
     unsigned long long i;
@@ -3964,9 +3974,8 @@ init_defrag(void) {
     arena_t *arena = arena_choose(tsd, NULL);
 
     printf("Initing defrag hints\n");
-    nstime_t t,tt;
-    nstime_init(&t,0);
-    nstime_update(&t);
+    long long t;
+    t = ustime();
 
     // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
@@ -4001,9 +4010,7 @@ init_defrag(void) {
 
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
-    nstime_init(&tt,0);
-    nstime_update(&tt);
-    printf("Init took: %.6fms\n",(tt.ns-t.ns)/1000000.0);
+    printf("Init took: %.6fms\n",(ustime()-t)/1000.0);
 }
 
 static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) {
