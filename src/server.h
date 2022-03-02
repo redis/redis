@@ -3450,6 +3450,8 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
 void releaseInfoSectionDict(dict *sec);
 sds genRedisInfoString(dict *section_dict, int all_sections, int everything);
 sds genModulesInfoString(sds info);
+sds saveACLToBuffer();
+sds loadACLFromBuffer(sds buf);
 void applyWatchdogPeriod();
 void watchdogScheduleSignal(int period);
 void serverLogHexDump(int level, char *descr, void *value, size_t len);

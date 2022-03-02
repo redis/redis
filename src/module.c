@@ -11505,6 +11505,14 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
+char *RM_DumpACL() {
+    return saveACLToBuffer();
+}
+
+char *RM_LoadACL(char *aclString) {
+    return loadACLFromBuffer(aclString);
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -11822,4 +11830,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(EventLoopDel);
     REGISTER_API(EventLoopAddOneShot);
     REGISTER_API(Yield);
+    REGISTER_API(DumpACL);
+    REGISTER_API(LoadACL);
 }

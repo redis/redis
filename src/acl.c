@@ -2015,7 +2015,7 @@ int ACLLoadConfiguredUsers(void) {
     return C_OK;
 }
 
-/* This function loads the ACL from the specified filename: every line
+/* This function loads the ACL from the supplied byte array: every line
  * is validated and should be either empty or in the format used to specify
  * users in the redis.conf configuration or in the ACL file, that is:
  *
@@ -2038,24 +2038,8 @@ int ACLLoadConfiguredUsers(void) {
  * At the end of the process, if no errors were found in the whole file then
  * NULL is returned. Otherwise an SDS string describing in a single line
  * a description of all the issues found is returned. */
-sds ACLLoadFromFile(const char *filename) {
-    FILE *fp;
-    char buf[1024];
 
-    /* Open the ACL file. */
-    if ((fp = fopen(filename,"r")) == NULL) {
-        sds errors = sdscatprintf(sdsempty(),
-            "Error loading ACLs, opening file '%s': %s",
-            filename, strerror(errno));
-        return errors;
-    }
-
-    /* Load the whole file as a single string in memory. */
-    sds acls = sdsempty();
-    while(fgets(buf,sizeof(buf),fp) != NULL)
-        acls = sdscat(acls,buf);
-    fclose(fp);
-
+sds loadACLFromBuffer(sds acls) {
     /* Split the file into lines and attempt to load each line. */
     int totlines;
     sds *lines, errors = sdsempty();
@@ -2083,8 +2067,8 @@ sds ACLLoadFromFile(const char *filename) {
         argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
-                     "%s:%d: unbalanced quotes in acl line. ",
-                     server.acl_filename, linenum);
+                                  "%s:%d: unbalanced quotes in acl line. ",
+                                  server.acl_filename, linenum);
             continue;
         }
 
@@ -2097,9 +2081,9 @@ sds ACLLoadFromFile(const char *filename) {
         /* The line should start with the "user" keyword. */
         if (strcmp(argv[0],"user") || argc < 2) {
             errors = sdscatprintf(errors,
-                     "%s:%d should start with user keyword followed "
-                     "by the username. ", server.acl_filename,
-                     linenum);
+                                  "%s:%d should start with user keyword followed "
+                                  "by the username. ", server.acl_filename,
+                                  linenum);
             sdsfreesplitres(argv,argc);
             continue;
         }
@@ -2107,8 +2091,8 @@ sds ACLLoadFromFile(const char *filename) {
         /* Spaces are not allowed in usernames. */
         if (ACLStringHasSpaces(argv[1],sdslen(argv[1]))) {
             errors = sdscatprintf(errors,
-                     "'%s:%d: username '%s' contains invalid characters. ",
-                     server.acl_filename, linenum, argv[1]);
+                                  "'%s:%d: username '%s' contains invalid characters. ",
+                                  server.acl_filename, linenum, argv[1]);
             sdsfreesplitres(argv,argc);
             continue;
         }
@@ -2130,8 +2114,8 @@ sds ACLLoadFromFile(const char *filename) {
         sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, NULL);
         if (!acl_args) {
             errors = sdscatprintf(errors,
-                    "%s:%d: Unmatched parenthesis in selector definition.",
-                    server.acl_filename, linenum);
+                                  "%s:%d: Unmatched parenthesis in selector definition.",
+                                  server.acl_filename, linenum);
         }
 
         int j;
@@ -2140,8 +2124,8 @@ sds ACLLoadFromFile(const char *filename) {
             if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
-                         "%s:%d: %s. ",
-                         server.acl_filename, linenum, errmsg);
+                                      "%s:%d: %s. ",
+                                      server.acl_filename, linenum, errmsg);
                 continue;
             }
         }
@@ -2187,14 +2171,29 @@ sds ACLLoadFromFile(const char *filename) {
     }
 }
 
-/* Generate a copy of the ACLs currently in memory in the specified filename.
- * Returns C_OK on success or C_ERR if there was an error during the I/O.
- * When C_ERR is returned a log is produced with hints about the issue. */
-int ACLSaveToFile(const char *filename) {
+sds ACLLoadFromFile(const char *filename) {
+    FILE *fp;
+    char buf[1024];
+
+    /* Open the ACL file. */
+    if ((fp = fopen(filename,"r")) == NULL) {
+        sds errors = sdscatprintf(sdsempty(),
+            "Error loading ACLs, opening file '%s': %s",
+            filename, strerror(errno));
+        return errors;
+    }
+
+    /* Load the whole file as a single string in memory. */
+    sds acls = sdsempty();
+    while(fgets(buf,sizeof(buf),fp) != NULL)
+        acls = sdscat(acls,buf);
+    fclose(fp);
+
+    return loadACLFromBuffer(acls);
+}
+
+sds saveACLToBuffer() {
     sds acl = sdsempty();
-    int fd = -1;
-    sds tmpfilename = NULL;
-    int retval = C_ERR;
 
     /* Let's generate an SDS string containing the new version of the
      * ACL file. */
@@ -2215,6 +2214,19 @@ int ACLSaveToFile(const char *filename) {
         sdsfree(user);
     }
     raxStop(&ri);
+
+    return acl;
+}
+
+/* Generate a copy of the ACLs currently in memory in the specified filename.
+ * Returns C_OK on success or C_ERR if there was an error during the I/O.
+ * When C_ERR is returned a log is produced with hints about the issue. */
+int ACLSaveToFile(const char *filename) {
+    int fd = -1;
+    sds tmpfilename = NULL;
+    int retval = C_ERR;
+
+    sds acl = saveACLToBuffer();
 
     /* Create a temp file with the new content. */
     tmpfilename = sdsnew(filename);
