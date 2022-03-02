@@ -28,10 +28,8 @@
                         "name": "help",
                         "type": "pure-token"
                     }
-
                 ]
-            }
-            
+            }            
         ]
     }
 }
