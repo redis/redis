@@ -14,14 +14,19 @@
         ],
         "arguments": [
             {
-                "name": "parameter",
-                "type": "string",
-                "multiple": true
-            },
-            {
-                "name": "value",
-                "type": "string",
-                "multiple": true
+                "name": "parameter_value",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "parameter",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
             }
         ]
     }
