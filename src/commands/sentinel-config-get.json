@@ -1,5 +1,5 @@
 {
-    "CONFIG GET": {
+    "GET": {
         "summary": "Get the current value of a global Sentinel configuration parameter.",
         "complexity": "O(1)",
         "group": "sentinel",
