@@ -227,47 +227,43 @@ int dictRehash(dict *d, int bucket_visits) {
 
     /* Iterate and rehash all buckets up to the previous size of the hash table,
      * and rehash all entries in buckets to their updated buckets */
+    long ht_size = DICTHT_SIZE(d->ht_size_exp);
     long ht_size_prev = DICTHT_SIZE(d->ht_size_exp_prev);
 
     while (bucket_visits > 0) {
-        dictEntry *de, *nextde;
-        dictEntry *this_bucket = NULL;
+        dictEntry *entries_to_rehash = d->ht_table[d->rehashidx];
 
-        /* If HT grows, need to init all new buckets gradually along with the
-         * rehash iteration (We avoid from using memset on realloc()) */
-        if (d->ht_size_exp > d->ht_size_exp_prev) {
-            unsigned long mask = DICTHT_SIZE_MASK(d->ht_size_exp - d->ht_size_exp_prev);
-            for (unsigned long i = 1; i <= mask; ++i)
-                d->ht_table[(i << d->ht_size_exp_prev) + d->rehashidx] = NULL;
-        }
+        /* If HT grows, need to set to NULL current bucket and corresponding new ones
+         * before rehashing back entries (as we avoid from using memset when
+         * expanded the table). If shrinks this loop iterates once and set to NULL
+         * current bucket.  */
+        long idx = d->rehashidx ;
+        do {
+            d->ht_table[idx] = NULL;
+            idx += ht_size_prev;
+        } while (idx < ht_size);
 
-        if (d->ht_table[d->rehashidx] == NULL) {
+        if (entries_to_rehash == NULL) {
             if (--empty_visits == 0) return 1;
         } else {
             --bucket_visits;
-            de = d->ht_table[d->rehashidx];
-            /* rehash all the keys in this bucket */
+            dictEntry *de = entries_to_rehash;
+
+            /* rehash all the keys in current bucket */
             while (de) {
                 long h;
 
-                nextde = de->next;
+                dictEntry *nextde = de->next;
                 /* Get the new index based on the new resized hash table.
                  * Note that if HT shrinks, this operation will take care to
                  * rehash to corresponding bucket (by dropping MSB bit(s)) */
                 h = dictHashKey(d, de->key) & DICTHT_SIZE_MASK(d->ht_size_exp);
 
-                /* if key mapped to current bucket (at rehashidx), then aggregate
-                 * these entries aside and update the bucket at the end */
-                if (d->rehashidx == h) {
-                    de->next = this_bucket;
-                    this_bucket = de;
-                } else {
-                    de->next = d->ht_table[h];
-                    d->ht_table[h] = de;
-                }
+                /* Chain entry to the new bucket */
+                de->next = d->ht_table[h];
+                d->ht_table[h] = de;
                 de = nextde;
             }
-            d->ht_table[d->rehashidx] = this_bucket;
         }
 
         d->rehashidx += 1;
@@ -280,9 +276,7 @@ int dictRehash(dict *d, int bucket_visits) {
                  * dictRehash(), when shrinking, only after done rehashing all
                  * entries to lower part of the table, it is safe to call
                  * realloc() to shrink the size of the hash table */
-                d->ht_table = zrealloc(d->ht_table,
-                                       DICTHT_SIZE(d->ht_size_exp) *
-                                            sizeof(dictEntry *));
+                d->ht_table = zrealloc(d->ht_table, ht_size * sizeof(dictEntry *));
             }
             return 0;
         }
@@ -299,8 +293,8 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
- * than 0, and is smaller than 1 in most cases. The exact upper bound 
+/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger
+ * than 0, and is smaller than 1 in most cases. The exact upper bound
  * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
     if (d->pauserehash > 0) return 0;
@@ -1310,10 +1304,12 @@ int dictTestBenchmark(long count) {
     end_benchmark("Inserting");
     assert((long)dictSize(dict) == count);
 
+    start_benchmark();
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
         dictRehashMilliseconds(dict,100);
     }
+    end_benchmark("Rehashing");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
@@ -1363,9 +1359,14 @@ int dictTestBenchmark(long count) {
     for (j = 0; j < count; j++) {
         char *key = stringFromLongLong(j);
         int retval = dictDelete(dict,key);
+        zfree(key);
         assert(retval == DICT_OK);
+    }
+
+    for (j = 1; j <= count; j++) {
+        char *key = stringFromLongLong(j);
         key[0] += 17; /* Change first number to letter. */
-        retval = dictAdd(dict,key,(void*)j);
+        int retval = dictAdd(dict,key,(void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Removing and adding");
