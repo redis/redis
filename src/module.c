@@ -11505,12 +11505,20 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
-char *RM_DumpACL() {
-    return saveACLToBuffer();
+RedisModuleString *RM_DumpACL(RedisModuleCtx *ctx) {
+    sds acl = saveACLToBuffer();
+    RedisModuleString * ret = RM_CreateString(ctx, acl ,sdslen(acl));
+    sdsfree(acl);
+
+    return ret;
 }
 
-char *RM_LoadACL(char *aclString) {
-    return loadACLFromBuffer(aclString);
+char *RM_LoadACL(RedisModuleString *aclString) {
+    size_t len;
+    const char * tmp = RM_StringPtrLen(aclString, &len);
+    sds acl = sdsnewlen(tmp, len);
+
+    return loadACLFromBuffer(acl);
 }
 
 /* Register all the APIs we export. Keep this function at the end of the

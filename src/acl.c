@@ -2067,8 +2067,8 @@ sds loadACLFromBuffer(sds acls) {
         argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
-                                  "%s:%d: unbalanced quotes in acl line. ",
-                                  server.acl_filename, linenum);
+                     "%s:%d: unbalanced quotes in acl line. ",
+                     server.acl_filename, linenum);
             continue;
         }
 
@@ -2081,9 +2081,9 @@ sds loadACLFromBuffer(sds acls) {
         /* The line should start with the "user" keyword. */
         if (strcmp(argv[0],"user") || argc < 2) {
             errors = sdscatprintf(errors,
-                                  "%s:%d should start with user keyword followed "
-                                  "by the username. ", server.acl_filename,
-                                  linenum);
+                     "%s:%d should start with user keyword followed "
+                     "by the username. ", server.acl_filename,
+                     linenum);
             sdsfreesplitres(argv,argc);
             continue;
         }
@@ -2114,8 +2114,8 @@ sds loadACLFromBuffer(sds acls) {
         sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, NULL);
         if (!acl_args) {
             errors = sdscatprintf(errors,
-                                  "%s:%d: Unmatched parenthesis in selector definition.",
-                                  server.acl_filename, linenum);
+                    "%s:%d: Unmatched parenthesis in selector definition.",
+                    server.acl_filename, linenum);
         }
 
         int j;
@@ -2124,8 +2124,8 @@ sds loadACLFromBuffer(sds acls) {
             if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
-                                      "%s:%d: %s. ",
-                                      server.acl_filename, linenum, errmsg);
+                         "%s:%d: %s. ",
+                         server.acl_filename, linenum, errmsg);
                 continue;
             }
         }
