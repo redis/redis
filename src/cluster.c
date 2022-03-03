@@ -796,7 +796,7 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
          * we would always process the disconnection of the existing inbound link before
          * accepting a new existing inbound link. Therefore, it's possible to have more than
          * one inbound link from the same node at the same time. */
-        serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %s with fd %d",
+        serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
                 node->inbound_link->conn->fd, node->name, link->conn->fd);
     }
     node->inbound_link = link;
@@ -2213,7 +2213,7 @@ int clusterProcessPacket(clusterLink *link) {
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
     {
-        serverLog(LL_DEBUG,"%s packet received: %s",
+        serverLog(LL_DEBUG,"%s packet received: %.40s",
             clusterGetMessageTypeString(type),
             link->node ? link->node->name : "NULL");
         if (!link->inbound) {
