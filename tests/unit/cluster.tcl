@@ -34,6 +34,7 @@ start_server [list overrides $base_conf] {
     set node2 [srv -1 client]
     set node3 [srv -2 client]
     set node3_pid [srv -2 pid]
+    set node3_rd [redis_deferring_client -2]
 
     test {Create 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
@@ -52,7 +53,6 @@ start_server [list overrides $base_conf] {
 
     test "Run blocking command on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
-        set node3_rd [redis_deferring_client -2]
         $node3_rd brpop key9184688 0
         $node3_rd flush
 
@@ -90,10 +90,11 @@ start_server [list overrides $base_conf] {
         }
     }
 
+    set node1_rd [redis_deferring_client 0]
+
     test "Sanity test push cmd after resharding" {
         assert_error {*MOVED*} {$node3 lpush key9184688 v1}
 
-        set node1_rd [redis_deferring_client 0]
         $node1_rd brpop key9184688 0
         $node1_rd flush
 
@@ -109,13 +110,11 @@ start_server [list overrides $base_conf] {
         assert_equal {key9184688 v2} [$node1_rd read]
     }
 
-    $node1_rd close
     $node3_rd close
     
     test "Run blocking command again on cluster node1" {
         $node1 del key9184688
         # key9184688 is mapped to slot 10923 which has been moved to node1
-        set node1_rd [redis_deferring_client 0]
         $node1_rd brpop key9184688 0
         $node1_rd flush
 
