@@ -222,4 +222,80 @@ start_server [list overrides $base_conf] {
 }
 }
 
+# Test redis-cli --cluster create, add-node.
+# Test that one slot can be migrated to and then away from the new node.
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+start_server [list overrides $base_conf] {
+
+    test {Migrate the last slot away from a node} {
+        # Create a cluster of 3 nodes
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Insert some data
+        assert_equal OK [exec src/redis-cli -c -p [srv 0 port] SET foo bar]
+        set slot [exec src/redis-cli -c -p [srv 0 port] CLUSTER KEYSLOT foo]
+
+        # Add new node to the cluster
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                     127.0.0.1:[srv -3 port] \
+                     127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        set newnode_r [redis_client -3]
+        set newnode_id [$newnode_r CLUSTER MYID]
+
+        # Find out which node has the key "foo" by asking the new node for a
+        # redirect.
+        catch { $newnode_r get foo } e
+        assert_match "MOVED $slot *" $e
+        set owner [lindex $e 2]
+        set owner_id [exec src/redis-cli -u redis://$owner CLUSTER MYID]
+
+        # Move slot to new node using plain Redis commands
+        assert_equal OK [$newnode_r CLUSTER SETSLOT $slot IMPORTING $owner_id]
+        assert_equal OK [exec src/redis-cli -u redis://$owner \
+                             CLUSTER SETSLOT $slot MIGRATING $newnode_id]
+        assert_equal {foo} [exec src/redis-cli -u redis://$owner \
+                                CLUSTER GETKEYSINSLOT $slot 10]
+        assert_equal OK [exec src/redis-cli -u redis://$owner \
+                             MIGRATE 127.0.0.1 [srv -3 port] "" 0 5000 KEYS foo]
+        assert_equal OK [$newnode_r CLUSTER SETSLOT $slot NODE $newnode_id]
+        assert_equal OK [exec src/redis-cli -u redis://$owner \
+                             CLUSTER SETSLOT $slot NODE $newnode_id]
+
+        # Move the only slot back to original node
+        exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
+            --cluster-from $newnode_id \
+            --cluster-to $owner_id \
+            --cluster-slots 1 \
+            --cluster-yes
+
+        # Check that the key foo has been migrated
+        catch { $newnode_r get foo } e
+        assert_equal "MOVED $slot $owner" $e
+    }
+
+}}}} ;# stop 4 servers
+
 } ;# tags
