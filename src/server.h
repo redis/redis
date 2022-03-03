@@ -3041,7 +3041,6 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);
-int doesCommandHavePatterns(struct redisCommand *cmd);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
