@@ -2602,8 +2602,7 @@ static void repl(void) {
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
 
-            if (strcasecmp(argv[0],"quit") == 0 ||
-                strcasecmp(argv[0],"exit") == 0)
+            if (strcasecmp(argv[0],"exit") == 0)
             {
                 exit(0);
             } else if (argv[0][0] == ':') {
@@ -2651,6 +2650,9 @@ static void repl(void) {
                 {
                     printf("(%.2fs)\n",(double)elapsed/1000);
                 }
+
+                if (strcasecmp(argv[0], "quit") == 0)
+                    exit(0);
             }
             /* Free the argument vector */
             sdsfreesplitres(argv,argc);
