@@ -869,6 +869,12 @@ static void cliOutputHelp(int argc, char **argv) {
         group = argv[0]+1;
     }
 
+    if (helpEntries == NULL) {
+        /* Initialize the help using the results of the COMMAND command.
+         * In case we are using redis-cli help XXX, we need to init it. */
+        cliInitHelp();
+    }
+
     assert(argc > 0);
     for (i = 0; i < helpEntriesLen; i++) {
         entry = &helpEntries[i];
