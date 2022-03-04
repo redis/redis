@@ -26,9 +26,7 @@ tags {tls:skip external:skip cluster} {
 
 # start three servers
 set base_conf [list cluster-enabled yes cluster-node-timeout 1]
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
@@ -148,18 +146,11 @@ start_server [list overrides $base_conf] {
     exec kill -SIGCONT $node3_pid
     $node1_rd close
 
-# stop three servers
-}
-}
-}
+} ;# stop servers
 
 # Test redis-cli -- cluster create, add-node, call.
 # Test that functions are propagated on add-node
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+start_multiple_servers 5 [list overrides $base_conf] {
 
     set node4_rd [redis_client -3]
     set node5_rd [redis_client -4]
@@ -214,21 +205,13 @@ start_server [list overrides $base_conf] {
         } e
         assert_match {*node already contains functions*} $e        
     }
-# stop 5 servers
-}
-}
-}
-}
-}
+} ;# stop servers
 
 # Test redis-cli --cluster create, add-node.
 # Test that one slot can be migrated to and then away from the new node.
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+test {Migrate the last slot away from a node using redis-cli} {
+    start_multiple_servers 4 [list overrides $base_conf] {
 
-    test {Migrate the last slot away from a node} {
         # Create a cluster of 3 nodes
         exec src/redis-cli --cluster-yes --cluster create \
                            127.0.0.1:[srv 0 port] \
@@ -268,33 +251,37 @@ start_server [list overrides $base_conf] {
         # redirect.
         catch { $newnode_r get foo } e
         assert_match "MOVED $slot *" $e
-        set owner [lindex $e 2]
-        set owner_id [exec src/redis-cli -u redis://$owner CLUSTER MYID]
+        lassign [split [lindex $e 2] :] owner_host owner_port
+        set owner_r [redis $owner_host $owner_port 0 $::tls]
+        set owner_id [$owner_r CLUSTER MYID]
 
         # Move slot to new node using plain Redis commands
         assert_equal OK [$newnode_r CLUSTER SETSLOT $slot IMPORTING $owner_id]
-        assert_equal OK [exec src/redis-cli -u redis://$owner \
-                             CLUSTER SETSLOT $slot MIGRATING $newnode_id]
-        assert_equal {foo} [exec src/redis-cli -u redis://$owner \
-                                CLUSTER GETKEYSINSLOT $slot 10]
-        assert_equal OK [exec src/redis-cli -u redis://$owner \
-                             MIGRATE 127.0.0.1 [srv -3 port] "" 0 5000 KEYS foo]
+        assert_equal OK [$owner_r CLUSTER SETSLOT $slot MIGRATING $newnode_id]
+        assert_equal {foo} [$owner_r CLUSTER GETKEYSINSLOT $slot 10]
+        assert_equal OK [$owner_r MIGRATE 127.0.0.1 [srv -3 port] "" 0 5000 KEYS foo]
         assert_equal OK [$newnode_r CLUSTER SETSLOT $slot NODE $newnode_id]
-        assert_equal OK [exec src/redis-cli -u redis://$owner \
-                             CLUSTER SETSLOT $slot NODE $newnode_id]
+        assert_equal OK [$owner_r CLUSTER SETSLOT $slot NODE $newnode_id]
 
-        # Move the only slot back to original node
+        # Move the only slot back to original node using redis-cli
         exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
             --cluster-from $newnode_id \
             --cluster-to $owner_id \
             --cluster-slots 1 \
             --cluster-yes
 
-        # Check that the key foo has been migrated
+        # Check that the key foo has been migrated back to the original owner.
         catch { $newnode_r get foo } e
-        assert_equal "MOVED $slot $owner" $e
-    }
+        assert_equal "MOVED $slot $owner_host:$owner_port" $e
 
-}}}} ;# stop 4 servers
+        # Check that the empty node has turned itself into a replica of the new
+        # owner and that the new owner knows that.
+        wait_for_condition 5000 100 {
+            [string match "*slave*" [$owner_r CLUSTER REPLICAS $owner_id]]
+        } else {
+            fail "Empty node didn't turn itself into a replica."
+        }
+    }
+}
 
 } ;# tags
