@@ -371,3 +371,28 @@ void freeCliConnInfo(cliConnInfo connInfo){
     if (connInfo.auth) sdsfree(connInfo.auth);
     if (connInfo.user) sdsfree(connInfo.user);
 }
+
+/*
+ * Escape a Unicode string for JSON output (--json), following RFC 7159:
+ * https://datatracker.ietf.org/doc/html/rfc7159#section-7
+*/
+sds escapeJsonString(sds s, const char *p, size_t len) {
+    s = sdscatlen(s,"\"",1);
+    while(len--) {
+        switch(*p) {
+        case '\\':
+        case '"':
+            s = sdscatprintf(s,"\\%c",*p);
+            break;
+        case '\n': s = sdscatlen(s,"\\n",2); break;
+        case '\f': s = sdscatlen(s,"\\f",2); break;
+        case '\r': s = sdscatlen(s,"\\r",2); break;
+        case '\t': s = sdscatlen(s,"\\t",2); break;
+        case '\b': s = sdscatlen(s,"\\b",2); break;
+        default:
+            s = sdscatprintf(s,(*p >= 0 && *p <= 0x1f) ? "\\u%04x" : "%c",*p);
+        }
+        p++;
+    }
+    return sdscatlen(s,"\"",1);
+}
