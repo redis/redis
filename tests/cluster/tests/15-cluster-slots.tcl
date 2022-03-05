@@ -57,15 +57,11 @@ test "slot migration is valid from primary to another primary" {
     array set nodefrom [$cluster masternode_for_slot $slot]
     array set nodeto [$cluster masternode_notfor_slot $slot]
     array set node3 [$cluster masternode_notfor_slot $slot]
-    while { $node3(port) eq $nodefrom(port) || $node3(port) eq $nodeto(port) } {
+    while {$node3(port) eq $nodeto(port)} {
         array set node3 [$cluster masternode_notfor_slot $slot]
     }
-    # Check that all nodes are different
-    assert_not_equal $nodefrom(port) $nodeto(port)
-    assert_not_equal $nodefrom(port) $node3(port)
-    assert_not_equal $nodeto(port)   $node3(port)
 
-    # Test subscribe to moved slot notifications
+    # Subscribe to moved slot notifications
     set rd1 [redis_deferring_client_by_addr 127.0.0.1 $nodefrom(port)]
     set rd2 [redis_deferring_client_by_addr 127.0.0.1 $nodeto(port)]
     set rd3 [redis_deferring_client_by_addr 127.0.0.1 $node3(port)]
@@ -73,15 +69,15 @@ test "slot migration is valid from primary to another primary" {
     assert_equal {1} [subscribe $rd2 {__redis__:moved}]
     assert_equal {1} [subscribe $rd3 {__redis__:moved}]
 
+    # Move the slot
     assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
-
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 
     # Check that we got the pubsub MOVED message from all nodes.
     set expect_content "MOVED $slot 127.0.0.1:$nodeto(port)"
-    set expect_publish "message __redis__:moved {$expect_content}"
+    set expect_publish [list message __redis__:moved $expect_content]
     assert_equal $expect_publish [$rd1 read]
     assert_equal $expect_publish [$rd2 read]
     assert_equal $expect_publish [$rd3 read]

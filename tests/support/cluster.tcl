@@ -157,11 +157,6 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
     set ::redis_cluster::startup_nodes($id) [lsort -unique $::redis_cluster::startup_nodes($id)]
 }
 
-# Returns the list of nodes (each is an info dict) of a cluster.
-proc ::redis_cluster::__get_nodes {$id} {
-    return [dict values $::redis_cluster::nodes($id)]
-}
-
 # Free a redis_cluster handle.
 proc ::redis_cluster::__method__close {id} {
     catch {

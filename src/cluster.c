@@ -4155,30 +4155,38 @@ void clusterCron(void) {
         clusterUpdateState();
 }
 
+/* Returns 1 if the client is currently using a plaintext connection in a TLS
+ * cluster, 0 otherwise. (Vice versa is not possible, but it might be in the
+ * future.) */
+static inline int clusterClientUsesAltPort(client *c) {
+    return server.tls_cluster && c->conn &&
+        connGetType(c->conn) != CONN_TYPE_TLS;
+}
+
+/* For redirects, verb must start with a dash, e.g. "-ASK" or "-MOVED". */
+sds clusterFormatRedirect(const char *verb, int slot, clusterNode *n, int use_pport) {
+    const char *endpoint = getPreferredEndpoint(n);
+    int port = use_pport && n->pport ? n->pport : n->port;
+    return sdscatprintf(sdsempty(), "%s %d %s:%d", verb, slot, endpoint, port);
+}
+
 /* Notify clients subscribed to slot moved events. */
-void notifyMovedSlot(int moved_slot, list *clients) {
+void clusterNotifyMovedSlot(int moved_slot, list *clients) {
     clusterNode *n = server.cluster->slots[moved_slot];
     /* As for -MOVED redirects, the port in the message depends on whether the
-     * client is using TLS or not. Use node's plaintext port if cluster is TLS
-     * but client is non-TLS. Otherwise, use the node's regular port. */
+     * client is using TLS or not. */
     robj *messages[2] = {NULL, NULL}; /* Created lazily. */
     listNode *ln;
     listIter li;
     listRewind(clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = ln->value;
-        int use_pport = (server.tls_cluster && n->pport &&
-                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+        int use_pport = clusterClientUsesAltPort(c);
         if (messages[use_pport] == NULL) {
-            sds s = sdscatprintf(sdsempty(),
-                                 "MOVED %d %s:%d",
-                                 moved_slot,
-                                 getPreferredEndpoint(n),
-                                 use_pport ? n->pport : n->port);
+            sds s = clusterFormatRedirect("MOVED", moved_slot, n, use_pport);
             messages[use_pport] = createObject(OBJ_STRING, s);
         }
-        addReplyPubsubMessage(c, server.cluster->moved_slot_channel,
-                              messages[use_pport]);
+        addReplyPubsubMessage(c, server.cluster->moved_slot_channel, messages[use_pport]);
         updateClientMemUsage(c);
     }
     if (messages[0]) decrRefCount(messages[0]);
@@ -4224,7 +4232,7 @@ void clusterBeforeSleep(void) {
      * including replicas. */
     if (moved_slot >= 0) {
         list *clients = pubsubGetSubscribers(server.cluster->moved_slot_channel);
-        if (clients) notifyMovedSlot(moved_slot, clients);
+        if (clients) clusterNotifyMovedSlot(moved_slot, clients);
     }
 
     /* Save the config, possibly using fsync. */
@@ -6656,15 +6664,9 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        /* Redirect to IP:port. Include plaintext port if cluster is TLS but
-         * client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
-        int port = use_pport && n->pport ? n->pport : n->port;
-        addReplyErrorSds(c,sdscatprintf(sdsempty(),
-            "-%s %d %s:%d",
-            (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-            hashslot, getPreferredEndpoint(n), port));
+        const char *verb = (error_code == CLUSTER_REDIR_ASK) ? "-ASK" : "-MOVED";
+        int use_pport = clusterClientUsesAltPort(c);
+        addReplyErrorSds(c, clusterFormatRedirect(verb, hashslot, n, use_pport));
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }
