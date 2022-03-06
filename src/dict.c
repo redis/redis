@@ -233,10 +233,10 @@ int dictRehash(dict *d, int bucket_visits) {
     while (bucket_visits > 0) {
         dictEntry *entries_to_rehash = d->ht_table[d->rehashidx];
 
-        /* If HT grows, need to set to NULL current bucket and corresponding new ones
-         * before rehashing back entries (as we avoid from using memset when
-         * expanded the table). If shrinks this loop iterates once and set to NULL
-         * current bucket.  */
+        /* If HT grows, set current bucket to NULL and corresponding new ones
+         * before rehashing back entries (since we avoid earlier from using
+         * memset() when expanded the table). If shrinks this loop iterates once
+         * and set to NULL only current bucket. */
         long idx = d->rehashidx ;
         do {
             d->ht_table[idx] = NULL;
