@@ -7,6 +7,12 @@
         "arity": -2,
         "function": "sortCommand",
         "get_keys_function": "sortGetKeys",
+	"history": [
+            [
+                "7.0.0",
+                "Restrict 'get' and 'by' options when user is not authorized for full keyspace access."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
