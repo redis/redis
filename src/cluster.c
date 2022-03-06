@@ -430,6 +430,7 @@ int clusterSaveConfig(int do_fsync) {
     return 0;
 
 err:
+    serverLog(LL_WARNING, "WARNING: Cluster was not able to save the new configuration on disk: %s", strerror(errno));
     if (fd != -1) close(fd);
     sdsfree(ci);
     return -1;
