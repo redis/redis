@@ -281,7 +281,7 @@ static void usage(int err);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
-static int cliConnect(int force);
+static int cliConnect(int flags);
 
 static char *getInfoField(char *info, char *field);
 static long getLongInfoField(char *info, char *field);
@@ -2414,6 +2414,8 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         }
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
             cliPrintContextError();
+            redisFree(context);
+            context = NULL;
             return REDIS_ERR;
         }
 
