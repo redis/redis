@@ -235,10 +235,10 @@ start_server {tags {"cli"}} {
         set escaped_reverse_solidus \"\\"
         assert_equal $escaped_reverse_solidus $escaped_reverse_solidus [run_cli --json hgetall \/]
         # non printable (0xF0 in ISO-8859-1, not UTF-8(0xC3 0xB0))
-        set eth "\xf0\x65"
+        set eth "\u00f0\u0065"
         r hset eth test $eth
         assert_equal \"\\xf0e\" [run_cli hget eth test]
-        assert_equal \"\xf0e\" [run_cli --json hget eth test]
+        assert_equal \"\u00f0e\" [run_cli --json hget eth test]
         assert_equal \"\\\\xf0e\" [run_cli --quoted-json hget eth test]
         # control characters
         r hset control test "Hello\x00\x01\x02\x03World"
@@ -247,7 +247,7 @@ start_server {tags {"cli"}} {
         r hset numkey 1 One
         assert_equal \{\"1\":\"One\"\} [run_cli --json hgetall numkey]
         # non-string, non-printable keys
-        r hset npkey "K\x00\x01ey" "V\x00\x01alue"
+        r hset npkey "K\u0000\u0001ey" "V\u0000\u0001alue"
         assert_equal \{\"K\\u0000\\u0001ey\":\"V\\u0000\\u0001alue\"\} [run_cli --json hgetall npkey]
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
