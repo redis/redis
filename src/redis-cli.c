@@ -799,7 +799,12 @@ static void cliInitHelp(void) {
     redisReply *commandTable;
     dict *groups;
 
-    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
+    if (cliConnect(CC_QUIET) == REDIS_ERR) {
+        /* Can not connect to the server, but we still want to provide
+         * help, generate it only from the old help.h data instead. */
+        cliOldInitHelp();
+        return;
+    }
     commandTable = redisCommand(context, "COMMAND DOCS");
     if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
         /* New COMMAND DOCS subcommand not supported - generate help from old help.h data instead. */
@@ -1690,12 +1695,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     size_t *argvlen;
     int j, output_raw;
 
-    if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
-        (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
-        cliOutputHelp(--argc, ++argv);
-        return REDIS_OK;
-    }
-
     if (context == NULL) return REDIS_ERR;
 
     output_raw = 0;
@@ -2391,6 +2390,12 @@ static int confirmWithYes(char *msg, int ignore_force) {
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
+        if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
+            (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?"))) {
+            cliOutputHelp(--argc, ++argv);
+            return REDIS_OK;
+        }
+
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
@@ -8975,10 +8980,11 @@ int main(int argc, char **argv) {
     }
 
     /* Otherwise, we have some arguments to execute */
-    if (cliConnect(0) != REDIS_OK) exit(1);
     if (config.eval) {
+        if (cliConnect(CC_FORCE) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
+        cliConnect(CC_QUIET);
         return noninteractive(argc,argv);
     }
 }
