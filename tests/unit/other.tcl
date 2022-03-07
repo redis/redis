@@ -333,6 +333,7 @@ start_server {tags {"other external:skip"}} {
         assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
         exec kill -9 [get_child_pid 0]
         waitForBgsave r
+        after 200 ;# waiting for serverCron
 
         # Hash table should rehash since there is no child process,
         # size is power of two and over 4098, so it is 8192
