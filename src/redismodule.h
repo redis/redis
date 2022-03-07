@@ -429,7 +429,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
 #define REDISMODULE_EVENT_EVENTLOOP 15
-#define _REDISMODULE_EVENT_NEXT 16 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CONFIG 16
+#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -532,7 +533,11 @@ static const RedisModuleEvent
     RedisModuleEvent_EventLoop = {
         REDISMODULE_EVENT_EVENTLOOP,
         1
-};
+    },
+    RedisModuleEvent_Config = {
+        REDISMODULE_EVENT_CONFIG,
+        1
+    };
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
@@ -573,6 +578,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MODULE_LOADED 0
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
+
+#define REDISMODULE_SUBEVENT_CONFIG_CHANGE 0
+#define _REDISMODULE_SUBEVENT_CONFIG_NEXT 1
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
@@ -673,6 +681,17 @@ typedef struct RedisModuleModuleChange {
 } RedisModuleModuleChangeV1;
 
 #define RedisModuleModuleChange RedisModuleModuleChangeV1
+
+#define REDISMODULE_CONFIGCHANGE_VERSION 1
+typedef struct RedisModuleConfigChange {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint32_t num_changes;   /* how many redis config options were changed */
+    const char **config_names; /* the config names that were changed */
+} RedisModuleConfigChangeV1;
+
+#define RedisModuleConfigChange RedisModuleConfigChangeV1
 
 #define REDISMODULE_CRON_LOOP_VERSION 1
 typedef struct RedisModuleCronLoopInfo {

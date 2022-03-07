@@ -267,6 +267,18 @@ void swapDbCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void 
     LogNumericEvent(ctx, "swapdb-second", ei->dbnum_second);
 }
 
+void configChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data)
+{
+    REDISMODULE_NOT_USED(e);
+    if (sub != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+        return;
+    }
+
+    RedisModuleConfigChangeV1 *ei = data;
+    LogNumericEvent(ctx, "config-change-count", ei->num_changes);
+    LogStringEvent(ctx, "config-change-first", ei->config_names[0]);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -316,6 +328,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModuleEvent_ModuleChange, moduleChangeCallback);
     RedisModule_SubscribeToServerEvent(ctx,
         RedisModuleEvent_SwapDB, swapDbCallback);
+
+    RedisModule_SubscribeToServerEvent(ctx,
+        RedisModuleEvent_Config, configChangeCallback);
 
     event_log = RedisModule_CreateDict(ctx);
 
