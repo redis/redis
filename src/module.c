@@ -5685,7 +5685,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = ENOENT;
         if (error_as_call_replies) {
             sds msg = sdscatfmt(sdsempty(),"ERR Unknown Redis "
-                                           "command %s.",c->argv[0]->ptr);
+                                           "command %S.",c->argv[0]->ptr);
             reply = callReplyCreateError(msg, ctx);
         }
         goto cleanup;
@@ -5697,7 +5697,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = EINVAL;
         if (error_as_call_replies) {
             sds msg = sdscatfmt(sdsempty(), "ERR Wrong number of "
-                                            "args calling Redis command %s.", c->argv[0]->ptr);
+                                            "args calling Redis command %S.", c->argv[0]->ptr);
             reply = callReplyCreateError(msg, ctx);
         }
         goto cleanup;
@@ -5710,7 +5710,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             errno = EACCES;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "ERR Unsafe command "
-                                                "%s was called.", c->argv[0]->ptr);
+                                                "%S was called.", c->argv[0]->ptr);
                 reply = callReplyCreateError(msg, ctx);
             }
             goto cleanup;
@@ -5721,7 +5721,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (cmd->flags & CMD_WRITE) {
             errno = EACCES;
             if (error_as_call_replies) {
-                sds msg = sdscatfmt(sdsempty(), "ERR Write command %s was "
+                sds msg = sdscatfmt(sdsempty(), "ERR Write command %S was "
                                                 "called while write is not allowed.", c->argv[0]->ptr);
                 reply = callReplyCreateError(msg, ctx);
             }
@@ -5784,12 +5784,12 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             sds msg = NULL;
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
                 if (error_as_call_replies) {
-                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a write command %s while the cluster is down and readonly", c->argv[0]->ptr);
+                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a write command %S while the cluster is down and readonly", c->argv[0]->ptr);
                 }
                 errno = EROFS;
             } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
                 if (error_as_call_replies) {
-                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a command %s while the cluster is down", c->argv[0]->ptr);
+                    msg = sdscatfmt(sdsempty(), "ERR Can not execute a command %S while the cluster is down", c->argv[0]->ptr);
                 }
                 errno = ENETDOWN;
             } else {
