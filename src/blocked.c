@@ -593,7 +593,7 @@ void unblockDeletedStreamReadgroupClients(readyList *rl) {
             server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            addReplyError(receiver, "-UNBLOCK the stream key no longer exists");
+            addReplyError(receiver, "-UNBLOCKED the stream key no longer exists");
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
             unblockClient(receiver);
             afterCommand(receiver);
