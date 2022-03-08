@@ -5409,6 +5409,11 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
+        if (sdslen(c->argv[2]->ptr) != CLUSTER_NAMELEN) {
+            addReplyError(c, "Invalid length for node id");
+            return;
+        }
+
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
         if (!n) {
