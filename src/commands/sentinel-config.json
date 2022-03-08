@@ -1,6 +1,6 @@
 {
     "CONFIG": {
-        "summary": "Get the current value of a global Sentinel configuration parameter.",
+        "summary": "Configure Sentinel",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "6.2.0",
