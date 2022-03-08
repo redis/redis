@@ -5013,6 +5013,8 @@ void clusterCommand(client *c) {
 "    Return information about the cluster.",
 "KEYSLOT <key>",
 "    Return the hash slot for <key>.",
+"KEYNODE <key>",
+"    Return the node ip and port for <key>"
 "MEET <ip> <port> [<bus-port>]",
 "    Connect nodes into a working cluster.",
 "MYID",
@@ -5372,6 +5374,19 @@ NULL
         sds key = c->argv[2]->ptr;
 
         addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
+    } else if (!strcasecmp(c->argv[1]->ptr,"keynode") && c->argc == 3) {
+        /* CLUSTER KEYNODE <key> */
+        sds key = c->argv[2]->ptr;
+        clusterNode *n = server.cluster->slots[keyHashSlot(key,sdslen(key))];
+        if (n == NULL) {
+            addReplyError(c,"-CLUSTERDOWN Hash slot not served");
+            return;
+        }
+
+        int use_pport = (server.tls_cluster &&
+                         c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
+        int port = use_pport && n->pport ? n->pport : n->port;
+        addReplyBulkSds(c,sdscatprintf(sdsempty(), "%s:%d", getPreferredEndpoint(n), port));
     } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
         long long slot;
