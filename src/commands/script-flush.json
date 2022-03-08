@@ -10,7 +10,7 @@
         "history": [
             [
                 "6.2.0",
-                "Added the `ASYNC` and `SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."
+                "Added the `ASYNC` and `SYNC` flushing mode modifiers."
             ]
         ],
         "command_flags": [

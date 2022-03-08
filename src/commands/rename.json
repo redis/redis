@@ -6,12 +6,7 @@
         "since": "1.0.0",
         "arity": 3,
         "function": "renameCommand",
-        "history": [
-            [
-                "3.2.0",
-                "The command no longer returns an error when source and destination names are the same."
-            ]
-        ],
+        "history": [],
         "command_flags": [
             "WRITE"
         ],
