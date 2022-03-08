@@ -1532,11 +1532,9 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
  * or when the replication RDB transfer strategy is modified from
  * disk to socket or the other way around.
  *
- * The goal of this function is to handle slaves waiting for a successful
- * background saving in order to perform non-blocking synchronization, and
- * to schedule a new BGSAVE if there are slaves that attached while a
- * BGSAVE was in progress, but it was not a good one for replication (no
- * other slave was accumulating differences).
+ * The goal of this function is:
+ * For disk mode: send RDB file to slaves in the state of SLAVE_STATE_WAIT_BGSAVE_END.
+ * For socket mode: put slaves online.
  *
  * The argument bgsaveerr is C_OK if the background saving succeeded
  * otherwise C_ERR is passed to the function.
