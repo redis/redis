@@ -121,8 +121,6 @@ typedef struct {
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
     /* allowed_firstargs is used by ACL rules to block access to a command unless a
      * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * WARNING: Allowing a first arg of an otherwise blocked command is a misuse of ACL 
-     * and may get disabled in the future.
      *
      * For each command ID (corresponding to the command bit set in allowed_commands),
      * This array points to an array of SDS strings, terminated by a NULL pointer,
