@@ -1,5 +1,5 @@
 {
-    "SET": {
+    "CONFIG": {
         "summary": "Set the value of a global Sentinel configuration parameter",
         "complexity": "O(1)",
         "group": "sentinel",
@@ -11,22 +11,6 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ],
-        "arguments": [
-            {
-                "name": "parameter_value",
-                "type": "block",
-                "arguments": [
-                    {
-                        "name": "parameter",
-                        "type": "string"
-                    },
-                    {
-                        "name": "value",
-                        "type": "string"
-                    }
-                ]
-            }
         ]
     }
 }

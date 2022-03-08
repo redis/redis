@@ -1,22 +1,16 @@
 {
-    "GET": {
+    "CONFIG": {
         "summary": "Get the current value of a global Sentinel configuration parameter.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "6.2.0",
-        "arity": 4,
+        "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ],
-        "arguments": [
-            {
-                "name": "parameter",
-                "type": "string"
-            }
         ]
     }
 }
