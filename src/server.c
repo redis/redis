@@ -6417,7 +6417,8 @@ void dismissMemory(void* ptr, size_t size_hint) {
 
 /* Dismiss big chunks of memory inside a client structure, see dismissMemory() */
 void dismissClientMemory(client *c) {
-    /* Dismiss client query buffer. */
+    /* Dismiss client query buffer and static reply buffer. */
+    dismissSds(c->buf);
     dismissSds(c->querybuf);
     dismissSds(c->pending_querybuf);
     /* Dismiss argv array only if we estimate it contains a big buffer. */
@@ -6443,9 +6444,6 @@ void dismissClientMemory(client *c) {
             if (bulk) dismissMemory(bulk, bulk->size);
         }
     }
-
-    /* The client struct has a big static reply buffer in it. */
-    dismissMemory(c, 0);
 }
 
 /* In the child process, we don't need some buffers anymore, and these are
