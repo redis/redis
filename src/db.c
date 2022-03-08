@@ -218,9 +218,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
         val->lru = old->lru;
     }
     /* Although the key is not really deleted from the database, we regard 
-    overwrite as two steps of unlink+add, so we still need to call the unlink 
-    callback of the module. */
+     * overwrite as two steps of unlink+add, so we still need to call the unlink
+     * callback of the module. */
     moduleNotifyKeyUnlink(key,old,db->id);
+    /* We want to try to unblock any client using a blocking XREADGROUP */
+    if (old->type == OBJ_STREAM)
+        signalKeyAsReady(db,key,old->type);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -311,6 +314,9 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (val->type == OBJ_STREAM)
+            signalKeyAsReady(db,key,val->type);
         if (async) {
             freeObjAsync(key, val, db->id);
             dictSetVal(db->dict, de, NULL);
@@ -551,6 +557,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
+        scanDatabaseForDeletedStreams(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
@@ -1311,7 +1318,7 @@ void copyCommand(client *c) {
  * one or more blocked clients for B[LR]POP or other blocking commands
  * and signal the keys as ready if they are of the right type. See the comment
  * where the function is used for more info. */
-void scanDatabaseForReadyLists(redisDb *db) {
+void scanDatabaseForReadyKeys(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
@@ -1321,6 +1328,39 @@ void scanDatabaseForReadyLists(redisDb *db) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
         }
+    }
+    dictReleaseIterator(di);
+}
+
+/* Since we are unblocking XREADGROUP clients in the event the
+ * key was deleted/overwritten we must do the same in case the
+ * database was flushed/swapped. */
+void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
+    /* Optimization: If no clients are in type BLOCKED_STREAM,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
+
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        int was_stream = 0, is_stream = 0;
+
+        dictEntry *kde = dictFind(emptied->dict, key->ptr);
+        if (kde) {
+            robj *value = dictGetVal(kde);
+            was_stream = value->type == OBJ_STREAM;
+        }
+        if (replaced_with) {
+            dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
+            if (kde) {
+                robj *value = dictGetVal(kde);
+                is_stream = value->type == OBJ_STREAM;
+            }
+        }
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (was_stream && !is_stream)
+            signalKeyAsReady(emptied, key, OBJ_STREAM);
     }
     dictReleaseIterator(di);
 }
@@ -1345,6 +1385,10 @@ int dbSwapDatabases(int id1, int id2) {
     touchAllWatchedKeysInDb(db1, db2);
     touchAllWatchedKeysInDb(db2, db1);
 
+    /* Try to unblock any XREADGROUP clients if the key no longer exists. */
+    scanDatabaseForDeletedStreams(db1, db2);
+    scanDatabaseForDeletedStreams(db2, db1);
+
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
      * remain in the same DB they were. */
@@ -1367,8 +1411,8 @@ int dbSwapDatabases(int id1, int id2) {
      * in dbAdd() when a list is created. So here we need to rescan
      * the list of clients blocked on lists and signal lists as ready
      * if needed. */
-    scanDatabaseForReadyLists(db1);
-    scanDatabaseForReadyLists(db2);
+    scanDatabaseForReadyKeys(db1);
+    scanDatabaseForReadyKeys(db2);
     return C_OK;
 }
 
@@ -1390,6 +1434,9 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         /* Swapping databases should make transaction fail if there is any
          * client watching keys. */
         touchAllWatchedKeysInDb(activedb, newdb);
+
+        /* Try to unblock any XREADGROUP clients if the key no longer exists. */
+        scanDatabaseForDeletedStreams(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -1413,7 +1460,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * in dbAdd() when a list is created. So here we need to rescan
          * the list of clients blocked on lists and signal lists as ready
          * if needed. */
-        scanDatabaseForReadyLists(activedb);
+        scanDatabaseForReadyKeys(activedb);
     }
 
     trackingInvalidateKeysOnFlush(1);

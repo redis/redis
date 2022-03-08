@@ -205,6 +205,113 @@ start_server {
         $rd close
     }
 
+    test {Blocking XREADGROUP: key deleted} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r DEL mystream
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: key type changed with SET} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r SET mystream val1
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: key type changed with transaction} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r MULTI
+        r DEL mystream
+        r SADD mystream e1
+        r EXEC
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: flushed DB} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r FLUSHALL
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: swapped DB, key doesn't exist} {
+        r SELECT 4
+        r FLUSHDB
+        r SELECT 9
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd SELECT 9
+        $rd read
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r SWAPDB 4 9
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    } {0} {external:skip}
+
+    test {Blocking XREADGROUP: swapped DB, key is not a stream} {
+        r SELECT 4
+        r FLUSHDB
+        r LPUSH mystream e1
+        r SELECT 9
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd SELECT 9
+        $rd read
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        r SWAPDB 4 9
+        assert_error "*no longer exists*" {$rd read}
+        $rd close
+    } {0} {external:skip}
+
+    test {Blocking XREAD: key deleted} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 0 STREAMS mystream "$"
+        r DEL mystream
+
+        r XADD mystream 667 f v
+        set res [$rd read]
+        assert_equal [lindex $res 0 1 0] {667-0 {f v}}
+        $rd close
+    }
+
+    test {Blocking XREAD: key type changed with SET} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 0 STREAMS mystream "$"
+        r SET mystream val1
+
+        r DEL mystream
+        r XADD mystream 667 f v
+        set res [$rd read]
+        assert_equal [lindex $res 0 1 0] {667-0 {f v}}
+        $rd close
+    }
+
     test {Blocking XREADGROUP for stream that ran dry (issue #5299)} {
         set rd [redis_deferring_client]
 
