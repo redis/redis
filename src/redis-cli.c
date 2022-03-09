@@ -2425,13 +2425,15 @@ static int confirmWithYes(char *msg, int ignore_force) {
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
-    while (1) {
-        if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
-            (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?"))) {
-            cliOutputHelp(--argc, ++argv);
-            return REDIS_OK;
-        }
+    /* In debugging mode, let's pass "help" to Redis.
+     * Note we can process the "help" without a connection. */
+    if (!config.eval_ldb &&
+        (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?"))) {
+        cliOutputHelp(--argc, ++argv);
+        return REDIS_OK;
+    }
 
+    while (1) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
