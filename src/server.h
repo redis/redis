@@ -1173,7 +1173,6 @@ typedef struct client {
     size_t last_memory_usage;
     int last_memory_type;
 
-    //size_t last_memory_usage_on_bucket_update;
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
 
@@ -1585,7 +1584,7 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
-    size_t stat_cluster_links_memory;/* Mem usage by cluster links */
+    size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */

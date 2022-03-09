@@ -201,7 +201,7 @@ client *createClient(connection *conn) {
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->last_memory_usage = /*c->last_memory_usage_on_bucket_update =*/ 0;
+    c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
@@ -4167,8 +4167,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
-        /* Update the client in the mem usage buckets after we're done processing it in the io-threads */
-        //updateClientMemUsageBucket(c);
+        /* Update the client in the mem usage after we're done processing it in the io-threads */
         updateClientMemUsage(c);
 
         /* Install the write handler if there are pending writes in some
@@ -4270,7 +4269,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
         serverAssert(!(c->flags & CLIENT_BLOCKED));
 
-        updateClientMemUsage(c);
         if (beforeNextClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go
@@ -4278,8 +4276,8 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             continue;
         }
 
-        /* Once io-threads are idle we can update the client in the mem usage buckets */
-        //updateClientMemUsageBucket(c);
+        /* Once io-threads are idle we can update the client in the mem usage */
+        updateClientMemUsage(c);
 
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid

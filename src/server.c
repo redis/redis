@@ -831,6 +831,11 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * and also from the clientsCron. We call it from the cron so we have updated
  * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients and in case a configuration
  * change requires us to evict a non-active client.
+ *
+ * This also adds the client to the correct memory usage bucket. Each bucket contains
+ * all clients with roughly the same amount of memory. This way we group
+ * together clients consuming about the same amount of memory and can quickly
+ * free them in case we reach maxmemory-clients (client eviction).
  */
 int updateClientMemUsage(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
@@ -846,12 +851,6 @@ int updateClientMemUsage(client *c) {
     } else {
         server.stat_clients_type_memory[type] += mem - c->last_memory_usage;
     }
-
-
-    /* Update client mem usage bucket only when we're not in the context of an
-     * IO thread. See updateClientMemUsageBucket() for details. */
-    //if (io_threads_op == IO_THREADS_OP_IDLE)
-    //updateClientMemUsageBucket(c);
 
     int allow_eviction =
             (type == CLIENT_TYPE_NORMAL || type == CLIENT_TYPE_PUBSUB) &&
@@ -881,55 +880,12 @@ int updateClientMemUsage(client *c) {
         }
     }
 
-    /* Remember what we added and where, to remove it next time. */
+    /* Remember what we added, to remove it next time. */
     c->last_memory_usage = mem;
 
     return 0;
 }
 
-/* Adds the client to the correct memory usage bucket. Each bucket contains
- * all clients with roughly the same amount of memory. This way we group
- * together clients consuming about the same amount of memory and can quickly
- * free them in case we reach maxmemory-clients (client eviction).
- * Note that in case of io-threads enabled we have to call this function only
- * after the fan-in phase (when no io-threads are working) because the bucket
- * lists are global. The io-threads themselves track per-client memory usage in
- * updateClientMemUsage(). Here we update the clients to each bucket when all
- * io-threads are done (both for read and write io-threading). */
-#if 0
-void updateClientMemUsageBucket(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
-    int allow_eviction =
-            (c->last_memory_type == CLIENT_TYPE_NORMAL || c->last_memory_type == CLIENT_TYPE_PUBSUB) &&
-            !(c->flags & CLIENT_NO_EVICT);
-
-    /* Update the client in the mem usage buckets */
-    if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage_on_bucket_update;
-        /* If this client can't be evicted then remove it from the mem usage
-         * buckets */
-        if (!allow_eviction) {
-            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-            c->mem_usage_bucket = NULL;
-            c->mem_usage_bucket_node = NULL;
-        }
-    }
-    if (allow_eviction) {
-        clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
-        bucket->mem_usage_sum += c->last_memory_usage;
-        if (bucket != c->mem_usage_bucket) {
-            if (c->mem_usage_bucket)
-                listDelNode(c->mem_usage_bucket->clients,
-                            c->mem_usage_bucket_node);
-            c->mem_usage_bucket = bucket;
-            listAddNodeTail(bucket->clients, c);
-            c->mem_usage_bucket_node = listLast(bucket->clients);
-        }
-    }
-
-    c->last_memory_usage_on_bucket_update = c->last_memory_usage;
-}
-#endif
 /* Return the max samples in the memory usage of clients tracked by
  * the function clientsCronTrackExpansiveClients(). */
 void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
