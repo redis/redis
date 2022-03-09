@@ -418,7 +418,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN sort-user sort mylist get #]
         assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist get #]
         
-        # we should fail since Write permission is granted to all keys but we do a read access
+        # we should fail since Write permission is granted to all keys but we do aread access
         r ACL SETUSER sort-user (%W~* ~mylist +sort +sort_ro)
         assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort mylist get v*]
         assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort_ro mylist get v*]
