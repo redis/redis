@@ -9021,7 +9021,7 @@ int main(int argc, char **argv) {
 
     /* Otherwise, we have some arguments to execute */
     if (config.eval) {
-        if (cliConnect(CC_FORCE) != REDIS_OK) exit(1);
+        if (cliConnect(0) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
         cliConnect(CC_QUIET);
