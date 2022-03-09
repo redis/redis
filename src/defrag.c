@@ -1196,7 +1196,7 @@ void activeDefragCycle(void) {
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
-             * (if we have a lot of pointers in one hash bucket or rehasing),
+             * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */

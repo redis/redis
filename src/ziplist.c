@@ -608,7 +608,7 @@ int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
 }
 
 /* Fills a struct with all information about an entry.
- * This function is the "unsafe" alternative to the one blow.
+ * This function is the "unsafe" alternative to the one below.
  * Generally, all function that return a pointer to an element in the ziplist
  * will assert that this element is valid, so it can be freely used.
  * Generally functions such ziplistGet assume the input pointer is already

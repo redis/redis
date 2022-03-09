@@ -1940,7 +1940,7 @@ int writeToClient(client *c, int handler_installed) {
     if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
-         * adDeleteFileEvent() is not thread safe: however writeToClient()
+         * aeDeleteFileEvent() is not thread safe: however writeToClient()
          * is always called with handler_installed set to 0 from threads
          * so we are fine. */
         if (handler_installed) {
@@ -2128,7 +2128,7 @@ int processInlineBuffer(client *c) {
      * we got some desynchronization in the protocol, for example
      * because of a PSYNC gone bad.
      *
-     * However the is an exception: masters may send us just a newline
+     * However there is an exception: masters may send us just a newline
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
