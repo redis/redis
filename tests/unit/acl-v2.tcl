@@ -408,25 +408,20 @@ start_server {tags {"acl external:skip"}} {
     
     test {Test sort commands require some type of permission to execute} {
     
-        r ACL SETUSER sort-user (%R~v* ~mylist +sort +sort_ro)
+        r ACL SETUSER sort-user (%R~myhash* %R~v* ~mylist +sort +sort_ro)
         
-        # we should fail since no full key access
-        assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort mylist get v*]
-        assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort_ro mylist get v*]
-        
-        # we should succeed since # is not a key access
-        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist get #]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist get #]
-        
-        # we should fail since Write permission is granted to all keys but we do aread access
-        r ACL SETUSER sort-user (%W~* ~mylist +sort +sort_ro)
-        assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort mylist get v*]
-        assert_equal "This user has no permissions to access the 'v*' key" [r ACL DRYRUN sort-user sort_ro mylist get v*]
-        
-        # we should succeed since we provided read access permissions
-        r ACL SETUSER sort-user (%R~* ~mylist +sort +sort_ro)
+        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist]
         assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by v* get v*]
+        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by v* get v* get #]
+        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by myhash*->field get myhash*->field]
+        assert_equal "This user has no permissions to access the 'v1*' key" [r ACL DRYRUN sort-user sort mylist get v1*]
+        assert_equal "This user has no permissions to access the 'myhash1*->f' key" [r ACL DRYRUN sort-user sort mylist get myhash1*->f]
+        
+        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist]
         assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist by v* get v*]
+        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist by myhash*->field get myhash*->field]
+        assert_equal "This user has no permissions to access the 'v1*' key" [r ACL DRYRUN sort-user sort_ro mylist get v1*]
+        assert_equal "This user has no permissions to access the 'myhash1*->f' key" [r ACL DRYRUN sort-user sort_ro mylist get myhash1*->f]
         
         r ACL DELUSER sort-user
     }

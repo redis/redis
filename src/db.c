@@ -2133,7 +2133,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 
 /* Generic helper function to extract keys from the SORT command.
  * there is a distinction between sort key access to the sort-key/store-key which are real key reference
- * and the FIRST key access pattern provided via 'get' or 'by' options. the '#' used by 'get' is not referring to any key
+ * and the key access patterns provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
  * so it is skipped.
  * for the ACL authorization verification, we will also want to extract the access key patterns.
  *
@@ -2145,7 +2145,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  * This command declares incomplete keys, so the flags are correctly set for this function */
 static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int with_patterns) {
     int i, j, num;
-    keyReference *keys, *store_key=NULL, *external_key=NULL;
+    keyReference *keys, *store_key=NULL;
     UNUSED(cmd);
 
     num = 0;
@@ -2178,18 +2178,8 @@ static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, g
             } else if ( (!strcasecmp(argv[i]->ptr,"get") || !strcasecmp(argv[i]->ptr,"by")) && i+1 < argc) {
                 /* '#' does not stands for real key, but is just being replaced with the list content in get. */
                 if (with_patterns && strcasecmp(argv[i+1]->ptr,"#")) {
-                    /* Note: we want to keep update the same pattern reference
-                     * to be sure to process the *last* "GET" or "BY" options.
-                     * if multiple ones are provided we will only return the first one.
-                     * This is since we only use these pattern to validate ACL rules which are currently only
-                     * looking for validating that in case at-least one pattern exists - the selector
-                     * should allow full key access
-                     */
-                    if (!external_key) {
-                        external_key = &keys[num++];
-                        external_key->pos = i+1;
-                        external_key->flags = CMD_KEY_ACCESS | CMD_KEY_SORT_PATTERN;
-                    }
+                    keys[num].pos = i+1;
+                    keys[num++].flags = CMD_KEY_ACCESS | CMD_KEY_SORT_PATTERN;
                 }
                 i++;
             }
@@ -2213,8 +2203,8 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
 }
 
 /* Helper function to extract keys from the SORT command.
- * Unlike sortGetKeys this command will also get the FIRST access key pattern
- * provided via 'get' or 'by' options. the '#' used by 'get' is not referring to any key
+ * Unlike sortGetKeys this command will also get the access key patterns
+ * provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
  * so it is skipped.
  * This is implemented only for the use of ACL authorization verification.
  *
