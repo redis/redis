@@ -2131,19 +2131,72 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     return 1;
 }
 
-/* Generic helper function to extract keys from the SORT command.
- * there is a distinction between sort key access to the sort-key/store-key which are real key reference
- * and the key access patterns provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
- * so it is skipped.
- * for the ACL authorization verification, we will also want to extract the access key patterns.
+/* Helper function to extract keys from the SORT command.
  *
- * SORT <sort-key> ... by <sort-by-key-pattern> ... get <get-key-patter> ... store <store-key>
+ * SORT <sort-key> ... STORE <store-key> ...
+ *
+ * The first argument of SORT is always a key, however a list of options
+ * follow in SQL-alike style. Here we parse just the minimum in order to
+ * correctly identify keys in the "STORE" option. 
+ * 
+ * This command declares incomplete keys, so the flags are correctly set for this function */
+int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int i, j, num, found_store = 0;
+    keyReference *keys;
+    UNUSED(cmd);
+
+    num = 0;
+    keys = getKeysPrepareResult(result, 2); /* Alloc 2 places for the worst case. */
+    keys[num].pos = 1; /* <sort-key> is always present. */
+    keys[num++].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+
+    /* Search for STORE option. By default we consider options to don't
+     * have arguments, so if we find an unknown option name we scan the
+     * next. However there are options with 1 or 2 arguments, so we
+     * provide a list here in order to skip the right number of args. */
+    struct {
+        char *name;
+        int skip;
+    } skiplist[] = {
+        {"limit", 2},
+        {"get", 1},
+        {"by", 1},
+        {NULL, 0} /* End of elements. */
+    };
+
+    for (i = 2; i < argc; i++) {
+        for (j = 0; skiplist[j].name != NULL; j++) {
+            if (!strcasecmp(argv[i]->ptr,skiplist[j].name)) {
+                i += skiplist[j].skip;
+                break;
+            } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
+                /* Note: we don't increment "num" here and continue the loop
+                 * to be sure to process the *last* "STORE" option if multiple
+                 * ones are provided. This is same behavior as SORT. */
+                found_store = 1;
+                keys[num].pos = i+1; /* <store-key> */
+                keys[num].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+                break;
+            }
+        }
+    }
+    result->numkeys = num + found_store;
+    return result->numkeys;
+}
+
+/* Helper function to extract keys from the SORT command.
+ * Unlike sortGetKeys this command will also get the access key patterns
+ * provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
+ * so it is skipped.
+ * This is implemented only for the use of ACL authorization verification.
+ *
+ * SORT <sort-key> ... by <sort-by-key-pattern> ... get <get-key-patter> ...
  *
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style.
  *
  * This command declares incomplete keys, so the flags are correctly set for this function */
-int _sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int with_patterns) {
+int sortGetKeysWithPatterns(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num;
     keyReference *keys, *store_key=NULL;
     UNUSED(cmd);
@@ -2177,7 +2230,7 @@ int _sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeys
                 i++;
             } else if ( (!strcasecmp(argv[i]->ptr,"get") || !strcasecmp(argv[i]->ptr,"by")) && i+1 < argc) {
                 /* '#' does not stands for real key, but is just being replaced with the list content in get. */
-                if (with_patterns && strcasecmp(argv[i+1]->ptr,"#")) {
+                if (strcasecmp(argv[i+1]->ptr,"#")) {
                     keys[num].pos = i+1;
                     keys[num++].flags = CMD_KEY_ACCESS | CMD_KEY_PATTERN;
                 }
@@ -2187,35 +2240,6 @@ int _sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeys
     }
     result->numkeys = num;
     return result->numkeys;
-}
-
-/* Helper function to extract keys from the SORT command.
- *
- * SORT <sort-key> ... STORE <store-key> ...
- *
- * The first argument of SORT is always a key, however a list of options
- * follow in SQL-alike style. Here we parse just the minimum in order to
- * correctly identify keys in the "STORE" option. 
- * 
- * This command declares incomplete keys, so the flags are correctly set for this function */
-int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    return _sortGetKeysgeneric(cmd, argv, argc, result, 0);
-}
-
-/* Helper function to extract keys from the SORT command.
- * Unlike sortGetKeys this command will also get the access key patterns
- * provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
- * so it is skipped.
- * This is implemented only for the use of ACL authorization verification.
- *
- * SORT <sort-key> ... by <sort-by-key-pattern> ... get <get-key-patter> ...
- *
- * The first argument of SORT is always a key, however a list of options
- * follow in SQL-alike style.
- *
- * This command declares incomplete keys, so the flags are correctly set for this function */
-int sortGetKeysWithPatterns(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    return _sortGetKeysgeneric(cmd, argv, argc, result, 1);
 }
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
