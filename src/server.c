@@ -6418,7 +6418,7 @@ void dismissMemory(void* ptr, size_t size_hint) {
 /* Dismiss big chunks of memory inside a client structure, see dismissMemory() */
 void dismissClientMemory(client *c) {
     /* Dismiss client query buffer and static reply buffer. */
-    dismissSds(c->buf);
+    dismissMemory(c->buf, c->buf_usable_size);
     dismissSds(c->querybuf);
     dismissSds(c->pending_querybuf);
     /* Dismiss argv array only if we estimate it contains a big buffer. */
