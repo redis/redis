@@ -10197,7 +10197,7 @@ static uint64_t moduleEventVersions[] = {
  *     are now triggered when repl-diskless-load is set to swapdb.
  *
  *     Called when repl-diskless-load config is set to swapdb,
- *     And redis needs to backup the the current database for the
+ *     And redis needs to backup the current database for the
  *     possibility to be restored later. A module with global data and
  *     maybe with aux_load and aux_save callbacks may need to use this
  *     notification to backup / restore / discard its globals.
