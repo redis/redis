@@ -2179,7 +2179,7 @@ int _sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeys
                 /* '#' does not stands for real key, but is just being replaced with the list content in get. */
                 if (with_patterns && strcasecmp(argv[i+1]->ptr,"#")) {
                     keys[num].pos = i+1;
-                    keys[num++].flags = CMD_KEY_ACCESS | CMD_KEY_SORT_PATTERN;
+                    keys[num++].flags = CMD_KEY_ACCESS | CMD_KEY_PATTERN;
                 }
                 i++;
             }
