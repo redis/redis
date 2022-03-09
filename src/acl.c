@@ -120,10 +120,7 @@ typedef struct {
      * understand if the command can be executed. */
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
     /* allowed_firstargs is used by ACL rules to block access to a command unless a
-     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * For example, a user can use the rule "-select +select|0" to block all
-     * SELECT commands, except "SELECT 0".
-     * And for a sub-command: "+config -config|set +config|set|loglevel"
+     * specific argv[1] is given.
      *
      * For each command ID (corresponding to the command bit set in allowed_commands),
      * This array points to an array of SDS strings, terminated by a NULL pointer,

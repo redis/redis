@@ -709,6 +709,7 @@ void configSetCommand(client *c) {
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
+    const char **config_names;
     sds *new_values;
     sds *old_values = NULL;
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
@@ -724,6 +725,7 @@ void configSetCommand(client *c) {
     config_count = (c->argc - 2) / 2;
 
     set_configs = zcalloc(sizeof(standardConfig*)*config_count);
+    config_names = zcalloc(sizeof(char*)*config_count);
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
     apply_fns = zcalloc(sizeof(apply_fn)*config_count);
@@ -779,6 +781,7 @@ void configSetCommand(client *c) {
             }
         }
         set_configs[i] = config;
+        config_names[i] = config->name;
         new_values[i] = c->argv[2+i*2+1]->ptr;
     }
     
@@ -824,6 +827,8 @@ void configSetCommand(client *c) {
             goto err;
         }
     }
+    RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
+    moduleFireServerEvent(REDISMODULE_EVENT_CONFIG, REDISMODULE_SUBEVENT_CONFIG_CHANGE, &cc);
     addReply(c,shared.ok);
     goto end;
 
@@ -840,6 +845,7 @@ err:
     }
 end:
     zfree(set_configs);
+    zfree(config_names);
     zfree(new_values);
     for (i = 0; i < config_count; i++)
         sdsfree(old_values[i]);
