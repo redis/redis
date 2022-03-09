@@ -803,7 +803,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
 
     /* Update tail offset after loop. */
     if (tail == zl + prevoffset) {
-        /* When the the last entry we need to update is also the tail, update tail offset
+        /* When the last entry we need to update is also the tail, update tail offset
          * unless this is the only entry that was updated (so the tail offset didn't change). */
         if (extra - delta != 0) {
             ZIPLIST_TAIL_OFFSET(zl) =

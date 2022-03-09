@@ -407,7 +407,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
  * Oldkey mey be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
- * moved. Return value is the the dictEntry if found, or NULL if not found.
+ * moved. Return value is the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
