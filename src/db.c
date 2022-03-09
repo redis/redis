@@ -2167,7 +2167,7 @@ static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, g
                 i += skiplist[j].skip;
                 break;
             } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
-                /* Note: we want to update the same store key reference
+                /* Note: we want to keep update the same store key reference
                  * to be sure to process the *last* "STORE" option if multiple
                  * ones are provided. This is same behavior as SORT. */
                 if (!store_key)
