@@ -2181,8 +2181,9 @@ static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, g
                     /* Note: we want to keep update the same pattern reference
                      * to be sure to process the *last* "GET" or "BY" options.
                      * if multiple ones are provided we will only return the first one.
-                     * This is since we only use these pattern to validate ACL rules which currently require
-                     * full read key access if a pattern exists.
+                     * This is since we only use these pattern to validate ACL rules which are currently only
+                     * looking for validating that in case at-least one pattern exists - the selector
+                     * should allow full key access
                      */
                     if (!external_key) {
                         external_key = &keys[num++];
