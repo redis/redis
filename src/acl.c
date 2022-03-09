@@ -2794,7 +2794,7 @@ setuser_cleanup:
             ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
             (c->argc-3 < -cmd->arity)))
         {
-            rejectCommandFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
             return;
         }
 
