@@ -278,8 +278,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                        * out to all keys it should cover */
 #define CMD_KEY_VARIABLE_FLAGS (1ULL<<10)  /* Means that some keys might have
                                             * different flags depending on arguments */
-#define CMD_KEY_PATTERN (1ULL<<11)  /* Means that the specific command key argument is a globing pattern
-                                       and not a real key (eg 'get' and 'by' in sort command)*/
 
 /* Key flags for when access type is unknown */
 #define CMD_KEY_FULL_ACCESS (CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE)
@@ -3040,7 +3038,6 @@ int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);
-int doesCommandHavePatterns(struct redisCommand *cmd);
 void getKeysFreeResult(getKeysResult *result);
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
@@ -3048,7 +3045,6 @@ int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, 
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-int sortGetKeysWithPatterns(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);

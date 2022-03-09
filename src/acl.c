@@ -1506,20 +1506,12 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
 static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int keyspec_flags) {
-
-    const char *hash_redirect = NULL;
-    int ret = ACL_DENIED_KEY;
-    int is_pattern = keyspec_flags & CMD_KEY_PATTERN;
-
     /* The selector can access any key */
     if (selector->flags & SELECTOR_FLAG_ALLKEYS) return ACL_OK;
 
     listIter li;
     listNode *ln;
     listRewind(selector->patterns,&li);
-
-    if (is_pattern && (hash_redirect = strstr(key,"->")))
-        key = sdsnewlen(key,hash_redirect-key);
 
     int key_flags = 0;
     if (keyspec_flags & CMD_KEY_ACCESS) key_flags |= ACL_READ_PERMISSION;
@@ -1532,22 +1524,11 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
         keyPattern *pattern = listNodeValue(ln);
         if ((pattern->flags & key_flags) != key_flags)
             continue;
-        if (!is_pattern) {
-            size_t plen = sdslen(pattern->pattern);
-            if (stringmatchlen(pattern->pattern,plen,key,keylen,0)) {
-                ret = ACL_OK;
-                break;
-            }
-        } else {
-            if (!strcmp(pattern->pattern,key)) {
-                ret = ACL_OK;
-                break;
-            }
-        }
+        size_t plen = sdslen(pattern->pattern);
+        if (stringmatchlen(pattern->pattern,plen,key,keylen,0))
+            return ACL_OK;
     }
-    if(hash_redirect)
-        sdsfree((char*)key);
-    return ret;
+    return ACL_DENIED_KEY;
 }
 
 /* Checks a channel against a provided list of channels. The is_pattern 
@@ -1592,14 +1573,6 @@ void cleanupACLKeyResultCache(aclKeyResultCache *cache) {
     if (cache->keys_init) getKeysFreeResult(&(cache->keys));
 }
 
-int ACLgetKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    /* In case of sort and sort_ro we want to get the command access patterns used by 'get' and 'by' */
-    if (!(cmd->proc == sortCommand || cmd->proc == sortroCommand))
-        return getKeysFromCommandWithSpecs(cmd, argv, argc, search_flags, result);
-    else
-        return sortGetKeysWithPatterns(cmd, argv, argc, result);
-}
-
 /* Check if the command is ready to be executed according to the
  * ACLs associated with the specified selector.
  *
@@ -1640,7 +1613,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
     if (!(selector->flags & SELECTOR_FLAG_ALLKEYS) && doesCommandHaveKeys(cmd)) {
         if (!(cache->keys_init)) {
             cache->keys = (getKeysResult) GETKEYS_RESULT_INIT;
-            ACLgetKeysFromCommandWithSpecs(cmd, argv, argc, GET_KEYSPEC_DEFAULT, &(cache->keys));
+            getKeysFromCommandWithSpecs(cmd, argv, argc, GET_KEYSPEC_DEFAULT, &(cache->keys));
             cache->keys_init = 1;
         }
         getKeysResult *result = &(cache->keys);

@@ -2184,64 +2184,6 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return result->numkeys;
 }
 
-/* Helper function to extract keys from the SORT command.
- * Unlike sortGetKeys this command will also get the access key patterns
- * provided via 'get' and 'by' options. the '#' used by 'get' is not referring to any key
- * so it is skipped.
- * This is implemented only for the use of ACL authorization verification.
- *
- * SORT <sort-key> ... by <sort-by-key-pattern> ... get <get-key-patter> ...
- *
- * The first argument of SORT is always a key, however a list of options
- * follow in SQL-alike style.
- *
- * This command declares incomplete keys, so the flags are correctly set for this function */
-int sortGetKeysWithPatterns(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    int i, j, num;
-    keyReference *keys, *store_key=NULL;
-    UNUSED(cmd);
-
-    num = 0;
-    keys = getKeysPrepareResult(result, (argc>>1)); /* Alloc argc/2 places for the worst case. */
-    keys[num].pos = 1; /* <sort-key> is always present. */
-    keys[num++].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-
-    struct {
-        char *name;
-        int skip;
-    } skiplist[] = {
-        {"limit", 2},
-        {NULL, 0} /* End of elements. */
-    };
-
-    for (i = 2; i < argc; i++) {
-        for (j = 0; skiplist[j].name != NULL; j++) {
-            if (!strcasecmp(argv[i]->ptr,skiplist[j].name)) {
-                i += skiplist[j].skip;
-                break;
-            } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
-                /* Note: we want to keep update the same store key reference
-                 * to be sure to process the *last* "STORE" option if multiple
-                 * ones are provided. This is same behavior as SORT. */
-                if (!store_key)
-                    store_key = &keys[num++];
-                store_key->pos = i+1; /* <store-key> */
-                store_key->flags = CMD_KEY_OW | CMD_KEY_UPDATE;
-                i++;
-            } else if ( (!strcasecmp(argv[i]->ptr,"get") || !strcasecmp(argv[i]->ptr,"by")) && i+1 < argc) {
-                /* '#' does not stands for real key, but is just being replaced with the list content in get. */
-                if (strcasecmp(argv[i+1]->ptr,"#")) {
-                    keys[num].pos = i+1;
-                    keys[num++].flags = CMD_KEY_ACCESS | CMD_KEY_PATTERN;
-                }
-                i++;
-            }
-        }
-    }
-    result->numkeys = num;
-    return result->numkeys;
-}
-
 /* This command declares incomplete keys, so the flags are correctly set for this function */
 int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num, first;

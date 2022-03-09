@@ -405,26 +405,6 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "OK" [r ACL DRYRUN command-test TYPE rw]
         assert_equal "This user has no permissions to access the 'nothing' key" [r ACL DRYRUN command-test TYPE nothing]
     }
-    
-    test {Test sort commands require some type of permission to execute} {
-    
-        r ACL SETUSER sort-user (%R~myhash* %R~v* ~mylist +sort +sort_ro)
-        
-        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by v* get v*]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by v* get v* get #]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort mylist by myhash*->field get myhash*->field]
-        assert_equal "This user has no permissions to access the 'v1*' key" [r ACL DRYRUN sort-user sort mylist get v1*]
-        assert_equal "This user has no permissions to access the 'myhash1*->f' key" [r ACL DRYRUN sort-user sort mylist get myhash1*->f]
-        
-        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist by v* get v*]
-        assert_equal "OK" [r ACL DRYRUN sort-user sort_ro mylist by myhash*->field get myhash*->field]
-        assert_equal "This user has no permissions to access the 'v1*' key" [r ACL DRYRUN sort-user sort_ro mylist get v1*]
-        assert_equal "This user has no permissions to access the 'myhash1*->f' key" [r ACL DRYRUN sort-user sort_ro mylist get myhash1*->f]
-        
-        r ACL DELUSER sort-user
-    }
 
     test {Cardinality commands require some type of permission to execute} {
         set commands {STRLEN HLEN LLEN SCARD ZCARD XLEN}
