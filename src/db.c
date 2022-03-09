@@ -2143,7 +2143,7 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  * follow in SQL-alike style.
  *
  * This command declares incomplete keys, so the flags are correctly set for this function */
-static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int with_patterns) {
+int _sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result, int with_patterns) {
     int i, j, num;
     keyReference *keys, *store_key=NULL;
     UNUSED(cmd);
@@ -2199,7 +2199,7 @@ static int sortGetKeysgeneric(struct redisCommand *cmd, robj **argv, int argc, g
  * 
  * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    return sortGetKeysgeneric(cmd, argv, argc, result, 0);
+    return _sortGetKeysgeneric(cmd, argv, argc, result, 0);
 }
 
 /* Helper function to extract keys from the SORT command.
@@ -2215,7 +2215,7 @@ int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
  *
  * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeysWithPatterns(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    return sortGetKeysgeneric(cmd, argv, argc, result, 1);
+    return _sortGetKeysgeneric(cmd, argv, argc, result, 1);
 }
 
 /* This command declares incomplete keys, so the flags are correctly set for this function */
