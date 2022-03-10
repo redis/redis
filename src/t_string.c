@@ -228,14 +228,14 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
         } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
                !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
                !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) &&
-               !(*flags & OBJ_KEEPTTL))
+               !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST))
         {
             *flags |= OBJ_PERSIST;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EXAT) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(*flags & OBJ_PXAT) && next && !(*flags & OBJ_EX))
         {
             *flags |= OBJ_EX;
             *expire = next;
@@ -244,7 +244,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(*flags & OBJ_PXAT) && next && !(*flags & OBJ_PX))
         {
             *flags |= OBJ_PX;
             *unit = UNIT_MILLISECONDS;
@@ -256,7 +256,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(*flags & OBJ_PXAT) && next && !(*flags & OBJ_EXAT))
         {
             *flags |= OBJ_EXAT;
             *expire = next;
@@ -267,7 +267,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
                    !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
                    !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PX) && next)
+                   !(*flags & OBJ_PX) && next && !(*flags & OBJ_PXAT))
         {
             *flags |= OBJ_PXAT;
             *unit = UNIT_MILLISECONDS;
