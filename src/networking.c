@@ -147,7 +147,6 @@ client *createClient(connection *conn) {
     c->ref_block_pos = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
-    c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -1569,7 +1568,6 @@ void freeClient(client *c) {
 
     /* Free the query buffer */
     sdsfree(c->querybuf);
-    sdsfree(c->pending_querybuf);
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
@@ -2293,7 +2291,7 @@ int processMultibulkBuffer(client *c) {
             }
 
             c->qb_pos = newline-c->querybuf+2;
-            if (ll >= PROTO_MBULK_BIG_ARG) {
+            if (!(c->flags & CLIENT_MASTER) && ll >= PROTO_MBULK_BIG_ARG) {
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
@@ -2328,7 +2326,8 @@ int processMultibulkBuffer(client *c) {
             /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
-            if (c->qb_pos == 0 &&
+            if (!(c->flags & CLIENT_MASTER) &&
+                c->qb_pos == 0 &&
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
@@ -2435,8 +2434,9 @@ int processPendingCommandsAndResetClient(client *c) {
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
         } else if (c->flags & CLIENT_MASTER && c->repl_applied) {
-            replicationFeedStreamFromMasterStream(c->pending_querybuf,c->repl_applied);
-            sdsrange(c->pending_querybuf,c->repl_applied,-1);
+            replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
+            sdsrange(c->querybuf,c->repl_applied,-1);
+            c->qb_pos -= c->repl_applied;
             c->repl_applied = 0;
         }
     }
@@ -2511,16 +2511,17 @@ int processInputBuffer(client *c) {
         }
     }
 
-    /* Trim to pos */
-    if (c->qb_pos) {
+    if (c->flags & CLIENT_MASTER) {
+        if (c->repl_applied) {
+            replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
+            sdsrange(c->querybuf,c->repl_applied,-1);
+            c->qb_pos -= c->repl_applied;
+            c->repl_applied = 0;
+        }
+    } else if (c->qb_pos) {
+        /* Trim to pos */
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
-    }
-
-    if (c->flags & CLIENT_MASTER && c->repl_applied) {
-        replicationFeedStreamFromMasterStream(c->pending_querybuf,c->repl_applied);
-        sdsrange(c->pending_querybuf,c->repl_applied,-1);
-        c->repl_applied = 0;
     }
 
     /* Update client memory usage after processing the query buffer, this is
@@ -2592,12 +2593,6 @@ void readQueryFromClient(connection *conn) {
         }
         freeClientAsync(c);
         goto done;
-    } else if (c->flags & CLIENT_MASTER) {
-        /* Append the query buffer to the pending (not applied) buffer
-         * of the master. We'll use this buffer later in order to have a
-         * copy of the string applied by the last command executed. */
-        c->pending_querybuf = sdscatlen(c->pending_querybuf,
-                                        c->querybuf+qblen,nread);
     }
 
     sdsIncrLen(c->querybuf,nread);
