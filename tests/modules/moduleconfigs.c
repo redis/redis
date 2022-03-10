@@ -70,6 +70,8 @@ int setEnumConfigCommand(const char *name, int val, void *privdata, const char *
 }
 
 int boolApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(privdata);
     if (mutable_bool_val && immutable_bool_val) {
         *err = "Bool configs cannot both be yes.";
         return REDISMODULE_ERR;
@@ -78,6 +80,8 @@ int boolApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
 }
 
 int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(privdata);
     if (longval == memval) {
         *err = "These configs cannot equal each other.";
         return REDISMODULE_ERR;
