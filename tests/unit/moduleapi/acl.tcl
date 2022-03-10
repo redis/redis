@@ -7,7 +7,8 @@ start_server {tags {"modules acl"}} {
         # create user
         assert_equal [r acl setuser test on allkeys allcommands >test ] OK
         # verify user
-        assert_not_equal [r acl getuser test] {_}
+        set old_acl [r acl getuser test]
+        assert_not_equal old_acl ""
         # dump acls
         set acls [r acl.dump]
         # delete user
@@ -15,8 +16,9 @@ start_server {tags {"modules acl"}} {
         # verify user deleted
         assert_equal [r acl getuser test] ""
         # reload acls
-        r acl.load acls
-        # verify user exists
-        assert_equal [r acl getuser test] "hello"
+        r acl.load $acls
+        # verify user exists and is the same
+        set new_acl [r acl getuser test]
+        assert_equal $old_acl $new_acl
     }
 }
