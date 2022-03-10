@@ -7810,6 +7810,10 @@ size_t RM_GetClusterSize(void) {
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
 
+    if (verifyClusterNodeName(id, strlen(ip)) != C_OK) {
+        return REDISMODULE_ERR;
+    }
+
     clusterNode *node = clusterLookupNode(id);
     if (node == NULL ||
         node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))

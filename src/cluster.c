@@ -209,6 +209,12 @@ int clusterLoadConfig(char *filename) {
             goto fmterr;
         }
 
+        /* Cluster node name sanity check */
+        if (verifyClusterNodeName(argv[0], sdslen(argv[0])) != C_OK) {
+            sdsfreesplitres(argv, argc);
+            goto fmterr;
+        }
+
         /* Create this node if it does not exist */
         n = clusterLookupNode(argv[0]);
         if (!n) {
@@ -286,6 +292,11 @@ int clusterLoadConfig(char *filename) {
         /* Get master if any. Set the master and populate master's
          * slave list. */
         if (argv[3][0] != '-') {
+            /* Cluster node name sanity check */
+            if (verifyClusterNodeName(argv[3], sdslen(argv[3])) != C_OK) {
+                sdsfreesplitres(argv, argc);
+                goto fmterr;
+            }
             master = clusterLookupNode(argv[3]);
             if (!master) {
                 master = createClusterNode(argv[3],0);
@@ -322,6 +333,17 @@ int clusterLoadConfig(char *filename) {
                     goto fmterr;
                 }
                 p += 3;
+
+                /* Cluster node name sanity check */
+                char *pr = strchr(p, ']');
+                if (pr == NULL ||
+                    pr - p != CLUSTER_NAMELEN ||
+                    verifyClusterNodeName(p, CLUSTER_NAMELEN) != C_OK)
+                {
+                    sdsfreesplitres(argv, argc);
+                    goto fmterr;
+                }
+
                 cn = clusterLookupNode(p);
                 if (!cn) {
                     cn = createClusterNode(p,0);
@@ -1187,6 +1209,17 @@ clusterNode *clusterLookupNode(const char *name) {
     sdsfree(s);
     if (de == NULL) return NULL;
     return dictGetVal(de);
+}
+
+/* Cluster node name sanity check */
+int verifyClusterNodeName(const char *name, int length) {
+    if (length != CLUSTER_NAMELEN) return C_ERR;
+    for (int i = 0; i < length; i++) {
+        if (name[i] >= 'a' && name[i] <= 'z') continue;
+        if (name[i] >= '0' && name[i] <= '9') continue;
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* Get all the nodes serving the same slots as myself. */
@@ -3148,6 +3181,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     clusterNode *node = NULL;
 
     if (target != NULL) {
+        if (verifyClusterNodeName(target, strlen(target)) != C_OK) return C_ERR;
         node = clusterLookupNode(target);
         if (node == NULL || node->link == NULL) return C_ERR;
     }
@@ -5181,6 +5215,10 @@ NULL
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
                 return;
             }
+            if (verifyClusterNodeName(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)) != C_OK) {
+                addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[4]->ptr);
+                return;
+            }
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
@@ -5195,6 +5233,10 @@ NULL
             if (server.cluster->slots[slot] == myself) {
                 addReplyErrorFormat(c,
                     "I'm already the owner of hash slot %u",slot);
+                return;
+            }
+            if (verifyClusterNodeName(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)) != C_OK) {
+                addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[4]->ptr);
                 return;
             }
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
@@ -5213,6 +5255,10 @@ NULL
             server.cluster->migrating_slots_to[slot] = NULL;
         } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
+            if (verifyClusterNodeName(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)) != C_OK) {
+                addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[4]->ptr);
+                return;
+            }
             clusterNode *n = clusterLookupNode(c->argv[4]->ptr);
 
             if (!n) {
@@ -5409,11 +5455,10 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
-        if (sdslen(c->argv[2]->ptr) != CLUSTER_NAMELEN) {
-            addReplyError(c, "Invalid length for node id");
+        if (verifyClusterNodeName(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) != C_OK) {
+            addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[2]->ptr);
             return;
         }
-
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
         if (!n) {
@@ -5433,6 +5478,10 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
         /* CLUSTER REPLICATE <NODE ID> */
+        if (verifyClusterNodeName(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) != C_OK) {
+            addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[2]->ptr);
+            return;
+        }
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
         /* Lookup the specified node in our table. */
@@ -5471,6 +5520,10 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
+        if (verifyClusterNodeName(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) != C_OK) {
+            addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[2]->ptr);
+            return;
+        }
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
         int j;
 
@@ -5498,6 +5551,10 @@ NULL
                c->argc == 3)
     {
         /* CLUSTER COUNT-FAILURE-REPORTS <NODE ID> */
+        if (verifyClusterNodeName(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)) != C_OK) {
+            addReplyErrorFormat(c, "Invalid cluster node %s", (char *)c->argv[2]->ptr);
+            return;
+        }
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
         if (!n) {
