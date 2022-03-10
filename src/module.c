@@ -11519,13 +11519,25 @@ RedisModuleString *RM_DumpACL(RedisModuleCtx *ctx) {
 
 /* Resets the ACL configuration to the state defined by the provided byte array
  * Used in conjunction with RedisModule_DumpACL()
+ *
+ * If no errors were found in the whole file then NULL is returned. Otherwise
+ * a RedisModuleString describing in a single line a description of all the issues
+ * found is returned.
  */
-char *RM_LoadACL(RedisModuleString *aclString) {
+RedisModuleString *RM_LoadACL(RedisModuleCtx *ctx, RedisModuleString *aclString) {
+    RedisModuleString * ret = NULL;
+
     size_t len;
     const char * tmp = RM_StringPtrLen(aclString, &len);
     sds acl = sdsnewlen(tmp, len);
 
-    return loadACLFromBuffer(acl);
+    sds result = loadACLFromBuffer(acl);
+    if (result != NULL) {
+        ret = RM_CreateString(ctx, result, sdslen(result));
+        sdsfree(result);
+    }
+
+    return ret;
 }
 
 /* Register all the APIs we export. Keep this function at the end of the

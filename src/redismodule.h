@@ -1159,7 +1159,7 @@ REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEve
 REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString *(*RedisModule_DumpACL)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API char * (*RedisModule_LoadACL)(RedisModuleString *aclString) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString *(*RedisModule_LoadACL)(RedisModuleCtx *ctx, RedisModuleString *aclString) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 

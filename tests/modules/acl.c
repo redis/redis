@@ -16,7 +16,7 @@ int load_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_WrongArity(ctx);
     }
 
-    RedisModule_LoadACL(argv[1]);
+    RedisModule_LoadACL(ctx, argv[1]);
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 
