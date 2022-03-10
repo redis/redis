@@ -815,7 +815,7 @@ static void cliInitHelp(void) {
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
-    
+
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
@@ -2425,10 +2425,13 @@ static int confirmWithYes(char *msg, int ignore_force) {
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
-    /* In debugging mode, let's pass "help" to Redis.
-     * Note we can process the "help" without a connection. */
+    /* In Lua debugging mode, we want to pass the "help" to Redis to get
+     * it's own HELP message, rather than handle it by the CLI, see ldbRepl.
+     *
+     * For the normal Redis HELP, we can process it without a connection. */
     if (!config.eval_ldb &&
-        (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?"))) {
+        (!strcasecmp(argv[0],"help") || !strcasecmp(argv[0],"?")))
+    {
         cliOutputHelp(--argc, ++argv);
         return REDIS_OK;
     }
@@ -2591,8 +2594,13 @@ static void repl(void) {
     int argc;
     sds *argv;
 
-    /* Initialize the help using the results of the COMMAND command. */
-    cliInitHelp();
+    /* There is no need to initialize redis HELP when we are in lua debugger mode.
+     * It has its own HELP and commands (COMMAND or COMMAND DOCS will fail and got nothing).
+     * We will initialize the redis HELP after the Lua debugging session ended.*/
+    if (!config.eval_ldb) {
+        /* Initialize the help using the results of the COMMAND command. */
+        cliInitHelp();
+    }
 
     config.interactive = 1;
     linenoiseSetMultiLine(1);
@@ -2694,6 +2702,7 @@ static void repl(void) {
                     printf("\n(Lua debugging session ended%s)\n\n",
                         config.eval_ldb_sync ? "" :
                         " -- dataset changes rolled back");
+                    cliInitHelp();
                 }
 
                 elapsed = mstime()-start_time;
