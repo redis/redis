@@ -11369,15 +11369,15 @@ int moduleConfigApplyConfig(list *module_configs_tuple, const char **err, const 
         char *config_name = strchr(tuple->name, '.') + 1;
         module_config = getModuleConfigFromConfigName(config_name, tuple->module);
         serverAssert(module_config);
-        moduleCreateContext(&ctx, tuple->module, REDISMODULE_CTX_NONE);
         if (module_config->apply_fn) {
+            moduleCreateContext(&ctx, tuple->module, REDISMODULE_CTX_NONE);
             if (module_config->apply_fn(&ctx, module_config->privdata, err)) {
                 if (err_arg_name) *err_arg_name = tuple->name;
                 moduleFreeContext(&ctx);
                 return 0;
             }
+            moduleFreeContext(&ctx);
         }
-        moduleFreeContext(&ctx);
     }
     return 1;
 }
