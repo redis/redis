@@ -167,6 +167,7 @@ client *createClient(connection *conn) {
     c->repl_start_cmd_stream_on_ack = 0;
     c->reploff = 0;
     c->read_reploff = 0;
+    c->repl_applied = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->repl_last_partial_write = 0;
@@ -2386,11 +2387,7 @@ void commandProcessed(client *c) {
      * part of the replication stream, will be propagated to the
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
-        long long applied = c->reploff - prev_offset;
-        if (applied) {
-            replicationFeedStreamFromMasterStream(c->pending_querybuf,applied);
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
+        c->repl_applied += c->reploff - prev_offset;
     }
 }
 
@@ -2437,6 +2434,10 @@ int processPendingCommandsAndResetClient(client *c) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
+        } else if (c->flags & CLIENT_MASTER && c->repl_applied) {
+            replicationFeedStreamFromMasterStream(c->pending_querybuf,c->repl_applied);
+            sdsrange(c->pending_querybuf,c->repl_applied,-1);
+            c->repl_applied = 0;
         }
     }
     return C_OK;
@@ -2514,6 +2515,12 @@ int processInputBuffer(client *c) {
     if (c->qb_pos) {
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
+    }
+
+    if (c->flags & CLIENT_MASTER && c->repl_applied) {
+        replicationFeedStreamFromMasterStream(c->pending_querybuf,c->repl_applied);
+        sdsrange(c->pending_querybuf,c->repl_applied,-1);
+        c->repl_applied = 0;
     }
 
     /* Update client memory usage after processing the query buffer, this is
