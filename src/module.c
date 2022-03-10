@@ -11505,6 +11505,10 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
+/* Returns a byte array that corresponds to a point in time snapshot of the ACL
+ * configuration.  Useful for modules that want to snapshot redis state.
+ * Used in conjunction with RedisModule_LocalACL()
+ */
 RedisModuleString *RM_DumpACL(RedisModuleCtx *ctx) {
     sds acl = saveACLToBuffer();
     RedisModuleString * ret = RM_CreateString(ctx, acl ,sdslen(acl));
@@ -11513,6 +11517,9 @@ RedisModuleString *RM_DumpACL(RedisModuleCtx *ctx) {
     return ret;
 }
 
+/* Resets the ACL configuration to the state defined by the provided byte array
+ * Used in conjunction with RedisModule_DumpACL()
+ */
 char *RM_LoadACL(RedisModuleString *aclString) {
     size_t len;
     const char * tmp = RM_StringPtrLen(aclString, &len);
