@@ -8,6 +8,8 @@ int dump_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModule_ReplyWithString(ctx, ret);
 
+    RedisModule_FreeString(ctx, ret);
+
     return REDISMODULE_OK;
 }
 
