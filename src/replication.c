@@ -1528,13 +1528,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
     }
 }
 
-/* This function is called at the end of every background saving,
- * or when the replication RDB transfer strategy is modified from
- * disk to socket or the other way around.
- *
- * The goal of this function is:
- * For disk mode: send RDB file to slaves in the state of SLAVE_STATE_WAIT_BGSAVE_END.
- * For socket mode: put slaves online.
+/* This function is called at the end of every background saving.
  *
  * The argument bgsaveerr is C_OK if the background saving succeeded
  * otherwise C_ERR is passed to the function.
