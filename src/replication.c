@@ -543,7 +543,8 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    if (!(listLength(server.monitors) && !server.loading)) return;
+    /* Fast path to return if the monitors list is empty or the server is in loading. */
+    if (monitors == NULL || listLength(monitors) == 0 || server.loading) return;
     listNode *ln;
     listIter li;
     int j;
