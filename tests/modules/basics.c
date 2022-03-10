@@ -866,16 +866,16 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 1),"1234",4)) goto fail;
 
     T("foo", "E");
-    if (!TestAssertErrorReply(ctx,reply,"ERR Unknown Redis command foo.",30)) goto fail;
+    if (!TestAssertErrorReply(ctx,reply,"ERR Unknown Redis command 'foo'.",32)) goto fail;
 
     T("set", "Ec", "x");
-    if (!TestAssertErrorReply(ctx,reply,"ERR Wrong number of args calling Redis command set.",51)) goto fail;
+    if (!TestAssertErrorReply(ctx,reply,"ERR Wrong number of args calling Redis command 'set'.",53)) goto fail;
 
     T("shutdown", "SE");
-    if (!TestAssertErrorReply(ctx,reply,"ERR Unsafe command shutdown was called.",39)) goto fail;
+    if (!TestAssertErrorReply(ctx,reply,"ERR command 'shutdown' is not allowed on script mode",52)) goto fail;
 
     T("set", "WEcc", "x", "1");
-    if (!TestAssertErrorReply(ctx,reply,"ERR Write command set was called while write is not allowed.",60)) goto fail;
+    if (!TestAssertErrorReply(ctx,reply,"ERR Write command 'set' was called while write is not allowed.",62)) goto fail;
 
     RedisModule_ReplyWithSimpleString(ctx,"ALL TESTS PASSED");
     return REDISMODULE_OK;

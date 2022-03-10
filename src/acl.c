@@ -2411,6 +2411,20 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
+const char* getAclErrorMessage(int acl_res) {
+    switch (acl_res) {
+    case ACL_DENIED_CMD:
+        return "can't run this command or subcommand";
+    case ACL_DENIED_KEY:
+        return "can't access at least one of the keys mentioned in the command arguments";
+    case ACL_DENIED_CHANNEL:
+        return "can't publish to the channel mentioned in the command";
+    default:
+        return "lacking the permissions for the command";
+    }
+    serverAssert(false);
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/

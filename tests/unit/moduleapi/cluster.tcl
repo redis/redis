@@ -199,7 +199,7 @@ start_server [list overrides $base_conf] {
     }
 
     test "Verify command RM_Call is rejected when cluster is down" {
-        assert_error "ERR Can not execute a command set while the cluster is down" {$node1 do_rm_call set x 1}
+        assert_error "ERR Can not execute a command 'set' while the cluster is down" {$node1 do_rm_call set x 1}
     }
 
     exec kill -SIGCONT $node3_pid

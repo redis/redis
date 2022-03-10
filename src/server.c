@@ -4170,6 +4170,19 @@ int writeCommandsDeniedByDiskError(void) {
     return DISK_ERROR_TYPE_NONE;
 }
 
+sds writeCommandsGetDiskErrorMessage(int error_code) {
+    sds ret = NULL;
+    if (error_code == DISK_ERROR_TYPE_RDB) {
+        ret = sdsdup(shared.bgsaveerr->ptr);
+    } else {
+        ret = sdsempty();
+        ret = sdscatfmt(sdsempty(),
+                "-MISCONF Errors writing to the AOF file: %s\r\n",
+                strerror(server.aof_last_write_errno));
+    }
+    return ret;
+}
+
 /* The PING command. It works in a different way if the client is in
  * in Pub/Sub mode. */
 void pingCommand(client *c) {

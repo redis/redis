@@ -530,8 +530,11 @@ CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_d
  * Automatically creating deferred_error_list and set a copy of the reply in it.
  * Refer to callReplyCreate for detailed explanation. */
 CallReply *callReplyCreateError(sds reply, void *private_data) {
-    sds err_buff = sdscatfmt(sdsempty(), "-%S\r\n", reply);
-    sdsfree(reply);
+    sds err_buff = reply;
+    if (err_buff[0] != '-') {
+        err_buff = sdscatfmt(sdsempty(), "-ERR %S\r\n", reply);
+        sdsfree(reply);
+    }
     list *deferred_error_list = listCreate();
     listSetFreeMethod(deferred_error_list, (void (*)(void*))sdsfree);
     listAddNodeTail(deferred_error_list, sdsnew(err_buff));

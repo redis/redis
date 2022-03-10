@@ -184,7 +184,7 @@ start_server {tags {"modules"}} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "ERR Unknown Redis command hgetalllll." {r do_rm_call hgetalllll}
+        assert_error "ERR Unknown Redis command 'hgetalllll'." {r do_rm_call hgetalllll}
         assert_equal [errorrstat ERR r] {count=1}
 
         # module command that replies with string error from bg thread
