@@ -1528,15 +1528,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
     }
 }
 
-/* This function is called at the end of every background saving,
- * or when the replication RDB transfer strategy is modified from
- * disk to socket or the other way around.
- *
- * The goal of this function is to handle slaves waiting for a successful
- * background saving in order to perform non-blocking synchronization, and
- * to schedule a new BGSAVE if there are slaves that attached while a
- * BGSAVE was in progress, but it was not a good one for replication (no
- * other slave was accumulating differences).
+/* This function is called at the end of every background saving.
  *
  * The argument bgsaveerr is C_OK if the background saving succeeded
  * otherwise C_ERR is passed to the function.
