@@ -449,6 +449,12 @@ typedef struct ModuleConfig {
     RedisModuleConfigApplyFunc apply_fn;
 } ModuleConfig;
 
+/* Struct pointing to a module config and the module it's associated with. */
+typedef struct moduleConfigTuple {
+    ModuleConfig *module_config;
+    RedisModule *module;
+} moduleConfigTuple;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -11354,30 +11360,47 @@ int loadModuleConfigs(RedisModule *module) {
     return REDISMODULE_OK;
 }
 
-/* Call apply on all module configs specified in set, if an apply function was specified at registration time. */
-int moduleConfigApplyConfig(list *module_configs_tuple, const char **err, const char **err_arg_name) {
-    if (!module_configs_tuple || !listLength(module_configs_tuple)) return 1;
+void addModuleApply(list *module_configs_tuples, const char *parameter, void *module) {
+    char *config_name = strchr(parameter, '.') + 1;
+    ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, module);
+    if (!module_config->apply_fn) return;
     listIter li;
     listNode *ln;
-    moduleConfigTuple *tuple;
+    moduleConfigTuple *module_config_tuple;
+    ModuleConfig *pending_apply;
+    listRewind(module_configs_tuples, &li);
+    while ((ln = listNext(&li))) {
+        module_config_tuple = ln->value;
+        pending_apply = module_config_tuple->module_config;
+        if (pending_apply->apply_fn == module_config->apply_fn && pending_apply->privdata == module_config->privdata) {
+            return;
+        }
+    }
+    moduleConfigTuple *tuple = zmalloc(sizeof(moduleConfigTuple));
+    tuple->module_config = module_config;
+    tuple->module = module;
+    listAddNodeTail(module_configs_tuples, tuple);
+}
+
+/* Call apply on all module configs specified in set, if an apply function was specified at registration time. */
+int moduleConfigApplyConfig(list *module_configs_tuples, const char **err, const char **err_arg_name) {
+    if (!listLength(module_configs_tuples)) return 1;
+    listIter li;
+    listNode *ln;
+    moduleConfigTuple *module_config_tuple;
     ModuleConfig *module_config;
     RedisModuleCtx ctx;
 
-    listRewind(module_configs_tuple, &li);
+    listRewind(module_configs_tuples, &li);
     while ((ln = listNext(&li))) {
-        tuple = ln->value;
-        char *config_name = strchr(tuple->name, '.') + 1;
-        module_config = getModuleConfigFromConfigName(config_name, tuple->module);
-        serverAssert(module_config);
-        if (module_config->apply_fn) {
-            moduleCreateContext(&ctx, tuple->module, REDISMODULE_CTX_NONE);
-            if (module_config->apply_fn(&ctx, module_config->privdata, err)) {
-                if (err_arg_name) *err_arg_name = tuple->name;
-                moduleFreeContext(&ctx);
-                return 0;
-            }
-            moduleFreeContext(&ctx);
+        module_config_tuple = ln->value;
+        module_config = module_config_tuple->module_config;
+        moduleCreateContext(&ctx, module_config_tuple->module, REDISMODULE_CTX_NONE);
+        if (module_config->apply_fn(&ctx, module_config->privdata, err)) {
+            if (err_arg_name) *err_arg_name = module_config->name;
+            return 0;
         }
+        moduleFreeContext(&ctx);
     }
     return 1;
 }

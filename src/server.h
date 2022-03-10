@@ -2961,14 +2961,10 @@ sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
-typedef struct moduleConfigTuple {
-    const char *name;
-    RedisModule *module;
-} moduleConfigTuple;
-
 sds moduleConfigGetCommand(const char *parameter, void *privdata);
 int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata);
-int moduleConfigApplyConfig(list *module_config_tuples, const char **err, const char **err_arg_name);
+void addModuleApply(list *module_configs, const char *parameter, void *module);
+int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
 void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);
 
 /* db.c -- Keyspace access API */
