@@ -1531,6 +1531,38 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
+/* Checks if the specific selector provides the access specified in 'flags'
+ * to ALL the key space. for example full READ access can be specified by the
+ * %R~* and full read/write access with the %WR~* or ~* or allkeys.
+ * Will return 1 in case all the access flags are satisfied with this selector
+ * or 0 otherwise
+ */
+static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
+    /* The selector can access any key */
+    if (selector->flags & SELECTOR_FLAG_ALLKEYS) return 1;
+
+    listIter li;
+    listNode *ln;
+    listRewind(selector->patterns,&li);
+
+    int access_flags = 0;
+    if (flags & CMD_KEY_ACCESS) access_flags |= ACL_READ_PERMISSION;
+    if (flags & CMD_KEY_INSERT) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_DELETE) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_UPDATE) access_flags |= ACL_WRITE_PERMISSION;
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        keyPattern *pattern = listNodeValue(ln);
+        if ((pattern->flags & access_flags) != access_flags)
+            continue;
+        if (!strcmp(pattern->pattern,"*")) {
+           return 1;
+       }
+    }
+    return 0;
+}
+
 /* Checks a channel against a provided list of channels. The is_pattern 
  * argument should only be used when subscribing (not when publishing)
  * and controls whether the input channel is evaluated as a channel pattern
@@ -1673,6 +1705,39 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
         }
     }
     return ACL_DENIED_KEY;
+}
+
+/* Checks if the command has full keyspace access specified in 'flags'.
+ * For example full READ access can be specified by the
+ * %R~* and full read/write access with the %WR~* or ~* or allkeys.
+ * Will return 1 in case all the access flags are satisfied with this selector
+ * or 0 otherwise
+ */
+int ACLDoesCommandHaveUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+    listIter li;
+    listNode *ln;
+    int local_idxptr;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return 1;
+
+    /* For multiple selectors, we cache the key result in between selector
+     * calls to prevent duplicate lookups. */
+    aclKeyResultCache cache;
+    initACLKeyResultCache(&cache);
+
+    /* Check each selector sequentially */
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
+        if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
+            cleanupACLKeyResultCache(&cache);
+            return 1;
+        }
+    }
+    cleanupACLKeyResultCache(&cache);
+    return 0;
 }
 
 /* Check if the channel can be accessed by the client according to
