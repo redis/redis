@@ -156,7 +156,7 @@ client *createClient(connection *conn) {
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
-    c->cmd = c->lastcmd = NULL;
+    c->cmd = c->lastcmd = c->realcmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;
@@ -443,8 +443,10 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyProto(c,"\r\n",2);
 }
 
-/* Do some actions after an error reply was sent (Log if needed, updates stats, etc.) */
-void afterErrorReply(client *c, const char *s, size_t len) {
+/* Do some actions after an error reply was sent (Log if needed, updates stats, etc.)
+ * Possible flags:
+ * * ERR_REPLY_FLAG_NO_STATS_UPDATE - indicate not to update any error stats. */
+void afterErrorReply(client *c, const char *s, size_t len, int flags) {
     /* Module clients fall into two categories:
      * Calls to RM_Call, in which case the error isn't being returned to a client, so should not be counted.
      * Module thread safe context calls to RM_ReplyWithError, which will be added to a real client by the main thread later. */
@@ -457,22 +459,30 @@ void afterErrorReply(client *c, const char *s, size_t len) {
         return;
     }
 
-    /* Increment the global error counter */
-    server.stat_total_error_replies++;
-    /* Increment the error stats
-     * If the string already starts with "-..." then the error prefix
-     * is provided by the caller ( we limit the search to 32 chars). Otherwise we use "-ERR". */
-    if (s[0] != '-') {
-        incrementErrorCount("ERR", 3);
-    } else {
-        char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
-        if (spaceloc) {
-            const size_t errEndPos = (size_t)(spaceloc - s);
-            incrementErrorCount(s+1, errEndPos-1);
-        } else {
-            /* Fallback to ERR if we can't retrieve the error prefix */
+    if (!(flags & ERR_REPLY_FLAG_NO_STATS_UPDATE)) {
+        /* Increment the global error counter */
+        server.stat_total_error_replies++;
+        /* Increment the error stats
+         * If the string already starts with "-..." then the error prefix
+         * is provided by the caller ( we limit the search to 32 chars). Otherwise we use "-ERR". */
+        if (s[0] != '-') {
             incrementErrorCount("ERR", 3);
+        } else {
+            char *spaceloc = memchr(s, ' ', len < 32 ? len : 32);
+            if (spaceloc) {
+                const size_t errEndPos = (size_t)(spaceloc - s);
+                incrementErrorCount(s+1, errEndPos-1);
+            } else {
+                /* Fallback to ERR if we can't retrieve the error prefix */
+                incrementErrorCount("ERR", 3);
+            }
         }
+    } else {
+        /* stat_total_error_replies will not be updated, which means that
+         * the cmd stats will not be updated as well, we still want this command
+         * to be counted as failed so we update it here. We update c->realcmd in
+         * case c->cmd was changed (like in GEOADD). */
+        c->realcmd->failed_calls++;
     }
 
     /* Sometimes it could be normal that a slave replies to a master with
@@ -518,7 +528,7 @@ void afterErrorReply(client *c, const char *s, size_t len) {
  * Unlike addReplyErrorSds and others alike which rely on addReplyErrorLength. */
 void addReplyErrorObject(client *c, robj *err) {
     addReply(c, err);
-    afterErrorReply(c, err->ptr, sdslen(err->ptr)-2); /* Ignore trailing \r\n */
+    afterErrorReply(c, err->ptr, sdslen(err->ptr)-2, 0); /* Ignore trailing \r\n */
 }
 
 /* Sends either a reply or an error reply by checking the first char.
@@ -539,15 +549,46 @@ void addReplyOrErrorObject(client *c, robj *reply) {
 /* See addReplyErrorLength for expectations from the input string. */
 void addReplyError(client *c, const char *err) {
     addReplyErrorLength(c,err,strlen(err));
-    afterErrorReply(c,err,strlen(err));
+    afterErrorReply(c,err,strlen(err),0);
+}
+
+/* Add error reply to the given client.
+ * Supported flags:
+ * * ERR_REPLY_FLAG_NO_STATS_UPDATE - indicate not to perform any error stats updates */
+void addReplyErrorSdsEx(client *c, sds err, int flags) {
+    addReplyErrorLength(c,err,sdslen(err));
+    afterErrorReply(c,err,sdslen(err),flags);
+    sdsfree(err);
 }
 
 /* See addReplyErrorLength for expectations from the input string. */
 /* As a side effect the SDS string is freed. */
 void addReplyErrorSds(client *c, sds err) {
-    addReplyErrorLength(c,err,sdslen(err));
-    afterErrorReply(c,err,sdslen(err));
-    sdsfree(err);
+    addReplyErrorSdsEx(c, err, 0);
+}
+
+/* Internal function used by addReplyErrorFormat and addReplyErrorFormatEx.
+ * Refer to afterErrorReply for more information about the flags. */
+static void addReplyErrorFormatInternal(client *c, int flags, const char *fmt, va_list ap) {
+    va_list cpy;
+    va_copy(cpy,ap);
+    sds s = sdscatvprintf(sdsempty(),fmt,cpy);
+    va_end(cpy);
+    /* Trim any newlines at the end (ones will be added by addReplyErrorLength) */
+    s = sdstrim(s, "\r\n");
+    /* Make sure there are no newlines in the middle of the string, otherwise
+     * invalid protocol is emitted. */
+    s = sdsmapchars(s, "\r\n", "  ",  2);
+    addReplyErrorLength(c,s,sdslen(s));
+    afterErrorReply(c,s,sdslen(s),flags);
+    sdsfree(s);
+}
+
+void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap,fmt);
+    addReplyErrorFormatInternal(c, flags, fmt, ap);
+    va_end(ap);
 }
 
 /* See addReplyErrorLength for expectations from the formatted string.
@@ -555,16 +596,8 @@ void addReplyErrorSds(client *c, sds err) {
 void addReplyErrorFormat(client *c, const char *fmt, ...) {
     va_list ap;
     va_start(ap,fmt);
-    sds s = sdscatvprintf(sdsempty(),fmt,ap);
+    addReplyErrorFormatInternal(c, 0, fmt, ap);
     va_end(ap);
-    /* Trim any newlines at the end (ones will be added by addReplyErrorLength) */
-    s = sdstrim(s, "\r\n");
-    /* Make sure there are no newlines in the middle of the string, otherwise
-     * invalid protocol is emitted. */
-    s = sdsmapchars(s, "\r\n", "  ",  2);
-    addReplyErrorLength(c,s,sdslen(s));
-    afterErrorReply(c,s,sdslen(s));
-    sdsfree(s);
 }
 
 void addReplyErrorArity(client *c) {
@@ -825,17 +858,18 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
     if (prefix == '*' && opt_hdr) {
-        addReply(c,shared.mbulkhdr[ll]);
+        addReplyProto(c,shared.mbulkhdr[ll]->ptr,hdr_len);
         return;
     } else if (prefix == '$' && opt_hdr) {
-        addReply(c,shared.bulkhdr[ll]);
+        addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);
         return;
     } else if (prefix == '%' && opt_hdr) {
-        addReply(c,shared.maphdr[ll]);
+        addReplyProto(c,shared.maphdr[ll]->ptr,hdr_len);
         return;
     } else if (prefix == '~' && opt_hdr) {
-        addReply(c,shared.sethdr[ll]);
+        addReplyProto(c,shared.sethdr[ll]->ptr,hdr_len);
         return;
     }
 
@@ -1085,7 +1119,7 @@ void deferredAfterErrorReply(client *c, list *errors) {
     listRewind(errors,&li);
     while((ln = listNext(&li))) {
         sds err = ln->value;
-        afterErrorReply(c, err, sdslen(err));
+        afterErrorReply(c, err, sdslen(err), 0);
     }
 }
 
@@ -1906,7 +1940,7 @@ int writeToClient(client *c, int handler_installed) {
     if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
-         * adDeleteFileEvent() is not thread safe: however writeToClient()
+         * aeDeleteFileEvent() is not thread safe: however writeToClient()
          * is always called with handler_installed set to 0 from threads
          * so we are fine. */
         if (handler_installed) {
@@ -2094,7 +2128,7 @@ int processInlineBuffer(client *c) {
      * we got some desynchronization in the protocol, for example
      * because of a PSYNC gone bad.
      *
-     * However the is an exception: masters may send us just a newline
+     * However there is an exception: masters may send us just a newline
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
@@ -3041,6 +3075,10 @@ NULL
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
+        /* Note that we never try to unblock a client blocked on a module command, which
+         * doesn't have a timeout callback (even in the case of UNBLOCK ERROR).
+         * The reason is that we assume that if a command doesn't expect to be timedout,
+         * it also doesn't expect to be unblocked by CLIENT UNBLOCK */
         if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
                 addReplyError(target,

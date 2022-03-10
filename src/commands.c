@@ -588,9 +588,9 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"node-id",ARG_TYPE_INTEGER,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
 {"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -660,7 +660,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_tips,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0},
 {"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_tips,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
-{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
+{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
 {"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
@@ -3449,8 +3449,9 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 
 /* FUNCTION STATS tips */
 const char *FUNCTION_STATS_tips[] = {
+"nondeterministic_output",
 "request_policy:all_shards",
-"response_policy:one_succeeded",
+"response_policy:special",
 NULL
 };
 
@@ -4381,7 +4382,12 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 #define LATENCY_HISTOGRAM_History NULL
 
 /* LATENCY HISTOGRAM tips */
-#define LATENCY_HISTOGRAM_tips NULL
+const char *LATENCY_HISTOGRAM_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTOGRAM argument table */
 struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
@@ -4395,7 +4401,12 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 #define LATENCY_HISTORY_History NULL
 
 /* LATENCY HISTORY tips */
-#define LATENCY_HISTORY_tips NULL
+const char *LATENCY_HISTORY_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTORY argument table */
 struct redisCommandArg LATENCY_HISTORY_Args[] = {
@@ -4409,7 +4420,12 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_LATEST_History NULL
 
 /* LATENCY LATEST tips */
-#define LATENCY_LATEST_tips NULL
+const char *LATENCY_LATEST_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY RESET ********************/
 
@@ -4417,7 +4433,11 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_RESET_History NULL
 
 /* LATENCY RESET tips */
-#define LATENCY_RESET_tips NULL
+const char *LATENCY_RESET_tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+NULL
+};
 
 /* LATENCY RESET argument table */
 struct redisCommandArg LATENCY_RESET_Args[] = {
@@ -4505,6 +4525,8 @@ NULL
 /* MEMORY STATS tips */
 const char *MEMORY_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 

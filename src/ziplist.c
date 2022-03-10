@@ -608,7 +608,7 @@ int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
 }
 
 /* Fills a struct with all information about an entry.
- * This function is the "unsafe" alternative to the one blow.
+ * This function is the "unsafe" alternative to the one below.
  * Generally, all function that return a pointer to an element in the ziplist
  * will assert that this element is valid, so it can be freely used.
  * Generally functions such ziplistGet assume the input pointer is already
@@ -803,7 +803,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
 
     /* Update tail offset after loop. */
     if (tail == zl + prevoffset) {
-        /* When the the last entry we need to update is also the tail, update tail offset
+        /* When the last entry we need to update is also the tail, update tail offset
          * unless this is the only entry that was updated (so the tail offset didn't change). */
         if (extra - delta != 0) {
             ZIPLIST_TAIL_OFFSET(zl) =

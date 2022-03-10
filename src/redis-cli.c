@@ -70,6 +70,7 @@
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
 #define OUTPUT_JSON 3
+#define OUTPUT_QUOTED_JSON 4
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -1486,16 +1487,39 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
-static sds cliFormatReplyJson(sds out, redisReply *r) {
+/* Append specified buffer to out and return it, using required JSON output
+ * mode. */
+static sds jsonStringOutput(sds out, const char *p, int len, int mode) {
+    if (mode == OUTPUT_JSON) {
+        return escapeJsonString(out, p, len);
+    } else if (mode == OUTPUT_QUOTED_JSON) {
+        /* Need to double-quote backslashes */
+        sds tmp = sdscatrepr(sdsempty(), p, len);
+        int tmplen = sdslen(tmp);
+        char *n = tmp;
+        while (tmplen--) {
+            if (*n == '\\') out = sdscatlen(out, "\\\\", 2);
+            else out = sdscatlen(out, n, 1);
+            n++;
+        }
+
+        sdsfree(tmp);
+        return out;
+    } else {
+        assert(0);
+    }
+}
+
+static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
     unsigned int i;
 
     switch (r->type) {
     case REDIS_REPLY_ERROR:
         out = sdscat(out,"error:");
-        out = sdscatrepr(out,r->str,strlen(r->str));
+        out = jsonStringOutput(out,r->str,strlen(r->str),mode);
         break;
     case REDIS_REPLY_STATUS:
-        out = sdscatrepr(out,r->str,r->len);
+        out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
@@ -1505,7 +1529,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
-        out = sdscatrepr(out,r->str,r->len);
+        out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_NIL:
         out = sdscat(out,"null");
@@ -1518,7 +1542,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
     case REDIS_REPLY_PUSH:
         out = sdscat(out,"[");
         for (i = 0; i < r->elements; i++ ) {
-            out = cliFormatReplyJson(out, r->element[i]);
+            out = cliFormatReplyJson(out,r->element[i],mode);
             if (i != r->elements-1) out = sdscat(out,",");
         }
         out = sdscat(out,"]");
@@ -1527,20 +1551,25 @@ static sds cliFormatReplyJson(sds out, redisReply *r) {
         out = sdscat(out,"{");
         for (i = 0; i < r->elements; i += 2) {
             redisReply *key = r->element[i];
-            if (key->type == REDIS_REPLY_STATUS ||
+            if (key->type == REDIS_REPLY_ERROR ||
+                key->type == REDIS_REPLY_STATUS ||
                 key->type == REDIS_REPLY_STRING ||
-                key->type == REDIS_REPLY_VERB) {
-                out = cliFormatReplyJson(out, key);
+                key->type == REDIS_REPLY_VERB)
+            {
+                out = cliFormatReplyJson(out,key,mode);
             } else {
-                /* According to JSON spec, JSON map keys must be strings, */
-                /* and in RESP3, they can be other types. */
-                sds tmp = cliFormatReplyJson(sdsempty(), key);
-                out = sdscatrepr(out,tmp,sdslen(tmp));
-                sdsfree(tmp);
+                /* According to JSON spec, JSON map keys must be strings,
+                 * and in RESP3, they can be other types. 
+                 * The first one(cliFormatReplyJson) is to convert non string type to string
+                 * The Second one(escapeJsonString) is to escape the converted string */
+                sds keystr = cliFormatReplyJson(sdsempty(),key,mode);
+                if (keystr[0] == '"') out = sdscatsds(out,keystr);
+                else out = sdscatfmt(out,"\"%S\"",keystr);
+                sdsfree(keystr);
             }
             out = sdscat(out,":");
 
-            out = cliFormatReplyJson(out, r->element[i+1]);
+            out = cliFormatReplyJson(out,r->element[i+1],mode);
             if (i != r->elements-2) out = sdscat(out,",");
         }
         out = sdscat(out,"}");
@@ -1566,8 +1595,8 @@ static sds cliFormatReply(redisReply *reply, int mode, int verbatim) {
     } else if (mode == OUTPUT_CSV) {
         out = cliFormatReplyCSV(reply);
         out = sdscatlen(out, "\n", 1);
-    } else if (mode == OUTPUT_JSON) {
-        out = cliFormatReplyJson(sdsempty(), reply);
+    } else if (mode == OUTPUT_JSON || mode == OUTPUT_QUOTED_JSON) {
+        out = cliFormatReplyJson(sdsempty(), reply, mode);
         out = sdscatlen(out, "\n", 1);
     } else {
         fprintf(stderr, "Error:  Unknown output encoding %d\n", mode);
@@ -1953,11 +1982,17 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--json")) {
-            /* Not overwrite explicit value by -3*/
+            /* Not overwrite explicit value by -3 */
             if (config.resp3 == 0) {
                 config.resp3 = 2;
             }
             config.output = OUTPUT_JSON;
+        } else if (!strcmp(argv[i],"--quoted-json")) {
+            /* Not overwrite explicit value by -3*/
+            if (config.resp3 == 0) {
+                config.resp3 = 2;
+            }
+            config.output = OUTPUT_QUOTED_JSON;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
@@ -2289,6 +2324,7 @@ static void usage(int err) {
 "  --quoted-input     Force input to be handled as quoted strings.\n"
 "  --csv              Output in CSV format.\n"
 "  --json             Output in JSON format (default RESP3, use -2 if you want to use with RESP2).\n"
+"  --quoted-json      Same as --json, but produce ASCII-safe quoted strings, not Unicode.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n",version);
