@@ -2422,7 +2422,7 @@ const char* getAclErrorMessage(int acl_res) {
     default:
         return "lacking the permissions for the command";
     }
-    serverAssert(false);
+    serverPanic("Reached deadcode on getAclErrorMessage");
 }
 
 /* =============================================================================

@@ -5621,6 +5621,8 @@ fmterr:
  * * ENETDOWN: operation in Cluster instance when cluster is down.
  * * ENOTSUP: No ACL user for the specified module context
  * * EACCES: Command cannot be executed, according to ACL rules
+ * * ENOSPC: Write command is not allowed
+ * * ESPIPE: Command not allowed on script mode
  *
  * Example code fragment:
  * 
@@ -5710,7 +5712,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         /* Basically on script mode we want to only allow commands that can
          * be executed on scripts (CMD_NOSCRIPT is not set on the command flags) */
         if (cmd->flags & CMD_NOSCRIPT) {
-            errno = EACCES;
+            errno = ESPIPE;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "command '%S' is not allowed on script mode", c->cmd->fullname);
                 reply = callReplyCreateError(msg, ctx);
@@ -5721,7 +5723,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     if (cmd->flags & CMD_WRITE) {
         if (flags & REDISMODULE_ARGV_NO_WRITES) {
-            errno = EACCES;
+            errno = ENOSPC;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "Write command '%S' was "
                                                 "called while write is not allowed.", c->cmd->fullname);
@@ -5736,7 +5738,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
              * or we do not have enough replicas */
 
             if (!checkGoodReplicasStatus()) {
-                errno = EACCES;
+                errno = ENOSPC;
                 if (error_as_call_replies) {
                     sds msg = sdsdup(shared.noreplicaserr->ptr);
                     reply = callReplyCreateError(msg, ctx);
@@ -5747,7 +5749,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             int deny_write_type = writeCommandsDeniedByDiskError();
 
             if (deny_write_type != DISK_ERROR_TYPE_NONE) {
-                errno = EACCES;
+                errno = ENOSPC;
                 if (error_as_call_replies) {
                     sds msg = writeCommandsGetDiskErrorMessage(deny_write_type);
                     reply = callReplyCreateError(msg, ctx);

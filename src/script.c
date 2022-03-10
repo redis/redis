@@ -350,8 +350,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * user configured the min-slaves-to-write option. Note this only reachable
      * for Eval scripts that didn't declare flags, see the other check in
      * scriptPrepareForRun */
-    if (!checkGoodReplicasStatus())
-    {
+    if (!checkGoodReplicasStatus()) {
         *err = sdsdup(shared.noreplicaserr->ptr);
         return C_ERR;
     }
