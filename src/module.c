@@ -5598,7 +5598,7 @@ fmterr:
  *     * `C` -- Check if command can be executed according to ACL rules.
  *     * 'S' -- Run the command in a script mode, this means that it will raise an error
  *              if a command which are not allowed inside a script (flagged with the no-script flag)
- *              is invoke (like shutdown).
+ *              is invoked (like shutdown).
  *              In addition, on script mode, write commands are not allowed if there is
  *              not enough good replicas (as configured with repl_min_slaves_to_write)
  *              and/or a disk error happened.
@@ -5735,8 +5735,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
              * We will not run it if we encounter disk error
              * or we do not have enough replicas */
 
-            if (!checkGoodReplicasStatus())
-            {
+            if (!checkGoodReplicasStatus()) {
                 errno = EACCES;
                 if (error_as_call_replies) {
                     sds msg = sdsdup(shared.noreplicaserr->ptr);
