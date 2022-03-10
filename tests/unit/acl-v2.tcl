@@ -464,7 +464,8 @@ start_server {tags {"acl external:skip"}} {
         # cleanup
         r ACL deluser test-sort-acl
         r del v1 mylist
-
+    }
+    
     test {Test DRYRUN with wrong number of arguments} {
         r ACL setuser test-dry-run +@all ~v*
         
