@@ -2790,6 +2790,13 @@ setuser_cleanup:
             return;
         }
 
+        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
+            (c->argc-3 < -cmd->arity))
+        {
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
+            return;
+        }
+
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
         if (result != ACL_OK) {
