@@ -2319,7 +2319,7 @@ void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-void addModuleConfig(const char *module_name, const char *name, int flags, int (*applyfn)(const char **err), void *privdata);
+void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
@@ -2950,6 +2950,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
+void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
 void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue);
 void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
 void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue);
@@ -2960,8 +2961,14 @@ sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
+typedef struct moduleConfigTuple {
+    const char *name;
+    RedisModule *module;
+} moduleConfigTuple;
+
 sds moduleConfigGetCommand(const char *parameter, void *privdata);
 int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata);
+int moduleConfigApplyConfig(list *module_config_tuples, const char **err, const char **err_arg_name);
 void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);
 
 /* db.c -- Keyspace access API */

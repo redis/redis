@@ -4,6 +4,7 @@ int mutable_bool_val = 1;
 int immutable_bool_val = 0;
 long long longval = -1;
 long long memval = 1024;
+long long octval = 0;
 RedisModuleString *strval = NULL;
 int enumval = 0;
 const char *enum_vals[3] = {"one", "two", "three"};
@@ -20,7 +21,7 @@ int setBoolConfigCommand(const char *name, int new, void *privdata, const char *
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     *(int *)privdata = new;
-    return 1;
+    return REDISMODULE_OK;
 }
 
 long long getNumericConfigCommand(const char *name, void *privdata) {
@@ -32,7 +33,7 @@ int setNumericConfigCommand(const char *name, long long new, void *privdata, con
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     *(long long *)privdata = new;
-    return 1;
+    return REDISMODULE_OK;
 }
 
 RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
@@ -46,11 +47,11 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     /* This reject should not pass Address Sanitizer if we're not properly freeing rejected strings */
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
         if (strval) RedisModule_RetainString(NULL, *(RedisModuleString **)privdata);
-        return 0;
+        return REDISMODULE_ERR;
     }
     RedisModule_RetainString(NULL, new);
     *(RedisModuleString **)privdata = new;
-    return 1;
+    return REDISMODULE_OK;
 }
 
 int getEnumConfigCommand(const char *name, void *privdata) {
@@ -65,23 +66,23 @@ int setEnumConfigCommand(const char *name, int val, void *privdata, const char *
     REDISMODULE_NOT_USED(privdata);
     /* We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide */
     enumval = val;
-    return 1;
+    return REDISMODULE_OK;
 }
 
-int boolApplyFunc(const char **err) {
+int boolApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
     if (mutable_bool_val && immutable_bool_val) {
         *err = "Bool configs cannot both be yes.";
-        return 0;
+        return REDISMODULE_ERR;
     }
-    return 1;
+    return REDISMODULE_OK;
 }
 
-int longlongApplyFunc(const char **err) {
+int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
     if (longval == memval) {
         *err = "These configs cannot equal each other.";
-        return 0;
+        return REDISMODULE_ERR;
     }
-    return 1;
+    return REDISMODULE_OK;
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -101,6 +102,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
     /* Memory config here. */
     if (RedisModule_RegisterNumericConfig(ctx, "memory_numeric", 1024, REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_MEMORY, 0, 3000000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &memval) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+    /* Octal config here. */
+    if (RedisModule_RegisterNumericConfig(ctx, "octal_numeric", 0, REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_OCTAL, 0, 0777, getNumericConfigCommand, setNumericConfigCommand, NULL, &octval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     if (RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {

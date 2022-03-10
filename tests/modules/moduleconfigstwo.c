@@ -18,9 +18,9 @@ int setBoolConfigCommand(const char *name, int new, void *privdata, const char *
     REDISMODULE_NOT_USED(err);
     if (!strcasecmp(name, "test")) {
         bool_config = new;
-        return 1;
+        return REDISMODULE_OK;
     }
-    return 0;
+    return REDISMODULE_ERR;
 }
 
 /* No arguments are expected */ 

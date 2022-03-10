@@ -703,7 +703,7 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
     return res;
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns) {
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns, list *set_module_configs) {
     int i;
     const char *errstr = "unknown error";
     /* Set all backup values */
@@ -719,6 +719,11 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
                 serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
         }
     }
+
+    if (set_module_configs) {
+        if (!moduleConfigApplyConfig(set_module_configs, &errstr, NULL))
+            serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
+    }
 }
 
 /*-----------------------------------------------------------------------------
@@ -730,6 +735,8 @@ void configSetCommand(client *c) {
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
+    list *set_module_configs = listCreate();
+    listSetFreeMethod(set_module_configs, zfree);
     sds *new_values;
     sds *old_values = NULL;
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
@@ -814,12 +821,17 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, i+1, NULL);
+            restoreBackupConfig(set_configs, old_values, i+1, NULL, NULL);
             err_arg_name = set_configs[i]->name;
             goto err;
         } else if (res == 1) {
             /* A new value was set, if this config has an apply function then store it for execution later */
-            if (set_configs[i]->interface.apply) {
+            if (set_configs[i]->flags & MODULE_CONFIG) {
+                moduleConfigTuple *config_tuple = zmalloc(sizeof(moduleConfigTuple));
+                config_tuple->name = set_configs[i]->name;
+                config_tuple->module = set_configs[i]->privdata;
+                listAddNodeTail(set_module_configs, config_tuple);
+            } else if (set_configs[i]->interface.apply) {
                 /* Check if this apply function is already stored */
                 int exists = 0;
                 for (j = 0; apply_fns[j] != NULL && j <= i; j++) {
@@ -841,10 +853,16 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
         if (!apply_fns[i](&errstr)) {
             serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
-            restoreBackupConfig(set_configs, old_values, config_count, apply_fns);
+            restoreBackupConfig(set_configs, old_values, config_count, apply_fns, set_module_configs);
             err_arg_name = set_configs[config_map_fns[i]]->name;
             goto err;
         }
+    }
+
+    if (!moduleConfigApplyConfig(set_module_configs, &errstr, &err_arg_name)) {
+        serverLogRaw(LL_WARNING, "Failed applying new module configuration. Restoring previous settings.");
+        restoreBackupConfig(set_configs, old_values, config_count, apply_fns, set_module_configs);
+        goto err;
     }
     addReply(c,shared.ok);
     goto end;
@@ -868,6 +886,7 @@ end:
     zfree(old_values);
     zfree(apply_fns);
     zfree(config_map_fns);
+    listRelease(set_module_configs);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1049,7 +1068,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL || !isConfigNameRegistered(argv[0])) {
+        if (argv == NULL) {
             /* Apparently the line is unparsable for some reason, for
              * instance it may have unbalanced quotes. Load it as a
              * comment. */
@@ -1058,6 +1077,13 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             if (argv) sdsfreesplitres(argv, argc);
             sdsfree(line);
             rewriteConfigAppendLine(state,aux);
+            continue;
+        }
+
+        if (!isConfigNameRegistered(argv[0])) {
+            linenum--;
+            sdsfreesplitres(argv, argc);
+            sdsfree(line);
             continue;
         }
 
@@ -3010,9 +3036,9 @@ void removeConfig(char *name) {
  *----------------------------------------------------------------------------*/
 
 /* Create and add a skeleton standardConfig for a module config to the configs array */
-void addModuleConfig(const char *module_name, const char *name, int flags, apply_fn applyfn, void *privdata) {
+void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
-    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .interface.apply = applyfn, .privdata = privdata};
+    standardConfig module_config = {.name = config_name, .flags = flags | MODULE_CONFIG, .privdata = privdata};
     addConfig(&module_config);
 }
 

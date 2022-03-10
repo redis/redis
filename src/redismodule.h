@@ -87,6 +87,7 @@
 #define REDISMODULE_CONFIG_PROTECTED (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
 #define REDISMODULE_CONFIG_DENY_LOADING (1ULL<<6) /* This config is forbidden during loading. */
 #define REDISMODULE_CONFIG_MEMORY (1ULL<<7) /* Indicates if this value can be set as a memory value */
+#define REDISMODULE_CONFIG_OCTAL (1ULL<<8) /* This value uses octal representation */
 
 /* StreamID type. */
 typedef struct RedisModuleStreamID {
@@ -803,7 +804,7 @@ typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleStrin
 typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, const char **err);
 typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, const char **err);
 typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, const char **err);
-typedef int (*RedisModuleConfigApplyFunc)(const char **err);
+typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, const char **err);
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
