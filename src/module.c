@@ -11081,7 +11081,8 @@ int parseAndSetBoolConfig(ModuleConfig *config, sds strval, const char **err) {
     }
     int prev = config->get_fn.get_bool(config->name, config->privdata);
     if (prev != yn) {
-        return !config->set_fn.set_bool(config->name, yn, config->privdata, err);
+        int return_code = config->set_fn.set_bool(config->name, yn, config->privdata, err);
+        return return_code == REDISMODULE_OK ? 1 : 0;
     }
     return 2;
 }
@@ -11134,7 +11135,8 @@ int parseAndSetNumericConfig(ModuleConfig *config, sds strval, const char **err)
     }
     long long value = config->get_fn.get_numeric(config->name, config->privdata);
     if (ll != value) {
-        return !config->set_fn.set_numeric(config->name, ll, config->privdata, err);
+        int return_code = config->set_fn.set_numeric(config->name, ll, config->privdata, err);
+        return return_code == REDISMODULE_OK ? 1 : 0;
     }
     return 2;
 }
@@ -11146,10 +11148,10 @@ int parseAndSetStringConfig(ModuleConfig *config, sds strval, const char **err) 
     }
 
     RedisModuleString *new = createStringObject(strval, strlen(strval));
-    int return_code = !config->set_fn.set_string(config->name, new, config->privdata, err);
+    int return_code = config->set_fn.set_string(config->name, new, config->privdata, err);
     if (prev) decrRefCount(prev);
     decrRefCount(new);
-    return return_code;
+    return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 int parseAndSetEnumConfig(ModuleConfig *config, sds strval, const char **err) {
@@ -11160,7 +11162,8 @@ int parseAndSetEnumConfig(ModuleConfig *config, sds strval, const char **err) {
         if (!strcasecmp(strval, enum_val.name)) {
             int int_val = enum_val.val;
             if (int_val == prev) return 2;
-            return !config->set_fn.set_enum(config->name, int_val, config->privdata, err);
+            int return_code = config->set_fn.set_enum(config->name, int_val, config->privdata, err);
+            return return_code == REDISMODULE_OK ? 1 : 0;
         }
     }
     
