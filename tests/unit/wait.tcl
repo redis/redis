@@ -1,6 +1,6 @@
 source tests/support/cli.tcl
 
-start_server {tags {"wait network"}} {
+start_server {tags {"wait network external:skip"}} {
 start_server {} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]

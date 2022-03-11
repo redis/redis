@@ -18,12 +18,18 @@ proc find_non_empty_master {} {
     foreach_redis_id id {
         if {[RI $id role] eq {master} && [R $id dbsize] > 0} {
             set master_id_no $id
+            break
         }
     }
     return $master_id_no
 }
 
 proc get_one_of_my_replica {id} {
+    wait_for_condition 1000 50 {
+        [llength [lindex [R $id role] 2]] > 0
+    } else {
+        fail "replicas didn't connect"
+    }
     set replica_port [lindex [lindex [lindex [R $id role] 2] 0] 1]
     set replica_id_num [get_instance_id_by_port redis $replica_port]
     return $replica_id_num
@@ -53,7 +59,7 @@ proc test_slave_load_expired_keys {aof} {
 
         # config the replica persistency and rewrite the config file to survive restart
         # note that this needs to be done before populating the volatile keys since
-        # that triggers and AOFRW, and we rather the AOF file to have SETEX commands
+        # that triggers and AOFRW, and we rather the AOF file to have 'SET PXAT' commands
         # rather than an RDB with volatile keys
         R $replica_id config set appendonly $aof
         R $replica_id config rewrite
@@ -77,9 +83,10 @@ proc test_slave_load_expired_keys {aof} {
             # we need to wait for the initial AOFRW to be done, otherwise
             # kill_instance (which now uses SIGTERM will fail ("Writing initial AOF, can't exit")
             wait_for_condition 100 10 {
+                [RI $replica_id aof_rewrite_scheduled] eq 0 &&
                 [RI $replica_id aof_rewrite_in_progress] eq 0
             } else {
-                fail "keys didn't expire"
+                fail "AOFRW didn't finish"
             }
         } else {
             R $replica_id save

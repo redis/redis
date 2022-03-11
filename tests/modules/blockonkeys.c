@@ -1,7 +1,7 @@
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 #include <unistd.h>
 
@@ -65,7 +65,8 @@ int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int creat
         RedisModule_CloseKey(key);
         if (reply_on_failure)
             RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-        RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+        RedisModule_FreeCallReply(reply);
         return 0;
     }
 
@@ -134,22 +135,29 @@ int bpop_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
 }
 
-/* FSL.BPOP <key> <timeout> - Block clients until list has two or more elements.
+/* FSL.BPOP <key> <timeout> [NO_TO_CB]- Block clients until list has two or more elements.
  * When that happens, unblock client and pop the last two elements (from the right). */
 int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 3)
+    if (argc < 3)
         return RedisModule_WrongArity(ctx);
 
     long long timeout;
     if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK || timeout < 0)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
+    int to_cb = 1;
+    if (argc == 4) {
+        if (strcasecmp("NO_TO_CB", RedisModule_StringPtrLen(argv[3], NULL)))
+            return RedisModule_ReplyWithError(ctx,"ERR invalid argument");
+        to_cb = 0;
+    }
+
     fsl_t *fsl;
     if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
         return REDISMODULE_OK;
 
     if (!fsl) {
-        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, bpop_timeout_callback,
+        RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, to_cb ? bpop_timeout_callback : NULL,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
@@ -347,7 +355,11 @@ int blockonkeys_popall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
 }
 
-/* A module equivalent of LPUSH */
+/* BLOCKONKEYS.LPUSH key val [val ..]
+ * BLOCKONKEYS.LPUSH_UNBLOCK key val [val ..]
+ *
+ * A module equivalent of LPUSH. If the name LPUSH_UNBLOCK is used,
+ * RM_SignalKeyAsReady() is also called. */
 int blockonkeys_lpush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3)
         return RedisModule_WrongArity(ctx);
@@ -366,7 +378,81 @@ int blockonkeys_lpush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         }
     }
     RedisModule_CloseKey(key);
+
+    /* signal key as ready if the command is lpush_unblock */
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(argv[0], &len);
+    if (!strncasecmp(str, "blockonkeys.lpush_unblock", len)) {
+        RedisModule_SignalKeyAsReady(ctx, argv[1]);
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* Callback for the BLOCKONKEYS.BLPOPN command */
+int blockonkeys_blpopn_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argc);
+    long long n;
+    RedisModule_StringToLongLong(argv[2], &n);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    int result;
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST &&
+        RedisModule_ValueLength(key) >= (size_t)n) {
+        RedisModule_ReplyWithArray(ctx, n);
+        for (long i = 0; i < n; i++) {
+            RedisModuleString *elem = RedisModule_ListPop(key, REDISMODULE_LIST_HEAD);
+            RedisModule_ReplyWithString(ctx, elem);
+            RedisModule_FreeString(ctx, elem);
+        }
+        result = REDISMODULE_OK;
+    } else if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST ||
+               RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        /* continue blocking */
+        result = REDISMODULE_ERR;
+    } else {
+        result = RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+    RedisModule_CloseKey(key);
+    return result;
+}
+
+int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithError(ctx, "ERR Timeout");
+}
+
+/* BLOCKONKEYS.BLPOPN key N
+ *
+ * Blocks until key has N elements and then pops them or fails after 3 seconds.
+ */
+int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 3) return RedisModule_WrongArity(ctx);
+
+    long long n;
+    if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR Invalid N");
+    }
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    int keytype = RedisModule_KeyType(key);
+    if (keytype != REDISMODULE_KEYTYPE_EMPTY &&
+        keytype != REDISMODULE_KEYTYPE_LIST) {
+        RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    } else if (keytype == REDISMODULE_KEYTYPE_LIST &&
+               RedisModule_ValueLength(key) >= (size_t)n) {
+        RedisModule_ReplyWithArray(ctx, n);
+        for (long i = 0; i < n; i++) {
+            RedisModuleString *elem = RedisModule_ListPop(key, REDISMODULE_LIST_HEAD);
+            RedisModule_ReplyWithString(ctx, elem);
+            RedisModule_FreeString(ctx, elem);
+        }
+    } else {
+        RedisModule_BlockClientOnKeys(ctx, blockonkeys_blpopn_reply_callback,
+                                      blockonkeys_blpopn_timeout_callback,
+                                      NULL, 3000, &argv[1], 1, NULL);
+    }
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -390,27 +476,35 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (fsltype == NULL)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpopgt",fsl_bpopgt,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.bpoppush",fsl_bpoppush,"write",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"fsl.getall",fsl_getall,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.popall", blockonkeys_popall,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush", blockonkeys_lpush,
-                                  "", 1, 1, 1) == REDISMODULE_ERR)
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.lpush_unblock", blockonkeys_lpush,
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn", blockonkeys_blpopn,
+                                  "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

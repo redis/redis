@@ -1,0 +1,46 @@
+{
+    "ENCODING": {
+        "summary": "Inspect the internal encoding of a Redis object",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "2.2.3",
+        "arity": 3,
+        "container": "OBJECT",
+        "function": "objectCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

@@ -5,7 +5,7 @@
 # We keep these tests just because they reproduce edge cases in the replication
 # logic in hope they'll be able to spot some problem in the future.
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
     # Config
     set debug_msg 0                 ; # Enable additional debug messages
@@ -53,10 +53,16 @@ start_server {} {
     }
 
     test "Make the old master a replica of the new one and check conditions" {
+        # We set the new master's ping period to a high value, so that there's
+        # no chance for a race condition of sending a PING in between the two
+        # INFO calls in the assert for master_repl_offset match below.
+        $R(1) CONFIG SET repl-ping-replica-period 1000
+
         assert_equal [status $R(1) sync_full] 0
         $R(0) REPLICAOF $R_host(1) $R_port(1)
+
         wait_for_condition 50 1000 {
-            [status $R(1) sync_full] == 1
+            [status $R(0) master_link_status] == "up"
         } else {
             fail "The new master was not able to sync"
         }
@@ -74,7 +80,7 @@ start_server {} {
 }}
 
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 start_server {} {
@@ -111,7 +117,13 @@ start_server {} {
         $replica1 replicaof no one
         $replica2 replicaof 127.0.0.1 1 ;# we can't promote it to master since that will cycle the replication id
         $master config set repl-ping-replica-period 1
-        after 1500
+        set replofs [status $master master_repl_offset]
+        wait_for_condition 50 100 {
+            [status $replica3 master_repl_offset] > $replofs &&
+            [status $replica4 master_repl_offset] > $replofs
+        } else {
+            fail "replica didn't sync in time"
+        }
 
         # make everyone sync from the replica1 that didn't get the last ping from the old master
         # replica4 will keep syncing from the old master which now syncs from replica1
@@ -174,7 +186,7 @@ start_server {} {
 }
 }}}}}
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
 
@@ -195,10 +207,16 @@ start_server {} {
             fail "Chained replica not replicating from its master"
         }
 
-        # Do a write on the master, and wait for 3 seconds for the master to
+        # Do a write on the master, and wait for the master to
         # send some PINGs to its replica
         $R(0) INCR counter2
-        after 2000
+        set replofs [status $R(0) master_repl_offset]
+        wait_for_condition 50 100 {
+            [status $R(1) master_repl_offset] > $replofs &&
+            [status $R(2) master_repl_offset] > $replofs
+        } else {
+            fail "replica didn't sync in time"
+        }
         set sync_partial_master [status $R(0) sync_partial_ok]
         set sync_partial_replica [status $R(1) sync_partial_ok]
         $R(0) CONFIG SET repl-ping-replica-period 100

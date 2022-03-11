@@ -4,6 +4,10 @@
 # This software is released under the BSD License. See the COPYING file for
 # more information.
 
+# Track cluster configuration as created by create_cluster below
+set ::cluster_master_nodes 0
+set ::cluster_replica_nodes 0
+
 # Returns a parsed CLUSTER NODES output as a list of dictionaries.
 proc get_cluster_nodes id {
     set lines [split [R $id cluster nodes] "\r\n"]
@@ -62,7 +66,7 @@ proc s {n field} {
     get_info_field [R $n info] $field
 }
 
-# Assuming nodes are reest, this function performs slots allocation.
+# Assuming nodes are reset, this function performs slots allocation.
 # Only the first 'n' nodes are used.
 proc cluster_allocate_slots {n} {
     set slot 16383
@@ -120,7 +124,37 @@ proc create_cluster {masters slaves} {
         cluster_allocate_slaves $masters $slaves
     }
     assert_cluster_state ok
+
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $slaves
 }
+
+proc cluster_allocate_with_continuous_slots {n} {
+    set slot 16383
+    set avg [expr ($slot+1) / $n]
+    while {$slot >= 0} {
+        set node [expr $slot/$avg >= $n ? $n-1 : $slot/$avg]
+        lappend slots_$node $slot
+        incr slot -1
+    }
+    for {set j 0} {$j < $n} {incr j} {
+        R $j cluster addslots {*}[set slots_${j}]
+    }
+}
+
+# Create a cluster composed of the specified number of masters and slaves,
+# but with a continuous slot range. 
+proc cluster_create_with_continuous_slots {masters slaves} {
+    cluster_allocate_with_continuous_slots $masters
+    if {$slaves} {
+        cluster_allocate_slaves $masters $slaves
+    }
+    assert_cluster_state ok
+
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $slaves
+}
+
 
 # Set the cluster node-timeout to all the reachalbe nodes.
 proc set_cluster_node_timeout {to} {
@@ -142,4 +176,98 @@ proc cluster_write_test {id} {
         assert {[$cluster get key.$j] eq "$prefix.$j"}
     }
     $cluster close
+}
+
+# Check if cluster configuration is consistent.
+proc cluster_config_consistent {} {
+    for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+        if {$j == 0} {
+            set base_cfg [R $j cluster slots]
+        } else {
+            set cfg [R $j cluster slots]
+            if {$cfg != $base_cfg} {
+                return 0
+            }
+        }
+    }
+
+    return 1
+}
+
+# Wait for cluster configuration to propagate and be consistent across nodes.
+proc wait_for_cluster_propagation {} {
+    wait_for_condition 50 100 {
+        [cluster_config_consistent] eq 1
+    } else {
+        fail "cluster config did not reach a consistent state"
+    }
+}
+
+# Returns a parsed CLUSTER LINKS output of the instance identified
+# by the given `id` as a list of dictionaries, with each dictionary
+# corresponds to a link.
+proc get_cluster_links id {
+    set lines [R $id cluster links]
+    set links {}
+    foreach l $lines {
+        if {$l eq {}} continue
+        assert_equal [llength $l] 12
+        assert_equal [lindex $l 0] "direction"
+        set dir [lindex $l 1]
+        assert_equal [lindex $l 2] "node"
+        set node [lindex $l 3]
+        assert_equal [lindex $l 4] "create-time"
+        set create_time [lindex $l 5]
+        assert_equal [lindex $l 6] "events"
+        set events [lindex $l 7]
+        assert_equal [lindex $l 8] "send-buffer-allocated"
+        set send_buffer_allocated [lindex $l 9]
+        assert_equal [lindex $l 10] "send-buffer-used"
+        set send_buffer_used [lindex $l 11]
+        set link [dict create \
+            dir $dir \
+            node $node \
+            create_time $create_time \
+            events $events \
+            send_buffer_allocated $send_buffer_allocated \
+            send_buffer_used $send_buffer_used \
+        ]
+        lappend links $link
+    }
+    return $links
+}
+
+proc get_links_with_peer {this_instance_id peer_nodename} {
+    set links [get_cluster_links $this_instance_id]
+    set links_with_peer {}
+    foreach l $links {
+        if {[dict get $l node] eq $peer_nodename} {
+            lappend links_with_peer $l
+        }
+    }
+    return $links_with_peer
+}
+
+# Return the entry in CLUSTER LINKS output by instance identified by `this_instance_id` that
+# corresponds to the link established toward a peer identified by `peer_nodename`
+proc get_link_to_peer {this_instance_id peer_nodename} {
+    set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
+    foreach l $links_with_peer {
+        if {[dict get $l dir] eq "to"} {
+            return $l
+        }
+    }
+    return {}
+}
+
+# Return the entry in CLUSTER LINKS output by instance identified by `this_instance_id` that
+# corresponds to the link accepted from a peer identified by `peer_nodename`
+proc get_link_from_peer {this_instance_id peer_nodename} {
+    set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
+    foreach l $links_with_peer {
+        if {[dict get $l dir] eq "from"} {
+            return $l
+        }
+    }
+    return {}
 }

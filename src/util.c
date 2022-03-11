@@ -40,9 +40,13 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"
+#include "config.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -185,25 +189,29 @@ int stringmatchlen_fuzz_test(void) {
     return total_matches;
 }
 
+
 /* Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
+ * bytes, so for instance memtoull("1Gb") will return 1073741824 that is
  * (1024*1024*1024).
  *
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+unsigned long long memtoull(const char *p, int *err) {
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
-    long long val;
+    unsigned long long val;
     unsigned int digits;
 
     if (err) *err = 0;
 
     /* Search the first non digit character. */
     u = p;
-    if (*u == '-') u++;
+    if (*u == '-') {
+        if (err) *err = 1;
+        return 0;
+    }
     while(*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
@@ -236,12 +244,39 @@ long long memtoll(const char *p, int *err) {
 
     char *endptr;
     errno = 0;
-    val = strtoll(buf,&endptr,10);
+    val = strtoull(buf,&endptr,10);
     if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
         if (err) *err = 1;
         return 0;
     }
     return val*mul;
+}
+
+/* Search a memory buffer for any set of bytes, like strpbrk().
+ * Returns pointer to first found char or NULL.
+ */
+const char *mempbrk(const char *s, size_t len, const char *chars, size_t charslen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t n = 0; n < charslen; n++)
+            if (s[j] == chars[n]) return &s[j];
+    }
+
+    return NULL;
+}
+
+/* Modify the buffer replacing all occurrences of chars from the 'from'
+ * set with the corresponding char in the 'to' set. Always returns s.
+ */
+char *memmapchars(char *s, size_t len, const char *from, const char *to, size_t setlen) {
+    for (size_t j = 0; j < len; j++) {
+        for (size_t i = 0; i < setlen; i++) {
+            if (s[j] == from[i]) {
+                s[j] = to[i];
+                break;
+            }
+        }
+    }
+    return s;
 }
 
 /* Return the number of digits of 'v' when converted to string in radix 10.
@@ -280,26 +315,12 @@ uint32_t sdigits10(int64_t v) {
 
 /* Convert a long long into a string. Returns the number of
  * characters needed to represent the number.
- * If the buffer is not big enough to store the string, 0 is returned.
- *
- * Based on the following article (that apparently does not provide a
- * novel approach but only publicizes an already used technique):
- *
- * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
- *
- * Modified in order to handle signed integers since the original code was
- * designed for unsigned integers. */
+ * If the buffer is not big enough to store the string, 0 is returned. */
 int ll2string(char *dst, size_t dstlen, long long svalue) {
-    static const char digits[201] =
-        "0001020304050607080910111213141516171819"
-        "2021222324252627282930313233343536373839"
-        "4041424344454647484950515253545556575859"
-        "6061626364656667686970717273747576777879"
-        "8081828384858687888990919293949596979899";
-    int negative;
     unsigned long long value;
+    int negative = 0;
 
-    /* The main loop works with 64bit unsigned integers for simplicity, so
+    /* The ull2string function with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
     if (svalue < 0) {
         if (svalue != LLONG_MIN) {
@@ -307,20 +328,45 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         } else {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
+        if (dstlen < 2)
+            return 0;
         negative = 1;
+        dst[0] = '-';
+        dst++;
+        dstlen--;
     } else {
         value = svalue;
-        negative = 0;
     }
 
+    /* Converts the unsigned long long value to string*/
+    int length = ull2string(dst, dstlen, value);
+    if (length == 0) return 0;
+    return length + negative;
+}
+
+/* Convert a unsigned long long into a string. Returns the number of
+ * characters needed to represent the number.
+ * If the buffer is not big enough to store the string, 0 is returned.
+ *
+ * Based on the following article (that apparently does not provide a
+ * novel approach but only publicizes an already used technique):
+ *
+ * https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920 */
+int ull2string(char *dst, size_t dstlen, unsigned long long value) {
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+
     /* Check length. */
-    uint32_t const length = digits10(value)+negative;
+    uint32_t length = digits10(value);
     if (length >= dstlen) return 0;
 
     /* Null term. */
-    uint32_t next = length;
-    dst[next] = '\0';
-    next--;
+    uint32_t next = length - 1;
+    dst[next + 1] = '\0';
     while (value >= 100) {
         int const i = (value % 100) * 2;
         value /= 100;
@@ -338,8 +384,6 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
         dst[next - 1] = digits[i];
     }
 
-    /* Add sign. */
-    if (negative) dst[0] = '-';
     return length;
 }
 
@@ -512,7 +556,7 @@ int string2d(const char *s, size_t slen, double *dp) {
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
  * does. It is intended mainly to be used inside t_zset.c when writing scores
- * into a ziplist representing a sorted set. */
+ * into a listpack representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
         len = snprintf(buf,len,"nan");
@@ -547,6 +591,20 @@ int d2string(char *buf, size_t len, double value) {
             len = snprintf(buf,len,"%.17g",value);
     }
 
+    return len;
+}
+
+/* Trims off trailing zeros from a string representing a double. */
+int trimDoubleString(char *buf, size_t len) {
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    buf[len] = '\0';
     return len;
 }
 
@@ -770,6 +828,82 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
+int fileExist(char *filename) {
+    struct stat statbuf;
+    return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
+}
+
+int dirExists(char *dname) {
+    struct stat statbuf;
+    return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
+}
+
+int dirCreateIfMissing(char *dname) {
+    if (mkdir(dname, 0755) != 0) {
+        if (errno != EEXIST) {
+            return -1;
+        } else if (!dirExists(dname)) {
+            errno = ENOTDIR;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int dirRemove(char *dname) {
+    DIR *dir;
+    struct stat stat_entry;
+    struct dirent *entry;
+    char full_path[PATH_MAX + 1];
+
+    if ((dir = opendir(dname)) == NULL) {
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        snprintf(full_path, sizeof(full_path), "%s/%s", dname, entry->d_name);
+
+        int fd = open(full_path, O_RDONLY|O_NONBLOCK);
+        if (fd == -1) {
+            closedir(dir);
+            return -1;
+        }
+
+        if (fstat(fd, &stat_entry) == -1) {
+            close(fd);
+            closedir(dir);
+            return -1;
+        }
+        close(fd);
+
+        if (S_ISDIR(stat_entry.st_mode) != 0) {
+            if (dirRemove(full_path) == -1) {
+                return -1;
+            }
+            continue;
+        }
+
+        if (unlink(full_path) != 0) {
+            closedir(dir);
+            return -1;
+        }
+    }
+
+    if (rmdir(dname) != 0) {
+        closedir(dir);
+        return -1;
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+sds makePath(char *path, char *filename) {
+    return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
 
@@ -919,9 +1053,10 @@ static void test_ll2string(void) {
 }
 
 #define UNUSED(x) (void)(x)
-int utilTest(int argc, char **argv) {
+int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(flags);
 
     test_string2ll();
     test_string2l();

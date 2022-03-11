@@ -1,4 +1,4 @@
-/* This is a small program used in order to understand the collison rate
+/* This is a small program used in order to understand the collision rate
  * of CRC64 (ISO version) VS other stronger hashing functions in the context
  * of hashing keys for the Redis "tracking" feature (client side caching
  * assisted by the server).
@@ -7,7 +7,7 @@
  *
  *  prefix:<counter>
  *
- * And counts the resulting collisons generated in the 24 bits of output
+ * And counts the resulting collisions generated in the 24 bits of output
  * needed for the tracking feature invalidation table (16 millions + entries)
  *
  * Compile with:

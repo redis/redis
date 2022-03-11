@@ -50,7 +50,7 @@ static void redisLibeventDestroy(redisLibeventEvents *e) {
     hi_free(e);
 }
 
-static void redisLibeventHandler(int fd, short event, void *arg) {
+static void redisLibeventHandler(evutil_socket_t fd, short event, void *arg) {
     ((void)fd);
     redisLibeventEvents *e = (redisLibeventEvents*)arg;
     e->state |= REDIS_LIBEVENT_ENTERED;

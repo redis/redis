@@ -5,7 +5,7 @@
 #   tests/tls/ca.{crt,key}          Self signed CA certificate.
 #   tests/tls/redis.{crt,key}       A certificate with no key usage/policy restrictions.
 #   tests/tls/client.{crt,key}      A certificate restricted for SSL client usage.
-#   tests/tls/server.{crt,key}      A certificate restricted fro SSL server usage.
+#   tests/tls/server.{crt,key}      A certificate restricted for SSL server usage.
 #   tests/tls/redis.dh              DH Params file.
 
 generate_cert() {

@@ -55,6 +55,16 @@ int siptlw(int c) {
     }
 }
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+
+#if !defined(NO_SANITIZE)
+#define NO_SANITIZE(sanitizer)
+#endif
+
 /* Test of the CPU is Little Endian and supports not aligned accesses.
  * Two interesting conditions to speedup the function that happen to be
  * in most of x86 servers. */
@@ -113,6 +123,7 @@ int siptlw(int c) {
         v2 = ROTL(v2, 32);                                                     \
     } while (0)
 
+NO_SANITIZE("alignment")
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
 #ifndef UNALIGNED_LE_CPU
     uint64_t hash;
@@ -172,6 +183,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
 #endif
 }
 
+NO_SANITIZE("alignment")
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 {
 #ifndef UNALIGNED_LE_CPU

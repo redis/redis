@@ -1,0 +1,57 @@
+{
+    "BLPOP": {
+        "summary": "Remove and get the first element in a list, or block until one is available",
+        "complexity": "O(N) where N is the number of provided keys.",
+        "group": "list",
+        "since": "2.0.0",
+        "arity": -3,
+        "function": "blpopCommand",
+        "history": [
+            [
+                "6.0.0",
+                "`timeout` is interpreted as a double instead of an integer."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "NOSCRIPT",
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -2,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "name": "timeout",
+                "type": "double"
+            }
+        ]
+    }
+}

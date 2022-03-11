@@ -28,7 +28,6 @@
  */
 
 
-#include <assert.h>
 #include <errno.h>
 #include <port.h>
 #include <poll.h>
@@ -291,8 +290,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             return 0;
 
         /* Any other error indicates a bug. */
-        perror("aeApiPoll: port_get");
-        abort();
+        panic("aeApiPoll: port_getn, %s", strerror(errno));
     }
 
     state->npending = nevents;

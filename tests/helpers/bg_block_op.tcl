@@ -12,6 +12,7 @@ set ::tlsdir "tests/tls"
 # blocking.
 proc bg_block_op {host port db ops tls} {
     set r [redis $host $port 0 $tls]
+    $r client setname LOAD_HANDLER
     $r select $db
 
     for {set j 0} {$j < $ops} {incr j} {

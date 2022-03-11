@@ -4,7 +4,7 @@
 #include "jemalloc/internal/atomic.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/rtree_tsd.h"
-#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/tsd.h"
 
 /*
@@ -31,7 +31,7 @@
 #  error Unsupported number of significant virtual address bits
 #endif
 /* Use compact leaf representation if virtual address encoding allows. */
-#if RTREE_NHIB >= LG_CEIL_NSIZES
+#if RTREE_NHIB >= LG_CEIL(SC_NSIZES)
 #  define RTREE_LEAF_COMPACT
 #endif
 
@@ -170,8 +170,8 @@ rtree_subkey(uintptr_t key, unsigned level) {
  */
 #  ifdef RTREE_LEAF_COMPACT
 JEMALLOC_ALWAYS_INLINE uintptr_t
-rtree_leaf_elm_bits_read(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *elm,
-    bool dependent) {
+rtree_leaf_elm_bits_read(tsdn_t *tsdn, rtree_t *rtree,
+    rtree_leaf_elm_t *elm, bool dependent) {
 	return (uintptr_t)atomic_load_p(&elm->le_bits, dependent
 	    ? ATOMIC_RELAXED : ATOMIC_ACQUIRE);
 }
@@ -208,7 +208,7 @@ rtree_leaf_elm_bits_slab_get(uintptr_t bits) {
 #  endif
 
 JEMALLOC_ALWAYS_INLINE extent_t *
-rtree_leaf_elm_extent_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_extent_read(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, bool dependent) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
@@ -221,7 +221,7 @@ rtree_leaf_elm_extent_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 JEMALLOC_ALWAYS_INLINE szind_t
-rtree_leaf_elm_szind_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_szind_read(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, bool dependent) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
@@ -233,7 +233,7 @@ rtree_leaf_elm_szind_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 JEMALLOC_ALWAYS_INLINE bool
-rtree_leaf_elm_slab_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_slab_read(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, bool dependent) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, dependent);
@@ -245,7 +245,7 @@ rtree_leaf_elm_slab_read(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 static inline void
-rtree_leaf_elm_extent_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_extent_write(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, extent_t *extent) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm, true);
@@ -259,9 +259,9 @@ rtree_leaf_elm_extent_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 static inline void
-rtree_leaf_elm_szind_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_szind_write(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, szind_t szind) {
-	assert(szind <= NSIZES);
+	assert(szind <= SC_NSIZES);
 
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm,
@@ -277,7 +277,7 @@ rtree_leaf_elm_szind_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 static inline void
-rtree_leaf_elm_slab_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
+rtree_leaf_elm_slab_write(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, bool slab) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t old_bits = rtree_leaf_elm_bits_read(tsdn, rtree, elm,
@@ -292,8 +292,8 @@ rtree_leaf_elm_slab_write(UNUSED tsdn_t *tsdn, UNUSED rtree_t *rtree,
 }
 
 static inline void
-rtree_leaf_elm_write(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *elm,
-    extent_t *extent, szind_t szind, bool slab) {
+rtree_leaf_elm_write(tsdn_t *tsdn, rtree_t *rtree,
+    rtree_leaf_elm_t *elm, extent_t *extent, szind_t szind, bool slab) {
 #ifdef RTREE_LEAF_COMPACT
 	uintptr_t bits = ((uintptr_t)szind << LG_VADDR) |
 	    ((uintptr_t)extent & (((uintptr_t)0x1 << LG_VADDR) - 1)) |
@@ -313,7 +313,7 @@ rtree_leaf_elm_write(tsdn_t *tsdn, rtree_t *rtree, rtree_leaf_elm_t *elm,
 static inline void
 rtree_leaf_elm_szind_slab_update(tsdn_t *tsdn, rtree_t *rtree,
     rtree_leaf_elm_t *elm, szind_t szind, bool slab) {
-	assert(!slab || szind < NBINS);
+	assert(!slab || szind < SC_NBINS);
 
 	/*
 	 * The caller implicitly assures that it is the only writer to the szind
@@ -429,7 +429,7 @@ rtree_szind_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
 	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key,
 	    dependent);
 	if (!dependent && elm == NULL) {
-		return NSIZES;
+		return SC_NSIZES;
 	}
 	return rtree_leaf_elm_szind_read(tsdn, rtree, elm, dependent);
 }
@@ -452,6 +452,42 @@ rtree_extent_szind_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
 	return false;
 }
 
+/*
+ * Try to read szind_slab from the L1 cache.  Returns true on a hit,
+ * and fills in r_szind and r_slab.  Otherwise returns false.
+ *
+ * Key is allowed to be NULL in order to save an extra branch on the
+ * fastpath.  returns false in this case.
+ */
+JEMALLOC_ALWAYS_INLINE bool
+rtree_szind_slab_read_fast(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
+			    uintptr_t key, szind_t *r_szind, bool *r_slab) {
+	rtree_leaf_elm_t *elm;
+
+	size_t slot = rtree_cache_direct_map(key);
+	uintptr_t leafkey = rtree_leafkey(key);
+	assert(leafkey != RTREE_LEAFKEY_INVALID);
+
+	if (likely(rtree_ctx->cache[slot].leafkey == leafkey)) {
+		rtree_leaf_elm_t *leaf = rtree_ctx->cache[slot].leaf;
+		assert(leaf != NULL);
+		uintptr_t subkey = rtree_subkey(key, RTREE_HEIGHT-1);
+		elm = &leaf[subkey];
+
+#ifdef RTREE_LEAF_COMPACT
+		uintptr_t bits = rtree_leaf_elm_bits_read(tsdn, rtree,
+							  elm, true);
+		*r_szind = rtree_leaf_elm_bits_szind_get(bits);
+		*r_slab = rtree_leaf_elm_bits_slab_get(bits);
+#else
+		*r_szind = rtree_leaf_elm_szind_read(tsdn, rtree, elm, true);
+		*r_slab = rtree_leaf_elm_slab_read(tsdn, rtree, elm, true);
+#endif
+		return true;
+	} else {
+		return false;
+	}
+}
 JEMALLOC_ALWAYS_INLINE bool
 rtree_szind_slab_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
     uintptr_t key, bool dependent, szind_t *r_szind, bool *r_slab) {
@@ -474,7 +510,7 @@ rtree_szind_slab_read(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
 static inline void
 rtree_szind_slab_update(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
     uintptr_t key, szind_t szind, bool slab) {
-	assert(!slab || szind < NBINS);
+	assert(!slab || szind < SC_NBINS);
 
 	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key, true);
 	rtree_leaf_elm_szind_slab_update(tsdn, rtree, elm, szind, slab);
@@ -486,7 +522,7 @@ rtree_clear(tsdn_t *tsdn, rtree_t *rtree, rtree_ctx_t *rtree_ctx,
 	rtree_leaf_elm_t *elm = rtree_read(tsdn, rtree, rtree_ctx, key, true);
 	assert(rtree_leaf_elm_extent_read(tsdn, rtree, elm, false) !=
 	    NULL);
-	rtree_leaf_elm_write(tsdn, rtree, elm, NULL, NSIZES, false);
+	rtree_leaf_elm_write(tsdn, rtree, elm, NULL, SC_NSIZES, false);
 }
 
 #endif /* JEMALLOC_INTERNAL_RTREE_H */

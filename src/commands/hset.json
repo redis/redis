@@ -1,0 +1,66 @@
+{
+    "HSET": {
+        "summary": "Set the string value of a hash field",
+        "complexity": "O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.",
+        "group": "hash",
+        "since": "2.0.0",
+        "arity": -4,
+        "function": "hsetCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Accepts multiple `field` and `value` arguments."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "field_value",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "field",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "SENTINEL": {
+        "summary": "A container for Sentinel commands",
+        "complexity": "Depends on subcommand.",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": -2,
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ]
+    }
+}

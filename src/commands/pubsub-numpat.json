@@ -1,0 +1,16 @@
+{
+    "NUMPAT": {
+        "summary": "Get the count of unique patterns pattern subscriptions",
+        "complexity": "O(1)",
+        "group": "pubsub",
+        "since": "2.8.0",
+        "arity": 2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE"
+        ]
+    }
+}

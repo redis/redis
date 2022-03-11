@@ -54,7 +54,17 @@ proc process_is_running {pid} {
 
 set numkeys 50000
 set numops 200000
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set start_node_port [get_instance_attrib redis 0 port]
+set cluster [redis_cluster 127.0.0.1:$start_node_port]
+if {$::tls} {
+    # setup a non-TLS cluster client to the TLS cluster
+    set plaintext_port [get_instance_attrib redis 0 plaintext-port]
+    set cluster_plaintext [redis_cluster 127.0.0.1:$plaintext_port 0]
+    puts "Testing TLS cluster on start node 127.0.0.1:$start_node_port, plaintext port $plaintext_port"
+} else {
+    set cluster_plaintext $cluster
+    puts "Testing using non-TLS cluster"
+}
 catch {unset content}
 array set content {}
 set tribpid {}
@@ -94,8 +104,11 @@ test "Cluster consistency during live resharding" {
         # This way we are able to stress Lua -> Redis command invocation
         # as well, that has tests to prevent Lua to write into wrong
         # hash slots.
-        if {$listid % 2} {
+        # We also use both TLS and plaintext connections.
+        if {$listid % 3 == 0} {
             $cluster rpush $key $ele
+        } elseif {$listid % 3 == 1} {
+            $cluster_plaintext rpush $key $ele
         } else {
             $cluster eval {redis.call("rpush",KEYS[1],ARGV[1])} 1 $key $ele
         }
@@ -124,8 +137,10 @@ test "Verify $numkeys keys for consistency with logical content" {
     }
 }
 
-test "Crash and restart all the instances" {
+test "Terminate and restart all the instances" {
     foreach_redis_id id {
+        # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
+        R $id config set appendonly no
         kill_instance redis $id
         restart_instance redis $id
     }
@@ -135,7 +150,7 @@ test "Cluster should eventually be up again" {
     assert_cluster_state ok
 }
 
-test "Verify $numkeys keys after the crash & restart" {
+test "Verify $numkeys keys after the restart" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
         if {[$cluster lrange $key 0 -1] ne $value} {

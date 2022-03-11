@@ -47,7 +47,6 @@ typedef struct {
     GeoHashNeighbors neighbors;
 } GeoHashRadius;
 
-int GeoHashBitsComparator(const GeoHashBits *a, const GeoHashBits *b);
 uint8_t geohashEstimateStepsByRadius(double range_meters, double lat);
 int geohashBoundingBox(GeoShape *shape, double *bounds);
 GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape);
@@ -60,7 +59,7 @@ int geohashGetDistanceIfInRadius(double x1, double y1,
 int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
                                       double y2, double radius,
                                       double *distance);
-int geohashGetDistanceIfInRectangle(double *bounds, double x1, double y1,
+int geohashGetDistanceIfInRectangle(double width_m, double height_m, double x1, double y1,
                                     double x2, double y2, double *distance);
 
 #endif /* GEOHASH_HELPER_HPP_ */

@@ -1,0 +1,42 @@
+{
+    "REPLY": {
+        "summary": "Instruct the server whether to reply to commands",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "3.2.0",
+        "arity": 3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "on_off_skip",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "on",
+                        "type": "pure-token",
+                        "token": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "pure-token",
+                        "token": "OFF"
+                    },
+                    {
+                        "name": "skip",
+                        "type": "pure-token",
+                        "token": "SKIP"
+                    }
+                ]
+            }
+        ]
+    }
+}

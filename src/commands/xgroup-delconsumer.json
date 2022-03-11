@@ -1,0 +1,52 @@
+{
+    "DELCONSUMER": {
+        "summary": "Delete a consumer from a consumer group.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": 5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "groupname",
+                "type": "string"
+            },
+            {
+                "name": "consumername",
+                "type": "string"
+            }
+        ]
+    }
+}

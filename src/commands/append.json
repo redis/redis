@@ -1,0 +1,49 @@
+{
+    "APPEND": {
+        "summary": "Append a value to a key",
+        "complexity": "O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.",
+        "group": "string",
+        "since": "2.0.0",
+        "arity": 3,
+        "function": "appendCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STRING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "value",
+                "type": "string"
+            }
+        ]
+    }
+}

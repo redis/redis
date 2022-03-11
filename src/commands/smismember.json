@@ -1,0 +1,49 @@
+{
+    "SMISMEMBER": {
+        "summary": "Returns the membership associated with the given elements for a set",
+        "complexity": "O(N) where N is the number of elements being checked for membership",
+        "group": "set",
+        "since": "6.2.0",
+        "arity": -3,
+        "function": "smismemberCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

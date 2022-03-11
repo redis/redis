@@ -21,7 +21,12 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-pedantic -DREDIS_STATIC=''
+
+# Use -Wno-c11-extensions on clang, either where explicitly used or on
+# platforms we can assume it's being used.
 ifneq (,$(findstring clang,$(CC)))
+  STD+=-Wno-c11-extensions
+else
 ifneq (,$(findstring FreeBSD,$(uname_S)))
   STD+=-Wno-c11-extensions
 endif
@@ -29,8 +34,10 @@ endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
-# Detect if the compiler supports C11 _Atomic
-C11_ATOMIC := $(shell sh -c 'echo "\#include <stdatomic.h>" > foo.c; \
+# Detect if the compiler supports C11 _Atomic.
+# NUMBER_SIGN_CHAR is a workaround to support both GNU Make 4.3 and older versions.
+NUMBER_SIGN_CHAR := \#
+C11_ATOMIC := $(shell sh -c 'echo "$(NUMBER_SIGN_CHAR)include <stdatomic.h>" > foo.c; \
 	$(CC) -std=c11 -c foo.c -o foo.o > /dev/null 2>&1; \
 	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c')
 ifeq ($(C11_ATOMIC),yes)
@@ -43,6 +50,10 @@ PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
 PKG_CONFIG?=pkg-config
+
+ifndef PYTHON
+PYTHON := $(shell which python3 || which python)
+endif
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -80,6 +91,27 @@ ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
 endif
 
+ifdef SANITIZER
+ifeq ($(SANITIZER),address)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=address
+else
+ifeq ($(SANITIZER),undefined)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=thread
+else
+    $(error "unknown sanitizer=${SANITIZER}")
+endif
+endif
+endif
+endif
+
 # Override default settings if possible
 -include .make-settings
 
@@ -88,13 +120,9 @@ FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
-# Linux ARM needs -latomic at linking time
-ifneq (,$(filter aarch64 armv,$(uname_M)))
-        FINAL_LIBS+=-latomic
-else
+# Linux ARM32 needs -latomic at linking time
 ifneq (,$(findstring armv,$(uname_M)))
         FINAL_LIBS+=-latomic
-endif
 endif
 
 ifeq ($(uname_S),SunOS)
@@ -120,12 +148,10 @@ ifeq ($(uname_S),Darwin)
 	# must be referenced explicitly during build.
 ifeq ($(uname_M),arm64)
 	# Homebrew arm64 uses /opt/homebrew as HOMEBREW_PREFIX
-	OPENSSL_CFLAGS=-I/opt/homebrew/opt/openssl/include
-	OPENSSL_LDFLAGS=-L/opt/homebrew/opt/openssl/lib
+	OPENSSL_PREFIX?=/opt/homebrew/opt/openssl
 else
 	# Homebrew x86/ppc uses /usr/local as HOMEBREW_PREFIX
-	OPENSSL_CFLAGS=-I/usr/local/opt/openssl/include
-	OPENSSL_LDFLAGS=-L/usr/local/opt/openssl/lib
+	OPENSSL_PREFIX?=/usr/local/opt/openssl
 endif
 else
 ifeq ($(uname_S),AIX)
@@ -187,6 +213,14 @@ endif
 endif
 endif
 endif
+
+ifdef OPENSSL_PREFIX
+	OPENSSL_CFLAGS=-I$(OPENSSL_PREFIX)/include
+	OPENSSL_LDFLAGS=-L$(OPENSSL_PREFIX)/lib
+	# Also export OPENSSL_PREFIX so it ends up in deps sub-Makefiles
+	export OPENSSL_PREFIX
+endif
+
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src -I../deps/hdr_histogram
 
@@ -251,6 +285,17 @@ endif
 	FINAL_LIBS += ../deps/hiredis/libhiredis_ssl.a $(LIBSSL_LIBS) $(LIBCRYPTO_LIBS)
 endif
 
+ifndef V
+    define MAKE_INSTALL
+        @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR) 1>&2
+        @$(INSTALL) $(1) $(2)
+    endef
+else
+    define MAKE_INSTALL
+        $(INSTALL) $(1) $(2)
+    endef
+endif
+
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
@@ -264,17 +309,18 @@ ENDCOLOR="\033[0m"
 
 ifndef V
 QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
+QUIET_GEN = @printf '    %b %b\n' $(CCCOLOR)GEN$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 QUIET_INSTALL = @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
 REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o gopher.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o
+REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o eval.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o resp_parser.o call_reply.o script_lua.o script.o functions.o function_lua.o commands.o
 REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
-REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
+REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o redisassert.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
 REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
-REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o release.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
+REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 
@@ -324,7 +370,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
@@ -344,10 +390,7 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 
 # redis-benchmark
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/hdr_histogram.o $(FINAL_LIBS)
-
-dict-benchmark: dict.c zmalloc.c sds.c siphash.c mt19937-64.c
-	$(REDIS_CC) $(FINAL_CFLAGS) $^ -D DICT_BENCHMARK_MAIN -o $@ $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
 
 DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
@@ -358,14 +401,23 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 
+# The file commands.c is checked in and doesn't normally need to be rebuilt. It
+# is built only if python is available and its prereqs are modified.
+ifneq (,$(PYTHON))
+commands.c: commands/*.json ../utils/generate-command-code.py
+	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py
+endif
+
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
 	rm -f $(DEP)
 
 .PHONY: clean
 
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
+	-(cd modules && $(MAKE) clean)
+	-(cd ../tests/modules && $(MAKE) clean)
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -373,8 +425,14 @@ distclean: clean
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
 	@(cd ..; ./runtest)
 
+test-modules: $(REDIS_SERVER_NAME)
+	@(cd ..; ./runtest-moduleapi)
+
 test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)
+
+test-cluster: $(REDIS_SERVER_NAME) $(REDIS_CLI_NAME)
+	@(cd ..; ./runtest-cluster)
 
 check: test
 
@@ -407,14 +465,11 @@ valgrind:
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
-src/help.h:
-	@../utils/generate-command-help.rb > help.h
-
 install: all
 	@mkdir -p $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
+	$(call MAKE_INSTALL,$(REDIS_SERVER_NAME),$(INSTALL_BIN))
+	$(call MAKE_INSTALL,$(REDIS_BENCHMARK_NAME),$(INSTALL_BIN))
+	$(call MAKE_INSTALL,$(REDIS_CLI_NAME),$(INSTALL_BIN))
 	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_RDB_NAME)
 	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_AOF_NAME)
 	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SENTINEL_NAME)

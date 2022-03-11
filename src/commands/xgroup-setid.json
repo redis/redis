@@ -1,0 +1,75 @@
+{
+    "SETID": {
+        "summary": "Set a consumer group to an arbitrary last delivered ID value.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the optional `entries_read` argument."
+            ]
+        ],
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "groupname",
+                "type": "string"
+            },
+            {
+                "name": "id",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "ID",
+                        "type": "string"
+                    },
+                    {
+                        "name": "new_id",
+                        "type": "pure-token",
+                        "token": "$"
+                    }
+                ]
+            },
+            {
+                "name": "entries_read",
+                "token": "ENTRIESREAD",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

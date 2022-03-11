@@ -143,8 +143,8 @@ void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "GET [<count>]",
-"    Return top <count> entries from the slowlog (default: 10). Entries are",
-"    made of:",
+"    Return top <count> entries from the slowlog (default: 10, -1 mean all).",
+"    Entries are made of:",
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
 "    client name",
 "LEN",
@@ -168,9 +168,18 @@ NULL
         listNode *ln;
         slowlogEntry *se;
 
-        if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
-            return;
+        if (c->argc == 3) {
+            /* Consume count arg. */
+            if (getRangeLongFromObjectOrReply(c, c->argv[2], -1,
+                    LONG_MAX, &count, "count should be greater than or equal to -1") != C_OK)
+                return;
+
+            if (count == -1) {
+                /* We treat -1 as a special value, which means to get all slow logs.
+                 * Simply set count to the length of server.slowlog.*/
+                count = listLength(server.slowlog);
+            }
+        }
 
         listRewind(server.slowlog,&li);
         totentries = addReplyDeferredLen(c);

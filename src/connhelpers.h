@@ -41,7 +41,7 @@
  * of connections from within a handler.
  */
 
-/* Incremenet connection references.
+/* Increment connection references.
  *
  * Inside a connection handler, we guarantee refs >= 1 so it is always
  * safe to connClose().

@@ -14,7 +14,7 @@ Generally, questions about using Redis should be directed to the [community](htt
 * [the mailing list](https://groups.google.com/forum/#!forum/redis-db)
 * [the `redis` tag at StackOverflow](http://stackoverflow.com/questions/tagged/redis)
 * [/r/redis subreddit](http://www.reddit.com/r/redis)
-* [the irc channel #redis](http://webchat.freenode.net/?channels=redis) on freenode
+* [github discussions](https://github.com/redis/redis/discussions)
 
 It is also possible that your question was already asked here, so please do a quick issues search before submitting. Lastly, if your question is about one of Redis' [clients](https://redis.io/clients), you may to contact your client's developers for help.
 

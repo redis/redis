@@ -1,6 +1,5 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-
 start_server {tags {"modules"}} {
     r module load $testmodule
 
@@ -13,6 +12,11 @@ start_server {tags {"modules"}} {
     test {test RM_Call args array} {
         set info [r test.call_generic info commandstats]
         # cmdstat is not in a default section, so we also test an argument was passed
+        assert { [string match "*cmdstat_module*" $info] }
+    }
+
+    test {test RM_Call recursive} {
+        set info [r test.call_generic test.call_generic info commandstats]
         assert { [string match "*cmdstat_module*" $info] }
     }
 
@@ -35,7 +39,14 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 0
     }
 
-    test {test modle lru api} {
+    test {test module keyexists} {
+        r set x foo
+        assert_equal 1 [r test.keyexists x]
+        r del x
+        assert_equal 0 [r test.keyexists x]
+    }
+
+    test {test module lru api} {
         r config set maxmemory-policy allkeys-lru
         r set x foo
         set lru [r test.getlru x]
@@ -54,7 +65,7 @@ start_server {tags {"modules"}} {
     }
     r config set maxmemory-policy allkeys-lru
 
-    test {test modle lfu api} {
+    test {test module lfu api} {
         r config set maxmemory-policy allkeys-lfu
         r set x foo
         set lfu [r test.getlfu x]
@@ -105,5 +116,24 @@ start_server {tags {"modules"}} {
     test {test detached thread safe cnotext} {
         r test.log_tsctx "info" "Test message"
         verify_log_message 0 "*<misc> Test message*" 0
+    }
+
+    test {test RM_Call CLIENT INFO} {
+        assert_match "*fd=-1*" [r test.call_generic client info]
+    }
+
+    test {Unsafe command names are sanitized in INFO output} {
+        r test.weird:cmd
+        set info [r info commandstats]
+        assert_match {*cmdstat_test.weird_cmd:calls=1*} $info
+    }
+
+    test {test monotonic time} {
+        set x [r test.monotonic_time]
+        assert { [r test.monotonic_time] >= $x }
+    }
+
+    test "Unload the module - misc" {
+        assert_equal {OK} [r module unload misc]
     }
 }

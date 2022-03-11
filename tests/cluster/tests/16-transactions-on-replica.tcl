@@ -13,7 +13,7 @@ test "Cluster should start ok" {
 set primary [Rn 0]
 set replica [Rn 1]
 
-test "Cant read from replica without READONLY" {
+test "Can't read from replica without READONLY" {
     $primary SET a 1
     wait_for_ofs_sync $primary $replica
     catch {$replica GET a} err
@@ -25,7 +25,7 @@ test "Can read from replica after READONLY" {
     assert {[$replica GET a] eq {1}}
 }
 
-test "Can preform HSET primary and HGET from replica" {
+test "Can perform HSET primary and HGET from replica" {
     $primary HSET h a 1
     $primary HSET h b 2
     $primary HSET h c 3

@@ -1,0 +1,19 @@
+{
+    "PFSELFTEST": {
+        "summary": "An internal command for testing HyperLogLog values",
+        "complexity": "N/A",
+        "group": "hyperloglog",
+        "since": "2.8.9",
+        "arity": 1,
+        "function": "pfselftestCommand",
+        "doc_flags": [
+            "SYSCMD"
+        ],
+        "command_flags": [
+            "ADMIN"
+        ],
+        "acl_categories": [
+            "HYPERLOGLOG"
+        ]
+    }
+}

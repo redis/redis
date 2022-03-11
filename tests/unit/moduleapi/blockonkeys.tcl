@@ -168,6 +168,38 @@ start_server {tags {"modules"}} {
         assert_error "*unblocked*" {$rd read}
     }
 
+    test {Module client blocked on keys, no timeout CB, CLIENT UNBLOCK TIMEOUT} {
+        r del k
+        set rd [redis_deferring_client]
+        $rd client id
+        set cid [$rd read]
+        $rd fsl.bpop k 0 NO_TO_CB
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        assert_equal [r client unblock $cid timeout] {0}
+        $rd close
+    }
+
+    test {Module client blocked on keys, no timeout CB, CLIENT UNBLOCK ERROR} {
+        r del k
+        set rd [redis_deferring_client]
+        $rd client id
+        set cid [$rd read]
+        $rd fsl.bpop k 0 NO_TO_CB
+        ;# wait until clients are actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Clients are not blocked"
+        }
+        assert_equal [r client unblock $cid error] {0}
+        $rd close
+    }
+
     test {Module client re-blocked on keys after woke up on wrong type} {
         r del k
         set rd [redis_deferring_client]
@@ -214,6 +246,26 @@ start_server {tags {"modules"}} {
         }
         r blockonkeys.lpush k 42
         assert_equal {k 42} [$rd read]
+        $rd close
+    }
+
+    test {Module unblocks module blocked on non-empty list} {
+        r del k
+        r lpush k aa
+        # Module client blocks to pop 5 elements from list
+        set rd [redis_deferring_client]
+        $rd blockonkeys.blpopn k 5
+        # Wait until client is actually blocked
+        wait_for_condition 50 100 {
+            [s 0 blocked_clients] eq {1}
+        } else {
+            fail "Client is not blocked"
+        }
+        # Check that RM_SignalKeyAsReady() can wake up BLPOPN
+        r blockonkeys.lpush_unblock k bb cc ;# Not enough elements for BLPOPN
+        r lpush k dd ee ff                  ;# Doesn't unblock module
+        r blockonkeys.lpush_unblock k gg    ;# Unblocks module
+        assert_equal {gg ff ee dd cc} [$rd read]
         $rd close
     }
 }

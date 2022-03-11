@@ -105,11 +105,12 @@ uint64_t intrev64(uint64_t v) {
 #include <stdio.h>
 
 #define UNUSED(x) (void)(x)
-int endianconvTest(int argc, char *argv[]) {
+int endianconvTest(int argc, char *argv[], int flags) {
     char buf[32];
 
     UNUSED(argc);
     UNUSED(argv);
+    UNUSED(flags);
 
     sprintf(buf,"ciaoroma");
     memrev16(buf);

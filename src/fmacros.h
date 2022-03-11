@@ -60,7 +60,6 @@
 
 #ifdef __linux__
 /* features.h uses the defines above to set feature specific defines.  */
-#include <linux/version.h>
 #include <features.h>
 #endif
 

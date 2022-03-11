@@ -77,7 +77,6 @@ static unsigned long long bio_pending[BIO_NUM_OPS];
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
 struct bio_job {
-    time_t time; /* Time at which the job was created. */
     /* Job specific arguments.*/
     int fd; /* Fd for file based background jobs */
     lazy_free_fn *free_fn; /* Function that will free the provided arguments */
@@ -127,7 +126,6 @@ void bioInit(void) {
 }
 
 void bioSubmitJob(int type, struct bio_job *job) {
-    job->time = time(NULL);
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
     bio_pending[type]++;
@@ -220,7 +218,23 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (type == BIO_CLOSE_FILE) {
             close(job->fd);
         } else if (type == BIO_AOF_FSYNC) {
-            redis_fsync(job->fd);
+            /* The fd may be closed by main thread and reused for another
+             * socket, pipe, or file. We just ignore these errno because
+             * aof fsync did not really fail. */
+            if (redis_fsync(job->fd) == -1 &&
+                errno != EBADF && errno != EINVAL)
+            {
+                int last_status;
+                atomicGet(server.aof_bio_fsync_status,last_status);
+                atomicSet(server.aof_bio_fsync_status,C_ERR);
+                atomicSet(server.aof_bio_fsync_errno,errno);
+                if (last_status == C_OK) {
+                    serverLog(LL_WARNING,
+                        "Fail to fsync the AOF file: %s",strerror(errno));
+                }
+            } else {
+                atomicSet(server.aof_bio_fsync_status,C_OK);
+            }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
         } else {

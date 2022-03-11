@@ -1,4 +1,4 @@
-start_server {tags {"shutdown"}} {
+start_server {tags {"shutdown external:skip"}} {
     test {Temp rdb will be deleted if we use bg_unlink when shutdown} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i
@@ -25,7 +25,18 @@ start_server {tags {"shutdown"}} {
     }
 }
 
-start_server {tags {"shutdown"}} {
+start_server {tags {"shutdown external:skip"}} {
+    test {SHUTDOWN ABORT can cancel SIGTERM} {
+        r debug pause-cron 1
+        set pid [s process_id]
+        exec kill -SIGTERM $pid
+        after 10;               # Give signal handler some time to run
+        r shutdown abort
+        verify_log_message 0 "*Shutdown manually aborted*" 0
+        r debug pause-cron 0
+        r ping
+    } {PONG}
+
     test {Temp rdb will be deleted in signal handle} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i

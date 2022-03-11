@@ -4,7 +4,7 @@
 # redis-benchmark. At the end we check that the data is the same
 # everywhere.
 
-start_server {tags {"psync2"}} {
+start_server {tags {"psync2 external:skip"}} {
 start_server {} {
 start_server {} {
     # Config

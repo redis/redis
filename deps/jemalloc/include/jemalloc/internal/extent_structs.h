@@ -2,11 +2,12 @@
 #define JEMALLOC_INTERNAL_EXTENT_STRUCTS_H
 
 #include "jemalloc/internal/atomic.h"
+#include "jemalloc/internal/bit_util.h"
 #include "jemalloc/internal/bitmap.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/ql.h"
 #include "jemalloc/internal/ph.h"
-#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/sc.h"
 
 typedef enum {
 	extent_state_active   = 0,
@@ -28,9 +29,10 @@ struct extent_s {
 	 * t: state
 	 * i: szind
 	 * f: nfree
+	 * s: bin_shard
 	 * n: sn
 	 *
-	 * nnnnnnnn ... nnnnffff ffffffii iiiiiitt zdcbaaaa aaaaaaaa
+	 * nnnnnnnn ... nnnnnnss ssssffff ffffffii iiiiiitt zdcbaaaa aaaaaaaa
 	 *
 	 * arena_ind: Arena from which this extent came, or all 1 bits if
 	 *            unassociated.
@@ -75,6 +77,8 @@ struct extent_s {
 	 *
 	 * nfree: Number of free regions in slab.
 	 *
+	 * bin_shard: the shard of the bin from which this extent came.
+	 *
 	 * sn: Serial number (potentially non-unique).
 	 *
 	 *     Serial numbers may wrap around if !opt_retain, but as long as
@@ -112,7 +116,7 @@ struct extent_s {
 #define EXTENT_BITS_STATE_SHIFT  (EXTENT_BITS_ZEROED_WIDTH + EXTENT_BITS_ZEROED_SHIFT)
 #define EXTENT_BITS_STATE_MASK  MASK(EXTENT_BITS_STATE_WIDTH, EXTENT_BITS_STATE_SHIFT)
 
-#define EXTENT_BITS_SZIND_WIDTH  LG_CEIL_NSIZES
+#define EXTENT_BITS_SZIND_WIDTH  LG_CEIL(SC_NSIZES)
 #define EXTENT_BITS_SZIND_SHIFT  (EXTENT_BITS_STATE_WIDTH + EXTENT_BITS_STATE_SHIFT)
 #define EXTENT_BITS_SZIND_MASK  MASK(EXTENT_BITS_SZIND_WIDTH, EXTENT_BITS_SZIND_SHIFT)
 
@@ -120,7 +124,15 @@ struct extent_s {
 #define EXTENT_BITS_NFREE_SHIFT  (EXTENT_BITS_SZIND_WIDTH + EXTENT_BITS_SZIND_SHIFT)
 #define EXTENT_BITS_NFREE_MASK  MASK(EXTENT_BITS_NFREE_WIDTH, EXTENT_BITS_NFREE_SHIFT)
 
-#define EXTENT_BITS_SN_SHIFT  (EXTENT_BITS_NFREE_WIDTH + EXTENT_BITS_NFREE_SHIFT)
+#define EXTENT_BITS_BINSHARD_WIDTH  6
+#define EXTENT_BITS_BINSHARD_SHIFT  (EXTENT_BITS_NFREE_WIDTH + EXTENT_BITS_NFREE_SHIFT)
+#define EXTENT_BITS_BINSHARD_MASK  MASK(EXTENT_BITS_BINSHARD_WIDTH, EXTENT_BITS_BINSHARD_SHIFT)
+
+#define EXTENT_BITS_IS_HEAD_WIDTH 1
+#define EXTENT_BITS_IS_HEAD_SHIFT  (EXTENT_BITS_BINSHARD_WIDTH + EXTENT_BITS_BINSHARD_SHIFT)
+#define EXTENT_BITS_IS_HEAD_MASK  MASK(EXTENT_BITS_IS_HEAD_WIDTH, EXTENT_BITS_IS_HEAD_SHIFT)
+
+#define EXTENT_BITS_SN_SHIFT   (EXTENT_BITS_IS_HEAD_WIDTH + EXTENT_BITS_IS_HEAD_SHIFT)
 #define EXTENT_BITS_SN_MASK  (UINT64_MAX << EXTENT_BITS_SN_SHIFT)
 
 	/* Pointer to the extent that this structure is responsible for. */
@@ -160,11 +172,13 @@ struct extent_s {
 		/* Small region slab metadata. */
 		arena_slab_data_t	e_slab_data;
 
-		/*
-		 * Profile counters, used for large objects.  Points to a
-		 * prof_tctx_t.
-		 */
-		atomic_p_t		e_prof_tctx;
+		/* Profiling data, used for large objects. */
+		struct {
+			/* Time when this was allocated. */
+			nstime_t		e_alloc_time;
+			/* Points to a prof_tctx_t. */
+			atomic_p_t		e_prof_tctx;
+		};
 	};
 };
 typedef ql_head(extent_t) extent_list_t;
@@ -180,14 +194,16 @@ struct extents_s {
 	 *
 	 * Synchronization: mtx.
 	 */
-	extent_heap_t		heaps[NPSIZES+1];
+	extent_heap_t		heaps[SC_NPSIZES + 1];
+	atomic_zu_t		nextents[SC_NPSIZES + 1];
+	atomic_zu_t		nbytes[SC_NPSIZES + 1];
 
 	/*
 	 * Bitmap for which set bits correspond to non-empty heaps.
 	 *
 	 * Synchronization: mtx.
 	 */
-	bitmap_t		bitmap[BITMAP_GROUPS(NPSIZES+1)];
+	bitmap_t		bitmap[BITMAP_GROUPS(SC_NPSIZES + 1)];
 
 	/*
 	 * LRU of all extents in heaps.
@@ -214,6 +230,27 @@ struct extents_s {
 	 * deallocation.
 	 */
 	bool			delay_coalesce;
+};
+
+/*
+ * The following two structs are for experimental purposes. See
+ * experimental_utilization_query_ctl and
+ * experimental_utilization_batch_query_ctl in src/ctl.c.
+ */
+
+struct extent_util_stats_s {
+	size_t nfree;
+	size_t nregs;
+	size_t size;
+};
+
+struct extent_util_stats_verbose_s {
+	void *slabcur_addr;
+	size_t nfree;
+	size_t nregs;
+	size_t size;
+	size_t bin_nfree;
+	size_t bin_nregs;
 };
 
 #endif /* JEMALLOC_INTERNAL_EXTENT_STRUCTS_H */

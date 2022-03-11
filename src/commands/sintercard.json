@@ -1,0 +1,55 @@
+{
+    "SINTERCARD": {
+        "summary": "Intersect multiple sets and return the cardinality of the result",
+        "complexity": "O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.",
+        "group": "set",
+        "since": "7.0.0",
+        "arity": -3,
+        "function": "sinterCardCommand",
+        "get_keys_function": "sintercardGetKeys",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            },
+            {
+                "token": "LIMIT",
+                "name": "limit",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}
