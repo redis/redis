@@ -2962,7 +2962,7 @@ int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
 sds moduleConfigGetCommand(const char *parameter, void *privdata);
-int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata);
+int moduleConfigSetCommand(const char *parameter, sds strval, const char **err, void *privdata);
 void addModuleApply(list *module_configs, const char *parameter, void *module);
 int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
 void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);

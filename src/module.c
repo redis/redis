@@ -11073,7 +11073,7 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
 /* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
-int parseAndSetBoolConfig(ModuleConfig *config, char *strval, const char **err) {
+int parseAndSetBoolConfig(ModuleConfig *config, sds strval, const char **err) {
     int yn = yesnotoi(strval);
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
@@ -11090,9 +11090,9 @@ int parseAndSetBoolConfig(ModuleConfig *config, char *strval, const char **err) 
 static char loadbuf[LOADBUF_SIZE];
 
 /* Note that for the time being, module configurations are not supporting OCTO and Percent */
-int parseAndSetNumericConfig(ModuleConfig *config, char *strval, const char **err) {
+int parseAndSetNumericConfig(ModuleConfig *config, sds strval, const char **err) {
     long long ll;
-    sds str_val = sdsnew(strval);
+    sds str_val = sdsdup(strval);
     if (config->flags & REDISMODULE_CONFIG_MEMORY) {
         int memerr;
         ll = memtoull(str_val, &memerr);
@@ -11139,7 +11139,7 @@ int parseAndSetNumericConfig(ModuleConfig *config, char *strval, const char **er
     return 2;
 }
 
-int parseAndSetStringConfig(ModuleConfig *config, char *strval, const char **err) {
+int parseAndSetStringConfig(ModuleConfig *config, sds strval, const char **err) {
     RedisModuleString *prev = config->get_fn.get_string(config->name, config->privdata);
     if (prev && !strcmp(prev->ptr, strval)) {
         return 2;
@@ -11152,7 +11152,7 @@ int parseAndSetStringConfig(ModuleConfig *config, char *strval, const char **err
     return return_code;
 }
 
-int parseAndSetEnumConfig(ModuleConfig *config, char *strval, const char **err) {
+int parseAndSetEnumConfig(ModuleConfig *config, sds strval, const char **err) {
     int prev = config->get_fn.get_enum(config->name, config->privdata);
 
     for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
@@ -11180,7 +11180,7 @@ int parseAndSetEnumConfig(ModuleConfig *config, char *strval, const char **err) 
 }
 
 /* Controller function called from config.c to actually set the value of the config */
-int moduleConfigSetCommand(const char *parameter, char *strval, const char **err, void *privdata) {
+int moduleConfigSetCommand(const char *parameter, sds strval, const char **err, void *privdata) {
     char *config_name = strchr(parameter, '.') + 1;
     ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
     
@@ -11230,7 +11230,7 @@ sds getAndParseNumericConfig(ModuleConfig *module_config) {
 
 sds getAndParseStringConfig(ModuleConfig *module_config) {
     RedisModuleString *val = module_config->get_fn.get_string(module_config->name, module_config->privdata);
-    return sdsnew(val ? val->ptr : "");
+    return sdsdup(val->ptr);
 }
 
 sds getAndParseEnumConfig(ModuleConfig *module_config) {
@@ -11360,6 +11360,7 @@ int loadModuleConfigs(RedisModule *module) {
     return REDISMODULE_OK;
 }
 
+/* Add a moduleConfigTuple to the list if the apply and privdata do not match one already in it. */
 void addModuleApply(list *module_configs_tuples, const char *parameter, void *module) {
     char *config_name = strchr(parameter, '.') + 1;
     ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, module);
