@@ -11426,9 +11426,9 @@ int moduleConfigApplyConfig(list *module_configs_tuples, const char **err, const
     config.set_fn.set_##type = setfn; \
     config.default_val.default_##type = default;
 
-void addModuleConfigtoList(RedisModule *module, ModuleConfig new_module_config) {
+void addModuleConfigtoList(RedisModule *module, ModuleConfig *new_module_config) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
-    memcpy(new_config, &new_module_config, sizeof(ModuleConfig));
+    memcpy(new_config, new_module_config, sizeof(ModuleConfig));
     module->module_configs = listAddNodeTail(module->module_configs, new_config);
 }
 
@@ -11466,7 +11466,7 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     }
     ModuleConfig newBoolConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_BOOL, flags, applyfn, privdata);
     addDefaultAndCallbacksToConfig(newBoolConfig, default_val, getfn, setfn, bool);
-    addModuleConfigtoList(module, newBoolConfig);
+    addModuleConfigtoList(module, &newBoolConfig);
     flags = maskModuleConfigFlags(flags);
     addModuleConfig(module->name, name, flags, module);
     return REDISMODULE_OK;
@@ -11484,7 +11484,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
     addDefaultAndCallbacksToConfig(newNumericConfig, default_val, getfn, setfn, numeric);
     newNumericConfig.type_specific.numeric.upper = max;
     newNumericConfig.type_specific.numeric.lower = min;
-    addModuleConfigtoList(module, newNumericConfig);
+    addModuleConfigtoList(module, &newNumericConfig);
     flags = maskModuleConfigFlags(flags);
     addModuleConfig(module->name, name, flags, module);
     return REDISMODULE_OK;
@@ -11565,7 +11565,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
     }
     ModuleConfig newStringConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_STRING, flags, applyfn, privdata);
     addDefaultAndCallbacksToConfig(newStringConfig, default_val, getfn, setfn, string);
-    addModuleConfigtoList(module, newStringConfig);
+    addModuleConfigtoList(module, &newStringConfig);
     flags = maskModuleConfigFlags(flags);
     addModuleConfig(module->name, name, flags, module);
     return REDISMODULE_OK;
@@ -11605,7 +11605,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
         moduleEnumConfig enum_config = {.name = zstrdup(enum_values[i]), .val = int_values[i]};
         memcpy(newEnumConfig.type_specific.enums.enum_values + i, &enum_config, sizeof(moduleEnumConfig));    
     }
-    addModuleConfigtoList(module, newEnumConfig);
+    addModuleConfigtoList(module, &newEnumConfig);
     flags = maskModuleConfigFlags(flags);
     addModuleConfig(module->name, name, flags, module);
     return REDISMODULE_OK;
