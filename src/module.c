@@ -412,7 +412,6 @@ typedef struct ModuleConfig {
     sds name; /* Name of config without the module name appended to the front */
     configType type; /* Type of config BOOL/NUMERIC/STRING/ENUM */
     void *privdata; /* Optional data passed into the module config callbacks */
-    unsigned int flags; /* Flags, exposed in redismodule.h. These are necessary for numeric configs */
     union get_fn { /* The get callback specified by the module */
         RedisModuleConfigGetStringFunc get_string;
         RedisModuleConfigGetNumericFunc get_numeric;
