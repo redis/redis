@@ -86,8 +86,8 @@
 #define REDISMODULE_CONFIG_HIDDEN (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
 #define REDISMODULE_CONFIG_PROTECTED (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
 #define REDISMODULE_CONFIG_DENY_LOADING (1ULL<<6) /* This config is forbidden during loading. */
+
 #define REDISMODULE_CONFIG_MEMORY (1ULL<<7) /* Indicates if this value can be set as a memory value */
-#define REDISMODULE_CONFIG_OCTAL (1ULL<<8) /* This value uses octal representation */
 
 /* StreamID type. */
 typedef struct RedisModuleStreamID {

@@ -12,8 +12,6 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-        assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 0"
-        # config get * was a difficulty, as the module config get system relies on the config name explicitly
     }
 
     test {Config set commands work} {
@@ -28,8 +26,6 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
         r config set moduleconfigs.numeric -2
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -2"
-        r config set moduleconfigs.octal_numeric 775
-        assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 775"
     }
 
     test {Immutable flag works properly and rejected strings dont leak} {
@@ -48,8 +44,6 @@ start_server {tags {"modules"}} {
         assert_match {*argument must be a memory value*} $e
         catch {[r config set moduleconfigs.numeric -10]} e
         assert_match {*argument must be between*} $e
-        catch {[r config set moduleconfigs.octal_numeric 778]} e
-        assert_match {*argument couldn't be parsed as an octal number*} $e
     }
 
     test {Enums only able to be set to passed in values} {
@@ -69,12 +63,11 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-        assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 0"
         r module unload moduleconfigs
     }
 
     test {test loadex functionality} {
-        r module loadex $testmodule CONFIG moduleconfigs.mutable_bool no CONFIG moduleconfigs.immutable_bool yes CONFIG moduleconfigs.memory_numeric 2mb CONFIG moduleconfigs.string tclortickle CONFIG moduleconfigs.octal_numeric 757
+        r module loadex $testmodule CONFIG moduleconfigs.mutable_bool no CONFIG moduleconfigs.immutable_bool yes CONFIG moduleconfigs.memory_numeric 2mb CONFIG moduleconfigs.string tclortickle
         assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
         assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool yes"
@@ -83,7 +76,6 @@ start_server {tags {"modules"}} {
         # Configs that were not changed should still be their module specified value
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-        assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 757"
     }
 
     test {apply function works} {
@@ -117,7 +109,6 @@ start_server {tags {"modules"}} {
             r config set moduleconfigs.memory_numeric 750
             r config set moduleconfigs.string nice
             r config set moduleconfigs.enum two
-            r config set moduleconfigs.octal_numeric 555
             r config rewrite
             restart_server 0 true false
             # Ensure configs we rewrote are present
@@ -126,7 +117,6 @@ start_server {tags {"modules"}} {
             assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
             assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
             assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-            assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 555"
         }
     }
 
@@ -140,7 +130,6 @@ start_server {tags {"modules"}} {
             assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
             assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
             assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-            assert_equal [r config get moduleconfigs.octal_numeric] "moduleconfigs.octal_numeric 0"
             assert_equal [r config get configs.test] "configs.test yes"
             r config set moduleconfigs.mutable_bool no
             r config set moduleconfigs.string nice

@@ -2319,7 +2319,6 @@ void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-void addModuleConfig(const char *module_name, const char *name, int flags, void *privdata);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
@@ -2942,6 +2941,16 @@ sds keyspaceEventsFlagsToString(int flags);
 #define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
 #define MODULE_CONFIG (1ULL<<7) /* This config is a module config */
 
+#define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
+#define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
+#define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+#define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
+
+typedef struct configEnum {
+    char *name;
+    int val;
+} configEnum;
+
 void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
@@ -2955,17 +2964,30 @@ void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *opti
 void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
 void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue);
 void initConfigValues();
-void removeConfig(char *name);
+void removeConfig(char *name, int is_enum);
 void freeConfigs();
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
-sds moduleConfigGetCommand(const char *parameter, void *privdata);
-int moduleConfigSetCommand(const char *parameter, sds strval, const char **err, void *privdata);
-void addModuleApply(list *module_configs, const char *parameter, void *module);
+typedef struct ModuleConfig ModuleConfig;
+typedef struct standardConfig standardConfig;
+standardConfig *getConfigFromName(sds name);
+int performInterfaceSet(standardConfig *config, sds value, const char **errstr);
+void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
+void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
+void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
+void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
+void addModuleApply(list *module_configs, void *module_config);
 int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
-void moduleConfigRewriteCommand(const char* name, struct rewriteConfigState *state, void *privdata);
+int getModuleBoolConfig(ModuleConfig *module_config);
+int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);
+sds getModuleStringConfig(ModuleConfig *module_config);
+int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err);
+int getModuleEnumConfig(ModuleConfig *module_config);
+int setModuleEnumConfig(ModuleConfig *config, int val, const char **err);
+long long getModuleNumericConfig(ModuleConfig *module_config);
+int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

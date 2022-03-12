@@ -407,11 +407,6 @@ typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *pri
 /* Apply signature, matches apply_fn in config.c */
 typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, const char **err);
 
-typedef struct moduleEnumConfig {
-    char *name; /* String name of this enum. */
-    int val; /* Integer value of this enum. */
-} moduleEnumConfig;
-
 /* Struct representing a module config. These are stored in a list in the module struct */
 typedef struct ModuleConfig {
     sds name; /* Name of config without the module name appended to the front */
@@ -430,23 +425,8 @@ typedef struct ModuleConfig {
         RedisModuleConfigSetBoolFunc set_bool;
         RedisModuleConfigSetEnumFunc set_enum;
     } set_fn;
-    union type_specific { /* Type specific information */
-        struct { /* For numerics, we need to know upper and lower bounds */
-            long long upper;
-            long long lower;
-        } numeric;
-        struct { /* For enums, we need to know valid values */
-            moduleEnumConfig *enum_values;
-            int num_enums;
-        } enums;
-    } type_specific;
-    union default_val { /* Default values, provided at registration time to know when to rewrite. */
-        RedisModuleString *default_string;
-        int default_bool;
-        long long default_numeric;
-        int default_enum;
-    } default_val;
     RedisModuleConfigApplyFunc apply_fn;
+    RedisModule *module;
 } ModuleConfig;
 
 /* Struct pointing to a module config and the module it's associated with. */
@@ -1927,15 +1907,6 @@ int moduleListConfigMatch(void *config, void *name) {
 
 void moduleListFree(void *config) {
     ModuleConfig *module_config = (ModuleConfig *) config;
-    if (module_config->type == REDISMODULE_CONFIG_ENUM) {
-        for (int i = 0; i < module_config->type_specific.enums.num_enums; i++) {
-            zfree(module_config->type_specific.enums.enum_values[i].name);
-        }
-        zfree(module_config->type_specific.enums.enum_values);
-    } else if (module_config->type == REDISMODULE_CONFIG_STRING) {
-        RedisModuleString *val = module_config->default_val.default_string;
-        if (val) decrRefCount(val);
-    }
     sdsfree(module_config->name);
     zfree(config);
 }
@@ -10587,7 +10558,10 @@ void moduleRemoveConfigs(RedisModule *module) {
         ModuleConfig *config = ln->value;
         sds module_name = sdsnew(module->name);
         sds full_name = sdscat(sdscat(module_name, "."), config->name); /* ModuleName.ModuleConfig */
-        removeConfig(full_name);
+        if (config->type == REDISMODULE_CONFIG_ENUM)
+            removeConfig(full_name, 1);
+        else
+            removeConfig(full_name, 0);
         sdsfree(full_name);
     }
 }
@@ -11053,18 +11027,15 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
                     | REDISMODULE_CONFIG_HIDDEN
                     | REDISMODULE_CONFIG_PROTECTED
                     | REDISMODULE_CONFIG_DENY_LOADING
-                    | REDISMODULE_CONFIG_MEMORY
-                    | REDISMODULE_CONFIG_OCTAL))) {
+                    | REDISMODULE_CONFIG_MEMORY))) {
         return REDISMODULE_ERR;
     }
-    if (type != REDISMODULE_CONFIG_NUMERIC && (flags & (REDISMODULE_CONFIG_MEMORY | REDISMODULE_CONFIG_OCTAL))) {
+    if (type != REDISMODULE_CONFIG_NUMERIC && flags & REDISMODULE_CONFIG_MEMORY) {
         return REDISMODULE_ERR;
     } else if (type == REDISMODULE_CONFIG_NUMERIC) {
-        int numeric_flag = flags & (REDISMODULE_CONFIG_MEMORY | REDISMODULE_CONFIG_OCTAL);
+        int numeric_flag = flags & (REDISMODULE_CONFIG_MEMORY);
         /* Can only provide one numeric flag. */
-        if (!(numeric_flag == REDISMODULE_CONFIG_MEMORY 
-            || numeric_flag == REDISMODULE_CONFIG_OCTAL
-            || !numeric_flag))
+        if (!(numeric_flag == REDISMODULE_CONFIG_MEMORY || !numeric_flag))
             return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -11073,80 +11044,13 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
 /* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
-int parseAndSetBoolConfig(ModuleConfig *config, sds strval, const char **err) {
-    int yn = yesnotoi(strval);
-    if (yn == -1) {
-        *err = "argument must be 'yes' or 'no'";
-        return 0;
-    }
-    int prev = config->get_fn.get_bool(config->name, config->privdata);
-    if (prev != yn) {
-        int return_code = config->set_fn.set_bool(config->name, yn, config->privdata, err);
-        return return_code == REDISMODULE_OK ? 1 : 0;
-    }
-    return 2;
+int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
+    int return_code = config->set_fn.set_bool(config->name, val, config->privdata, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-#define LOADBUF_SIZE 256
-static char loadbuf[LOADBUF_SIZE];
-
-/* Note that for the time being, module configurations are not supporting OCTO and Percent */
-int parseAndSetNumericConfig(ModuleConfig *config, sds strval, const char **err) {
-    long long ll;
-    sds str_val = sdsdup(strval);
-    if (config->flags & REDISMODULE_CONFIG_MEMORY) {
-        int memerr;
-        ll = memtoull(str_val, &memerr);
-        if (memerr || ll < 0) {
-            *err = "argument must be a memory value";
-            sdsfree(str_val);
-            return 0;
-        }
-    } else if (config->flags & REDISMODULE_CONFIG_OCTAL) {
-        char *endptr;
-        errno = 0;
-        ll = strtoll(str_val, &endptr, 8);
-        if (!(errno == 0 && *endptr == '\0')) {
-            *err = "argument couldn't be parsed as an octal number";
-            sdsfree(str_val);
-            return 0; /* No overflow or invalid characters */
-        }
-    } else {
-        if (!string2ll(str_val, sdslen(str_val), &ll)) {
-            *err = "argument couldn't be parsed into an integer";
-            sdsfree(str_val);
-            return 0;
-        }
-    }
-    sdsfree(str_val);
-
-    if (ll < config->type_specific.numeric.lower || ll > config->type_specific.numeric.upper) {
-        if (config->flags & REDISMODULE_CONFIG_OCTAL) {
-            snprintf(loadbuf, LOADBUF_SIZE, "argument must be between %llo and %llo inclusive",
-                config->type_specific.numeric.lower,
-                config->type_specific.numeric.upper);
-        } else {
-            snprintf(loadbuf, LOADBUF_SIZE, "argument must be between %lld and %lld inclusive",
-                config->type_specific.numeric.lower,
-                config->type_specific.numeric.upper);
-        }
-        *err = loadbuf;
-        return 0;
-    }
-    long long value = config->get_fn.get_numeric(config->name, config->privdata);
-    if (ll != value) {
-        int return_code = config->set_fn.set_numeric(config->name, ll, config->privdata, err);
-        return return_code == REDISMODULE_OK ? 1 : 0;
-    }
-    return 2;
-}
-
-int parseAndSetStringConfig(ModuleConfig *config, sds strval, const char **err) {
+int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
     RedisModuleString *prev = config->get_fn.get_string(config->name, config->privdata);
-    if (prev && !strcmp(prev->ptr, strval)) {
-        return 2;
-    }
-
     RedisModuleString *new = createStringObject(strval, strlen(strval));
     int return_code = config->set_fn.set_string(config->name, new, config->privdata, err);
     if (prev) decrRefCount(prev);
@@ -11154,184 +11058,40 @@ int parseAndSetStringConfig(ModuleConfig *config, sds strval, const char **err) 
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-int parseAndSetEnumConfig(ModuleConfig *config, sds strval, const char **err) {
-    int prev = config->get_fn.get_enum(config->name, config->privdata);
-
-    for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
-        moduleEnumConfig enum_val = config->type_specific.enums.enum_values[i];
-        if (!strcasecmp(strval, enum_val.name)) {
-            int int_val = enum_val.val;
-            if (int_val == prev) return 2;
-            int return_code = config->set_fn.set_enum(config->name, int_val, config->privdata, err);
-            return return_code == REDISMODULE_OK ? 1 : 0;
-        }
-    }
-    
-    sds error = sdsnew("argument must be one of the following: ");
-    for (int i = 0; i < config->type_specific.enums.num_enums; i++) {
-        moduleEnumConfig enum_val = config->type_specific.enums.enum_values[i];
-        error = sdscatlen(error, enum_val.name, strlen(enum_val.name));
-        error = sdscatlen(error, ", ", 2);
-    }
-    sdsrange(error, 0, -3);
-    strncpy(loadbuf, error, LOADBUF_SIZE);
-    loadbuf[LOADBUF_SIZE - 1] = '\0';
-    
-    sdsfree(error);
-    *err = loadbuf;
-    return 0;
+int setModuleEnumConfig(ModuleConfig *config, int val, const char **err) {
+    int return_code = config->set_fn.set_enum(config->name, val, config->privdata, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-/* Controller function called from config.c to actually set the value of the config */
-int moduleConfigSetCommand(const char *parameter, sds strval, const char **err, void *privdata) {
-    char *config_name = strchr(parameter, '.') + 1;
-    ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
-    
-    if (!module_config) {
-        /* If this is a start-up and we didn't find the module config. Reject the set.*/
-        *err = "No config found with specified name.";
-        return 0;
-    }
-    
-    switch(module_config->type) {
-        case REDISMODULE_CONFIG_BOOL:
-            return parseAndSetBoolConfig(module_config, strval, err);
-        case REDISMODULE_CONFIG_STRING:
-            return parseAndSetStringConfig(module_config, strval, err);
-        case REDISMODULE_CONFIG_NUMERIC:
-            return parseAndSetNumericConfig(module_config, strval, err);
-        case REDISMODULE_CONFIG_ENUM:
-            return parseAndSetEnumConfig(module_config, strval, err);
-        default:
-            serverPanic("Could not resolve type of module config %s", parameter);
-            return 0;
-    }
+int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err) {
+    int return_code = config->set_fn.set_numeric(config->name, val, config->privdata, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 /* This is a series of getAndParse functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the get callbacks specified by the module
  * to get the value. */
-sds getAndParseBoolConfig(ModuleConfig *module_config) {
-    int val = module_config->get_fn.get_bool(module_config->name, module_config->privdata);
-    return sdsnew(val ? "yes" : "no");
+int getModuleBoolConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_bool(module_config->name, module_config->privdata);
 }
 
-sds getAndParseNumericConfig(ModuleConfig *module_config) {
-    char buf[LONG_STR_SIZE];
-
-    long long value = module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
-    
-    if (module_config->flags & REDISMODULE_CONFIG_MEMORY) {
-        ull2string(buf, sizeof(buf), value);
-    } else if (module_config->flags & REDISMODULE_CONFIG_OCTAL) {
-        snprintf(buf, sizeof(buf), "%llo", value);
-    } else {
-        ll2string(buf, sizeof(buf), value);
-    }
-    return sdsnew(buf);
-}
-
-sds getAndParseStringConfig(ModuleConfig *module_config) {
+sds getModuleStringConfig(ModuleConfig *module_config) {
     RedisModuleString *val = module_config->get_fn.get_string(module_config->name, module_config->privdata);
-    return sdsdup(val->ptr);
+    if (val)
+        return sdsdup(val->ptr);
+    return NULL;
 }
 
-sds getAndParseEnumConfig(ModuleConfig *module_config) {
-    int val = module_config->get_fn.get_enum(module_config->name, module_config->privdata);
-    for (int i = 0; i < module_config->type_specific.enums.num_enums; i++) {
-        moduleEnumConfig enum_val = module_config->type_specific.enums.enum_values[i];
-        if (val == enum_val.val) return sdsnew(enum_val.name); 
-    }
-    return sdsnew("unknown");
+int getModuleEnumConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_enum(module_config->name, module_config->privdata);
 }
 
-/* Controller function called from config.c for config get commands for module configs. */
-sds moduleConfigGetCommand(const char *parameter, void *privdata) {
-    char *config_name = strchr(parameter, '.') + 1;
-    ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
-    serverAssert(module_config);
-    switch(module_config->type) {
-        case REDISMODULE_CONFIG_BOOL:
-            return getAndParseBoolConfig(module_config);
-        case REDISMODULE_CONFIG_STRING:
-            return getAndParseStringConfig(module_config);
-        case REDISMODULE_CONFIG_NUMERIC:
-            return getAndParseNumericConfig(module_config);
-        case REDISMODULE_CONFIG_ENUM:
-            return getAndParseEnumConfig(module_config);
-        default:
-            serverPanic("Could not resolve type of module config %s", parameter);
-            return sdsempty();
-    }
+long long getModuleNumericConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
 }
-
-/* Rewrite functions that emulate the ones in config.c. We check against the default value passed at config registration time. */
-void moduleBoolConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    int current_val = module_config->get_fn.get_bool(module_config->name, module_config->privdata);
-    rewriteConfigYesNoOption(state, full_name, current_val, module_config->default_val.default_bool);
-}
-
-void moduleStringConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    sds string_val = getAndParseStringConfig(module_config);
-    RedisModuleString *default_string = module_config->default_val.default_string;
-    if (!default_string) {
-        rewriteConfigStringOption(state, full_name, string_val, NULL);
-    } else {
-        rewriteConfigStringOption(state, full_name, string_val, module_config->default_val.default_string->ptr);
-    }
-    
-    sdsfree(string_val);
-}
-
-void moduleEnumConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    int current_val = module_config->get_fn.get_enum(module_config->name, module_config->privdata);
-    int force = current_val != module_config->default_val.default_enum;
-
-    sds val = getAndParseEnumConfig(module_config);
-    sds line = sdscatprintf(sdsempty(), "%s %s", full_name, val);
-    rewriteConfigRewriteLine(state, full_name, line, force);
-    sdsfree(val);
-}
-
-void moduleNumericConfigRewrite(ModuleConfig *module_config, const char *full_name, struct rewriteConfigState *state) {
-    long long current_val = module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
-
-    if (module_config->flags & REDISMODULE_CONFIG_MEMORY) {
-        rewriteConfigBytesOption(state, full_name, current_val, module_config->default_val.default_numeric);
-    } else if (module_config->flags & REDISMODULE_CONFIG_OCTAL) {
-        rewriteConfigOctalOption(state, full_name, current_val, module_config->default_val.default_numeric);
-    } else {
-        rewriteConfigNumericalOption(state, full_name, current_val, module_config->default_val.default_numeric);
-    }
-}
-
-/* Rewrite functionality for all module configurations. The difference here is that it always rewrites the configs
- * to the .conf file, because we can't make any assumptions about the default values. */
-void moduleConfigRewriteCommand(const char *parameter, struct rewriteConfigState *state, void *privdata) {
-    char *config_name = strchr(parameter, '.') + 1;
-    ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, privdata);
-    serverAssert(module_config);
-    switch(module_config->type) {
-        case REDISMODULE_CONFIG_BOOL:
-            moduleBoolConfigRewrite(module_config, parameter, state);
-            break;
-        case REDISMODULE_CONFIG_STRING:
-            moduleStringConfigRewrite(module_config, parameter, state);
-            break;
-        case REDISMODULE_CONFIG_NUMERIC:
-            moduleNumericConfigRewrite(module_config, parameter, state);
-            break;
-        case REDISMODULE_CONFIG_ENUM:
-            moduleEnumConfigRewrite(module_config, parameter, state);
-            break;
-        default:
-            serverPanic("Could not resolve type of module config %s", parameter);
-            break;
-    }
-}
-
-/* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
- * It attempts to call set on each of these configs with REDISMODULE_CONFIG_SET_STARTUP. */
+/*
+This function takes a module and a list of configs stored as sds NAME VALUE pairs.
+ * It attempts to call set on each of these configs. */
 int loadModuleConfigs(RedisModule *module) {
     if (!server.module_configs_queue || !listLength(server.module_configs_queue)) return REDISMODULE_OK;
     listIter li;
@@ -11350,11 +11110,15 @@ int loadModuleConfigs(RedisModule *module) {
         if (count != 2) {
             serverLog(LL_WARNING, "Couldn't load configuration %s", config_pair[0]);
             sdsfreesplitres(config_pair, count);
+            listDelNode(server.module_configs_queue, ln);
+            while ((ln = listNext(&li))) listDelNode(server.module_configs_queue, ln);
             return REDISMODULE_ERR;
         }
-        if (!moduleConfigSetCommand(config_pair[0], config_pair[1], &err, module)) {
+        if (!performInterfaceSet(getConfigFromName(config_pair[0]), config_pair[1], &err)) {
             serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", config_pair[0], err);
             sdsfreesplitres(config_pair, count);
+            listDelNode(server.module_configs_queue, ln);
+            while ((ln = listNext(&li))) listDelNode(server.module_configs_queue, ln);
             return REDISMODULE_ERR;
         }
         sdsfreesplitres(config_pair, count);
@@ -11364,9 +11128,8 @@ int loadModuleConfigs(RedisModule *module) {
 }
 
 /* Add a moduleConfigTuple to the list if the apply and privdata do not match one already in it. */
-void addModuleApply(list *module_configs_tuples, const char *parameter, void *module) {
-    char *config_name = strchr(parameter, '.') + 1;
-    ModuleConfig *module_config = getModuleConfigFromConfigName(config_name, module);
+void addModuleApply(list *module_configs_tuples, void *module_config_val) {
+    ModuleConfig *module_config = module_config_val;
     if (!module_config->apply_fn) return;
     listIter li;
     listNode *ln;
@@ -11382,7 +11145,7 @@ void addModuleApply(list *module_configs_tuples, const char *parameter, void *mo
     }
     moduleConfigTuple *tuple = zmalloc(sizeof(moduleConfigTuple));
     tuple->module_config = module_config;
-    tuple->module = module;
+    tuple->module = module_config->module;
     listAddNodeTail(module_configs_tuples, tuple);
 }
 
@@ -11413,18 +11176,17 @@ int moduleConfigApplyConfig(list *module_configs_tuples, const char **err, const
  * ## Module Configurations API
  * -------------------------------------------------------------------------- */
 
-#define createModuleConfig(config_name, config_type, config_flags, apply, config_privdata) { \
+#define createModuleConfig(config_name, config_type, apply, config_privdata, module) { \
     .name = (config_name), \
     .type = (config_type), \
     .privdata = (config_privdata), \
-    .flags = (config_flags), \
-    .apply_fn = (apply) \
+    .apply_fn = (apply), \
+    .module = (module) \
 }
 
-#define addDefaultAndCallbacksToConfig(config, default, getfn, setfn, type) \
+#define addDefaultAndCallbacksToConfig(config, getfn, setfn, type) \
     config.get_fn.get_##type = getfn; \
-    config.set_fn.set_##type = setfn; \
-    config.default_val.default_##type = default;
+    config.set_fn.set_##type = setfn;
 
 void addModuleConfigtoList(RedisModule *module, ModuleConfig *new_module_config) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
@@ -11449,10 +11211,16 @@ int moduleConfigValidityCheck(RedisModule *module, const char *name, unsigned in
 unsigned int maskModuleConfigFlags(unsigned int flags) {
     unsigned int new_flags = 0;
     if (flags & REDISMODULE_CONFIG_DEFAULT) new_flags |= MODIFIABLE_CONFIG;
-    if (flags & REDISMODULE_CONFIG_IMMUTABLE) new_flags |=  IMMUTABLE_CONFIG;
+    if (flags & REDISMODULE_CONFIG_IMMUTABLE) new_flags |= IMMUTABLE_CONFIG;
     if (flags & REDISMODULE_CONFIG_HIDDEN) new_flags |= HIDDEN_CONFIG;
     if (flags & REDISMODULE_CONFIG_PROTECTED) new_flags |= PROTECTED_CONFIG;
     if (flags & REDISMODULE_CONFIG_DENY_LOADING) new_flags |= DENY_LOADING_CONFIG;
+    return new_flags;
+}
+
+unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
+    unsigned int new_flags = 0;
+    if (flags & REDISMODULE_CONFIG_MEMORY) new_flags |= MEMORY_CONFIG;
     return new_flags;
 }
 
@@ -11464,29 +11232,11 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_BOOL)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig newBoolConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_BOOL, flags, applyfn, privdata);
-    addDefaultAndCallbacksToConfig(newBoolConfig, default_val, getfn, setfn, bool);
+    ModuleConfig newBoolConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_BOOL, applyfn, privdata, module);
+    addDefaultAndCallbacksToConfig(newBoolConfig, getfn, setfn, bool);
     addModuleConfigtoList(module, &newBoolConfig);
     flags = maskModuleConfigFlags(flags);
-    addModuleConfig(module->name, name, flags, module);
-    return REDISMODULE_OK;
-}
-
-/* Create an integer config that server clients can interact with via the 
- * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
- * RedisModule_RegisterStringConfig for detailed information about configs. */
-int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
-    RedisModule *module = ctx->module;
-    if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_NUMERIC)) {
-        return REDISMODULE_ERR;
-    }
-    ModuleConfig newNumericConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_NUMERIC, flags, applyfn, privdata);
-    addDefaultAndCallbacksToConfig(newNumericConfig, default_val, getfn, setfn, numeric);
-    newNumericConfig.type_specific.numeric.upper = max;
-    newNumericConfig.type_specific.numeric.lower = min;
-    addModuleConfigtoList(module, &newNumericConfig);
-    flags = maskModuleConfigFlags(flags);
-    addModuleConfig(module->name, name, flags, module);
+    addModuleBoolConfig(module->name, name, flags, module->module_configs->tail->value, default_val);
     return REDISMODULE_OK;
 }
 
@@ -11556,22 +11306,22 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
  * If the registration fails, REDISMODULE_ERR is returned and one of the following 
  * errno is set:
  * * EINVAL: The provided flags are invalid for the registration.
- * * EALREADY: The provided configuration name is already used.
- */
+ * * EALREADY: The provided configuration name is already used. */
 int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleString *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
     if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_STRING)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig newStringConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_STRING, flags, applyfn, privdata);
-    addDefaultAndCallbacksToConfig(newStringConfig, default_val, getfn, setfn, string);
+    ModuleConfig newStringConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_STRING, applyfn, privdata, module);
+    addDefaultAndCallbacksToConfig(newStringConfig, getfn, setfn, string);
     addModuleConfigtoList(module, &newStringConfig);
     flags = maskModuleConfigFlags(flags);
-    addModuleConfig(module->name, name, flags, module);
+    addModuleStringConfig(module->name, name, flags, module->module_configs->tail->value, default_val ? default_val->ptr : NULL);
     return REDISMODULE_OK;
 }
 
-/* Create an enum config that server clients can interact with via the 
+/* 
+ Create an enum config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
  * enum_values is a array of c-strings that are valid set options. We match
  * enum names with their index partner in int_vals.
@@ -11597,17 +11347,35 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_ENUM)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig newEnumConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_ENUM, flags, applyfn, privdata);
-    addDefaultAndCallbacksToConfig(newEnumConfig, default_val, getfn, setfn, enum);
-    newEnumConfig.type_specific.enums.enum_values = zmalloc(num_enum_vals * sizeof(moduleEnumConfig));
-    newEnumConfig.type_specific.enums.num_enums = num_enum_vals;
+    ModuleConfig newEnumConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_ENUM, applyfn, privdata, module);
+    addDefaultAndCallbacksToConfig(newEnumConfig, getfn, setfn, enum);
+    configEnum *enum_vals = zmalloc(num_enum_vals * sizeof(configEnum) + 1);
     for (int i = 0; i < num_enum_vals; i++) {
-        moduleEnumConfig enum_config = {.name = zstrdup(enum_values[i]), .val = int_values[i]};
-        memcpy(newEnumConfig.type_specific.enums.enum_values + i, &enum_config, sizeof(moduleEnumConfig));    
+        configEnum enum_config = {.name = zstrdup(enum_values[i]), .val = int_values[i]};
+        memcpy(enum_vals + i, &enum_config, sizeof(configEnum));    
     }
+    configEnum null_terminator = {.name = NULL, .val = 0};
+    memcpy(enum_vals + num_enum_vals - 1, &null_terminator, sizeof(configEnum));
     addModuleConfigtoList(module, &newEnumConfig);
     flags = maskModuleConfigFlags(flags);
-    addModuleConfig(module->name, name, flags, module);
+    addModuleEnumConfig(module->name, name, flags, module->module_configs->tail->value, default_val, enum_vals);
+    return REDISMODULE_OK;
+}
+/*
+ Create an integer config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
+ * RedisModule_RegisterStringConfig for detailed information about configs. */
+int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+    RedisModule *module = ctx->module;
+    if (moduleConfigValidityCheck(module, name, flags, REDISMODULE_CONFIG_NUMERIC)) {
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig newNumericConfig = createModuleConfig(sdsnew(name), REDISMODULE_CONFIG_NUMERIC, applyfn, privdata, module);
+    addDefaultAndCallbacksToConfig(newNumericConfig, getfn, setfn, numeric);
+    addModuleConfigtoList(module, &newNumericConfig);
+    unsigned int numeric_flags = maskModuleNumericConfigFlags(flags);
+    flags = maskModuleConfigFlags(flags);
+    addModuleNumericConfig(module->name, name, flags, module->module_configs->tail->value, default_val, numeric_flags, min, max);
     return REDISMODULE_OK;
 }
 
