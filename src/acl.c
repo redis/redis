@@ -1528,11 +1528,10 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
-/* Checks if the specific selector provides the access specified in 'flags'
- * to ALL the key space. for example full READ access can be specified by the
- * %R~* and full read/write access with the %WR~* or ~* or allkeys.
- * Will return 1 in case all the access flags are satisfied with this selector
- * or 0 otherwise
+/* Checks if the provided selector selector has access specified in flags
+ * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
+ * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
+ * the access flags are satisfied with this selector or 0 otherwise.
  */
 static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
     /* The selector can access any key */
@@ -1704,13 +1703,13 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
     return ACL_DENIED_KEY;
 }
 
-/* Checks if the command has full keyspace access specified in 'flags'.
- * For example full READ access can be specified by the
- * %R~* and full read/write access with the %WR~* or ~* or allkeys.
- * Will return 1 in case all the access flags are satisfied with this selector
- * or 0 otherwise
+/* Checks if the user can execute the given command with the added restriction
+ * it must also have the access specified in flags to any key in the key space. 
+ * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
+ * granted in addition to the access required by the command. Returns 1 
+ * if the user has access or 0 otherwise.
  */
-int ACLDoesCommandHaveUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
     listIter li;
     listNode *ln;
     int local_idxptr;
