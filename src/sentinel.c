@@ -1134,6 +1134,27 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     return C_ERR;
 }
 
+/* Disconnect the relevant master and its replicas. */
+void dropInstanceConnections(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_MASTER);
+
+    /* Disconnect with the master. */
+    instanceLinkCloseConnection(ri->link, ri->link->cc);
+    instanceLinkCloseConnection(ri->link, ri->link->pc);
+    
+    /* Disconnect with all replicas. */
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *repl_ri;
+    di = dictGetIterator(ri->slaves);
+    while ((de = dictNext(di)) != NULL) {
+        repl_ri = dictGetVal(de);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Drop all connections to other sentinels. Returns the number of connections
  * dropped.*/
 int sentinelDropConnections(void) {
@@ -4297,6 +4318,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
             redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
@@ -4304,6 +4326,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_user);
             ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */
