@@ -50,8 +50,17 @@ int Auth_AuthRealUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             UserChangedCallback, NULL, &client_id) == REDISMODULE_ERR) {
         return RedisModule_ReplyWithError(ctx, "Invalid user");   
     }
-
     return RedisModule_ReplyWithLongLong(ctx, (uint64_t) client_id);
+}
+
+/* This command redacts every other arguments and returns OK */
+int Auth_RedactedAPI(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    for(int i = argc - 1; i >= 0; i -= 2) {
+        int result = RedisModule_RedactClientCommandArgument(ctx, i);
+        RedisModule_Assert(result == REDISMODULE_OK);
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK"); 
 }
 
 int Auth_ChangeCount(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -85,6 +94,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"auth.changecount",
         Auth_ChangeCount,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"auth.redact",
+        Auth_RedactedAPI,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
