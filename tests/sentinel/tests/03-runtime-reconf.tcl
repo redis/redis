@@ -21,7 +21,7 @@ proc server_reset_password {} {
 }
 
 proc server_set_acl {id} {
-    assert_equal {OK} [R $id ACL SETUSER $::user on >$::password allchannels +@all ]
+    assert_equal {OK} [R $id ACL SETUSER $::user on >$::password allchannels +@all]
     assert_equal {OK} [R $id ACL SETUSER default off]
 
     R $id CLIENT KILL USER default SKIPME no
@@ -74,8 +74,8 @@ test "Sentinels (re)connection following SENTINEL SET mymaster auth-pass" {
 
     wait_for_sentinels_connect_servers
     kill_instance sentinel $sent2re
-    assert_equal {OK} [S $sent2up SENTINEL SET mymaster auth-pass $::password]
     server_set_password
+    assert_equal {OK} [S $sent2up SENTINEL SET mymaster auth-pass $::password]
     restart_instance sentinel $sent2re
 
     # Verify sentinel that restarted failed to connect master
@@ -102,7 +102,7 @@ test "Sentinels (re)connection following master ACL change" {
     set sent2re 0
     # (up)dated in advance with master new password
     set sent2up 1
-    # (un)touched. Note,sentinel that kept old connection with master and didn't
+    # (un)touched. Note, sentinel that kept old connection with master and didn't
     # set new ACL password won't persist ACL pwd change, unlike legacy auth-pass
     set sent2un 2
 
@@ -125,9 +125,11 @@ test "Sentinels (re)connection following master ACL change" {
        fail "Expected: Sentinel to be disconnected from master due to wrong password"
     }
 
-    # Verify sentinel with updated password managed to connect
-    if {[string match "*disconnected*" [dict get [S $sent2up SENTINEL MASTER mymaster] flags]]} {
-       fail "Expected: Sentinel to be connected to master"
+    # Verify sentinel with updated password managed to connect (wait for sentinelTimer to reconnect)
+    wait_for_condition 100 50 {
+        [string match "*disconnected*" [dict get [S $sent2up SENTINEL MASTER mymaster] flags]] == 0
+    } else {
+        fail "Expected: Sentinel to be connected to master"
     }
 
     # Verify sentinel untouched gets failed to connect master
