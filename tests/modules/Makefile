@@ -41,6 +41,7 @@ TEST_MODULES = \
     keyspace_events.so \
     blockedclient.so \
     getkeys.so \
+    getchannels.so \
     test_lazyfree.so \
     timer.so \
     defragtest.so \

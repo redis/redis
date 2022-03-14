@@ -387,6 +387,16 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     return C_OK;
 }
 
+static int scriptVerifyMayReplicate(scriptRunCtx *run_ctx, char **err) {
+    if (run_ctx->c->cmd->flags & CMD_MAY_REPLICATE &&
+        server.client_pause_type == CLIENT_PAUSE_WRITE) {
+        *err = sdsnew("May-replicate commands are not allowed when client pause write.");
+        return C_ERR;
+    }
+
+    return C_OK;
+}
+
 static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
     if (run_ctx->flags & SCRIPT_ALLOW_OOM) {
         /* Allow running any command even if OOM reached */
@@ -505,32 +515,35 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     argc = c->argc;
 
     struct redisCommand *cmd = lookupCommand(argv, argc);
+    c->cmd = c->lastcmd = c->realcmd = cmd;
     if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
-        return;
+        goto error;
     }
-
-    c->cmd = c->lastcmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
     if (!server.script_disable_deny_script && (cmd->flags & CMD_NOSCRIPT)) {
         *err = sdsnew("This Redis command is not allowed from script");
-        return;
+        goto error;
     }
 
     if (scriptVerifyAllowStale(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyACL(c, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
-        return;
+        goto error;
+    }
+
+    if (scriptVerifyMayReplicate(run_ctx, err) != C_OK) {
+        goto error;
     }
 
     if (scriptVerifyOOM(run_ctx, err) != C_OK) {
-        return;
+        goto error;
     }
 
     if (cmd->flags & CMD_WRITE) {
@@ -539,7 +552,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
-        return;
+        goto error;
     }
 
     int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
@@ -551,6 +564,11 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+    return;
+
+error:
+    afterErrorReply(c, *err, sdslen(*err), 0);
+    incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
 /* Returns the time when the script invocation started */

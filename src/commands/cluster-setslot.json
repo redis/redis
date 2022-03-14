@@ -26,17 +26,17 @@
                 "arguments": [
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IMPORTING"
                     },
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "MIGRATING"
                     },
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "NODE"
                     },
                     {

@@ -39,6 +39,10 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/decoder.h>
+#endif
+#include <sys/uio.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -146,14 +150,13 @@ void tlsInit(void) {
      */
     #if OPENSSL_VERSION_NUMBER < 0x10100000L
     OPENSSL_config(NULL);
+    SSL_load_error_strings();
+    SSL_library_init();
     #elif OPENSSL_VERSION_NUMBER < 0x10101000L
     OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL);
     #else
     OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG|OPENSSL_INIT_ATFORK, NULL);
     #endif
-    ERR_load_crypto_strings();
-    SSL_load_error_strings();
-    SSL_library_init();
 
 #ifdef USE_CRYPTO_LOCKS
     initCryptoLocks();
@@ -323,20 +326,46 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     if (ctx_config->prefer_server_ciphers)
         SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
-#if defined(SSL_CTX_set_ecdh_auto)
+#if ((OPENSSL_VERSION_NUMBER < 0x30000000L) && defined(SSL_CTX_set_ecdh_auto))
     SSL_CTX_set_ecdh_auto(ctx, 1);
 #endif
     SSL_CTX_set_options(ctx, SSL_OP_SINGLE_DH_USE);
 
     if (ctx_config->dh_params_file) {
         FILE *dhfile = fopen(ctx_config->dh_params_file, "r");
-        DH *dh = NULL;
         if (!dhfile) {
             serverLog(LL_WARNING, "Failed to load %s: %s", ctx_config->dh_params_file, strerror(errno));
             goto error;
         }
 
-        dh = PEM_read_DHparams(dhfile, NULL, NULL, NULL);
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+        EVP_PKEY *pkey = NULL;
+        OSSL_DECODER_CTX *dctx = OSSL_DECODER_CTX_new_for_pkey(
+                &pkey, "PEM", NULL, "DH", OSSL_KEYMGMT_SELECT_DOMAIN_PARAMETERS, NULL, NULL);
+        if (!dctx) {
+            serverLog(LL_WARNING, "No decoder for DH params.");
+            fclose(dhfile);
+            goto error;
+        }
+        if (!OSSL_DECODER_from_fp(dctx, dhfile)) {
+            serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
+            OSSL_DECODER_CTX_free(dctx);
+            fclose(dhfile);
+            goto error;
+        }
+
+        OSSL_DECODER_CTX_free(dctx);
+        fclose(dhfile);
+
+        if (SSL_CTX_set0_tmp_dh_pkey(ctx, pkey) <= 0) {
+            ERR_error_string_n(ERR_get_error(), errbuf, sizeof(errbuf));
+            serverLog(LL_WARNING, "Failed to load DH params file: %s: %s", ctx_config->dh_params_file, errbuf);
+            EVP_PKEY_free(pkey);
+            goto error;
+        }
+        /* Not freeing pkey, it is owned by OpenSSL now */
+#else
+        DH *dh = PEM_read_DHparams(dhfile, NULL, NULL, NULL);
         fclose(dhfile);
         if (!dh) {
             serverLog(LL_WARNING, "%s: failed to read DH params.", ctx_config->dh_params_file);
@@ -351,6 +380,11 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
         }
 
         DH_free(dh);
+#endif
+    } else {
+#if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
+        SSL_CTX_set_dh_auto(ctx, 1);
+#endif
     }
 
     /* If a client-side certificate is configured, create an explicit client context */
@@ -786,6 +820,43 @@ static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     return ret;
 }
 
+static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt) {
+    if (iovcnt == 1) return connTLSWrite(conn_, iov[0].iov_base, iov[0].iov_len);
+
+    /* Accumulate the amount of bytes of each buffer and check if it exceeds NET_MAX_WRITES_PER_EVENT. */
+    size_t iov_bytes_len = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        iov_bytes_len += iov[i].iov_len;
+        if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) break;
+    }
+
+    /* The amount of all buffers is greater than NET_MAX_WRITES_PER_EVENT, 
+     * which is not worth doing so much memory copying to reduce system calls,
+     * therefore, invoke connTLSWrite() multiple times to avoid memory copies. */
+    if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) {
+        size_t tot_sent = 0;
+        for (int i = 0; i < iovcnt; i++) {
+            size_t sent = connTLSWrite(conn_, iov[i].iov_base, iov[i].iov_len);
+            if (sent <= 0) return tot_sent > 0 ? tot_sent : sent;
+            tot_sent += sent;
+            if (sent != iov[i].iov_len) break;
+        }
+        return tot_sent;
+    }
+
+    /* The amount of all buffers is less than NET_MAX_WRITES_PER_EVENT, 
+     * which is worth doing more memory copies in exchange for fewer system calls, 
+     * so concatenate these scattered buffers into a contiguous piece of memory 
+     * and send it away by one call to connTLSWrite(). */
+    char buf[iov_bytes_len];
+    size_t offset = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        memcpy(buf + offset, iov[i].iov_base, iov[i].iov_len);
+        offset += iov[i].iov_len;
+    }
+    return connTLSWrite(conn_, buf, iov_bytes_len);
+}
+
 static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     tls_connection *conn = (tls_connection *) conn_;
     int ret;
@@ -949,6 +1020,7 @@ ConnectionType CT_TLS = {
     .blocking_connect = connTLSBlockingConnect,
     .read = connTLSRead,
     .write = connTLSWrite,
+    .writev = connTLSWritev,
     .close = connTLSClose,
     .set_write_handler = connTLSSetWriteHandler,
     .set_read_handler = connTLSSetReadHandler,

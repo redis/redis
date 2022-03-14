@@ -255,16 +255,21 @@ typedef struct typeInterface {
 typedef struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
-    const unsigned int flags; /* Flags for this specific config */
+    unsigned int flags; /* Flags for this specific config */
     typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
     configType type; /* The type of config this is. */
     void *privdata; /* privdata for this config, for module configs this is a ModuleConfig struct */
 } standardConfig;
 
-standardConfig *configs;
-size_t num_configs;
-size_t configs_size;
+dict *configs = NULL; /* Runtime config values */
+
+/* Lookup a config by the provided sds string name, or return NULL
+ * if the config does not exist */
+static standardConfig *lookupConfig(sds name) {
+    dictEntry *de = dictFind(configs, name);
+    return de ? dictGetVal(de) : NULL;
+}
 
 /*-----------------------------------------------------------------------------
  * Enum access functions
@@ -438,30 +443,23 @@ void loadServerConfigFromString(char *config) {
         sdstolower(argv[0]);
 
         /* Iterate the configs that are standard */
-        int match = 0;
-        for (size_t i = 0; i < num_configs; i++) {
-            standardConfig *config = &configs[i];
-            if ((!strcasecmp(argv[0],config->name) ||
-                (config->alias && !strcasecmp(argv[0],config->alias))))
-            {
-                /* For normal single arg configs enforce we have a single argument.
-                 * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
-                if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
-                    err = "wrong number of arguments";
-                    goto loaderr;
-                }
-                /* Set config using all arguments that follows */
-                if (!config->interface.set(config, &argv[1], argc-1, &err)) {
-                    goto loaderr;
-                }
-
-                match = 1;
-                break;
+        standardConfig *config = lookupConfig(argv[0]);
+        if (config) {
+            /* For normal single arg configs enforce we have a single argument.
+             * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
+            if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
+                err = "wrong number of arguments";
+                goto loaderr;
             }
-        }
+            /* Set config using all arguments that follows */
+            if (!config->interface.set(config, &argv[1], argc-1, &err)) {
+                goto loaderr;
+            }
 
-        /* If there's no matching above, we try matching them with deprecated configs */
-        if (!match) {
+            sdsfreesplitres(argv,argc);
+            continue;
+        } else {
+            int match = 0;
             for (deprecatedConfig *config = deprecated_configs; config->name != NULL; config++) {
                 if (!strcasecmp(argv[0], config->name) && 
                     config->argc_min <= argc && 
@@ -471,11 +469,10 @@ void loadServerConfigFromString(char *config) {
                     break;
                 }
             }
-        }
-
-        if (match) {
-            sdsfreesplitres(argv,argc);
-            continue;
+            if (match) {
+                sdsfreesplitres(argv,argc);
+                continue;
+            }
         }
 
         /* Execute config directives */
@@ -670,18 +667,10 @@ int performInterfaceSet(standardConfig *config, sds value, const char **errstr) 
     return res;
 }
 
-/* TODO: Replace with lookup config when hash gets merged into this. */
+/* Find the config by name and attempt to set it to value. */
 int performConfigSetFromName(sds name, sds value, const char **err) {
-    standardConfig *config;
-    int found = 0;
-    for (size_t i = 0; i < num_configs; i++) {
-        config = configs + i;
-        if (!strcasecmp(config->name, name)) {
-            found = 1;
-            break;
-        }
-    }
-    if (!found) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) {
         *err = "Config name not found";
         return 0;
     }
@@ -720,6 +709,7 @@ void configSetCommand(client *c) {
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
     list *module_configs_apply = listCreate();
+    const char **config_names;
     sds *new_values;
     sds *old_values = NULL;
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
@@ -735,6 +725,7 @@ void configSetCommand(client *c) {
     config_count = (c->argc - 2) / 2;
 
     set_configs = zcalloc(sizeof(standardConfig*)*config_count);
+    config_names = zcalloc(sizeof(char*)*config_count);
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
     apply_fns = zcalloc(sizeof(apply_fn)*config_count);
@@ -742,56 +733,56 @@ void configSetCommand(client *c) {
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
-        for (size_t k = 0; k < num_configs; k++) {
-            standardConfig *config = &configs[k];
-            if ((!strcasecmp(c->argv[2+i*2]->ptr,config->name) ||
-                 (config->alias && !strcasecmp(c->argv[2]->ptr,config->alias)))) {
+        standardConfig *config = lookupConfig(c->argv[2+i*2]->ptr);
+        /* Fail if we couldn't find this config */
+        if (!config) {
+            if (!invalid_args) {
+                invalid_arg_name = c->argv[2+i*2]->ptr;
+                invalid_args = 1;
+            }
+            continue;
+        }
 
-                /* Note: it's important we run over ALL passed configs and check if we need to call `redactClientCommandArgument()`.
-                 * This is in order to avoid anyone using this command for a log/slowlog/monitor/etc. displaying sensitive info.
-                 * So even if we encounter an error we still continue running over the remaining arguments. */
-                if (config->flags & SENSITIVE_CONFIG) {
-                    redactClientCommandArgument(c,2+i*2+1);
-                }
+        /* Note: it's important we run over ALL passed configs and check if we need to call `redactClientCommandArgument()`.
+         * This is in order to avoid anyone using this command for a log/slowlog/monitor/etc. displaying sensitive info.
+         * So even if we encounter an error we still continue running over the remaining arguments. */
+        if (config->flags & SENSITIVE_CONFIG) {
+            redactClientCommandArgument(c,2+i*2+1);
+        }
 
-                if (!invalid_args) {
-                    if (config->flags & IMMUTABLE_CONFIG ||
-                        (config->flags & PROTECTED_CONFIG && !allowProtectedAction(server.enable_protected_configs, c)))
-                    {
-                        /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
-                        err_arg_name = c->argv[2+i*2]->ptr;
-                        invalid_args = 1;
-                    }
+        /* We continue to make sure we redact all the configs */ 
+        if (invalid_args) continue;
 
-                    if (server.loading && config->flags & DENY_LOADING_CONFIG) {
-                        /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                        deny_loading_error = 1;
-                        invalid_args = 1;
-                    }
+        if (config->flags & IMMUTABLE_CONFIG ||
+            (config->flags & PROTECTED_CONFIG && !allowProtectedAction(server.enable_protected_configs, c)))
+        {
+            /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
+            errstr = (config->flags & IMMUTABLE_CONFIG) ? "can't set immutable config" : "can't set protected config";
+            err_arg_name = c->argv[2+i*2]->ptr;
+            invalid_args = 1;
+            continue;
+        }
 
-                    /* If this config appears twice then fail */
-                    for (j = 0; j < i; j++) {
-                        if (set_configs[j] == config) {
-                            /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-                            errstr = "duplicate parameter";
-                            err_arg_name = c->argv[2+i*2]->ptr;
-                            invalid_args = 1;
-                            break;
-                        }
-                    }
-                    set_configs[i] = config;
-                    new_values[i] = c->argv[2+i*2+1]->ptr;
-                }
+        if (server.loading && config->flags & DENY_LOADING_CONFIG) {
+            /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
+            deny_loading_error = 1;
+            invalid_args = 1;
+            continue;
+        }
+
+        /* If this config appears twice then fail */
+        for (j = 0; j < i; j++) {
+            if (set_configs[j] == config) {
+                /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
+                errstr = "duplicate parameter";
+                err_arg_name = c->argv[2+i*2]->ptr;
+                invalid_args = 1;
                 break;
             }
         }
-        /* Fail if we couldn't find this config */
-        /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
-        if (!invalid_args && !set_configs[i]) {
-            invalid_arg_name = c->argv[2+i*2]->ptr;
-            invalid_args = 1;
-        }
+        set_configs[i] = config;
+        config_names[i] = config->name;
+        new_values[i] = c->argv[2+i*2+1]->ptr;
     }
     
     if (invalid_args) goto err;
@@ -838,13 +829,15 @@ void configSetCommand(client *c) {
             goto err;
         }
     }
-
+    /* Apply all module configs that were set. */
     if (!moduleConfigApplyConfig(module_configs_apply, &errstr, &err_arg_name)) {
         serverLogRaw(LL_WARNING, "Failed applying new module configuration. Restoring previous settings.");
         restoreBackupConfig(set_configs, old_values, config_count, apply_fns, module_configs_apply);
         goto err;
     }
 
+    RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
+    moduleFireServerEvent(REDISMODULE_EVENT_CONFIG, REDISMODULE_SUBEVENT_CONFIG_CHANGE, &cc);
     addReply(c,shared.ok);
     goto end;
 
@@ -861,6 +854,7 @@ err:
     }
 end:
     zfree(set_configs);
+    zfree(config_names);
     zfree(new_values);
     for (i = 0; i < config_count; i++)
         sdsfree(old_values[i]);
@@ -875,39 +869,51 @@ end:
  *----------------------------------------------------------------------------*/
 
 void configGetCommand(client *c) {
-    void *replylen = addReplyDeferredLen(c);
-    int matches = 0;
     int i;
+    dictEntry *de;
+    dictIterator *di;
+    /* Create a dictionary to store the matched configs */
+    dict *matches = dictCreate(&externalStringType);
+    for (i = 0; i < c->argc - 2; i++) {
+        robj *o = c->argv[2+i];
+        sds name = o->ptr;
 
-    for (size_t j = 0; j < num_configs; j++) {
-        standardConfig *config = &configs[j];
-        int matched_conf = 0;
-        int matched_alias = 0;
-        for (i = 0; i < c->argc - 2 && (!matched_conf || !matched_alias); i++) {
-            robj *o = c->argv[2+i];
-            char *pattern = o->ptr;
+        /* If the string doesn't contain glob patterns, just directly
+         * look up the key in the dictionary. */
+        if (!strpbrk(name, "[*?")) {
+            if (dictFind(matches, name)) continue;
+            standardConfig *config = lookupConfig(name);
 
-            /* Note that hidden configs require an exact match (not a pattern) */
-            if (!matched_conf &&
-                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->name)) ||
-                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->name, 1)))) {
-                addReplyBulkCString(c, config->name);
-                addReplyBulkSds(c, config->interface.get(config));
-                matches++;
-                matched_conf = 1;
+            if (config) {
+                dictAdd(matches, name, config);
             }
-            if (!matched_alias && config->alias &&
-                (((config->flags & HIDDEN_CONFIG) && !strcasecmp(pattern, config->alias)) ||
-                 (!(config->flags & HIDDEN_CONFIG) && stringmatch(pattern, config->alias, 1)))) {
-                addReplyBulkCString(c, config->alias);
-                addReplyBulkSds(c, config->interface.get(config));
-                matches++;
-                matched_alias = 1;
+            continue;
+        }
+
+        /* Otherwise, do a match against all items in the dictionary. */
+        di = dictGetIterator(configs);
+        
+        while ((de = dictNext(di)) != NULL) {
+            standardConfig *config = dictGetVal(de);
+            /* Note that hidden configs require an exact match (not a pattern) */
+            if (config->flags & HIDDEN_CONFIG) continue;
+            if (dictFind(matches, config->name)) continue;
+            if (stringmatch(name, de->key, 1)) {
+                dictAdd(matches, de->key, config);
             }
         }
+        dictReleaseIterator(di);
     }
-
-    setDeferredMapLen(c,replylen,matches);
+    
+    di = dictGetIterator(matches);
+    addReplyMapLen(c, dictSize(matches));
+    while ((de = dictNext(di)) != NULL) {
+        standardConfig *config = (standardConfig *) dictGetVal(de);
+        addReplyBulkCString(c, de->key);
+        addReplyBulkSds(c, config->interface.get(config));
+    }
+    dictReleaseIterator(di);
+    dictRelease(matches);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1005,17 +1011,6 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
     if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
 }
 
-/* Is there a config by name already in the configs array? */
-int isConfigNameRegistered(const char *name) {
-    for (size_t i = 0; i < num_configs; i++) {
-        standardConfig config = configs[i];
-        if (!strcasecmp(config.name, name)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* Read the old file, split it into lines to populate a newly created
  * config rewrite state, and return it to the caller.
  *
@@ -1061,7 +1056,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             continue;
         }
 
-        if (!isConfigNameRegistered(argv[0])) {
+        if (!lookupConfig(argv[0])) {
             linenum--;
             sdsfreesplitres(argv, argc);
             sdsfree(line);
@@ -1545,11 +1540,14 @@ sds getConfigDebugInfo() {
 
     /* Iterate the configs and "rewrite" the ones that have 
      * the debug flag. */
-    for (size_t i = 0; i < num_configs; i++) {
-        standardConfig *config = &configs[i];
+    dictIterator *di = dictGetIterator(configs);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        standardConfig *config = dictGetVal(de);
         if (!(config->flags & DEBUG_CONFIG)) continue;
         if (config->interface.rewrite) config->interface.rewrite(config, config->name, state);
     }
+    dictReleaseIterator(di);
     sds info = rewriteConfigGetContentFromState(state);
     rewriteConfigReleaseState(state);
     return info;
@@ -1637,9 +1635,15 @@ int rewriteConfig(char *path, int force_write) {
      * the rewrite state. */
 
     /* Iterate the configs that are standard */
-    for (size_t i = 0; i < num_configs; i++) {
-        if (configs[i].interface.rewrite) configs[i].interface.rewrite(&configs[i], configs[i].name, state);
+    dictIterator *di = dictGetIterator(configs);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        standardConfig *config = dictGetVal(de);
+        /* Only rewrite the primary names */
+        if (config->flags & ALIAS_CONFIG) continue;
+        if (config->interface.rewrite) config->interface.rewrite(config, de->key, state);
     }
+    dictReleaseIterator(di);
 
     rewriteConfigUserOption(state);
     rewriteConfigLoadmoduleOption(state);
@@ -2837,7 +2841,7 @@ standardConfig static_configs[] = {
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
     createBoolConfig("use-exit-on-panic", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.use_exit_on_panic, 0, NULL, NULL),
-    createBoolConfig("disable-thp", NULL, MODIFIABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
+    createBoolConfig("disable-thp", NULL, IMMUTABLE_CONFIG, server.disable_thp, 1, NULL, NULL),
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
@@ -3000,67 +3004,73 @@ standardConfig static_configs[] = {
     {NULL}
 };
 
+/* Create a new config by copying the passed in config. Returns 1 on success
+ * or 0 when their was already a config with the same name.. */
+int registerConfigValue(const char *name, const standardConfig *config, int alias) {
+    standardConfig *new = zmalloc(sizeof(standardConfig));
+    memcpy(new, config, sizeof(standardConfig));
+    if (alias) {
+        new->flags |= ALIAS_CONFIG;
+        new->name = config->alias;
+        new->alias = config->name;
+    }
+
+    return dictAdd(configs, sdsnew(name), new) == DICT_OK;
+}
+
+
+
+/* Initialize configs to their default values and create and populate the 
+ * runtime configuration dictionary. */
 void initConfigValues() {
+    configs = dictCreate(&sdsHashDictType);
+    dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
-        num_configs++;
         if (config->interface.init) config->interface.init(config);
-    }
-    configs_size = num_configs + 32;
-    configs = (standardConfig *) zmalloc(sizeof(standardConfig) * configs_size);
-    memcpy(configs, &static_configs, sizeof(standardConfig) * num_configs);
-}
+        /* Add the primary config to the dictionary. */
+        int ret = registerConfigValue(config->name, config, 0);
+        serverAssert(ret);
 
-/* Appends a new standardConfig to the end of the configs array if there is not already a config with that name. */
-void addConfig(standardConfig *new_config) {
-    num_configs += 1;
-    if (num_configs == configs_size) {
-        configs_size += 32;
-        configs = (standardConfig *) zrealloc(configs, sizeof(standardConfig) * configs_size);
-    }
-    memcpy(configs + num_configs - 1, new_config, sizeof(standardConfig));
-}
-
-/* Removes a config by index */
-void removeConfigByIndex(size_t index) {
-    memmove(configs + index, configs + index + 1, sizeof(standardConfig) * (num_configs - index - 1));
-    num_configs--;
-}
-
-/* Removes a config by name */
-void removeConfig(char *name) {
-    for (size_t i = 0; i < num_configs; i++) {
-        standardConfig *config = &configs[i];
-        if (!strcasecmp(config->name, name)) {
-            if (config->flags & MODULE_CONFIG) {
-                sdsfree((sds) config->name);
-                if (config->type == ENUM_CONFIG) {
-                    configEnum *enumNode = config->data.enumd.enum_value;
-                    while(enumNode->name != NULL) {
-                        zfree(enumNode->name);
-                        enumNode++;
-                    }
-                    zfree(config->data.enumd.enum_value);
-                } else if (config->type == SDS_CONFIG) {
-                    if (config->data.sds.default_value) sdsfree((sds)config->data.sds.default_value);
-                }
-            }
-            removeConfigByIndex(i);
-            return;
+        /* Aliases are the same as their primary counter parts, but they
+         * also have a flag indicating they are the alias. */
+        if (config->alias) {
+            int ret = registerConfigValue(config->alias, config, ALIAS_CONFIG);
+            serverAssert(ret);
         }
     }
+}
+
+/* Remove a config by name from the configs dict. */
+void removeConfig(sds name) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return;
+    if (config->flags & MODULE_CONFIG) {
+        sdsfree((sds) config->name);
+        if (config->type == ENUM_CONFIG) {
+            configEnum *enumNode = config->data.enumd.enum_value;
+            while(enumNode->name != NULL) {
+                zfree(enumNode->name);
+                enumNode++;
+            }
+            zfree(config->data.enumd.enum_value);
+        } else if (config->type == SDS_CONFIG) {
+            if (config->data.sds.default_value) sdsfree((sds)config->data.sds.default_value);
+        }
+    }
+    dictDelete(configs, name);
 }
 
 /*-----------------------------------------------------------------------------
  * Module Config
  *----------------------------------------------------------------------------*/
 
-/* Create and add a skeleton standardConfig for a module config to the configs array */
+/* Create a bool/string/enum/numeric standardConfig for a module config in the configs dictionary */
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     int config_dummy_address;
     standardConfig module_config = createBoolConfig(config_name, NULL, flags |= MODULE_CONFIG, config_dummy_address, default_val, NULL, NULL);
     module_config.privdata = privdata;
-    addConfig(&module_config);
+    registerConfigValue(config_name, &module_config, 0);
 }
 
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val) {
@@ -3068,7 +3078,7 @@ void addModuleStringConfig(const char *module_name, const char *name, int flags,
     sds config_dummy_address;
     standardConfig module_config = createSDSConfig(config_name, NULL, flags |= MODULE_CONFIG, EMPTY_STRING_IS_NULL, config_dummy_address, default_val, NULL, NULL);
     module_config.privdata = privdata;
-    addConfig(&module_config);
+    registerConfigValue(config_name, &module_config, 0);
 }
 
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals) {
@@ -3076,7 +3086,7 @@ void addModuleEnumConfig(const char *module_name, const char *name, int flags, v
     int config_dummy_address;
     standardConfig module_config = createEnumConfig(config_name, NULL, flags |= MODULE_CONFIG, enum_vals, config_dummy_address, default_val, NULL, NULL);
     module_config.privdata = privdata;
-    addConfig(&module_config);
+    registerConfigValue(config_name, &module_config, 0);
 }
 
 void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper) {
@@ -3084,10 +3094,8 @@ void addModuleNumericConfig(const char *module_name, const char *name, int flags
     long long config_dummy_address;
     standardConfig module_config = createLongLongConfig(config_name, NULL, flags |= MODULE_CONFIG, lower, upper, config_dummy_address, default_val, conf_flags, NULL, NULL);
     module_config.privdata = privdata;
-    addConfig(&module_config);
+    registerConfigValue(config_name, &module_config, 0);
 }
-
-
 
 /*-----------------------------------------------------------------------------
  * CONFIG HELP

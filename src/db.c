@@ -218,9 +218,12 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
         val->lru = old->lru;
     }
     /* Although the key is not really deleted from the database, we regard 
-    overwrite as two steps of unlink+add, so we still need to call the unlink 
-    callback of the module. */
+     * overwrite as two steps of unlink+add, so we still need to call the unlink
+     * callback of the module. */
     moduleNotifyKeyUnlink(key,old,db->id);
+    /* We want to try to unblock any client using a blocking XREADGROUP */
+    if (old->type == OBJ_STREAM)
+        signalKeyAsReady(db,key,old->type);
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -311,6 +314,9 @@ static int dbGenericDelete(redisDb *db, robj *key, int async) {
         robj *val = dictGetVal(de);
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id);
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (val->type == OBJ_STREAM)
+            signalKeyAsReady(db,key,val->type);
         if (async) {
             freeObjAsync(key, val, db->id);
             dictSetVal(db->dict, de, NULL);
@@ -551,6 +557,7 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
+        scanDatabaseForDeletedStreams(&server.db[j], NULL);
         touchAllWatchedKeysInDb(&server.db[j], NULL);
     }
 
@@ -1311,7 +1318,7 @@ void copyCommand(client *c) {
  * one or more blocked clients for B[LR]POP or other blocking commands
  * and signal the keys as ready if they are of the right type. See the comment
  * where the function is used for more info. */
-void scanDatabaseForReadyLists(redisDb *db) {
+void scanDatabaseForReadyKeys(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
@@ -1321,6 +1328,39 @@ void scanDatabaseForReadyLists(redisDb *db) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
         }
+    }
+    dictReleaseIterator(di);
+}
+
+/* Since we are unblocking XREADGROUP clients in the event the
+ * key was deleted/overwritten we must do the same in case the
+ * database was flushed/swapped. */
+void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with) {
+    /* Optimization: If no clients are in type BLOCKED_STREAM,
+     * we can skip this loop. */
+    if (!server.blocked_clients_by_type[BLOCKED_STREAM]) return;
+
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        int was_stream = 0, is_stream = 0;
+
+        dictEntry *kde = dictFind(emptied->dict, key->ptr);
+        if (kde) {
+            robj *value = dictGetVal(kde);
+            was_stream = value->type == OBJ_STREAM;
+        }
+        if (replaced_with) {
+            dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
+            if (kde) {
+                robj *value = dictGetVal(kde);
+                is_stream = value->type == OBJ_STREAM;
+            }
+        }
+        /* We want to try to unblock any client using a blocking XREADGROUP */
+        if (was_stream && !is_stream)
+            signalKeyAsReady(emptied, key, OBJ_STREAM);
     }
     dictReleaseIterator(di);
 }
@@ -1339,6 +1379,15 @@ int dbSwapDatabases(int id1, int id2) {
     if (id1 == id2) return C_OK;
     redisDb aux = server.db[id1];
     redisDb *db1 = &server.db[id1], *db2 = &server.db[id2];
+
+    /* Swapdb should make transaction fail if there is any
+     * client watching keys */
+    touchAllWatchedKeysInDb(db1, db2);
+    touchAllWatchedKeysInDb(db2, db1);
+
+    /* Try to unblock any XREADGROUP clients if the key no longer exists. */
+    scanDatabaseForDeletedStreams(db1, db2);
+    scanDatabaseForDeletedStreams(db2, db1);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -1361,14 +1410,9 @@ int dbSwapDatabases(int id1, int id2) {
      * However normally we only do this check for efficiency reasons
      * in dbAdd() when a list is created. So here we need to rescan
      * the list of clients blocked on lists and signal lists as ready
-     * if needed.
-     *
-     * Also the swapdb should make transaction fail if there is any
-     * client watching keys */
-    scanDatabaseForReadyLists(db1);
-    touchAllWatchedKeysInDb(db1, db2);
-    scanDatabaseForReadyLists(db2);
-    touchAllWatchedKeysInDb(db2, db1);
+     * if needed. */
+    scanDatabaseForReadyKeys(db1);
+    scanDatabaseForReadyKeys(db2);
     return C_OK;
 }
 
@@ -1386,6 +1430,13 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
+
+        /* Swapping databases should make transaction fail if there is any
+         * client watching keys. */
+        touchAllWatchedKeysInDb(activedb, newdb);
+
+        /* Try to unblock any XREADGROUP clients if the key no longer exists. */
+        scanDatabaseForDeletedStreams(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -1408,12 +1459,8 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * However normally we only do this check for efficiency reasons
          * in dbAdd() when a list is created. So here we need to rescan
          * the list of clients blocked on lists and signal lists as ready
-         * if needed.
-         *
-         * Also the swapdb should make transaction fail if there is any
-         * client watching keys. */
-        scanDatabaseForReadyLists(activedb);
-        touchAllWatchedKeysInDb(activedb, newdb);
+         * if needed. */
+        scanDatabaseForReadyKeys(activedb);
     }
 
     trackingInvalidateKeysOnFlush(1);
@@ -1692,7 +1739,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 /* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
  * There are several flags that can be used to modify how this function finds keys in a command.
  * 
- * GET_KEYSPEC_INCLUDE_CHANNELS: Return channels as if they were keys.
+ * GET_KEYSPEC_INCLUDE_NOT_KEYS: Return 'fake' keys as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
  *                               found in other valid keyspecs. 
  */
@@ -1703,8 +1750,8 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
         serverAssert(spec->begin_search_type != KSPEC_BS_INVALID);
-        /* Skip specs that represent channels instead of keys */
-        if ((spec->flags & CMD_KEY_CHANNEL) && !(search_flags & GET_KEYSPEC_INCLUDE_CHANNELS)) {
+        /* Skip specs that represent 'fake' keys */
+        if ((spec->flags & CMD_KEY_NOT_KEY) && !(search_flags & GET_KEYSPEC_INCLUDE_NOT_KEYS)) {
             continue;
         }
 
@@ -1823,8 +1870,8 @@ invalid_spec:
  * 'cmd' must be point to the corresponding entry into the redisCommand
  * table, according to the command name in argv[0]. */
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    /* The command has at least one key-spec not marked as CHANNEL */
-    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);
+    /* The command has at least one key-spec not marked as NOT_KEY */
+    int has_keyspec = (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);
     /* The command has at least one key-spec marked as VARIABLE_FLAGS */
     int has_varflags = (getAllKeySpecsFlags(cmd, 0) & CMD_KEY_VARIABLE_FLAGS);
 
@@ -1861,7 +1908,83 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 int doesCommandHaveKeys(struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_MODULE) && cmd->getkeys_proc) || /* has getkeys_proc (non modules) */
         (cmd->flags & CMD_MODULE_GETKEYS) ||                    /* module with GETKEYS */
-        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_CHANNEL);        /* has at least one key-spec not marked as CHANNEL */
+        (getAllKeySpecsFlags(cmd, 1) & CMD_KEY_NOT_KEY);        /* has at least one key-spec not marked as NOT_KEY */
+}
+
+/* A simplified channel spec table that contains all of the redis commands
+ * and which channels they have and how they are accessed. */
+typedef struct ChannelSpecs {
+    redisCommandProc *proc; /* Command procedure to match against */
+    uint64_t flags;         /* CMD_CHANNEL_* flags for this command */
+    int start;              /* The initial position of the first channel */
+    int count;              /* The number of channels, or -1 if all remaining
+                             * arguments are channels. */
+} ChannelSpecs;
+
+ChannelSpecs commands_with_channels[] = {
+    {subscribeCommand, CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {ssubscribeCommand, CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {unsubscribeCommand, CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {sunsubscribeCommand, CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {psubscribeCommand, CMD_CHANNEL_PATTERN | CMD_CHANNEL_SUBSCRIBE, 1, -1},
+    {punsubscribeCommand, CMD_CHANNEL_PATTERN | CMD_CHANNEL_UNSUBSCRIBE, 1, -1},
+    {publishCommand, CMD_CHANNEL_PUBLISH, 1, 1},
+    {spublishCommand, CMD_CHANNEL_PUBLISH, 1, 1},
+    {NULL,0} /* Terminator. */
+};
+
+/* Returns 1 if the command may access any channels matched by the flags
+ * argument. */
+int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
+    /* If a module declares get channels, we are just going to assume
+     * has channels. This API is allowed to return false positives. */
+    if (cmd->flags & CMD_MODULE_GETCHANNELS) {
+        return 1;
+    }
+    for (ChannelSpecs *spec = commands_with_channels; spec->proc != NULL; spec += 1) {
+        if (cmd->proc == spec->proc) {
+            return !!(spec->flags & flags);
+        }
+    }
+    return 0;
+}
+
+/* Return all the arguments that are channels in the command passed via argc / argv. 
+ * This function behaves similar to getKeysFromCommandWithSpecs, but with channels 
+ * instead of keys.
+ * 
+ * The command returns the positions of all the channel arguments inside the array,
+ * so the actual return value is a heap allocated array of integers. The
+ * length of the array is returned by reference into *numkeys.
+ * 
+ * Along with the position, this command also returns the flags that are
+ * associated with how Redis will access the channel.
+ *
+ * 'cmd' must be point to the corresponding entry into the redisCommand
+ * table, according to the command name in argv[0]. */
+int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    /* If a module declares get channels, use that. */
+    if (cmd->flags & CMD_MODULE_GETCHANNELS) {
+        return moduleGetCommandChannelsViaAPI(cmd, argv, argc, result);
+    }
+    /* Otherwise check the channel spec table */
+    for (ChannelSpecs *spec = commands_with_channels; spec != NULL; spec += 1) {
+        if (cmd->proc == spec->proc) {
+            int start = spec->start;
+            int stop = (spec->count == -1) ? argc : start + spec->count;
+            if (stop > argc) stop = argc;
+            int count = 0;
+            keys = getKeysPrepareResult(result, stop - start);
+            for (int i = start; i < stop; i++ ) {
+                keys[count].pos = i;
+                keys[count++].flags = spec->flags;
+            }
+            result->numkeys = count;
+            return count;
+        }
+    }
+    return 0;
 }
 
 /* The base case is to use the keys position as given in the command table

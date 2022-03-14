@@ -588,9 +588,9 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"node-id",ARG_TYPE_INTEGER,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
 {"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -660,7 +660,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_tips,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0},
 {"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_tips,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
-{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
+{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
 {"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
@@ -3092,6 +3092,12 @@ struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
 /* PUBSUB SHARDNUMSUB tips */
 #define PUBSUB_SHARDNUMSUB_tips NULL
 
+/* PUBSUB SHARDNUMSUB argument table */
+struct redisCommandArg PUBSUB_SHARDNUMSUB_Args[] = {
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
 /* PUBSUB command table */
 struct redisCommand PUBSUB_Subcommands[] = {
 {"channels","List active channels","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_History,PUBSUB_CHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_CHANNELS_Args},
@@ -3099,7 +3105,7 @@ struct redisCommand PUBSUB_Subcommands[] = {
 {"numpat","Get the count of unique patterns pattern subscriptions","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_History,PUBSUB_NUMPAT_tips,pubsubCommand,2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0},
 {"numsub","Get the count of subscribers for channels","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_History,PUBSUB_NUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_NUMSUB_Args},
 {"shardchannels","List active shard channels","O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short channels).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDCHANNELS_History,PUBSUB_SHARDCHANNELS_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDCHANNELS_Args},
-{"shardnumsub","Get the count of subscribers for shard channels","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested channels","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,PUBSUB_SHARDNUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0},
+{"shardnumsub","Get the count of subscribers for shard channels","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested channels","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,PUBSUB_SHARDNUMSUB_tips,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,.args=PUBSUB_SHARDNUMSUB_Args},
 {0}
 };
 
@@ -3443,8 +3449,9 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 
 /* FUNCTION STATS tips */
 const char *FUNCTION_STATS_tips[] = {
+"nondeterministic_output",
 "request_policy:all_shards",
-"response_policy:one_succeeded",
+"response_policy:special",
 NULL
 };
 
@@ -4375,7 +4382,12 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 #define LATENCY_HISTOGRAM_History NULL
 
 /* LATENCY HISTOGRAM tips */
-#define LATENCY_HISTOGRAM_tips NULL
+const char *LATENCY_HISTOGRAM_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTOGRAM argument table */
 struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
@@ -4389,7 +4401,12 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 #define LATENCY_HISTORY_History NULL
 
 /* LATENCY HISTORY tips */
-#define LATENCY_HISTORY_tips NULL
+const char *LATENCY_HISTORY_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTORY argument table */
 struct redisCommandArg LATENCY_HISTORY_Args[] = {
@@ -4403,7 +4420,12 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_LATEST_History NULL
 
 /* LATENCY LATEST tips */
-#define LATENCY_LATEST_tips NULL
+const char *LATENCY_LATEST_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY RESET ********************/
 
@@ -4411,7 +4433,11 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_RESET_History NULL
 
 /* LATENCY RESET tips */
-#define LATENCY_RESET_tips NULL
+const char *LATENCY_RESET_tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+NULL
+};
 
 /* LATENCY RESET argument table */
 struct redisCommandArg LATENCY_RESET_Args[] = {
@@ -4499,6 +4525,8 @@ NULL
 /* MEMORY STATS tips */
 const char *MEMORY_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -6022,7 +6050,10 @@ struct redisCommandArg XDEL_Args[] = {
 /********** XGROUP CREATE ********************/
 
 /* XGROUP CREATE history */
-#define XGROUP_CREATE_History NULL
+commandHistory XGROUP_CREATE_History[] = {
+{"7.0.0","Added the `entries_read` named argument."},
+{0}
+};
 
 /* XGROUP CREATE tips */
 #define XGROUP_CREATE_tips NULL
@@ -6040,6 +6071,7 @@ struct redisCommandArg XGROUP_CREATE_Args[] = {
 {"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_CREATE_id_Subargs},
 {"mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
+{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6101,7 +6133,10 @@ struct redisCommandArg XGROUP_DESTROY_Args[] = {
 /********** XGROUP SETID ********************/
 
 /* XGROUP SETID history */
-#define XGROUP_SETID_History NULL
+commandHistory XGROUP_SETID_History[] = {
+{"7.0.0","Added the optional `entries_read` argument."},
+{0}
+};
 
 /* XGROUP SETID tips */
 #define XGROUP_SETID_tips NULL
@@ -6118,6 +6153,7 @@ struct redisCommandArg XGROUP_SETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_Subargs},
+{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6128,7 +6164,7 @@ struct redisCommand XGROUP_Subcommands[] = {
 {"delconsumer","Delete a consumer from a consumer group.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DELCONSUMER_History,XGROUP_DELCONSUMER_tips,xgroupCommand,5,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_DELCONSUMER_Args},
 {"destroy","Destroy a consumer group.","O(N) where N is the number of entries in the group's pending entries list (PEL).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_DESTROY_History,XGROUP_DESTROY_tips,xgroupCommand,4,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_DESTROY_Args},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_HELP_History,XGROUP_HELP_tips,xgroupCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM},
-{"setid","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_SETID_History,XGROUP_SETID_tips,xgroupCommand,5,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_SETID_Args},
+{"setid","Set a consumer group to an arbitrary last delivered ID value.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_SETID_History,XGROUP_SETID_tips,xgroupCommand,-5,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XGROUP_SETID_Args},
 {0}
 };
 
@@ -6161,7 +6197,10 @@ struct redisCommandArg XINFO_CONSUMERS_Args[] = {
 /********** XINFO GROUPS ********************/
 
 /* XINFO GROUPS history */
-#define XINFO_GROUPS_History NULL
+commandHistory XINFO_GROUPS_History[] = {
+{"7.0.0","Added the `entries-read` and `lag` fields"},
+{0}
+};
 
 /* XINFO GROUPS tips */
 #define XINFO_GROUPS_tips NULL
@@ -6183,7 +6222,10 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 /********** XINFO STREAM ********************/
 
 /* XINFO STREAM history */
-#define XINFO_STREAM_History NULL
+commandHistory XINFO_STREAM_History[] = {
+{"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
+{0}
+};
 
 /* XINFO STREAM tips */
 #define XINFO_STREAM_tips NULL
@@ -6362,7 +6404,10 @@ struct redisCommandArg XREVRANGE_Args[] = {
 /********** XSETID ********************/
 
 /* XSETID history */
-#define XSETID_History NULL
+commandHistory XSETID_History[] = {
+{"7.0.0","Added the `entries_added` and `max_deleted_entry_id` arguments."},
+{0}
+};
 
 /* XSETID tips */
 #define XSETID_tips NULL
@@ -6371,6 +6416,8 @@ struct redisCommandArg XREVRANGE_Args[] = {
 struct redisCommandArg XSETID_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL},
+{"max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6967,10 +7014,10 @@ struct redisCommand redisCommandTable[] = {
 {"publish","Post a message to a channel","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBLISH_History,PUBLISH_tips,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,.args=PUBLISH_Args},
 {"pubsub","A container for Pub/Sub commands","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUBSUB_History,PUBSUB_tips,NULL,-2,0,0,.subcommands=PUBSUB_Subcommands},
 {"punsubscribe","Stop listening for messages posted to channels matching the given patterns","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,PUNSUBSCRIBE_tips,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=PUNSUBSCRIBE_Args},
-{"spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SPUBLISH_History,SPUBLISH_tips,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,{{NULL,CMD_KEY_CHANNEL,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPUBLISH_Args},
-{"ssubscribe","Listen for messages published to the given shard channels","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,SSUBSCRIBE_tips,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_CHANNEL,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SSUBSCRIBE_Args},
+{"spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SPUBLISH_History,SPUBLISH_tips,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SPUBLISH_Args},
+{"ssubscribe","Listen for messages published to the given shard channels","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,SSUBSCRIBE_tips,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SSUBSCRIBE_Args},
 {"subscribe","Listen for messages published to the given channels","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,SUBSCRIBE_tips,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=SUBSCRIBE_Args},
-{"sunsubscribe","Stop listening for messages posted to the given shard channels","O(N) where N is the number of clients already subscribed to a channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,SUNSUBSCRIBE_tips,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_CHANNEL,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNSUBSCRIBE_Args},
+{"sunsubscribe","Stop listening for messages posted to the given shard channels","O(N) where N is the number of clients already subscribed to a channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,SUNSUBSCRIBE_tips,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,{{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNSUBSCRIBE_Args},
 {"unsubscribe","Stop listening for messages posted to the given channels","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,UNSUBSCRIBE_tips,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=UNSUBSCRIBE_Args},
 /* scripting */
 {"eval","Execute a Lua script server side","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,EVAL_History,EVAL_tips,evalCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,{{"We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},evalGetKeys,.args=EVAL_Args},
@@ -7002,13 +7049,13 @@ struct redisCommand redisCommandTable[] = {
 {"module","A container for module commands","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_History,MODULE_tips,NULL,-2,0,0,.subcommands=MODULE_Subcommands},
 {"monitor","Listen for all requests received by the server in real time",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MONITOR_History,MONITOR_tips,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
 {"psync","Internal command used for replication",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,PSYNC_History,PSYNC_tips,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,.args=PSYNC_Args},
-{"replconf","An internal command for configuring the replication stream","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_History,REPLCONF_tips,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0},
-{"replicaof","Make the server a replica of another instance, or promote it as master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_History,REPLICAOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_STALE,0,.args=REPLICAOF_Args},
+{"replconf","An internal command for configuring the replication stream","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,REPLCONF_History,REPLCONF_tips,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_ALLOW_BUSY,0},
+{"replicaof","Make the server a replica of another instance, or promote it as master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,REPLICAOF_History,REPLICAOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=REPLICAOF_Args},
 {"restore-asking","An internal command for migrating keys in a cluster","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_SERVER,RESTORE_ASKING_History,RESTORE_ASKING_tips,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_ASKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}}},
 {"role","Return the role of the instance in the context of replication","O(1)","2.8.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ROLE_History,ROLE_tips,roleCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS},
 {"save","Synchronously save the dataset to disk","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SAVE_History,SAVE_tips,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_NO_MULTI,0},
 {"shutdown","Synchronously save the dataset to disk and then shut down the server","O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SHUTDOWN_History,SHUTDOWN_tips,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_NO_MULTI|CMD_SENTINEL|CMD_ALLOW_BUSY,0,.args=SHUTDOWN_Args},
-{"slaveof","Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLAVEOF_History,SLAVEOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=SLAVEOF_Args},
+{"slaveof","Make the server a replica of another instance, or promote it as master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0",COMMAND_GROUP_SERVER,SLAVEOF_History,SLAVEOF_tips,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,.args=SLAVEOF_Args},
 {"slowlog","A container for slow log commands","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SLOWLOG_History,SLOWLOG_tips,NULL,-2,0,0,.subcommands=SLOWLOG_Subcommands},
 {"swapdb","Swaps two Redis databases","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SWAPDB_History,SWAPDB_tips,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=SWAPDB_Args},
 {"sync","Internal command used for replication",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,SYNC_History,SYNC_tips,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0},
@@ -7081,7 +7128,7 @@ struct redisCommand redisCommandTable[] = {
 {"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREAD_History,XREAD_tips,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREAD_Args},
 {"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREADGROUP_History,XREADGROUP_tips,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},
 {"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREVRANGE_History,XREVRANGE_tips,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XREVRANGE_Args},
-{"xsetid","An internal command for replicating stream values","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_History,XSETID_tips,xsetidCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XSETID_Args},
+{"xsetid","An internal command for replicating stream values","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_History,XSETID_tips,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XSETID_Args},
 {"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XTRIM_History,XTRIM_tips,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XTRIM_Args},
 /* string */
 {"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,APPEND_History,APPEND_tips,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args},

@@ -86,8 +86,8 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
     if (duration > LOAD_TIMEOUT_MS) {
         lua_sethook(lua, luaEngineLoadHook, LUA_MASKLINE, 0);
 
-        lua_pushstring(lua,"FUNCTION LOAD timeout");
-        lua_error(lua);
+        luaPushError(lua,"FUNCTION LOAD timeout");
+        luaError(lua);
     }
 }
 
@@ -151,10 +151,13 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     lua_sethook(lua,luaEngineLoadHook,LUA_MASKCOUNT,100000);
     /* Run the compiled code to allow it to register functions */
     if (lua_pcall(lua,0,0,0)) {
-        *err = sdscatprintf(sdsempty(), "Error registering functions: %s", lua_tostring(lua, -1));
+        errorInfo err_info = {0};
+        luaExtractErrorInformation(lua, &err_info);
+        *err = sdscatprintf(sdsempty(), "Error registering functions: %s", err_info.msg);
         lua_pop(lua, 2); /* pops the error and globals table */
         lua_sethook(lua,NULL,0,0); /* Disable hook */
         luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+        luaErrorInformationDiscard(&err_info);
         return C_ERR;
     }
     lua_sethook(lua,NULL,0,0); /* Disable hook */
@@ -429,11 +432,11 @@ static int luaRegisterFunction(lua_State *lua) {
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
     if (!load_ctx) {
         luaPushError(lua, "redis.register_function can only be called on FUNCTION LOAD command");
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     if (luaRegisterFunctionReadArgs(lua, &register_f_args) != C_OK) {
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     sds err = NULL;
@@ -441,7 +444,7 @@ static int luaRegisterFunction(lua_State *lua) {
         luaRegisterFunctionArgsDispose(lua, &register_f_args);
         luaPushError(lua, err);
         sdsfree(err);
-        return luaRaiseError(lua);
+        return luaError(lua);
     }
 
     return 0;
@@ -475,11 +478,14 @@ int luaEngineInitEngine() {
                             "  if i and i.what == 'C' then\n"
                             "    i = dbg.getinfo(3,'nSl')\n"
                             "  end\n"
+                            "  if type(err) ~= 'table' then\n"
+                            "    err = {err='ERR' .. tostring(err)}"
+                            "  end"
                             "  if i then\n"
-                            "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
-                            "  else\n"
-                            "    return err\n"
-                            "  end\n"
+                            "    err['source'] = i.source\n"
+                            "    err['line'] = i.currentline\n"
+                            "  end"
+                            "  return err\n"
                             "end\n"
                             "return error_handler";
     luaL_loadbuffer(lua_engine_ctx->lua, errh_func, strlen(errh_func), "@err_handler_def");

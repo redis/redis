@@ -24,10 +24,10 @@ proc assert_no_match {pattern value} {
     }
 }
 
-proc assert_match {pattern value} {
+proc assert_match {pattern value {detail ""}} {
     if {![string match $pattern $value]} {
         set context "(context: [info frame -1])"
-        error "assertion:Expected '$value' to match '$pattern' $context"
+        error "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }
 
@@ -84,9 +84,9 @@ proc assert_range {value min max {detail ""}} {
 
 proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
-        assert_match $pattern $error
+        assert_match $pattern $error $detail
     } else {
-        assert_failed "assertion:Expected an error but nothing was caught" $detail
+        assert_failed "Expected an error matching '$pattern' but got '$error'" $detail
     }
 }
 
