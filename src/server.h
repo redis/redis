@@ -2951,6 +2951,16 @@ typedef struct configEnum {
     int val;
 } configEnum;
 
+/* Type of configuration. */
+typedef enum {
+    BOOL_CONFIG,
+    NUMERIC_CONFIG,
+    STRING_CONFIG,
+    SDS_CONFIG,
+    ENUM_CONFIG,
+    SPECIAL_CONFIG,
+} configType;
+
 void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
@@ -2958,27 +2968,19 @@ struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
-void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
-void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
-void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue);
-void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue);
-void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue);
 void initConfigValues();
-void removeConfig(char *name, int is_enum);
-void freeConfigs();
+void removeConfig(char *name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
-typedef struct standardConfig standardConfig;
-standardConfig *getConfigFromName(sds name);
-int performInterfaceSet(standardConfig *config, sds value, const char **errstr);
+int performConfigSetFromName(sds name, sds value, const char **err);
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
 void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
-void addModuleApply(list *module_configs, void *module_config);
+void addModuleApply(list *module_configs, ModuleConfig *module_config);
 int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
 int getModuleBoolConfig(ModuleConfig *module_config);
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);

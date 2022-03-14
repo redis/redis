@@ -258,21 +258,13 @@ typedef struct standardConfig {
     const unsigned int flags; /* Flags for this specific config */
     typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
+    configType type; /* The type of config this is. */
     void *privdata; /* privdata for this config, for module configs this is a ModuleConfig struct */
 } standardConfig;
 
 standardConfig *configs;
 size_t num_configs;
 size_t configs_size;
-
-/* TODO: Replace with lookup config when hash gets merged into this. */
-standardConfig *getConfigFromName(sds name) {
-    for (size_t i = 0; i < num_configs; i++) {
-        standardConfig *config = configs + i;
-        if (!strcasecmp(config->name, name)) return config;
-    }
-    return NULL;
-}
 
 /*-----------------------------------------------------------------------------
  * Enum access functions
@@ -678,6 +670,24 @@ int performInterfaceSet(standardConfig *config, sds value, const char **errstr) 
     return res;
 }
 
+/* TODO: Replace with lookup config when hash gets merged into this. */
+int performConfigSetFromName(sds name, sds value, const char **err) {
+    standardConfig *config;
+    int found = 0;
+    for (size_t i = 0; i < num_configs; i++) {
+        config = configs + i;
+        if (!strcasecmp(config->name, name)) {
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        *err = "Config name not found";
+        return 0;
+    }
+    return performInterfaceSet(config, value, err);
+}
+
 static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns, list *module_configs) {
     int i;
     const char *errstr = "unknown error";
@@ -710,7 +720,6 @@ void configSetCommand(client *c) {
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
     list *module_configs_apply = listCreate();
-    listSetFreeMethod(module_configs_apply, zfree);
     sds *new_values;
     sds *old_values = NULL;
     apply_fn *apply_fns; /* TODO: make this a set for better performance */
@@ -1724,6 +1733,7 @@ static void boolConfigRewrite(standardConfig *config, const char *name, struct r
 #define createBoolConfig(name, alias, flags, config_addr, default, is_valid, apply) { \
     embedCommonConfig(name, alias, flags) \
     embedConfigInterface(boolConfigInit, boolConfigSet, boolConfigGet, boolConfigRewrite, apply) \
+    .type = BOOL_CONFIG, \
     .data.yesno = { \
         .config = &(config_addr), \
         .default_value = (default), \
@@ -1777,6 +1787,7 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
         *config->data.sds.config = new != NULL ? sdsdup(new) : NULL;
         return 1;
     }
+    if (config->flags & MODULE_CONFIG && prev) sdsfree(prev);
     return 2;
 }
 
@@ -1793,6 +1804,7 @@ static sds sdsConfigGet(standardConfig *config) {
 static void sdsConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     sds val = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     rewriteConfigSdsOption(state, name, val, config->data.sds.default_value);
+    if (val) sdsfree(val);
 }
 
 
@@ -1802,6 +1814,7 @@ static void sdsConfigRewrite(standardConfig *config, const char *name, struct re
 #define createStringConfig(name, alias, flags, empty_to_null, config_addr, default, is_valid, apply) { \
     embedCommonConfig(name, alias, flags) \
     embedConfigInterface(stringConfigInit, stringConfigSet, stringConfigGet, stringConfigRewrite, apply) \
+    .type = STRING_CONFIG, \
     .data.string = { \
         .config = &(config_addr), \
         .default_value = (default), \
@@ -1813,6 +1826,7 @@ static void sdsConfigRewrite(standardConfig *config, const char *name, struct re
 #define createSDSConfig(name, alias, flags, empty_to_null, config_addr, default, is_valid, apply) { \
     embedCommonConfig(name, alias, flags) \
     embedConfigInterface(sdsConfigInit, sdsConfigSet, sdsConfigGet, sdsConfigRewrite, apply) \
+    .type = SDS_CONFIG, \
     .data.sds = { \
         .config = &(config_addr), \
         .default_value = (default), \
@@ -1872,6 +1886,7 @@ static void enumConfigRewrite(standardConfig *config, const char *name, struct r
 #define createEnumConfig(name, alias, flags, enum, config_addr, default, is_valid, apply) { \
     embedCommonConfig(name, alias, flags) \
     embedConfigInterface(enumConfigInit, enumConfigSet, enumConfigGet, enumConfigRewrite, apply) \
+    .type = ENUM_CONFIG, \
     .data.enumd = { \
         .config = &(config_addr), \
         .default_value = (default), \
@@ -1882,29 +1897,31 @@ static void enumConfigRewrite(standardConfig *config, const char *name, struct r
 
 /* Gets a 'long long val' and sets it into the union, using a macro to get
  * compile time type check. */
-#define SET_NUMERIC_TYPE(val, err) \
-    if (config->data.numeric.numeric_type == NUMERIC_TYPE_INT) { \
-        *(config->data.numeric.config.i) = (int) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_UINT) { \
-        *(config->data.numeric.config.ui) = (unsigned int) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_LONG) { \
-        *(config->data.numeric.config.l) = (long) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_ULONG) { \
-        *(config->data.numeric.config.ul) = (unsigned long) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) { \
-        if (config->flags & MODULE_CONFIG) setModuleNumericConfig(config->privdata, (long long) val, err); \
-        else *(config->data.numeric.config.ll) = (long long) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG) { \
-        *(config->data.numeric.config.ull) = (unsigned long long) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) { \
-        *(config->data.numeric.config.st) = (size_t) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_SSIZE_T) { \
-        *(config->data.numeric.config.sst) = (ssize_t) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_OFF_T) { \
-        *(config->data.numeric.config.ot) = (off_t) val; \
-    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_TIME_T) { \
-        *(config->data.numeric.config.tt) = (time_t) val; \
+int SET_NUMERIC_TYPE(standardConfig *config, long long val, const char **err) {
+    if (config->data.numeric.numeric_type == NUMERIC_TYPE_INT) {
+        *(config->data.numeric.config.i) = (int) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_UINT) {
+        *(config->data.numeric.config.ui) = (unsigned int) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_LONG) {
+        *(config->data.numeric.config.l) = (long) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_ULONG) {
+        *(config->data.numeric.config.ul) = (unsigned long) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_LONG_LONG) {
+        if (config->flags & MODULE_CONFIG) return setModuleNumericConfig(config->privdata, (long long) val, err);
+        else *(config->data.numeric.config.ll) = (long long) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_ULONG_LONG) {
+        *(config->data.numeric.config.ull) = (unsigned long long) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
+        *(config->data.numeric.config.st) = (size_t) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_SSIZE_T) {
+        *(config->data.numeric.config.sst) = (ssize_t) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_OFF_T) {
+        *(config->data.numeric.config.ot) = (off_t) val;
+    } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_TIME_T) {
+        *(config->data.numeric.config.tt) = (time_t) val;
     }
+    return 1;
+}
 
 /* Gets a 'long long val' and sets it with the value from the union, using a
  * macro to get compile time type check. */
@@ -1934,7 +1951,7 @@ static void enumConfigRewrite(standardConfig *config, const char *name, struct r
 
 /* Numeric configs */
 static void numericConfigInit(standardConfig *config) {
-    SET_NUMERIC_TYPE(config->data.numeric.default_value, NULL)
+    SET_NUMERIC_TYPE(config, config->data.numeric.default_value, NULL);
 }
 
 static int numericBoundaryCheck(standardConfig *config, long long ll, const char **err) {
@@ -2044,8 +2061,7 @@ static int numericConfigSet(standardConfig *config, sds *argv, int argc, const c
 
     GET_NUMERIC_TYPE(prev)
     if (prev != ll) {
-        SET_NUMERIC_TYPE(ll, err)
-        return 1;
+        return SET_NUMERIC_TYPE(config, ll, err);
     }
 
     return 2;
@@ -2091,6 +2107,7 @@ static void numericConfigRewrite(standardConfig *config, const char *name, struc
 #define embedCommonNumericalConfig(name, alias, _flags, lower, upper, config_addr, default, num_conf_flags, is_valid, apply) { \
     embedCommonConfig(name, alias, _flags) \
     embedConfigInterface(numericConfigInit, numericConfigSet, numericConfigGet, numericConfigRewrite, apply) \
+    .type = NUMERIC_CONFIG, \
     .data.numeric = { \
         .lower_bound = (lower), \
         .upper_bound = (upper), \
@@ -2169,6 +2186,7 @@ static void numericConfigRewrite(standardConfig *config, const char *name, struc
 }
 
 #define createSpecialConfig(name, alias, modifiable, setfn, getfn, rewritefn, applyfn) { \
+    .type = SPECIAL_CONFIG, \
     embedCommonConfig(name, alias, modifiable) \
     embedConfigInterface(NULL, setfn, getfn, rewritefn, applyfn) \
 }
@@ -3009,19 +3027,21 @@ void removeConfigByIndex(size_t index) {
 }
 
 /* Removes a config by name */
-void removeConfig(char *name, int is_enum) {
+void removeConfig(char *name) {
     for (size_t i = 0; i < num_configs; i++) {
         standardConfig *config = &configs[i];
         if (!strcasecmp(config->name, name)) {
             if (config->flags & MODULE_CONFIG) {
                 sdsfree((sds) config->name);
-                if (is_enum) {
+                if (config->type == ENUM_CONFIG) {
                     configEnum *enumNode = config->data.enumd.enum_value;
                     while(enumNode->name != NULL) {
                         zfree(enumNode->name);
                         enumNode++;
                     }
                     zfree(config->data.enumd.enum_value);
+                } else if (config->type == SDS_CONFIG) {
+                    if (config->data.sds.default_value) sdsfree((sds)config->data.sds.default_value);
                 }
             }
             removeConfigByIndex(i);
