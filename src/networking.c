@@ -1954,6 +1954,11 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
+    /* Update client's memory usage after writing.
+     * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
+     * handleClientsWithPendingWritesUsingThreads(). */
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsage(c);
     return C_OK;
 }
 
@@ -1987,7 +1992,6 @@ int handleClientsWithPendingWrites(void) {
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c,0) == C_ERR) continue;
-        updateClientMemUsage(c);
 
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
@@ -3763,7 +3767,6 @@ void flushSlavesOutputBuffers(void) {
             clientHasPendingReplies(slave))
         {
             writeToClient(slave,0);
-            updateClientMemUsage(slave);
         }
     }
 }
