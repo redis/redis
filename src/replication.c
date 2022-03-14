@@ -3206,6 +3206,7 @@ void replicationCacheMaster(client *c) {
     sdsclear(server.master->querybuf);
     server.master->qb_pos = 0;
     server.master->read_reploff = server.master->reploff;
+    /* Make sure all applied data in replication stream has been propagated. */
     serverAssert(server.master->repl_applied == 0);
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);

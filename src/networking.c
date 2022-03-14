@@ -2292,7 +2292,11 @@ int processMultibulkBuffer(client *c) {
 
             c->qb_pos = newline-c->querybuf+2;
             if (!(c->flags & CLIENT_MASTER) && ll >= PROTO_MBULK_BIG_ARG) {
-                /* If we are going to read a large object from network
+                /* When the client is not a master client (because master
+                 * client's querybuf can only be trimmed after data applied
+                 * and sent to replicas).
+                 *
+                 * If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
                  * avoiding a large copy of data.
@@ -2323,7 +2327,7 @@ int processMultibulkBuffer(client *c) {
                 c->argv = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
             }
 
-            /* Optimization: if the buffer contains JUST our bulk element
+            /* Optimization: if a non-master client's buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
             if (!(c->flags & CLIENT_MASTER) &&
@@ -2434,6 +2438,8 @@ int processPendingCommandsAndResetClient(client *c) {
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
         } else if (c->flags & CLIENT_MASTER && c->repl_applied) {
+            /* The pending command is applied, we can propagate the data
+             * and trim it from querybuf now. */
             replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
             sdsrange(c->querybuf,c->repl_applied,-1);
             c->qb_pos -= c->repl_applied;
@@ -2512,6 +2518,9 @@ int processInputBuffer(client *c) {
     }
 
     if (c->flags & CLIENT_MASTER) {
+        /* The master client is very special, since the querybuf contains data not only
+         * read from network, but also part of replication stream. So we should propagate
+         * the applied data and only trim the applied part of querybuf. */
         if (c->repl_applied) {
             replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
             sdsrange(c->querybuf,c->repl_applied,-1);
