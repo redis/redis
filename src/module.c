@@ -11158,7 +11158,7 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
     return REDISMODULE_OK;
 }
 
-/* This is a series of parseAndSet functions for each type that, for the most part, emulate the ones
+/* This is a series of set functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the set callback specified by the module
  * to set the value */
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
@@ -11185,7 +11185,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-/* This is a series of getAndParse functions for each type that, for the most part, emulate the ones
+/* This is a series of get functions for each type that, for the most part, emulate the ones
  * in config.c. The difference here is that we use the get callbacks specified by the module
  * to get the value. */
 int getModuleBoolConfig(ModuleConfig *module_config) {
@@ -11204,8 +11204,7 @@ int getModuleEnumConfig(ModuleConfig *module_config) {
 long long getModuleNumericConfig(ModuleConfig *module_config) {
     return module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
 }
-/*
-This function takes a module and a list of configs stored as sds NAME VALUE pairs.
+/* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
  * It attempts to call set on each of these configs. */
 int loadModuleConfigs(RedisModule *module) {
     if (!server.module_configs_queue || !listLength(server.module_configs_queue)) return REDISMODULE_OK;
@@ -11376,7 +11375,7 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
  * callbacks, as well as several flags that modify the behavior of the config. The
  * supported flags are:
  * 
- * * REDISMODULE_CONFIG_DEFAULT: This config can be modified after startup.
+ * * REDISMODULE_CONFIG_DEFAULT: The default flags for a config. This creates a config that can be modified after startup. 
  * * REDISMODULE_CONFIG_IMMUTABLE: This config can only be provided loading time.
  * * REDISMODULE_CONFIG_SENSITIVE: The value stored in this config is redacted from all logging.
  * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching. 
