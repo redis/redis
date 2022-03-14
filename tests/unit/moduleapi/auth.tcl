@@ -76,13 +76,13 @@ start_server {tags {"modules"}} {
         r config set slowlog-log-slower-than 10000
         set slowlog_resp [r slowlog get]
 
-        # Make sure normal configs work, but the two sensitive
-        # commands are omitted or redacted
+        # There will be 3 records, slowlog reset and the
+        # two auth redact calls.
         assert_equal 3 [llength $slowlog_resp]
         assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 2] 3]
         assert_equal {(redacted) 1 (redacted) 3 (redacted)} [lindex [lindex [r slowlog get] 1] 3]
         assert_equal {auth.redact (redacted) 2 (redacted)} [lindex [lindex [r slowlog get] 0] 3]
-    } {} {needs:repl}
+    }
 
     test "Unload the module - testacl" {
         assert_equal {OK} [r module unload testacl]
