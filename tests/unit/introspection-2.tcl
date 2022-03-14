@@ -33,6 +33,15 @@ start_server {tags {"introspection"}} {
         assert_match {} [cmdstat zadd]
     } {} {needs:config-resetstat}
 
+    test {errors stats for GEOADD} {
+        r config resetstat
+        # make sure geo command will failed
+        r set foo 1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r GEOADD foo 0 0 bar}
+        assert_match {*calls=1*,rejected_calls=0,failed_calls=1*} [cmdstat geoadd]
+        assert_match {} [cmdstat zadd]
+    } {} {needs:config-resetstat}
+
     test {command stats for EXPIRE} {
         r config resetstat
         r SET foo bar

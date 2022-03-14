@@ -596,7 +596,10 @@ static void moduleFreeKeyIterator(RedisModuleKey *key) {
     serverAssert(key->iter != NULL);
     switch (key->value->type) {
     case OBJ_LIST: listTypeReleaseIterator(key->iter); break;
-    case OBJ_STREAM: zfree(key->iter); break;
+    case OBJ_STREAM:
+        streamIteratorStop(key->iter);
+        zfree(key->iter);
+        break;
     default: serverAssert(0); /* No key->iter for other types. */
     }
     key->iter = NULL;
@@ -5103,6 +5106,7 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
         errno = EBADF;
         return REDISMODULE_ERR;
     }
+    streamIteratorStop(key->iter);
     zfree(key->iter);
     key->iter = NULL;
     return REDISMODULE_OK;
@@ -5658,7 +5662,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         errno = ENOENT;
         goto cleanup;
     }
-    c->cmd = c->lastcmd = cmd;
+    c->cmd = c->lastcmd = c->realcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
@@ -9972,6 +9976,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_FORK_CHILD */
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
+    -1, /* REDISMODULE_EVENT_CONFIG */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10192,7 +10197,7 @@ static uint64_t moduleEventVersions[] = {
  *     are now triggered when repl-diskless-load is set to swapdb.
  *
  *     Called when repl-diskless-load config is set to swapdb,
- *     And redis needs to backup the the current database for the
+ *     And redis needs to backup the current database for the
  *     possibility to be restored later. A module with global data and
  *     maybe with aux_load and aux_save callbacks may need to use this
  *     notification to backup / restore / discard its globals.
@@ -10231,6 +10236,20 @@ static uint64_t moduleEventVersions[] = {
  *
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP`
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP`
+ *
+ * * RedisModule_Event_Config
+ *
+ *     Called when a configuration event happens
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_CONFIG_CHANGE`
+ *
+ *     The data pointer can be casted to a RedisModuleConfigChange
+ *     structure with the following fields:
+ *
+ *         const char **config_names; // An array of C string pointers containing the
+ *                                    // name of each modified configuration item 
+ *         uint32_t num_changes;      // The number of elements in the config_names array
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
@@ -10309,6 +10328,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
     case REDISMODULE_EVENT_EVENTLOOP:
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
+    case REDISMODULE_EVENT_CONFIG:
+        return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     default:
         break;
     }
@@ -10384,6 +10405,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_CRON_LOOP) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_SWAPDB) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
             }
 
