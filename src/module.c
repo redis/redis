@@ -8616,11 +8616,15 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
  * never being written to server logs. This command may be called multiple times on the
  * same position.
  * 
+ * Note that the command name and subcommand name, at positions 0 and 1, can be
+ * redacted but they may still be recorded in places that record command
+ * information such as command stats or in `CLIENT LIST`.
+ * 
  * Returns REDISMODULE_OK if the argument was redacted and REDISMODULE_ERR if there 
  * was an invalid parameter passed in or the position is outside the client 
  * argument range. */
 int RM_RedactClientCommandArgument(RedisModuleCtx *ctx, int pos) {
-    if (!ctx || !ctx->client || ctx->client->argc < pos) {
+    if (!ctx || !ctx->client || pos < 0 || ctx->client->argc <= pos) {
         return REDISMODULE_ERR;
     }
     redactClientCommandArgument(ctx->client, pos);
