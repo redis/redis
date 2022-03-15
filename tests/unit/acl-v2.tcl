@@ -433,6 +433,38 @@ start_server {tags {"acl external:skip"}} {
         assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels spublish otherchannel foo]
         assert_equal "This user has no permissions to access the 'otherchannel' channel" [r ACL DRYRUN test-channels ssubscribe otherchannel foo]
     }
+
+    test {Test sort with ACL permissions} {
+        r set v1 1
+        r lpush mylist 1
+        
+        r ACL setuser test-sort-acl on nopass (+sort ~mylist)   
+        $r2 auth test-sort-acl nopass
+         
+        catch {$r2 sort mylist by v*} e
+        assert_equal "ERR BY option of SORT denied due to insufficient ACL permissions." $e
+        catch {$r2 sort mylist get v*} e
+        assert_equal "ERR GET option of SORT denied due to insufficient ACL permissions." $e 
+        
+        r ACL setuser test-sort-acl (+sort ~mylist ~v*)     
+        catch {$r2 sort mylist by v*} e
+        assert_equal "ERR BY option of SORT denied due to insufficient ACL permissions." $e  
+        catch {$r2 sort mylist get v*} e
+        assert_equal "ERR GET option of SORT denied due to insufficient ACL permissions." $e 
+        
+        r ACL setuser test-sort-acl (+sort ~mylist %W~*)     
+        catch {$r2 sort mylist by v*} e
+        assert_equal "ERR BY option of SORT denied due to insufficient ACL permissions." $e
+        catch {$r2 sort mylist get v*} e
+        assert_equal "ERR GET option of SORT denied due to insufficient ACL permissions." $e
+       
+        r ACL setuser test-sort-acl (+sort ~mylist %R~*)     
+        assert_equal "1" [$r2 sort mylist by v*]     
+        
+        # cleanup
+        r ACL deluser test-sort-acl
+        r del v1 mylist
+    }
     
     test {Test DRYRUN with wrong number of arguments} {
         r ACL setuser test-dry-run +@all ~v*
@@ -444,7 +476,6 @@ start_server {tags {"acl external:skip"}} {
         
         catch {r ACL DRYRUN test-dry-run SET} e
         assert_equal "ERR wrong number of arguments for 'set' command" $e
-        
     }
 
     $r2 close

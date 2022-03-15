@@ -2758,6 +2758,7 @@ user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
