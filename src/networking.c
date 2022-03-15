@@ -201,7 +201,7 @@ client *createClient(connection *conn) {
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->last_memory_usage = c->last_memory_usage_on_bucket_update = 0;
+    c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
@@ -1954,7 +1954,11 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
-    updateClientMemUsage(c);
+    /* Update client's memory usage after writing.
+     * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
+     * handleClientsWithPendingWritesUsingThreads(). */
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsage(c);
     return C_OK;
 }
 
@@ -2519,7 +2523,8 @@ int processInputBuffer(client *c) {
     /* Update client memory usage after processing the query buffer, this is
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
-    updateClientMemUsage(c);
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsage(c);
 
     return C_OK;
 }
@@ -4167,8 +4172,8 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
-        /* Update the client in the mem usage buckets after we're done processing it in the io-threads */
-        updateClientMemUsageBucket(c);
+        /* Update the client in the mem usage after we're done processing it in the io-threads */
+        updateClientMemUsage(c);
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
@@ -4276,8 +4281,8 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             continue;
         }
 
-        /* Once io-threads are idle we can update the client in the mem usage buckets */
-        updateClientMemUsageBucket(c);
+        /* Once io-threads are idle we can update the client in the mem usage */
+        updateClientMemUsage(c);
 
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
