@@ -11,6 +11,36 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments":[
+            {
+                "name":"set_or_get",
+                "type":"oneof",
+                "arguments":[
+                    {
+                        "name":"set_param_value",
+                        "token":"SET",
+                        "type":"block",
+                        "multiple":true,
+                        "arguments":[
+                            {
+                                "name":"parameter",
+                                "type":"string"
+                            },
+                            {
+                                "name":"value",
+                                "type":"string"
+                            }
+                        ]
+                    },
+                    {
+                        "token":"GET",
+                        "multiple":true,
+                        "name":"parameter",
+                        "type":"string"
+                    }
+                ]
+            }
         ]
     }
 }
