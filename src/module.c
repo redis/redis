@@ -723,7 +723,6 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
-
     /* If this context has a temp client, we return it back to the pool.
      * If this context created a new client (e.g detached context), we free it.
      * If the client is assigned manually, e.g ctx->client = someClientInstance,
@@ -10882,7 +10881,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             return C_ERR;
         }
     }
-
     onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
     if (onload == NULL) {
         dlclose(handle);
@@ -10894,7 +10892,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     selectDb(ctx.client, 0);
-
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
@@ -10909,7 +10906,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             "Module %s initialization failed. Module not loaded",path);
         return C_ERR;
     }
-    
     if (is_loadex && listLength(server.module_configs_queue)) {
         moduleUnregisterCommands(ctx.module);
         moduleUnregisterSharedAPI(ctx.module);
@@ -11279,7 +11275,7 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
  * ## Module Configurations API
  * -------------------------------------------------------------------------- */
 
-
+/* Create a module config object. */
 ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
     new_config->name = name;

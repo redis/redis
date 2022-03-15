@@ -1050,7 +1050,6 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
              * comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
-            if (argv) sdsfreesplitres(argv, argc);
             sdsfree(line);
             rewriteConfigAppendLine(state,aux);
             continue;
@@ -1545,7 +1544,7 @@ sds getConfigDebugInfo() {
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         if (!(config->flags & DEBUG_CONFIG)) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, config->name, state);
+        config->interface.rewrite(config, config->name, state);
     }
     dictReleaseIterator(di);
     sds info = rewriteConfigGetContentFromState(state);
@@ -3017,8 +3016,6 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
 
     return dictAdd(configs, sdsnew(name), new) == DICT_OK;
 }
-
-
 
 /* Initialize configs to their default values and create and populate the 
  * runtime configuration dictionary. */
