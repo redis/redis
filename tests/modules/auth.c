@@ -57,7 +57,7 @@ int Auth_AuthRealUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* This command redacts every other arguments and returns OK */
 int Auth_RedactedAPI(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
-    for(int i = argc - 1; i >= 0; i -= 2) {
+    for(int i = argc - 1; i > 0; i -= 2) {
         int result = RedisModule_RedactClientCommandArgument(ctx, i);
         RedisModule_Assert(result == REDISMODULE_OK);
     }

@@ -80,7 +80,7 @@ start_server {tags {"modules"}} {
         # two auth redact calls.
         assert_equal 3 [llength $slowlog_resp]
         assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 2] 3]
-        assert_equal {(redacted) 1 (redacted) 3 (redacted)} [lindex [lindex [r slowlog get] 1] 3]
+        assert_equal {auth.redact 1 (redacted) 3 (redacted)} [lindex [lindex [r slowlog get] 1] 3]
         assert_equal {auth.redact (redacted) 2 (redacted)} [lindex [lindex [r slowlog get] 0] 3]
     }
 
