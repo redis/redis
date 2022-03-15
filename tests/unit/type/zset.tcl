@@ -78,9 +78,17 @@ start_server {tags {"zset"}} {
     }
 
     # A helper function to verify nil response in readraw base on RESP version.
-    proc verify_nil_response {resp nil_response} {
+    proc verify_nil_array_response {resp nil_response} {
         if {$resp == 2} {
             assert_equal $nil_response {*-1}
+        } elseif {$resp == 3} {
+            assert_equal $nil_response {_}
+        }
+    }
+
+    proc verify_nil_response {resp nil_response} {
+        if {$resp == 2} {
+            assert_equal $nil_response {$-1}
         } elseif {$resp == 3} {
             assert_equal $nil_response {_}
         }
@@ -1131,6 +1139,46 @@ start_server {tags {"zset"}} {
         }
     }
 
+        foreach position {min max} {
+            test "ZMOVE $position - $encoding" {
+                r del target{t}
+                create_zset zset{t} {-1 a 1 b 2 c 3 d}
+
+                set rd [redis_deferring_client]
+                $rd zmove zset{t} target{t} $position
+                set res [$rd read]
+
+                if {$position eq "min"} {
+                    assert_equal "a -1" $res
+                    assert_equal "b c d" [r zrange zset{t} 0 -1]
+                    assert_equal a [r zrange target{t} 0 -1]
+                } else {
+                    assert_equal "d 3" $res
+                    assert_equal "a b c" [r zrange zset{t} 0 -1]
+                    assert_equal d [r zrange target{t} 0 -1]
+                }
+            }
+
+            test "ZMOVE $position with the same zset as src and dst - $encoding" {
+                create_zset zset{t} {-1 a 1 b 2 c 3 d}
+                assert_equal {} [r ZMOVE zset{t} zset{t} $position]
+            } 
+        }
+
+        test "ZMOVEMEMBER - $encoding" {
+            r del target{t}
+            create_zset zset{t} {-1 a 1 b 2 c 3 d}
+
+            assert_equal "b 1" [r zmovemember zset{t} target{t} b]
+            assert_equal "b" [r zrange target{t} 0 -1]
+            assert_equal "a c d" [r zrange zset{t} 0 -1]
+        }
+
+        test "ZMOVEMEMBER with the same zset as src and dst - $encoding" {
+                create_zset zset{t} {-1 a 1 b 2 c 3 d}
+                assert_equal {} [r ZMOVEMEMBER zset{t} zset{t} a]
+        } 
+
         r config set zset-max-ziplist-entries $original_max_entries
         r config set zset-max-ziplist-value $original_max_value
     }
@@ -1176,6 +1224,39 @@ start_server {tags {"zset"}} {
         assert_error "ERR count*" {r zmpop 1 myzset{t} MAX COUNT a}
         assert_error "ERR count*" {r zmpop 1 myzset{t} MIN COUNT -1}
         assert_error "ERR count*" {r zmpop 2 myzset{t} myzset2{t} MAX COUNT -1}
+    }
+
+    foreach move {ZMOVE BZMOVE} {
+        foreach position {min max} {
+            test "$move $position against wrong type" {
+                r set foo{t} bar
+                if {$move == "ZMOVE"} {
+                    assert_error "*WRONGTYPE*" {r $move foo{t} target $position}
+                } else {
+                    assert_error "*WRONGTYPE*" {r $move foo{t} target $position 0}
+                }
+            }
+
+            test "$move $position with illegal argument" {
+                assert_error "ERR wrong number of arguments*" {r $move}
+                assert_error "ERR wrong number of arguments*" {r $move myset{t}}
+                assert_error "ERR wrong number of arguments*" {r $move myset{t} target{t}}
+                assert_error "ERR wrong number of arguments*" {r $move myset{t} target{t} 0 1 2}
+
+                if {$move == "ZMOVE"} {
+                    assert_error "ERR wrong number of arguments*" {r $move myset{t} target{t} 0 1}
+                    assert_error "ERR syntax error*" {r $move myset{t} target{t} bad_where}
+                } else {
+                    assert_error "ERR wrong number of arguments*" {r $move myset{t} target{t} min}
+                    assert_error "ERR syntax error*" {r $move myset{t} target{t} bad_where 0}
+                }
+            }
+        }
+    }
+
+    test "ZMOVEMEMBER against wrong type" {
+        r set foo{t} bar
+        assert_error "*WRONGTYPE*" {r ZMOVEMEMBER foo{t} target a}
     }
 
     test "ZMPOP propagate as pop with count command to replica" {
@@ -1267,9 +1348,9 @@ start_server {tags {"zset"}} {
 
             # BZPOP released on timeout.
             $rd bzpopmin zset{t} 0.01
-            verify_nil_response $resp [$rd read]
+            verify_nil_array_response $resp [$rd read]
             $rd bzpopmax zset{t} 0.01
-            verify_nil_response $resp [$rd read]
+            verify_nil_array_response $resp [$rd read]
 
             # BZPOP non-blocking path.
             $rd bzpopmin zset1{t} zset2{t} 0.1
@@ -1303,10 +1384,10 @@ start_server {tags {"zset"}} {
             r readraw 1
 
             # ZMPOP against non existing key.
-            verify_nil_response $resp [r zmpop 1 zset{t} min]
-            verify_nil_response $resp [r zmpop 1 zset{t} max count 1]
-            verify_nil_response $resp [r zmpop 2 zset{t} zset2{t} min]
-            verify_nil_response $resp [r zmpop 2 zset{t} zset2{t} max count 1]
+            verify_nil_array_response $resp [r zmpop 1 zset{t} min]
+            verify_nil_array_response $resp [r zmpop 1 zset{t} max count 1]
+            verify_nil_array_response $resp [r zmpop 2 zset{t} zset2{t} min]
+            verify_nil_array_response $resp [r zmpop 2 zset{t} zset2{t} max count 1]
 
             # ZMPOP with one input key.
             assert_equal {*2} [r zmpop 1 zset3{t} max]
@@ -1346,9 +1427,9 @@ start_server {tags {"zset"}} {
 
             # BZMPOP released on timeout.
             $rd bzmpop 0.01 1 zset{t} min
-            verify_nil_response $resp [$rd read]
+            verify_nil_array_response $resp [$rd read]
             $rd bzmpop 0.01 2 zset{t} zset2{t} max
-            verify_nil_response $resp [$rd read]
+            verify_nil_array_response $resp [$rd read]
 
             # BZMPOP non-blocking path.
             $rd bzmpop 0.1 2 zset3{t} zset4{t} min
@@ -1381,6 +1462,36 @@ start_server {tags {"zset"}} {
             verify_score_response $rd $resp 2
 
             $rd close
+        }
+
+        test "ZMOVE/BZMOVE/ZMOVEMEMBER readraw in RESP$resp" {
+            r del non_existing_key{t}
+            create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
+
+            r hello $resp
+            r readraw 1
+
+            #ZMOVE against non existing key.
+            verify_nil_response $resp [r ZMOVE non_existing_key{t} target{t} min]
+            verify_nil_response $resp [r ZMOVEMEMBER non_existing_key{t} target{t} a]
+            verify_nil_array_response $resp [r BZMOVE non_existing_key{t} target{t} min 0.01]
+
+            assert_equal {*2} [r ZMOVE zset2{t} target{t} min]
+            assert_equal [r read] {$1}
+            assert_equal [r read] {a}
+            verify_score_response r $resp 1
+
+            assert_equal {*2} [r ZMOVEMEMBER zset2{t} target{t} b]
+            assert_equal [r read] {$1}
+            assert_equal [r read] {b}
+            verify_score_response r $resp 2
+
+            assert_equal {*2} [r BZMOVE zset2{t} target{t} max 0.01]
+            assert_equal [r read] {$1}
+            assert_equal [r read] {e}
+            verify_score_response r $resp 5
+
+            r readraw 0
         }
     }
 
@@ -2061,6 +2172,47 @@ start_server {tags {"zset"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    foreach position {min max} {
+        test "BZMOVE $position with zero timeout should block indefinitely" {
+            set rd [redis_deferring_client]
+            r del zset{t}
+            $rd BZMOVE zset{t} target{t} $position 0
+            wait_for_blocked_client
+            after 1000
+            r zadd zset{t} 0 foo
+            assert_equal [$rd read] {foo 0}
+            $rd close
+        }
+
+        test "BZMOVE $position with multiple blocked clients" {
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            set rd3 [redis_deferring_client]
+            r del zset{t}
+            r del target{t}
+
+            $rd1 bzmove zset{t} target{t} $position 0
+            $rd2 bzmove zset{t} target{t} $position 0
+            $rd3 bzmove zset{t} target{t} $position 0
+
+            r zadd zset{t} -1 a 1 b 2 c 3 d
+
+            if {$position == "min"} {
+                assert_equal {a -1} [$rd1 read]
+                assert_equal {b 1} [$rd2 read]
+                assert_equal {c 2} [$rd3 read]
+            } else {
+                assert_equal {d 3} [$rd1 read]
+                assert_equal {c 2} [$rd2 read]
+                assert_equal {b 1} [$rd3 read]
+            }
+
+            $rd1 close
+            $rd2 close
+            $rd3 close
+        }
+    }
 
     test {ZSET skiplist order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]

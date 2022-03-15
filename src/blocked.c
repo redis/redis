@@ -359,37 +359,52 @@ void serveClientsBlockedOnSortedSetKey(robj *o, readyList *rl) {
             if (receiver->btype != BLOCKED_ZSET) continue;
 
             int deleted = 0;
-            long llen = zsetLength(o);
-            long count = receiver->bpop.count;
+            robj *dstkey = receiver->bpop.target;
             int where = receiver->bpop.blockpos.wherefrom;
-            int use_nested_array = (receiver->lastcmd &&
-                                    receiver->lastcmd->proc == bzmpopCommand)
-                                    ? 1 : 0;
-            int reply_nil_when_empty = use_nested_array;
 
             long long prev_error_replies = server.stat_total_error_replies;
             client *old_client = server.current_client;
             server.current_client = receiver;
             monotime replyTimer;
             elapsedStart(&replyTimer);
-            genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
+            if (dstkey != NULL) {
+                /* BZMOVE */
+                robj *dstobj = lookupKeyWrite(receiver->db,dstkey);
+                if (!(dstobj && checkType(receiver,dstobj,OBJ_ZSET))) {
+                    zmoveGenericCommand(receiver, rl->key, dstkey, where, 0, &deleted);
+                    robj *argv[4];
+                    argv[0] = shared.zmove;
+                    argv[1] = rl->key;
+                    argv[2] = dstkey;
+                    argv[3] = where == ZSET_MIN ? shared.min : shared.max;
+                    alsoPropagate(rl->db->id,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+                }
+            } else {
+                long llen = zsetLength(o);
+                long count = receiver->bpop.count;
+                int use_nested_array = (receiver->lastcmd &&
+                                        receiver->lastcmd->proc == bzmpopCommand)
+                                       ? 1 : 0;
+                int reply_nil_when_empty = use_nested_array;
 
-            /* Replicate the command. */
-            int argc = 2;
-            robj *argv[3];
-            argv[0] = where == ZSET_MIN ? shared.zpopmin : shared.zpopmax;
-            argv[1] = rl->key;
-            incrRefCount(rl->key);
-            if (count != -1) {
-                /* Replicate it as command with COUNT. */
-                robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
-                argv[2] = count_obj;
-                argc++;
+                genericZpopCommand(receiver, &rl->key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, &deleted);
+
+                /* Replicate the command. */
+                int argc = 2;
+                robj *argv[3];
+                argv[0] = where == ZSET_MIN ? shared.zpopmin : shared.zpopmax;
+                argv[1] = rl->key;
+                incrRefCount(rl->key);
+                if (count != -1) {
+                    /* Replicate it as command with COUNT. */
+                    robj *count_obj = createStringObjectFromLongLong((count > llen) ? llen : count);
+                    argv[2] = count_obj;
+                    argc++;
+                }
+                alsoPropagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
+                decrRefCount(argv[1]);
+                if (count != -1) decrRefCount(argv[2]);
             }
-            alsoPropagate(receiver->db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(argv[1]);
-            if (count != -1) decrRefCount(argv[2]);
-
             updateStatsOnUnblock(receiver, 0, elapsedUs(replyTimer), server.stat_total_error_replies != prev_error_replies);
             unblockClient(receiver);
             afterCommand(receiver);
