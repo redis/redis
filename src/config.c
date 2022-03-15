@@ -252,7 +252,7 @@ typedef struct typeInterface {
     void (*rewrite)(standardConfig *config, const char *name, struct rewriteConfigState *state);
 } typeInterface;
 
-typedef struct standardConfig {
+struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
     unsigned int flags; /* Flags for this specific config */
@@ -260,7 +260,7 @@ typedef struct standardConfig {
     typeData data; /* The type specific data exposed used by the interface */
     configType type; /* The type of config this is. */
     void *privdata; /* privdata for this config, for module configs this is a ModuleConfig struct */
-} standardConfig;
+};
 
 dict *configs = NULL; /* Runtime config values */
 

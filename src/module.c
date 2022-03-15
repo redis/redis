@@ -408,7 +408,7 @@ typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *pri
 typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, const char **err);
 
 /* Struct representing a module config. These are stored in a list in the module struct */
-typedef struct ModuleConfig {
+struct ModuleConfig {
     sds name; /* Name of config without the module name appended to the front */
     void *privdata; /* Optional data passed into the module config callbacks */
     union get_fn { /* The get callback specified by the module */
@@ -425,7 +425,7 @@ typedef struct ModuleConfig {
     } set_fn;
     RedisModuleConfigApplyFunc apply_fn;
     RedisModule *module;
-} ModuleConfig;
+};
 
 /* --------------------------------------------------------------------------
  * Prototypes
