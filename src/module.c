@@ -404,7 +404,7 @@ typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleStrin
 typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, const char **err);
 typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, const char **err);
 typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, const char **err);
-/* Apply signature, matches apply_fn in config.c */
+/* Apply signature, identical to redismodule.h */
 typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, const char **err);
 
 /* Struct representing a module config. These are stored in a list in the module struct */
@@ -11130,7 +11130,7 @@ sds genModulesInfoString(sds info) {
  * Module Configurations API internals
  * -------------------------------------------------------------------------- */
 	 
-/* Check for if the configuration name is already registered */
+/* Check if the configuration name is already registered */
 int isModuleConfigNameRegistered(RedisModule *module, const char *name) {
     listNode *match = listSearchKey(module->module_configs, (void *) name);
     return match != NULL;
@@ -11158,9 +11158,8 @@ int checkValidConfigFlags(unsigned int flags, configType type) {
     return REDISMODULE_OK;
 }
 
-/* This is a series of set functions for each type that, for the most part, emulate the ones
- * in config.c. The difference here is that we use the set callback specified by the module
- * to set the value */
+/* This is a series of set functions for each type that act as dispatchers for 
+ * config.c to call module set callbacks. */
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
     int return_code = config->set_fn.set_bool(config->name, val, config->privdata, err);
     return return_code == REDISMODULE_OK ? 1 : 0;
@@ -11185,9 +11184,8 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-/* This is a series of get functions for each type that, for the most part, emulate the ones
- * in config.c. The difference here is that we use the get callbacks specified by the module
- * to get the value. */
+/* This is a series of get functions for each type that act as dispatchers for 
+ * config.c to call module set callbacks. */
 int getModuleBoolConfig(ModuleConfig *module_config) {
     return module_config->get_fn.get_bool(module_config->name, module_config->privdata);
 }
@@ -11204,6 +11202,7 @@ int getModuleEnumConfig(ModuleConfig *module_config) {
 long long getModuleNumericConfig(ModuleConfig *module_config) {
     return module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
 }
+
 /* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
  * It attempts to call set on each of these configs. */
 int loadModuleConfigs(RedisModule *module) {
@@ -11239,7 +11238,7 @@ int loadModuleConfigs(RedisModule *module) {
     return REDISMODULE_OK;
 }
 
-/* Add moduleConfig to the list if the apply and privdata do not match one already in it. */
+/* Add module_config to the list if the apply and privdata do not match one already in it. */
 void addModuleApply(list *module_configs, ModuleConfig *module_config) {
     if (!module_config->apply_fn) return;
     listIter li;
