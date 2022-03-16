@@ -3992,20 +3992,24 @@ init_defrag(void) {
             int64_t nonfull_to_retain = needed_slabs - full_slabs;
             if (bin->slabcur) nonfull_to_retain--;
             printf("%zu: Need %lu slabs but have %lu, non full to retain %ld (out of %ld)\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain, used_slabs - full_slabs - (bin->slabcur ? 1 : 0));
-            extent_list_t slabs_retain;
-            extent_list_init(&slabs_retain);
+            extent_heap_t slabs_retain;
+            extent_heap_new(&slabs_retain);
+//            extent_list_t slabs_retain;
+//            extent_list_init(&slabs_retain);
             while (nonfull_to_retain--) {
                 extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
                 //if (slab == NULL) printf("badger!!!!\n");
                 if (extent_defrag_retain_get(slab))
                     printf("badger!!!!\n");
                 extent_defrag_retain_set(slab, true);
-                extent_list_append(&slabs_retain, slab);
+//                extent_list_append(&slabs_retain, slab);
+                extent_heap_insert(&slabs_retain, slab);
             }
-            for (extent_t *slab = extent_list_first(&slabs_retain); slab != NULL; slab = extent_list_first(&slabs_retain)) {
-                extent_list_remove(&slabs_retain, slab);
-                extent_heap_insert(&bin->slabs_nonfull, slab);
-            }
+//            for (extent_t *slab = extent_list_first(&slabs_retain); slab != NULL; slab = extent_list_first(&slabs_retain)) {
+//                extent_list_remove(&slabs_retain, slab);
+//                extent_heap_insert(&bin->slabs_nonfull, slab);
+//            }
+            phn_merge(extent_t, ph_link, extent_heap_first(&bin->slabs_nonfull), extent_heap_first(&slabs_retain), extent_snad_comp, bin->slabs_nonfull.ph_root);
         }
 
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
