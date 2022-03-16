@@ -120,10 +120,7 @@ typedef struct {
      * understand if the command can be executed. */
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
     /* allowed_firstargs is used by ACL rules to block access to a command unless a
-     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * For example, a user can use the rule "-select +select|0" to block all
-     * SELECT commands, except "SELECT 0".
-     * And for a sub-command: "+config -config|set +config|set|loglevel"
+     * specific argv[1] is given.
      *
      * For each command ID (corresponding to the command bit set in allowed_commands),
      * This array points to an array of SDS strings, terminated by a NULL pointer,
@@ -1531,18 +1528,46 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
-/* Returns if a given command may possibly access channels. For this context,
- * the unsubscribe commands do not have channels. */
-static int ACLDoesCommandHaveChannels(struct redisCommand *cmd) {
-    return (cmd->proc == publishCommand
-        || cmd->proc == subscribeCommand
-        || cmd->proc == psubscribeCommand
-        || cmd->proc == spublishCommand
-        || cmd->proc == ssubscribeCommand);
+/* Checks if the provided selector selector has access specified in flags
+ * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
+ * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
+ * the access flags are satisfied with this selector or 0 otherwise.
+ */
+static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
+    /* The selector can access any key */
+    if (selector->flags & SELECTOR_FLAG_ALLKEYS) return 1;
+
+    listIter li;
+    listNode *ln;
+    listRewind(selector->patterns,&li);
+
+    int access_flags = 0;
+    if (flags & CMD_KEY_ACCESS) access_flags |= ACL_READ_PERMISSION;
+    if (flags & CMD_KEY_INSERT) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_DELETE) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_UPDATE) access_flags |= ACL_WRITE_PERMISSION;
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        keyPattern *pattern = listNodeValue(ln);
+        if ((pattern->flags & access_flags) != access_flags)
+            continue;
+        if (!strcmp(pattern->pattern,"*")) {
+           return 1;
+       }
+    }
+    return 0;
 }
 
-/* Checks a channel against a provide list of channels. */
-static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int literal) {
+/* Checks a channel against a provided list of channels. The is_pattern 
+ * argument should only be used when subscribing (not when publishing)
+ * and controls whether the input channel is evaluated as a channel pattern
+ * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE). 
+ * 
+ * Note that a plain channel name like in PUBLISH or SUBSCRIBE can be
+ * matched against ACL channel patterns, but the pattern provided in PSUBSCRIBE
+ * can only be matched as a literal against an ACL pattern (using plain string compare). */
+static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern) {
     listIter li;
     listNode *ln;
 
@@ -1550,35 +1575,15 @@ static int ACLCheckChannelAgainstList(list *reference, const char *channel, int 
     while((ln = listNext(&li))) {
         sds pattern = listNodeValue(ln);
         size_t plen = sdslen(pattern);
-        if ((literal && !strcmp(pattern,channel)) || 
-            (!literal && stringmatchlen(pattern,plen,channel,channellen,0)))
+        /* Channel patterns are matched literally against the channels in
+         * the list. Regular channels perform pattern matching. */
+        if ((is_pattern && !strcmp(pattern,channel)) || 
+            (!is_pattern && stringmatchlen(pattern,plen,channel,channellen,0)))
         {
             return ACL_OK;
         }
     }
     return ACL_DENIED_CHANNEL;
-}
-
-/* Check if the pub/sub channels of the command can be executed
- * according to the ACL channels associated with the specified selector.
- * 
- * idx and count are the index and count of channel arguments from the
- * command. The literal argument controls whether the selector's ACL channels are 
- * evaluated as literal values or matched as glob-like patterns.
- *
- * If the selector can execute the command ACL_OK is returned, otherwise 
- * ACL_DENIED_CHANNEL. */
-static int ACLSelectorCheckPubsubArguments(aclSelector *s, robj **argv, int idx, int count, int literal, int *idxptr) {
-    for (int j = idx; j < idx+count; j++) {
-        if (ACLCheckChannelAgainstList(s->channels, argv[j]->ptr, sdslen(argv[j]->ptr), literal != ACL_OK)) {
-            if (idxptr) *idxptr = j;
-            return ACL_DENIED_CHANNEL;
-        }
-    }
-
-    /* If we survived all the above checks, the selector can execute the
-     * command. */
-    return ACL_OK;
 }
 
 /* To prevent duplicate calls to getKeysResult, a cache is maintained
@@ -1645,7 +1650,7 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
             int idx = resultidx[j].pos;
             ret = ACLSelectorCheckKey(selector, argv[idx]->ptr, sdslen(argv[idx]->ptr), resultidx[j].flags);
             if (ret != ACL_OK) {
-                if (resultidx) *keyidxptr = resultidx[j].pos;
+                if (keyidxptr) *keyidxptr = resultidx[j].pos;
                 return ret;
             }
         }
@@ -1653,26 +1658,30 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
 
     /* Check if the user can execute commands explicitly touching the channels
      * mentioned in the command arguments */
-    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && ACLDoesCommandHaveChannels(cmd)) {
-        if (cmd->proc == publishCommand || cmd->proc == spublishCommand) {
-            ret = ACLSelectorCheckPubsubArguments(selector,argv, 1, 1, 0, keyidxptr);
-        } else if (cmd->proc == subscribeCommand || cmd->proc == ssubscribeCommand) {
-            ret = ACLSelectorCheckPubsubArguments(selector, argv, 1, argc-1, 0, keyidxptr);
-        } else if (cmd->proc == psubscribeCommand) {
-            ret = ACLSelectorCheckPubsubArguments(selector, argv, 1, argc-1, 1, keyidxptr);
-        } else {
-            serverPanic("Encountered a command declared with channels but not handled");
+    const int channel_flags = CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE;
+    if (!(selector->flags & SELECTOR_FLAG_ALLCHANNELS) && doesCommandHaveChannelsWithFlags(cmd, channel_flags)) {
+        getKeysResult channels = (getKeysResult) GETKEYS_RESULT_INIT;
+        getChannelsFromCommand(cmd, argv, argc, &channels);
+        keyReference *channelref = channels.keys;
+        for (int j = 0; j < channels.numkeys; j++) {
+            int idx = channelref[j].pos;
+            if (!(channelref[j].flags & channel_flags)) continue;
+            int is_pattern = channelref[j].flags & CMD_CHANNEL_PATTERN;
+            int ret = ACLCheckChannelAgainstList(selector->channels, argv[idx]->ptr, sdslen(argv[idx]->ptr), is_pattern);
+            if (ret != ACL_OK) {
+                if (keyidxptr) *keyidxptr = channelref[j].pos;
+                getKeysFreeResult(&channels);
+                return ret;
+            }
         }
-        if (ret != ACL_OK) {
-            /* keyidxptr is set by ACLSelectorCheckPubsubArguments */
-            return ret;
-        }
+        getKeysFreeResult(&channels);
     }
     return ACL_OK;
 }
 
 /* Check if the key can be accessed by the client according to
- * the ACLs associated with the specified user.
+ * the ACLs associated with the specified user according to the
+ * keyspec access flags.
  *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
@@ -1694,12 +1703,45 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
     return ACL_DENIED_KEY;
 }
 
+/* Checks if the user can execute the given command with the added restriction
+ * it must also have the access specified in flags to any key in the key space. 
+ * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
+ * granted in addition to the access required by the command. Returns 1 
+ * if the user has access or 0 otherwise.
+ */
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+    listIter li;
+    listNode *ln;
+    int local_idxptr;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return 1;
+
+    /* For multiple selectors, we cache the key result in between selector
+     * calls to prevent duplicate lookups. */
+    aclKeyResultCache cache;
+    initACLKeyResultCache(&cache);
+
+    /* Check each selector sequentially */
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
+        if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
+            cleanupACLKeyResultCache(&cache);
+            return 1;
+        }
+    }
+    cleanupACLKeyResultCache(&cache);
+    return 0;
+}
+
 /* Check if the channel can be accessed by the client according to
  * the ACLs associated with the specified user.
  *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_CHANNEL is returned. */
-int ACLUserCheckChannelPerm(user *u, sds channel, int literal) {
+int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
     listIter li;
     listNode *ln;
 
@@ -1714,7 +1756,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int literal) {
         if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return ACL_OK;
 
         /* Otherwise, loop over the selectors list and check each channel */
-        if (ACLCheckChannelAgainstList(s->channels, channel, sdslen(channel), literal) == ACL_OK) {
+        if (ACLCheckChannelAgainstList(s->channels, channel, sdslen(channel), is_pattern) == ACL_OK) {
             return ACL_OK;
         }
     }
@@ -2812,13 +2854,20 @@ setuser_cleanup:
             return;
         }
 
+        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
+            (c->argc-3 < -cmd->arity))
+        {
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
+            return;
+        }
+
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
         if (result != ACL_OK) {
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {
                 err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command", c->cmd->fullname);
+                    "the '%s' command", cmd->fullname);
             } else if (result == ACL_DENIED_KEY) {
                 err = sdscatfmt(err, "This user has no permissions to access "
                     "the '%s' key", c->argv[idx + 3]->ptr);

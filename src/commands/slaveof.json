@@ -1,11 +1,16 @@
 {
     "SLAVEOF": {
-        "summary": "Make the server a replica of another instance, or promote it as master. Deprecated starting with Redis 5. Use REPLICAOF instead.",
+        "summary": "Make the server a replica of another instance, or promote it as master.",
         "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
         "arity": 3,
         "function": "replicaofCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`REPLICAOF`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",

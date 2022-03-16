@@ -4,9 +4,15 @@
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
-        "arity": 5,
+        "arity": -5,
         "container": "XGROUP",
         "function": "xgroupCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the optional `entries_read` argument."
+            ]
+        ],
         "command_flags": [
             "WRITE"
         ],
@@ -57,6 +63,12 @@
                         "token": "$"
                     }
                 ]
+            },
+            {
+                "name": "entries_read",
+                "token": "ENTRIESREAD",
+                "type": "integer",
+                "optional": true
             }
         ]
     }

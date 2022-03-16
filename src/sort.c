@@ -197,12 +197,14 @@ void sortCommandGeneric(client *c, int readonly) {
     int syntax_error = 0;
     robj *sortval, *sortby = NULL, *storekey = NULL;
     redisSortObject *vector; /* Resulting vector to sort */
-
+    int user_has_full_key_access = 0; /* ACL - used in order to verify 'get' and 'by' options can be used */
     /* Create a list of operations to perform for every sorted element.
      * Operations can be GET */
     operations = listCreate();
     listSetFreeMethod(operations,zfree);
     j = 2; /* options start at argv[2] */
+
+    user_has_full_key_access = ACLUserCheckCmdWithUnrestrictedKeyAccess(c->user, c->cmd, c->argv, c->argc, CMD_KEY_ACCESS);
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
@@ -233,10 +235,17 @@ void sortCommandGeneric(client *c, int readonly) {
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
                 dontsort = 1;
             } else {
-                /* If BY is specified with a real patter, we can't accept
+                /* If BY is specified with a real pattern, we can't accept
                  * it in cluster mode. */
                 if (server.cluster_enabled) {
                     addReplyError(c,"BY option of SORT denied in Cluster mode.");
+                    syntax_error++;
+                    break;
+                }
+                /* If BY is specified with a real pattern, we can't accept
+                 * it if no full ACL key access is applied for this command. */
+                if (!user_has_full_key_access) {
+                    addReplyError(c,"BY option of SORT denied due to insufficient ACL permissions.");
                     syntax_error++;
                     break;
                 }
@@ -245,6 +254,11 @@ void sortCommandGeneric(client *c, int readonly) {
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
             if (server.cluster_enabled) {
                 addReplyError(c,"GET option of SORT denied in Cluster mode.");
+                syntax_error++;
+                break;
+            }
+            if (!user_has_full_key_access) {
+                addReplyError(c,"GET option of SORT denied due to insufficient ACL permissions.");
                 syntax_error++;
                 break;
             }

@@ -26,6 +26,12 @@ start_server {tags {"modules acl"}} {
         catch {r aclcheck.set.check.key "*" v 5} e
         assert_match "*DENIED KEY*" $e
 
+        assert_equal [r aclcheck.set.check.key "~" x 5] OK
+        assert_equal [r aclcheck.set.check.key "~" y 5] OK
+        assert_equal [r aclcheck.set.check.key "~" z 5] OK
+        catch {r aclcheck.set.check.key "~" v 5} e
+        assert_match "*DENIED KEY*" $e
+
         assert_equal [r aclcheck.set.check.key "W" y 5] OK
         catch {r aclcheck.set.check.key "W" v 5} e
         assert_match "*DENIED KEY*" $e

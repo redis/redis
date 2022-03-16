@@ -1134,6 +1134,27 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     return C_ERR;
 }
 
+/* Disconnect the relevant master and its replicas. */
+void dropInstanceConnections(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_MASTER);
+
+    /* Disconnect with the master. */
+    instanceLinkCloseConnection(ri->link, ri->link->cc);
+    instanceLinkCloseConnection(ri->link, ri->link->pc);
+    
+    /* Disconnect with all replicas. */
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *repl_ri;
+    di = dictGetIterator(ri->slaves);
+    while ((de = dictNext(di)) != NULL) {
+        repl_ri = dictGetVal(de);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Drop all connections to other sentinels. Returns the number of connections
  * dropped.*/
 int sentinelDropConnections(void) {
@@ -1189,10 +1210,6 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
             instanceLinkCloseConnection(match->link,match->link->cc);
         if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
-
-        /* Remove any sentinel with port number set to 0 */
-        if (match->addr->port == 0)
-            dictDelete(master->sentinels,match->name);
 
         if (match == ri) continue; /* Address already updated for it. */
 
@@ -2878,9 +2895,22 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                     getSentinelRedisInstanceByAddrAndRunID(
                         master->sentinels, token[0],port,NULL);
                 if (other) {
+                    /* If there is already other sentinel with same address (but
+                     * different runid) then remove the old one across all masters */
                     sentinelEvent(LL_NOTICE,"+sentinel-invalid-addr",other,"%@");
-                    other->addr->port = 0; /* It means: invalid address. */
-                    sentinelUpdateSentinelAddressInAllMasters(other);
+                    dictIterator *di;
+                    dictEntry *de;
+
+                    /* Keep a copy of runid. 'other' about to be deleted in loop. */
+                    sds runid_obsolete = sdsnew(other->runid);
+
+                    di = dictGetIterator(sentinel.masters);
+                    while((de = dictNext(di)) != NULL) {
+                        sentinelRedisInstance *master = dictGetVal(de);
+                        removeMatchingSentinelFromMaster(master, runid_obsolete);
+                    }
+                    dictReleaseIterator(di);
+                    sdsfree(runid_obsolete);
                 }
             }
 
@@ -4054,7 +4084,7 @@ NULL
         dictReleaseIterator(di);
         if (masters_local != sentinel.masters) dictRelease(masters_local);
     } else if (!strcasecmp(c->argv[1]->ptr,"simulate-failure")) {
-        /* SENTINEL SIMULATE-FAILURE <flag> <flag> ... <flag> */
+        /* SENTINEL SIMULATE-FAILURE [CRASH-AFTER-ELECTION] [CRASH-AFTER-PROMOTION] [HELP] */
         int j;
 
         sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
@@ -4102,7 +4132,7 @@ void addInfoSectionsToDict(dict *section_dict, char **sections);
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;
-    static dict *cached_all_info_sectoins = NULL;
+    static dict *cached_all_info_sections = NULL;
 
     /* Get requested section list. */
     dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, sentinel_sections, &sec_all, &sec_everything);
@@ -4126,11 +4156,11 @@ void sentinelInfoCommand(client *c) {
     if (sec_all || sec_everything) {
         releaseInfoSectionDict(sections_dict);
         /* We cache this dict as an optimization. */
-        if (!cached_all_info_sectoins) {
-            cached_all_info_sectoins = dictCreate(&stringSetDictType);
-            addInfoSectionsToDict(cached_all_info_sectoins, sentinel_sections);
+        if (!cached_all_info_sections) {
+            cached_all_info_sections = dictCreate(&stringSetDictType);
+            addInfoSectionsToDict(cached_all_info_sections, sentinel_sections);
         }
-        sections_dict = cached_all_info_sectoins;
+        sections_dict = cached_all_info_sections;
     }
 
     sds info = genRedisInfoString(sections_dict, 0, 0);
@@ -4173,7 +4203,7 @@ void sentinelInfoCommand(client *c) {
         }
         dictReleaseIterator(di);
     }
-    if (sections_dict != cached_all_info_sectoins)
+    if (sections_dict != cached_all_info_sections)
         releaseInfoSectionDict(sections_dict);
     addReplyBulkSds(c, info);
 }
@@ -4288,6 +4318,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
             redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
@@ -4295,6 +4326,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_user);
             ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */

@@ -292,9 +292,16 @@ typedef enum {
 #define REDISMODULE_CMD_KEY_UPDATE (1ULL<<5)
 #define REDISMODULE_CMD_KEY_INSERT (1ULL<<6)
 #define REDISMODULE_CMD_KEY_DELETE (1ULL<<7)
-#define REDISMODULE_CMD_KEY_CHANNEL (1ULL<<8)
+#define REDISMODULE_CMD_KEY_NOT_KEY (1ULL<<8)
 #define REDISMODULE_CMD_KEY_INCOMPLETE (1ULL<<9)
 #define REDISMODULE_CMD_KEY_VARIABLE_FLAGS (1ULL<<10)
+
+/* Channel flags, for details see the documentation of
+ * RedisModule_ChannelAtPosWithFlags. */
+#define REDISMODULE_CMD_CHANNEL_PATTERN (1ULL<<0)
+#define REDISMODULE_CMD_CHANNEL_PUBLISH (1ULL<<1)
+#define REDISMODULE_CMD_CHANNEL_SUBSCRIBE (1ULL<<2)
+#define REDISMODULE_CMD_CHANNEL_UNSUBSCRIBE (1ULL<<3)
 
 typedef struct RedisModuleCommandArg {
     const char *name;
@@ -396,12 +403,6 @@ typedef struct {
     RedisModuleCommandArg *args;
 } RedisModuleCommandInfo;
 
-/* Redis ACL key permission flags, which specify which permissions a module
- * needs on a key. */
-#define REDISMODULE_KEY_PERMISSION_READ (1<<0) 
-#define REDISMODULE_KEY_PERMISSION_WRITE (1<<1)
-#define REDISMODULE_KEY_PERMISSION_ALL (REDISMODULE_KEY_PERMISSION_READ | REDISMODULE_KEY_PERMISSION_WRITE)
-
 /* Eventloop definitions. */
 #define REDISMODULE_EVENTLOOP_READABLE 1
 #define REDISMODULE_EVENTLOOP_WRITABLE 2
@@ -428,7 +429,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
 #define REDISMODULE_EVENT_EVENTLOOP 15
-#define _REDISMODULE_EVENT_NEXT 16 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CONFIG 16
+#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -531,7 +533,11 @@ static const RedisModuleEvent
     RedisModuleEvent_EventLoop = {
         REDISMODULE_EVENT_EVENTLOOP,
         1
-};
+    },
+    RedisModuleEvent_Config = {
+        REDISMODULE_EVENT_CONFIG,
+        1
+    };
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
@@ -572,6 +578,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MODULE_LOADED 0
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
+
+#define REDISMODULE_SUBEVENT_CONFIG_CHANGE 0
+#define _REDISMODULE_SUBEVENT_CONFIG_NEXT 1
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
@@ -672,6 +681,17 @@ typedef struct RedisModuleModuleChange {
 } RedisModuleModuleChangeV1;
 
 #define RedisModuleModuleChange RedisModuleModuleChangeV1
+
+#define REDISMODULE_CONFIGCHANGE_VERSION 1
+typedef struct RedisModuleConfigChange {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint32_t num_changes;   /* how many redis config options were changed */
+    const char **config_names; /* the config names that were changed */
+} RedisModuleConfigChangeV1;
+
+#define RedisModuleConfigChange RedisModuleConfigChangeV1
 
 #define REDISMODULE_CRON_LOOP_VERSION 1
 typedef struct RedisModuleCronLoopInfo {
@@ -946,6 +966,8 @@ REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_IsChannelsPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ChannelAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientUserNameById)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClientInfoById)(void *ci, uint64_t id) REDISMODULE_ATTR;
@@ -1121,6 +1143,7 @@ REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisMod
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RedactClientCommandArgument)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientCertificate)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int *(*RedisModule_GetCommandKeys)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) REDISMODULE_ATTR;
 REDISMODULE_API int *(*RedisModule_GetCommandKeysWithFlags)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys, int **out_flags) REDISMODULE_ATTR;
@@ -1267,6 +1290,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(KeyAtPosWithFlags);
+    REDISMODULE_GET_API(IsChannelsPositionRequest);
+    REDISMODULE_GET_API(ChannelAtPosWithFlags);
     REDISMODULE_GET_API(GetClientId);
     REDISMODULE_GET_API(GetClientUserNameById);
     REDISMODULE_GET_API(GetContextFlags);
@@ -1442,6 +1467,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DeauthenticateAndCloseClient);
     REDISMODULE_GET_API(AuthenticateClientWithACLUser);
     REDISMODULE_GET_API(AuthenticateClientWithUser);
+    REDISMODULE_GET_API(RedactClientCommandArgument);
     REDISMODULE_GET_API(GetClientCertificate);
     REDISMODULE_GET_API(GetCommandKeys);
     REDISMODULE_GET_API(GetCommandKeysWithFlags);
