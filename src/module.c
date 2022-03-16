@@ -8611,6 +8611,24 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
     return REDISMODULE_OK;
 }
 
+/* Redact the client command argument specified at the given position. Redacted arguments 
+ * are obfuscated in user facing commands such as SLOWLOG or MONITOR, as well as
+ * never being written to server logs. This command may be called multiple times on the
+ * same position.
+ * 
+ * Note that the command name, position 0, can not be redacted. 
+ * 
+ * Returns REDISMODULE_OK if the argument was redacted and REDISMODULE_ERR if there 
+ * was an invalid parameter passed in or the position is outside the client 
+ * argument range. */
+int RM_RedactClientCommandArgument(RedisModuleCtx *ctx, int pos) {
+    if (!ctx || !ctx->client || pos <= 0 || ctx->client->argc <= pos) {
+        return REDISMODULE_ERR;
+    }
+    redactClientCommandArgument(ctx->client, pos);
+    return REDISMODULE_OK;
+}
+
 /* Return the X.509 client-side certificate used by the client to authenticate
  * this connection.
  *
@@ -11808,6 +11826,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
+    REGISTER_API(RedactClientCommandArgument);
     REGISTER_API(GetCommandKeys);
     REGISTER_API(GetCommandKeysWithFlags);
     REGISTER_API(GetCurrentCommandName);
