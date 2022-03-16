@@ -1,12 +1,11 @@
 #include "redismodule.h"
 #include <strings.h>
-int mutable_bool_val = 1;
-int immutable_bool_val = 0;
-long long longval = -1;
-long long memval = 1024;
-long long octval = 0;
-RedisModuleString *strval = NULL;
-int enumval = 0;
+int mutable_bool_val;
+int immutable_bool_val;
+long long longval;
+long long memval;
+RedisModuleString *strval;
+int enumval;
 const char *enum_vals[3] = {"one", "two", "three"};
 
 /* Series of get and set callbacks for each type of config, these rely on the privdata ptr
@@ -44,11 +43,10 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     size_t len;
-    /* This reject should not pass Address Sanitizer if we're not properly freeing rejected strings */
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
-        if (strval) RedisModule_RetainString(NULL, *(RedisModuleString **)privdata);
         return REDISMODULE_ERR;
     }
+    RedisModule_Free(*(RedisModuleString **)privdata);
     RedisModule_RetainString(NULL, new);
     *(RedisModuleString **)privdata = new;
     return REDISMODULE_OK;
@@ -104,9 +102,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterBoolConfig(ctx, "immutable_bool", 0, REDISMODULE_CONFIG_IMMUTABLE, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &immutable_bool_val) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {
+    RedisModuleString *default_string = RedisModule_CreateString(ctx, "log4j", 5);
+    if (RedisModule_RegisterStringConfig(ctx, "string", default_string, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
+    RedisModule_Free(default_string);
     if (RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
@@ -114,7 +114,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterNumericConfig(ctx, "memory_numeric", 1024, REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_MEMORY, 0, 3000000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &memval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_RegisterNumericConfig(ctx, "numeric", 100, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterNumericConfig(ctx, "numeric", -1, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     
@@ -125,14 +125,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    /* Set default values */
-    if (!strval) strval = RedisModule_CreateString(ctx, "log4j", 5);
-
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     REDISMODULE_NOT_USED(ctx);
-    RedisModule_Free(strval);
+    if (strval) RedisModule_Free(strval);
     return REDISMODULE_OK;
 }

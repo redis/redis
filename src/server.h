@@ -3023,6 +3023,7 @@ int allowProtectedAction(int config, client *c);
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
 int performConfigSetFromName(sds name, sds value, const char **err);
+int performModuleConfigInitFromName(sds name, const char **err);
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
