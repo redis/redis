@@ -141,12 +141,7 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             /* If we have a queued command, execute it now. */
-            if (processPendingCommandsAndResetClient(c) == C_OK) {
-                /* Now process client if it has more data in it's buffer. */
-                if (c->querybuf && sdslen(c->querybuf) > 0) {
-                    if (processInputBuffer(c) == C_ERR) c = NULL;
-                }
-            } else {
+            if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 c = NULL;
             }
         }

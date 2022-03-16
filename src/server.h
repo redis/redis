@@ -1118,7 +1118,7 @@ typedef struct client {
     sds replpreamble;       /* Replication DB preamble. */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long reploff;      /* Applied replication offset if this is a master. */
-    long long repl_applied; /* Applied from master but not send to sub-slaves' replication data count, if this is a slave. */
+    long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
@@ -2842,7 +2842,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
 size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
 int processCommand(client *c);
-int processPendingCommandsAndResetClient(client *c);
+int processPendingCommandAndInputBuffer(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);

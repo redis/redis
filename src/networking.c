@@ -2390,7 +2390,11 @@ void commandProcessed(client *c) {
      * part of the replication stream, will be propagated to the
      * sub-replicas and to the replication backlog. */
     if (c->flags & CLIENT_MASTER) {
-        c->repl_applied += c->reploff - prev_offset;
+        long long applied = c->reploff - prev_offset;
+        if (applied) {
+            replicationFeedStreamFromMasterStream(c->querybuf+c->repl_applied,applied);
+            c->repl_applied += applied;
+        }
     }
 }
 
@@ -2432,19 +2436,21 @@ int processCommandAndResetClient(client *c) {
 /* This function will execute any fully parsed commands pending on
  * the client. Returns C_ERR if the client is no longer valid after executing
  * the command, and C_OK for all other cases. */
-int processPendingCommandsAndResetClient(client *c) {
+int processPendingCommandAndInputBuffer(client *c) {
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
-        } else if (c->flags & CLIENT_MASTER && c->repl_applied) {
-            /* The pending command is applied, we can propagate the data
-             * and trim it from querybuf now. */
-            replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
-            sdsrange(c->querybuf,c->repl_applied,-1);
-            c->qb_pos -= c->repl_applied;
-            c->repl_applied = 0;
         }
+    }
+
+    /* Now process client if it has more data in it's buffer.
+     *
+     * Note: when a master client steps into this function,
+     * it can always satisfy this condition, because its querbuf
+     * contains data not applied. */
+    if (c->querybuf && sdslen(c->querybuf) > 0) {
+        return processInputBuffer(c);
     }
     return C_OK;
 }
@@ -2518,11 +2524,19 @@ int processInputBuffer(client *c) {
     }
 
     if (c->flags & CLIENT_MASTER) {
-        /* The master client is very special, since the querybuf contains data not only
-         * read from network, but also part of replication stream. So we should propagate
-         * the applied data and only trim the applied part of querybuf. */
+        /* If the client is a master, trim the querybuf to repl_applied,
+         * since master client is very special, its querybuf not only
+         * used to parse command, but also proxy to sub-replicas.
+         *
+         * Here are some scenarios we cannot trim to qb_pos:
+         * 1. we don't receive complete command from master
+         * 2. master client blocked cause of client pause
+         * 3. io threads operate read, master client flagged with CLIENT_PENDING_COMMAND
+         *
+         * In these scenarios, qb_pos points to the part of the current command
+         * or the beginning of next command, and the current command is not applied yet,
+         * so the repl_applied is not equal to qb_pos. */
         if (c->repl_applied) {
-            replicationFeedStreamFromMasterStream(c->querybuf,c->repl_applied);
             sdsrange(c->querybuf,c->repl_applied,-1);
             c->qb_pos -= c->repl_applied;
             c->repl_applied = 0;
@@ -4292,14 +4306,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         /* Once io-threads are idle we can update the client in the mem usage buckets */
         updateClientMemUsageBucket(c);
 
-        if (processPendingCommandsAndResetClient(c) == C_ERR) {
-            /* If the client is no longer valid, we avoid
-             * processing the client later. So we just go
-             * to the next. */
-            continue;
-        }
-
-        if (processInputBuffer(c) == C_ERR) {
+        if (processPendingCommandAndInputBuffer(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go
              * to the next. */
