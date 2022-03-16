@@ -3975,7 +3975,10 @@ static int clusterManagerSetSlot(clusterManagerNode *node1,
                                                 slot, status,
                                                 (char *) node2->name);
     if (err != NULL) *err = NULL;
-    if (!reply) return 0;
+    if (!reply) {
+        if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
+        return 0;
+    }
     int success = 1;
     if (reply->type == REDIS_REPLY_ERROR) {
         success = 0;
@@ -4425,33 +4428,41 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
                                               pipeline, print_dots, err);
     if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
     if (!success) return 0;
-    /* Set the new node as the owner of the slot in all the known nodes. */
     if (!option_cold) {
+        /* Set the new node as the owner of the slot in all the known nodes.
+         *
+         * We inform the target node first. It will propagate the information to
+         * the rest of the cluster.
+         *
+         * If we inform any other node first, it can happen that the target node
+         * crashes before it is set as the new owner and then the slot is left
+         * without an owner which results in redirect loops. See issue #7116. */
+        success = clusterManagerSetSlot(target, target, slot, "node", err);
+        if (!success) return 0;
+
+        /* Inform the source node. If the source node has just lost its last
+         * slot and the target node has already informed the source node, the
+         * source node has turned itself into a replica. This is not an error in
+         * this scenario so we ignore it. See issue #9223. */
+        success = clusterManagerSetSlot(source, target, slot, "node", err);
+        const char *acceptable = "ERR Please use SETSLOT only with masters.";
+        if (!success && err && !strncmp(*err, acceptable, strlen(acceptable))) {
+            zfree(*err);
+            *err = NULL;
+        } else if (!success && err) {
+            return 0;
+        }
+
+        /* We also inform the other nodes to avoid redirects in case the target
+         * node is slow to propagate the change to the entire cluster. */
         listIter li;
         listNode *ln;
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
+            if (n == target || n == source) continue; /* already done */
             if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
-            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER "
-                                                    "SETSLOT %d %s %s",
-                                                    slot, "node",
-                                                    target->name);
-            success = (r != NULL);
-            if (!success) {
-                if (err) *err = zstrdup("CLUSTER SETSLOT failed to run");
-                return 0;
-            }
-            if (r->type == REDIS_REPLY_ERROR) {
-                success = 0;
-                if (err != NULL) {
-                    *err = zmalloc((r->len + 1) * sizeof(char));
-                    strcpy(*err, r->str);
-                } else {
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str);
-                }
-            }
-            freeReplyObject(r);
+            success = clusterManagerSetSlot(n, target, slot, "node", err);
             if (!success) return 0;
         }
     }
