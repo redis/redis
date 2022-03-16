@@ -197,6 +197,9 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
 test "Test restart will keep hostname information" {
     # Set a new hostname, reboot and make sure it sticks
     R 0 config set cluster-announce-hostname "restart-1.com"
+    # Store the hostname in the config
+    R 0 config rewrite
+    kill_instance redis 0
     restart_instance redis 0
     set slot_result [R 0 CLUSTER SLOTS]
     assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "restart-1.com"

@@ -219,6 +219,17 @@ int clusterLoadConfig(char *filename) {
         /* Format for the node address information: 
          * ip:port[@cport][,hostname] */
 
+        /* Hostname is an optional argument that defines the endpoint
+         * that can be reported to clients instead of IP. */
+        char *hostname = strchr(argv[1], ',');
+        if (hostname) {
+            *hostname = '\0';
+            hostname++;
+            n->hostname = sdscpy(n->hostname, hostname);
+        } else if (sdslen(n->hostname) != 0) {
+            sdsclear(n->hostname);
+        }
+
         /* Address and port */
         if ((p = strrchr(argv[1],':')) == NULL) {
             sdsfreesplitres(argv,argc);
@@ -237,17 +248,6 @@ int clusterLoadConfig(char *filename) {
          * In this case we set it to the default offset of 10000 from the
          * base port. */
         n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
-
-        /* Hostname is an optional argument that defines the endpoint
-         * that can be reported to clients instead of IP. */
-        char *hostname = strchr(p, ',');
-        if (hostname) {
-            *hostname = '\0';
-            hostname++;
-            n->hostname = sdscpy(n->hostname, hostname);
-        } else if (sdslen(n->hostname) != 0) {
-            sdsclear(n->hostname);
-        }
 
         /* The plaintext port for client in a TLS cluster (n->pport) is not
          * stored in nodes.conf. It is received later over the bus protocol. */
