@@ -209,7 +209,6 @@ int clusterLoadConfig(char *filename) {
             goto fmterr;
         }
 
-        /* Cluster node name sanity check */
         if (verifyClusterNodeName(argv[0], sdslen(argv[0])) != C_OK) {
             sdsfreesplitres(argv, argc);
             goto fmterr;
