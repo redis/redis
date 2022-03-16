@@ -1444,46 +1444,45 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         server.rdb_pipe_buff = zmalloc(PROTO_IOBUF_LEN);
     serverAssert(server.rdb_pipe_numconns_writing==0);
 
-    while (1) {
-        server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
-        if (server.rdb_pipe_bufflen < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                return;
-            serverLog(LL_WARNING,"Diskless rdb transfer, read error sending DB to replicas: %s", strerror(errno));
-            for (i=0; i < server.rdb_pipe_numconns; i++) {
-                connection *conn = server.rdb_pipe_conns[i];
-                if (!conn)
-                    continue;
-                client *slave = connGetPrivateData(conn);
-                freeClient(slave);
-                server.rdb_pipe_conns[i] = NULL;
-            }
-            killRDBChild();
+    server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
+    if (server.rdb_pipe_bufflen < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
             return;
+        serverLog(LL_WARNING,"Diskless rdb transfer, read error sending DB to replicas: %s", strerror(errno));
+        for (i=0; i < server.rdb_pipe_numconns; i++) {
+            connection *conn = server.rdb_pipe_conns[i];
+            if (!conn)
+                continue;
+            client *slave = connGetPrivateData(conn);
+            freeClient(slave);
+            server.rdb_pipe_conns[i] = NULL;
         }
+        killRDBChild();
+        return;
+    }
 
-        if (server.rdb_pipe_bufflen == 0) {
-            /* EOF - write end was closed. */
-            int stillUp = 0;
-            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
-            for (i=0; i < server.rdb_pipe_numconns; i++)
+    if (server.rdb_pipe_bufflen == 0) {
+        /* EOF - write end was closed. */
+        int stillUp = 0;
+        aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+        for (i=0; i < server.rdb_pipe_numconns; i++)
             {
                 connection *conn = server.rdb_pipe_conns[i];
                 if (!conn)
                     continue;
                 stillUp++;
             }
-            serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
-            /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
-             * When the server detects the child has exited, it can mark the replica as online, and
-             * start streaming the replication buffers. */
-            close(server.rdb_child_exit_pipe);
-            server.rdb_child_exit_pipe = -1;
-            return;
-        }
+        serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
+        /* Now that the replicas have finished reading, notify the child that it's safe to exit.
+         * When the server detects the child has exited, it can mark the replica as online, and
+         * start streaming the replication buffers. */
+        close(server.rdb_child_exit_pipe);
+        server.rdb_child_exit_pipe = -1;
+        return;
+    }
 
-        int stillAlive = 0;
-        for (i=0; i < server.rdb_pipe_numconns; i++)
+    int stillAlive = 0;
+    for (i=0; i < server.rdb_pipe_numconns; i++)
         {
             int nwritten;
             connection *conn = server.rdb_pipe_conns[i];
@@ -1494,7 +1493,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
                 if (connGetState(conn) != CONN_STATE_CONNECTED) {
                     serverLog(LL_WARNING,"Diskless rdb transfer, write error sending DB to replica: %s",
-                        connGetLastError(conn));
+                              connGetLastError(conn));
                     freeClient(slave);
                     server.rdb_pipe_conns[i] = NULL;
                     continue;
@@ -1517,15 +1516,13 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
             stillAlive++;
         }
 
-        if (stillAlive == 0) {
-            serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
-            killRDBChild();
-        }
-        /*  Remove the pipe read handler if at least one write handler was set. */
-        if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
-            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
-            break;
-        }
+    if (stillAlive == 0) {
+        serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
+        killRDBChild();
+    }
+    /*  Remove the pipe read handler if at least one write handler was set. */
+    if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
+        aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
     }
 }
 
