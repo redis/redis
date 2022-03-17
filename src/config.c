@@ -1010,17 +1010,32 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
     if (fp == NULL && errno != ENOENT) return NULL;
 
-    char buf[CONFIG_MAX_LINE+1];
+    struct redis_stat sb;
+    if (fp && redis_fstat(fileno(fp),&sb) == -1) return NULL;
+
     int linenum = -1;
     struct rewriteConfigState *state = rewriteConfigCreateState();
 
-    if (fp == NULL) return state;
+    if (fp == NULL || sb.st_size == 0) return state;
 
-    /* Read the old file line by line, populate the state. */
-    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
+    /* Load the file content */
+    sds config = sdsnewlen(SDS_NOINIT,sb.st_size);
+    if (fread(config,1,sb.st_size,fp) == 0) {
+        sdsfree(config);
+        rewriteConfigReleaseState(state);
+        fclose(fp);
+        return NULL;
+    }
+
+    int i, totlines;
+    sds *lines = sdssplitlen(config,sdslen(config),"\n",1,&totlines);
+
+    /* Read the old content line by line, populate the state. */
+    for (i = 0; i < totlines; i++) {
         int argc;
         sds *argv;
-        sds line = sdstrim(sdsnew(buf),"\r\n\t ");
+        sds line = sdstrim(lines[i],"\r\n\t ");
+        lines[i] = NULL;
 
         linenum++; /* Zero based, so we init at -1 */
 
@@ -1076,6 +1091,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         sdsfreesplitres(argv,argc);
     }
     fclose(fp);
+    sdsfreesplitres(lines,totlines);
+    sdsfree(config);
     return state;
 }
 
