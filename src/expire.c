@@ -742,6 +742,22 @@ void persistCommand(client *c) {
     }
 }
 
+/* MPERSIST key [key ...] */
+void mpersistCommand(client *c) {
+    int ttlRemoved = 0;
+    for (int i = 1; i < c->argc; i++){
+        if (lookupKeyWrite(c->db,c->argv[i])) {
+            if (removeExpire(c->db,c->argv[i])) {
+                signalModifiedKey(c,c->db,c->argv[i]);
+                notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[i],c->db->id);
+                ttlRemoved++;
+                server.dirty++;
+            }
+        }
+    }
+    addReplyLongLong(c,ttlRemoved);
+}
+
 /* TOUCH key1 [key2 key3 ... keyN] */
 void touchCommand(client *c) {
     int touched = 0;

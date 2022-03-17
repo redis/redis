@@ -3273,6 +3273,7 @@ void pttlCommand(client *c);
 void expiretimeCommand(client *c);
 void pexpiretimeCommand(client *c);
 void persistCommand(client *c);
+void mpersistCommand(client *c);
 void replicaofCommand(client *c);
 void roleCommand(client *c);
 void debugCommand(client *c);
