@@ -10825,7 +10825,8 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
                 serverLogRaw(LL_NOTICE, "CONFIG specified without name value pair");
                 return REDISMODULE_ERR;
             }
-            sds name_value_pair = sdscatfmt(sdsempty(), "%s %s", argv[i + 1]->ptr, argv[i + 2]->ptr);
+            sds name_value_pair = sdscatfmt(sdsempty(), "%s ", argv[i + 1]->ptr);
+            name_value_pair = sdscatrepr(name_value_pair, argv[i + 2]->ptr, sdslen(argv[i + 2]->ptr));
             listAddNodeTail(server.module_configs_queue, name_value_pair);
             i += 2;
         } else if (!strcasecmp(arg_val, "ARGS")) {
@@ -11336,6 +11337,24 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
     return new_flags;
 }
 
+int moduleVerifyConfigName(sds name) {
+    if (sdslen(name) == 0) {
+        return 1;
+    }
+    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+        char curr_char = name[i];
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_') || (curr_char == '-'))
+        {
+            continue;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 /* Create a bool config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
  * RedisModule_RegisterStringConfig for detailed information about configs. */
@@ -11344,7 +11363,11 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     if (moduleConfigValidityCheck(module, name, flags, BOOL_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(sdsnew(name), applyfn, privdata, module);
+    sds config_name = sdsnew(name);
+    if (moduleVerifyConfigName(config_name)) {
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
     new_config->get_fn.get_bool = getfn;
     new_config->set_fn.set_bool = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -11419,7 +11442,11 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
     if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(sdsnew(name), applyfn, privdata, module);
+    sds config_name = sdsnew(name);
+    if (moduleVerifyConfigName(config_name)) {
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
     new_config->get_fn.get_string = getfn;
     new_config->set_fn.set_string = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -11455,7 +11482,11 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     if (moduleConfigValidityCheck(module, name, flags, ENUM_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(sdsnew(name), applyfn, privdata, module);
+    sds config_name = sdsnew(name);
+    if (moduleVerifyConfigName(config_name)) {
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
     new_config->get_fn.get_enum = getfn;
     new_config->set_fn.set_enum = setfn;
     configEnum *enum_vals = zmalloc((num_enum_vals + 1) * sizeof(configEnum));
@@ -11480,7 +11511,11 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
     if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(sdsnew(name), applyfn, privdata, module);
+    sds config_name = sdsnew(name);
+    if (moduleVerifyConfigName(config_name)) {
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
     new_config->get_fn.get_numeric = getfn;
     new_config->set_fn.set_numeric = setfn;
     listAddNodeTail(module->module_configs, new_config);

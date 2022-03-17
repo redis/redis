@@ -725,7 +725,7 @@ void configSetCommand(client *c) {
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
-    list *module_configs_apply = listCreate();
+    list *module_configs_apply;
     const char **config_names;
     sds *new_values;
     sds *old_values = NULL;
@@ -741,6 +741,7 @@ void configSetCommand(client *c) {
     }
     config_count = (c->argc - 2) / 2;
 
+    module_configs_apply = listCreate();
     set_configs = zcalloc(sizeof(standardConfig*)*config_count);
     config_names = zcalloc(sizeof(char*)*config_count);
     new_values = zmalloc(sizeof(sds*)*config_count);
