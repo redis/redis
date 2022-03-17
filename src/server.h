@@ -586,6 +586,11 @@ typedef enum {
     CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT /* Show NULL or empty */
 } cluster_endpoint_type;
 
+typedef enum {
+    CLUSTER_LOOKUP_NODE_TYPE_READ = 0,  /* Fetch cluster node. */
+    CLUSTER_LOOKUP_NODE_TYPE_WRITE,     /* Fetch cluster node, create if not exist. */
+} cluster_loopup_node_type;
+
 /* RDB active child save type. */
 #define RDB_CHILD_TYPE_NONE 0
 #define RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
