@@ -2583,10 +2583,16 @@ void readQueryFromClient(connection *conn) {
         /* Note that the 'remaining' variable may be zero in some edge case,
          * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0) readlen = remaining;
+
+        /* Master client needs expand the readlen when meet BIG_ARG(see #9100),
+         * but doesn't need align to the next arg, we can read more data. */
+        if (c->flags & CLIENT_MASTER && readlen < PROTO_IOBUF_LEN)
+            readlen = PROTO_IOBUF_LEN;
     }
 
     qblen = sdslen(c->querybuf);
-    if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
+    if (!(c->flags & CLIENT_MASTER) && // master client's querybuf can grow greedy.
+        (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN)) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
          * need, so using the non-greedy growing. For an initial allocation of
