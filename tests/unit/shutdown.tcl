@@ -66,3 +66,36 @@ start_server {tags {"shutdown external:skip"}} {
         }
     }
 }
+
+start_server {tags {"shutdown external:skip"}} {
+    set pid [s process_id]
+    set temp_rdb [file join [lindex [r config get dir] 1] temp-${pid}.rdb]
+
+    test {Set the rdb file readonly} {
+        for {set i 0} {$i < 20} {incr i} {
+            r set $i $i
+        }
+
+        # set the rdb file to readonly
+        if {![file exists $temp_rdb]} {
+            exec touch $temp_rdb
+        }
+        exec chmod 0444 $temp_rdb
+    }
+    test {SHUTDOWN will abort if rdb save failed on signal} {
+        # trigger a shutdown which will save an rdb
+        exec kill -SIGINT $pid
+        wait_for_log_messages 0 {"*Error trying to save the DB, can't exit*"} 0 100 10
+    }
+    test {SHUTDOWN will abort if rdb save failed on shutdown command} {
+        catch {[r shutdown]} err
+        assert_match {*Errors trying to SHUTDOWN*} $err
+    }
+    test {SHUTDOWN can proceed if shutdown command was with nosave} {
+        catch {[r shutdown nosave]}
+        wait_for_log_messages 0 {"*ready to exit, bye bye*"} 0 100 10
+    }
+    test {Reset the rdb file access} {
+        exec chmod 0644 $temp_rdb
+    }
+}

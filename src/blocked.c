@@ -204,7 +204,7 @@ void unblockClient(client *c) {
      * we do not do it immediately after the command returns (when the
      * client got blocked) in order to be still able to access the argument
      * vector from module callbacks and updateStatsOnUnblock. */
-    if (c->btype != BLOCKED_POSTPONE) {
+    if (c->btype != BLOCKED_POSTPONE && c->btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
