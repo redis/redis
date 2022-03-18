@@ -57,8 +57,8 @@ test "Migration of slot x" {
         fail "Should contain ASK when migrating"
     }
 
-    # UNSTABLE REPLY
-    # catch {[$nodefrom(link) mset 28287 "newVal" abc{2281} "newVal2"]} f
+    # TODO UNSTABLE REPLY
+    # catch {[$nodefrom(link) mset "a{$key}" "newVal" "abc{$key}" "newVal2"]} f
     # puts $f
     # if {![string match "*UNSTABLE*" $f]} {
     #     fail "Should contain ASK when migrating"
