@@ -69,18 +69,19 @@ start_server {tags {"shutdown external:skip"}} {
 
 start_server {tags {"shutdown external:skip"}} {
     set pid [s process_id]
-    set temp_rdb [file join [lindex [r config get dir] 1] temp-${pid}.rdb]
+    set dump_rdb [file join [lindex [r config get dir] 1] dump.rdb]
 
-    test {Set the rdb file readonly} {
+    test {RDB save will be failed in shutdown} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i
         }
 
-        # set the rdb file to readonly
-        if {![file exists $temp_rdb]} {
-            exec touch $temp_rdb
+        # create a folder called 'dump.rdb' to trigger temp-rdb rename failure
+        # and it will cause rdb save to fail eventually.
+        if {[file exists $dump_rdb]} {
+            exec rm -f $dump_rdb
         }
-        exec chmod 0444 $temp_rdb
+        exec mkdir -p $dump_rdb
     }
     test {SHUTDOWN will abort if rdb save failed on signal} {
         # trigger a shutdown which will save an rdb
@@ -90,12 +91,14 @@ start_server {tags {"shutdown external:skip"}} {
     test {SHUTDOWN will abort if rdb save failed on shutdown command} {
         catch {[r shutdown]} err
         assert_match {*Errors trying to SHUTDOWN*} $err
+        # make sure the server is still alive
+        assert_equal [r ping] {PONG}
     }
     test {SHUTDOWN can proceed if shutdown command was with nosave} {
         catch {[r shutdown nosave]}
         wait_for_log_messages 0 {"*ready to exit, bye bye*"} 0 100 10
     }
-    test {Reset the rdb file access} {
-        exec chmod 0644 $temp_rdb
+    test {Clean up rdb same named folder} {
+        exec rm -r $dump_rdb
     }
 }
