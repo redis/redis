@@ -588,9 +588,9 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"node-id",ARG_TYPE_INTEGER,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_INTEGER,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
 {"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -672,8 +672,8 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_tips,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
 {"shards","Get array of cluster slots to node mappings","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,CLUSTER_SHARDS_tips,clusterCommand,2,CMD_STALE,0},
-{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
-{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
+{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
+{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,"`CLUSTER SHARDS`","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
 
@@ -1351,6 +1351,20 @@ struct redisCommandArg MOVE_Args[] = {
 {0}
 };
 
+/********** MPERSIST ********************/
+
+/* MPERSIST history */
+#define MPERSIST_History NULL
+
+/* MPERSIST tips */
+#define MPERSIST_tips NULL
+
+/* MPERSIST argument table */
+struct redisCommandArg MPERSIST_Args[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** OBJECT ENCODING ********************/
 
 /* OBJECT ENCODING history */
@@ -1453,20 +1467,6 @@ struct redisCommand OBJECT_Subcommands[] = {
 /* PERSIST argument table */
 struct redisCommandArg PERSIST_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
-/********** MPERSIST ********************/
-
-/* MPERSIST history */
-#define MPERSIST_History NULL
-
-/* MPERSIST tips */
-#define MPERSIST_tips NULL
-
-/* MPERSIST argument table */
-struct redisCommandArg MPERSIST_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3475,8 +3475,9 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 
 /* FUNCTION STATS tips */
 const char *FUNCTION_STATS_tips[] = {
+"nondeterministic_output",
 "request_policy:all_shards",
-"response_policy:one_succeeded",
+"response_policy:special",
 NULL
 };
 
@@ -4540,7 +4541,12 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 #define LATENCY_HISTOGRAM_History NULL
 
 /* LATENCY HISTOGRAM tips */
-#define LATENCY_HISTOGRAM_tips NULL
+const char *LATENCY_HISTOGRAM_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTOGRAM argument table */
 struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
@@ -4554,7 +4560,12 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 #define LATENCY_HISTORY_History NULL
 
 /* LATENCY HISTORY tips */
-#define LATENCY_HISTORY_tips NULL
+const char *LATENCY_HISTORY_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTORY argument table */
 struct redisCommandArg LATENCY_HISTORY_Args[] = {
@@ -4568,7 +4579,12 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_LATEST_History NULL
 
 /* LATENCY LATEST tips */
-#define LATENCY_LATEST_tips NULL
+const char *LATENCY_LATEST_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY RESET ********************/
 
@@ -4576,7 +4592,11 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_RESET_History NULL
 
 /* LATENCY RESET tips */
-#define LATENCY_RESET_tips NULL
+const char *LATENCY_RESET_tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+NULL
+};
 
 /* LATENCY RESET argument table */
 struct redisCommandArg LATENCY_RESET_Args[] = {
@@ -4664,6 +4684,8 @@ NULL
 /* MEMORY STATS tips */
 const char *MEMORY_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -7040,8 +7062,8 @@ struct redisCommand redisCommandTable[] = {
 {"expiretime","Get the expiration Unix timestamp for a key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,EXPIRETIME_History,EXPIRETIME_tips,expiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=EXPIRETIME_Args},
 {"keys","Find all keys matching the given pattern","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,KEYS_History,KEYS_tips,keysCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,.args=KEYS_Args},
 {"migrate","Atomically transfer a key from a Redis instance to another one.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MIGRATE_History,MIGRATE_tips,migrateCommand,-6,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},migrateGetKeys,.args=MIGRATE_Args},
-{"mpersist","Remove the expiration from a list of key","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MPERSIST_History,MPERSIST_tips,mpersistCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MPERSIST_Args},
 {"move","Move a key to another database","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MOVE_History,MOVE_tips,moveCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MOVE_Args},
+{"mpersist","Remove the expiration from a list of key","O(N)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,MPERSIST_History,MPERSIST_tips,mpersistCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=MPERSIST_Args},
 {"object","A container for object introspection commands","Depends on subcommand.","2.2.3",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,OBJECT_History,OBJECT_tips,NULL,-2,0,0,.subcommands=OBJECT_Subcommands},
 {"persist","Remove the expiration from a key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PERSIST_History,PERSIST_tips,persistCommand,2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PERSIST_Args},
 {"pexpire","Set a key's time to live in milliseconds","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_GENERIC,PEXPIRE_History,PEXPIRE_tips,pexpireCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PEXPIRE_Args},
