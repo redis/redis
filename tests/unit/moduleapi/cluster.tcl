@@ -22,6 +22,7 @@ set testmodule [file normalize tests/modules/blockonkeys.so]
 set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
 
 # make sure the test infra won't use SELECT
+set old_singledb $::singledb
 set ::singledb 1
 
 # cluster creation is complicated with TLS, and the current tests don't really need that coverage
@@ -203,3 +204,5 @@ start_server [list overrides $base_conf] {
 }
 
 } ;# tags
+
+set ::singledb $old_singledb
