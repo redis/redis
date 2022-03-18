@@ -1,7 +1,7 @@
 {
     "MPERSIST": {
         "summary": "Remove the expiration from a list of key",
-        "complexity": "O(1)",
+        "complexity": "O(N)",
         "group": "generic",
         "since": "7.0.0",
         "arity": -2,
