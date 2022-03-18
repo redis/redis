@@ -19,6 +19,7 @@ proc csi {args} {
 }
 
 # make sure the test infra won't use SELECT
+set old_singledb $::singledb
 set ::singledb 1
 
 # cluster creation is complicated with TLS, and the current tests don't really need that coverage
@@ -285,3 +286,5 @@ test {Migrate the last slot away from a node using redis-cli} {
 }
 
 } ;# tags
+
+set ::singledb $old_singledb
