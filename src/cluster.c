@@ -4973,7 +4973,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     reply_count++;
 
     /* We use server.tls_cluster as a proxy for whether or not
-     * the remote pport is the tls port or not */
+     * the remote port is the tls port or not */
     int plaintext_port = server.tls_cluster ? node->pport : node->port;
     int tls_port = server.tls_cluster ? node->port : 0;
     if (plaintext_port) {
