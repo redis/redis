@@ -9045,13 +9045,10 @@ int main(int argc, char **argv) {
         return evalMode(argc,argv);
     } else {
         int connected = (cliConnect(CC_QUIET) == REDIS_OK);
-
         /* Try to serve command even we are not connected. e.g. help command */
         int retval = noninteractive(argc,argv);
-        if (retval != REDIS_OK) {
-            /* If failed to connect, exit with "1" for backward compatibility */
-            if (!connected) exit(1);
-        }
+        /* If failed to connect, exit with "1" for backward compatibility */
+        if (retval != REDIS_OK && !connected) exit(1);
         return retval;
     }
 }
