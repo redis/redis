@@ -72,7 +72,7 @@ static inline char hi_sdsReqType(size_t string_size) {
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
  *
- * The string is always null-termined (all the hisds strings are, always) so
+ * The string is always null-terminated (all the hisds strings are, always) so
  * even if you create an hisds string with:
  *
  * mystring = hi_sdsnewlen("abc",3);
@@ -415,7 +415,7 @@ hisds hi_sdscpylen(hisds s, const char *t, size_t len) {
     return s;
 }
 
-/* Like hi_sdscpylen() but 't' must be a null-termined string so that the length
+/* Like hi_sdscpylen() but 't' must be a null-terminated string so that the length
  * of the string is obtained with strlen(). */
 hisds hi_sdscpy(hisds s, const char *t) {
     return hi_sdscpylen(s, t, strlen(t));

@@ -235,23 +235,34 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 		unsigned binshard = extent_binshard_get(slab);
 		bin_t *bin = &arena->bins[binind].bin_shards[binshard];
 		malloc_mutex_lock(tsdn, &bin->lock);
-		/* don't bother moving allocations from the slab currently used for new allocations */
+		/* Don't bother moving allocations from the slab currently used for new allocations */
 		if (slab != bin->slabcur) {
 			int free_in_slab = extent_nfree_get(slab);
 			if (free_in_slab) {
 				const bin_info_t *bin_info = &bin_infos[binind];
-				unsigned long curslabs = bin->stats.curslabs;
-				size_t curregs = bin->stats.curregs;
-				if (bin->slabcur) {
-					/* remove slabcur from the overall utilization */
-					curregs -= bin_info->nregs - extent_nfree_get(bin->slabcur);
-					curslabs -= 1;
+				/* Find number of non-full slabs and the number of regs in them */
+				unsigned long curslabs = 0;
+				size_t curregs = 0;
+				/* Run on all bin shards (usually just one) */
+				for (uint32_t i=0; i< bin_info->n_shards; i++) {
+					bin_t *bb = &arena->bins[binind].bin_shards[i];
+					curslabs += bb->stats.nonfull_slabs;
+					/* Deduct the regs in full slabs (they're not part of the game) */
+					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
+					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
+					if (bb->slabcur) {
+						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
+						curregs -= bin_info->nregs - extent_nfree_get(bb->slabcur);
+						curslabs -= 1;
+					}
 				}
-				/* Compare the utilization ratio of the slab in question to the total average,
-				 * to avoid precision lost and division, we do that by extrapolating the usage
-				 * of the slab as if all slabs have the same usage. If this slab is less used 
-				 * than the average, we'll prefer to evict the data to hopefully more used ones */
-				defrag = (bin_info->nregs - free_in_slab) * curslabs <= curregs;
+				/* Compare the utilization ratio of the slab in question to the total average
+				 * among non-full slabs. To avoid precision loss in division, we do that by
+				 * extrapolating the usage of the slab as if all slabs have the same usage.
+				 * If this slab is less used than the average, we'll prefer to move the data
+				 * to hopefully more used ones. To avoid stagnation when all slabs have the same
+				 * utilization, we give additional 12.5% weight to the decision to defrag. */
+				defrag = (bin_info->nregs - free_in_slab) * curslabs <= curregs + curregs / 8;
 			}
 		}
 		malloc_mutex_unlock(tsdn, &bin->lock);

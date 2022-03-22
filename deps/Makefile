@@ -2,6 +2,8 @@
 
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
+LUA_DEBUG?=no
+
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
 SRCCOLOR="\033[33m"
@@ -69,8 +71,13 @@ ifeq ($(uname_S),SunOS)
 	LUA_CFLAGS= -D__C99FEATURES__=1
 endif
 
-LUA_CFLAGS+= -O2 -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(CFLAGS)
+LUA_CFLAGS+= -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(CFLAGS)
 LUA_LDFLAGS+= $(LDFLAGS)
+ifeq ($(LUA_DEBUG),yes)
+	LUA_CFLAGS+= -O0 -g -DLUA_USE_APICHECK
+else
+	LUA_CFLAGS+= -O2 
+endif
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
@@ -86,9 +93,13 @@ lua: .make-prerequisites
 JEMALLOC_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
 JEMALLOC_LDFLAGS= $(LDFLAGS)
 
+ifneq ($(DEB_HOST_GNU_TYPE),)
+JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
+endif
+
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd jemalloc && ./configure --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)"
+	cd jemalloc && ./configure --with-version=5.2.1-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
 	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
 
 .PHONY: jemalloc

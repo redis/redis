@@ -939,15 +939,13 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
     long start = 0, j;
     sds *tokens;
 
-    if (seplen < 1 || len < 0) return NULL;
-
+    if (seplen < 1 || len <= 0) {
+        *count = 0;
+        return NULL;
+    }
     tokens = s_malloc(sizeof(sds)*slots);
     if (tokens == NULL) return NULL;
 
-    if (len == 0) {
-        *count = 0;
-        return tokens;
-    }
     for (j = 0; j < (len-(seplen-1)); j++) {
         /* make sure there is room for the next element and the final one */
         if (slots < elements+2) {
@@ -1021,6 +1019,26 @@ sds sdscatrepr(sds s, const char *p, size_t len) {
         p++;
     }
     return sdscatlen(s,"\"",1);
+}
+
+/* Returns one if the string contains characters to be escaped
+ * by sdscatrepr(), zero otherwise.
+ *
+ * Typically, this should be used to help protect aggregated strings in a way
+ * that is compatible with sdssplitargs(). For this reason, also spaces will be
+ * treated as needing an escape.
+ */
+int sdsneedsrepr(const sds s) {
+    size_t len = sdslen(s);
+    const char *p = s;
+
+    while (len--) {
+        if (*p == '\\' || *p == '"' || *p == '\n' || *p == '\r' ||
+            *p == '\t' || *p == '\a' || *p == '\b' || !isprint(*p) || isspace(*p)) return 1;
+        p++;
+    }
+
+    return 0;
 }
 
 /* Helper function for sdssplitargs() that returns non zero if 'c'
@@ -1314,10 +1332,10 @@ static sds sdsTestTemplateCallback(sds varname, void *arg) {
     else return NULL;
 }
 
-int sdsTest(int argc, char **argv, int accurate) {
+int sdsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     {
         sds x = sdsnew("foo"), y;
@@ -1559,7 +1577,6 @@ int sdsTest(int argc, char **argv, int accurate) {
         test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
     }
-    test_report();
     return 0;
 }
 #endif

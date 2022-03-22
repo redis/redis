@@ -38,6 +38,9 @@
  * This should be the size of the buffer given to ld2string */
 #define MAX_LONG_DOUBLE_CHARS 5*1024
 
+/* Bytes needed for long -> str + '\0' */
+#define LONG_STR_SIZE      21
+
 /* long double to string conversion options */
 typedef enum {
     LD_STR_AUTO,     /* %.17Lg */
@@ -60,14 +63,20 @@ int string2ull(const char *s, unsigned long long *value);
 int string2l(const char *s, size_t slen, long *value);
 int string2ld(const char *s, size_t slen, long double *dp);
 int string2d(const char *s, size_t slen, double *dp);
+int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
+int dirCreateIfMissing(char *dname);
+int dirExists(char *dname);
+int dirRemove(char *dname);
+int fileExist(char *filename);
+sds makePath(char *path, char *filename);
 
 #ifdef REDIS_TEST
-int utilTest(int argc, char **argv, int accurate);
+int utilTest(int argc, char **argv, int flags);
 #endif
 
 #endif

@@ -181,6 +181,20 @@ void *ztrycalloc_usable(size_t size, size_t *usable) {
 #endif
 }
 
+/* Allocate memory and zero it or panic.
+ * We need this wrapper to have a calloc compatible signature */
+void *zcalloc_num(size_t num, size_t size) {
+    /* Ensure that the arguments to calloc(), when multiplied, do not wrap.
+     * Division operations are susceptible to divide-by-zero errors so we also check it. */
+    if ((size == 0) || (num > SIZE_MAX/size)) {
+        zmalloc_oom_handler(SIZE_MAX);
+        return NULL;
+    }
+    void *ptr = ztrycalloc_usable(num*size, NULL);
+    if (!ptr) zmalloc_oom_handler(num*size);
+    return ptr;
+}
+
 /* Allocate memory and zero it or panic */
 void *zcalloc(size_t size) {
     void *ptr = ztrycalloc_usable(size, NULL);
@@ -453,21 +467,27 @@ size_t zmalloc_get_rss(void) {
 
     return 0L;
 }
-#elif defined(__NetBSD__)
+#elif defined(__NetBSD__) || defined(__OpenBSD__)
 #include <sys/types.h>
 #include <sys/sysctl.h>
+
+#if defined(__OpenBSD__)
+#define kinfo_proc2 kinfo_proc
+#define KERN_PROC2 KERN_PROC
+#define __arraycount(a) (sizeof(a) / sizeof(a[0]))
+#endif
 
 size_t zmalloc_get_rss(void) {
     struct kinfo_proc2 info;
     size_t infolen = sizeof(info);
     int mib[6];
     mib[0] = CTL_KERN;
-    mib[1] = KERN_PROC;
+    mib[1] = KERN_PROC2;
     mib[2] = KERN_PROC_PID;
     mib[3] = getpid();
     mib[4] = sizeof(info);
     mib[5] = 1;
-    if (sysctl(mib, 4, &info, &infolen, NULL, 0) == 0)
+    if (sysctl(mib, __arraycount(mib), &info, &infolen, NULL, 0) == 0)
         return (size_t)info.p_vm_rssize * getpagesize();
 
     return 0L;
@@ -712,12 +732,12 @@ size_t zmalloc_get_memory_size(void) {
 
 #ifdef REDIS_TEST
 #define UNUSED(x) ((void)(x))
-int zmalloc_test(int argc, char **argv, int accurate) {
+int zmalloc_test(int argc, char **argv, int flags) {
     void *ptr;
 
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
     printf("Initial used memory: %zu\n", zmalloc_used_memory());
     ptr = zmalloc(123);

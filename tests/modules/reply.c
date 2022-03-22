@@ -47,6 +47,15 @@ int rw_longdouble(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongDouble(ctx, longdbl);
 }
 
+int rw_bignumber(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    size_t bignum_len;
+    const char *bignum_str = RedisModule_StringPtrLen(argv[1], &bignum_len);
+
+    return RedisModule_ReplyWithBigNumber(ctx, bignum_str, bignum_len);
+}
+
 int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
@@ -106,6 +115,7 @@ int rw_attribute(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     for (int i = 0; i < integer; ++i) {
         RedisModule_ReplyWithLongLong(ctx, i);
+        RedisModule_ReplyWithDouble(ctx, i * 1.5);
     }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -136,9 +146,12 @@ int rw_error(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 1) return RedisModule_WrongArity(ctx);
+    if (argc != 2) return RedisModule_WrongArity(ctx);
 
-    return RedisModule_ReplyWithVerbatimString(ctx, argv[1]);
+    size_t verbatim_len;
+    const char *verbatim_str = RedisModule_StringPtrLen(argv[1], &verbatim_len);
+
+    return RedisModule_ReplyWithVerbatimString(ctx, verbatim_str, verbatim_len);
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -150,6 +163,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.string",rw_string,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.cstring",rw_cstring,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.bignumber",rw_bignumber,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.int",rw_int,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;

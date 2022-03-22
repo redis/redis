@@ -1,0 +1,52 @@
+{
+    "SETRANGE": {
+        "summary": "Overwrite part of a string at key starting at the specified offset",
+        "complexity": "O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.",
+        "group": "string",
+        "since": "2.2.0",
+        "arity": 4,
+        "function": "setrangeCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "STRING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "offset",
+                "type": "integer"
+            },
+            {
+                "name": "value",
+                "type": "string"
+            }
+        ]
+    }
+}

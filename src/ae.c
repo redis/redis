@@ -197,6 +197,14 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     }
 }
 
+void *aeGetFileClientData(aeEventLoop *eventLoop, int fd) {
+    if (fd >= eventLoop->setsize) return NULL;
+    aeFileEvent *fe = &eventLoop->events[fd];
+    if (fe->mask == AE_NONE) return NULL;
+
+    return fe->clientData;
+}
+
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];

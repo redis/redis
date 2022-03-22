@@ -137,8 +137,10 @@ test "Verify $numkeys keys for consistency with logical content" {
     }
 }
 
-test "Crash and restart all the instances" {
+test "Terminate and restart all the instances" {
     foreach_redis_id id {
+        # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
+        R $id config set appendonly no
         kill_instance redis $id
         restart_instance redis $id
     }
@@ -148,7 +150,7 @@ test "Cluster should eventually be up again" {
     assert_cluster_state ok
 }
 
-test "Verify $numkeys keys after the crash & restart" {
+test "Verify $numkeys keys after the restart" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
         if {[$cluster lrange $key 0 -1] ne $value} {

@@ -68,7 +68,7 @@ unsigned int ziplistRandomPairsUnique(unsigned char *zl, unsigned int count, zip
 int ziplistSafeToAdd(unsigned char* zl, size_t add);
 
 #ifdef REDIS_TEST
-int ziplistTest(int argc, char *argv[], int accurate);
+int ziplistTest(int argc, char *argv[], int flags);
 #endif
 
 #endif /* _ZIPLIST_H */

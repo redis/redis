@@ -1,0 +1,93 @@
+{
+    "BITPOS": {
+        "summary": "Find first bit set or clear in a string",
+        "complexity": "O(N)",
+        "group": "bitmap",
+        "since": "2.8.7",
+        "arity": -3,
+        "function": "bitposCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `BYTE|BIT` option."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "bit",
+                "type": "integer"
+            },
+            {
+                "name": "index",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "start",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "end_index",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "end",
+                                "type": "integer"
+                            },
+                            {
+                                "name": "index_unit",
+                                "type": "oneof",
+                                "optional": true,
+                                "since": "7.0.0",
+                                "arguments": [
+                                    {
+                                        "name": "byte",
+                                        "type": "pure-token",
+                                        "token": "BYTE"
+                                    },
+                                    {
+                                        "name": "bit",
+                                        "type": "pure-token",
+                                        "token": "BIT"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -1,0 +1,23 @@
+{
+    "GRAPH": {
+        "summary": "Return a latency graph for the event.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": 3,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "event",
+                "type": "string"
+            }
+        ]
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": 2,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ]
+    }
+}

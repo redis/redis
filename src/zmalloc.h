@@ -98,6 +98,7 @@
 
 void *zmalloc(size_t size);
 void *zcalloc(size_t size);
+void *zcalloc_num(size_t num, size_t size);
 void *zrealloc(void *ptr, size_t size);
 void *ztrymalloc(size_t size);
 void *ztrycalloc(size_t size);
@@ -136,7 +137,7 @@ size_t zmalloc_usable_size(void *ptr);
 #endif
 
 #ifdef REDIS_TEST
-int zmalloc_test(int argc, char **argv, int accurate);
+int zmalloc_test(int argc, char **argv, int flags);
 #endif
 
 #endif /* __ZMALLOC_H */

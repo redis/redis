@@ -1,0 +1,50 @@
+{
+    "GROUPS": {
+        "summary": "List the consumer groups of a stream",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": 3,
+        "container": "XINFO",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries-read` and `lag` fields"
+            ]
+        ],
+        "function": "xinfoCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

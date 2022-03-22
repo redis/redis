@@ -40,9 +40,13 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fcntl.h>
 
 #include "util.h"
 #include "sha256.h"
+#include "config.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -401,8 +405,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
-    /* A zero length string is not a valid number. */
-    if (plen == slen)
+    /* A string of zero length or excessive length is not a valid number. */
+    if (plen == slen || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */
@@ -552,7 +556,7 @@ int string2d(const char *s, size_t slen, double *dp) {
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
  * does. It is intended mainly to be used inside t_zset.c when writing scores
- * into a ziplist representing a sorted set. */
+ * into a listpack representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
         len = snprintf(buf,len,"nan");
@@ -587,6 +591,20 @@ int d2string(char *buf, size_t len, double value) {
             len = snprintf(buf,len,"%.17g",value);
     }
 
+    return len;
+}
+
+/* Trims off trailing zeros from a string representing a double. */
+int trimDoubleString(char *buf, size_t len) {
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    buf[len] = '\0';
     return len;
 }
 
@@ -810,6 +828,82 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
+int fileExist(char *filename) {
+    struct stat statbuf;
+    return stat(filename, &statbuf) == 0 && S_ISREG(statbuf.st_mode);
+}
+
+int dirExists(char *dname) {
+    struct stat statbuf;
+    return stat(dname, &statbuf) == 0 && S_ISDIR(statbuf.st_mode);
+}
+
+int dirCreateIfMissing(char *dname) {
+    if (mkdir(dname, 0755) != 0) {
+        if (errno != EEXIST) {
+            return -1;
+        } else if (!dirExists(dname)) {
+            errno = ENOTDIR;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int dirRemove(char *dname) {
+    DIR *dir;
+    struct stat stat_entry;
+    struct dirent *entry;
+    char full_path[PATH_MAX + 1];
+
+    if ((dir = opendir(dname)) == NULL) {
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        snprintf(full_path, sizeof(full_path), "%s/%s", dname, entry->d_name);
+
+        int fd = open(full_path, O_RDONLY|O_NONBLOCK);
+        if (fd == -1) {
+            closedir(dir);
+            return -1;
+        }
+
+        if (fstat(fd, &stat_entry) == -1) {
+            close(fd);
+            closedir(dir);
+            return -1;
+        }
+        close(fd);
+
+        if (S_ISDIR(stat_entry.st_mode) != 0) {
+            if (dirRemove(full_path) == -1) {
+                return -1;
+            }
+            continue;
+        }
+
+        if (unlink(full_path) != 0) {
+            closedir(dir);
+            return -1;
+        }
+    }
+
+    if (rmdir(dname) != 0) {
+        closedir(dir);
+        return -1;
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+sds makePath(char *path, char *filename) {
+    return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
 
@@ -959,10 +1053,10 @@ static void test_ll2string(void) {
 }
 
 #define UNUSED(x) (void)(x)
-int utilTest(int argc, char **argv, int accurate) {
+int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
+    UNUSED(flags);
 
     test_string2ll();
     test_string2l();

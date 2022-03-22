@@ -82,5 +82,9 @@ tags "modules" {
             assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
             $rd1 close
         }
-	}
+
+        test "Unload the module - testkeyspace" {
+            assert_equal {OK} [r module unload testkeyspace]
+        }
+    }
 }

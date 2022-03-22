@@ -1,0 +1,56 @@
+{
+    "SUBSTR": {
+        "summary": "Get a substring of the string stored at a key",
+        "complexity": "O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.",
+        "group": "string",
+        "since": "1.0.0",
+        "arity": 4,
+        "function": "getrangeCommand",
+        "deprecated_since": "2.0.0",
+        "replaced_by": "`GETRANGE`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STRING"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "end",
+                "type": "integer"
+            }
+        ]
+    }
+}

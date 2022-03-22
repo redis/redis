@@ -182,6 +182,12 @@ void activeExpireCycle(int type) {
     long total_sampled = 0;
     long total_expired = 0;
 
+    /* Sanity: There can't be any pending commands to propagate when
+     * we're in cron */
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+    server.propagate_no_multi = 1;
+
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         /* Expired and checked in a single loop. */
         unsigned long expired, sampled;
@@ -301,6 +307,14 @@ void activeExpireCycle(int type) {
         } while (sampled == 0 ||
                  (expired*100/sampled) > config_cycle_acceptable_stale);
     }
+
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    /* Propagate all DELs */
+    propagatePendingCommands();
+
+    server.core_propagates = 0;
+    server.propagate_no_multi = 0;
 
     elapsed = ustime()-start;
     server.stat_expire_cycle_time_used += elapsed;
@@ -552,15 +566,23 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
-    int negative_when = when < 0;
-    if (unit == UNIT_SECONDS) when *= 1000;
-    when += basetime;
-    if (((when < 0) && !negative_when) || ((when-basetime > 0) && negative_when)) {
-        /* EXPIRE allows negative numbers, but we can at least detect an
-         * overflow by either unit conversion or basetime addition. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+
+    /* EXPIRE allows negative numbers, but we can at least detect an
+     * overflow by either unit conversion or basetime addition. */
+    if (unit == UNIT_SECONDS) {
+        if (when > LLONG_MAX / 1000 || when < LLONG_MIN / 1000) {
+            addReplyErrorExpireTime(c);
+            return;
+        }
+        when *= 1000;
+    }
+
+    if (when > LLONG_MAX - basetime) {
+        addReplyErrorExpireTime(c);
         return;
     }
+    when += basetime;
+
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);

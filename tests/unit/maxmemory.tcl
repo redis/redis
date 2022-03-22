@@ -326,6 +326,10 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
+            # disable latency tracking
+            $master config set latency-tracking no
+            $slave config set latency-tracking no
+
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
@@ -355,7 +359,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
                     $rd_master setrange key:0 0 [string repeat A $payload_len]
                 }
                 for {set k 0} {$k < $cmd_count} {incr k} {
-                    #$rd_master read
+                    $rd_master read
                 }
             } else {
                 for {set k 0} {$k < $cmd_count} {incr k} {
@@ -382,12 +386,14 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
-            set killed_used [s -1 used_memory]
+            set info_str [$master info memory]
+            set killed_used [getInfoProperty $info_str used_memory]
+            set killed_mem_not_counted_for_evict [getInfoProperty $info_str mem_not_counted_for_evict]
             set killed_slave_buf [s -1 mem_clients_slaves]
-            set killed_mem_not_counted_for_evict [s -1 mem_not_counted_for_evict]
             # we need to exclude replies buffer and query buffer of slave from used memory after kill slave
             set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict - [slave_query_buffer $master]}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
+            assert {[$master dbsize] == 100}
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 
@@ -410,6 +416,7 @@ test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
@@ -430,6 +437,7 @@ start_server {tags {"maxmemory external:skip"}} {
 
 start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru
         r config set maxmemory-eviction-tenacity 100
@@ -489,5 +497,77 @@ start_server {tags {"maxmemory external:skip"}} {
         # have feedback loop
         set evicted [s evicted_keys]
         if {$::verbose} { puts "evicted: $evicted" }
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {propagation with eviction} {
+        set repl [attach_to_replication_stream]
+
+        r set asdf1 1
+        r set asdf2 2
+        r set asdf3 3
+
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory 1
+
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
+        }
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+
+        r set asdf4 4
+
+        assert_replication_stream $repl {
+            {select *}
+            {set asdf1 1}
+            {set asdf2 2}
+            {set asdf3 3}
+            {del asdf*}
+            {del asdf*}
+            {del asdf*}
+            {set asdf4 4}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {propagation with eviction in MULTI} {
+        set repl [attach_to_replication_stream]
+
+        r config set maxmemory-policy allkeys-lru
+
+        r multi
+        r incr x
+        r config set maxmemory 1
+        r incr x
+        assert_equal [r exec] {1 OK 2}
+
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
+        }
+
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {incr x}
+            {incr x}
+            {exec}
+            {del x}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
     }
 }

@@ -115,6 +115,7 @@ start_server {tags {"obuf-limits external:skip"}} {
     }
 
     test {No response for single command if client output buffer hard limit is enforced} {
+        r config set latency-tracking no
         r config set client-output-buffer-limit {normal 100000 0 0}
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]

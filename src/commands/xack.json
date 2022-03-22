@@ -1,0 +1,53 @@
+{
+    "XACK": {
+        "summary": "Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.",
+        "complexity": "O(1) for each message ID processed.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -4,
+        "function": "xackCommand",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "group",
+                "type": "string"
+            },
+            {
+                "name": "ID",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

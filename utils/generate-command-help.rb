@@ -5,7 +5,7 @@ GROUPS = [
   "string",
   "list",
   "set",
-  "sorted_set",
+  "sorted-set",
   "hash",
   "pubsub",
   "transactions",
@@ -27,16 +27,23 @@ GROUPS_BY_NAME = Hash[*
 
 def argument arg
   if "block" == arg["type"]
-    name = arg["block"].map do |entry|
+    name = arg["arguments"].map do |entry|
       argument entry
     end.join " "
+  elsif "oneof" == arg["type"]
+    name = arg["arguments"].map do |entry|
+      argument entry
+    end.join "|"
+  elsif "pure-token" == arg["type"]
+    name = nil    # prepended later
   else
     name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
-    name = arg["enum"].join "|" if "enum" == arg["type"]
-    name = arg["command"] + (name ? " " + name : "") if arg["command"]
   end
   if arg["multiple"]
     name = "#{name} [#{name} ...]"
+  end
+  if arg["token"]
+    name = [arg["token"], name].compact.join " "
   end
   if arg["optional"]
     name = "[#{name}]"

@@ -56,6 +56,16 @@
 #define ULONG_ZEROONE 0x5555555555555555UL
 #endif
 
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+
+#if !defined(NO_SANITIZE)
+#define NO_SANITIZE(sanitizer)
+#endif
+
 static struct winsize ws;
 size_t progress_printed; /* Printed chars in screen-wide progress bar. */
 size_t progress_full; /* How many chars to write to fill the progress bar. */
@@ -277,6 +287,8 @@ int memtest_test(unsigned long *m, size_t bytes, int passes, int interactive) {
  * end of the region between fill and compare cycles in order to trash
  * the cache. */
 #define MEMTEST_DECACHE_SIZE (1024*8)
+
+NO_SANITIZE("undefined")
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
     unsigned long backup[MEMTEST_BACKUP_WORDS];
     unsigned long *p = m;

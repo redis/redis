@@ -34,8 +34,10 @@ endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
-# Detect if the compiler supports C11 _Atomic
-C11_ATOMIC := $(shell sh -c 'echo "\#include <stdatomic.h>" > foo.c; \
+# Detect if the compiler supports C11 _Atomic.
+# NUMBER_SIGN_CHAR is a workaround to support both GNU Make 4.3 and older versions.
+NUMBER_SIGN_CHAR := \#
+C11_ATOMIC := $(shell sh -c 'echo "$(NUMBER_SIGN_CHAR)include <stdatomic.h>" > foo.c; \
 	$(CC) -std=c11 -c foo.c -o foo.o > /dev/null 2>&1; \
 	if [ -f foo.o ]; then echo "yes"; rm foo.o; fi; rm foo.c')
 ifeq ($(C11_ATOMIC),yes)
@@ -48,6 +50,10 @@ PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
 PKG_CONFIG?=pkg-config
+
+ifndef PYTHON
+PYTHON := $(shell which python3 || which python)
+endif
 
 # Default allocator defaults to Jemalloc if it's not an ARM
 MALLOC=libc
@@ -83,6 +89,27 @@ endif
 
 ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
+endif
+
+ifdef SANITIZER
+ifeq ($(SANITIZER),address)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=address -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=address
+else
+ifeq ($(SANITIZER),undefined)
+	MALLOC=libc
+	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=undefined
+else
+ifeq ($(SANITIZER),thread)
+	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=thread
+else
+    $(error "unknown sanitizer=${SANITIZER}")
+endif
+endif
+endif
 endif
 
 # Override default settings if possible
@@ -282,13 +309,14 @@ ENDCOLOR="\033[0m"
 
 ifndef V
 QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
+QUIET_GEN = @printf '    %b %b\n' $(CCCOLOR)GEN$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 QUIET_INSTALL = @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
 REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o resp_parser.o call_reply.o
+REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o eval.o bio.o rio.o rand.o memtest.o crcspeed.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o acl.o tracking.o connection.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o resp_parser.o call_reply.o script_lua.o script.o functions.o function_lua.o commands.o
 REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
 REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o redisassert.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o
 REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
@@ -342,7 +370,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
@@ -362,7 +390,7 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 
 # redis-benchmark
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/hdr_histogram.o $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
 
 DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
@@ -372,6 +400,13 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 # depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
+
+# The file commands.c is checked in and doesn't normally need to be rebuilt. It
+# is built only if python is available and its prereqs are modified.
+ifneq (,$(PYTHON))
+commands.c: commands/*.json ../utils/generate-command-code.py
+	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py
+endif
 
 clean:
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
@@ -429,9 +464,6 @@ valgrind:
 
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
-
-src/help.h:
-	@../utils/generate-command-help.rb > help.h
 
 install: all
 	@mkdir -p $(INSTALL_BIN)

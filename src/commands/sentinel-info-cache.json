@@ -1,0 +1,23 @@
+{
+    "INFO-CACHE": {
+        "summary": "Get cached INFO from the instances in the deployment",
+        "complexity": "O(N) where N is the number of instances",
+        "group": "sentinel",
+        "since": "3.2.0",
+        "arity": -3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "nodename",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

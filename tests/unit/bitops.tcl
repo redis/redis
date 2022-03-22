@@ -433,6 +433,12 @@ start_server {tags {"bitops"}} {
         r bitfield foo3{t} incrby i5 0 1
         set dirty5 [s rdb_changes_since_last_save]
         assert {$dirty5 == $dirty4 + 2}
+
+        # Change length only
+        r setbit foo{t} 90 0
+        r bitfield foo2{t} set i5 90 0
+        set dirty6 [s rdb_changes_since_last_save]
+        assert {$dirty6 == $dirty5 + 2}
     }
 
     test {BITPOS bit=1 fuzzy testing using SETBIT} {
@@ -566,4 +572,18 @@ start_server {tags {"bitops"}} {
         r config set proto-max-bulk-len $oldval
         r del mykey
     } {1} {large-memory}
+
+    test "SETBIT values larger than UINT32_MAX and lzf_compress/lzf_decompress correctly" {
+        set bytes [expr (1 << 32) + 1]
+        set bitpos [expr (1 << 35)]
+        set oldval [lindex [r config get proto-max-bulk-len] 1]
+        r config set proto-max-bulk-len $bytes
+        r setbit mykey $bitpos 1
+        assert_equal $bytes [r strlen mykey]
+        assert_equal 1 [r getbit mykey $bitpos]
+        r debug reload ;# lzf_compress/lzf_decompress when RDB saving/loading.
+        assert_equal 1 [r getbit mykey $bitpos]
+        r config set proto-max-bulk-len $oldval
+        r del mykey
+    } {1} {large-memory needs:debug}
 }

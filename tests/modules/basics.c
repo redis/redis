@@ -30,7 +30,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <string.h>
 #include <stdlib.h>
@@ -285,7 +284,7 @@ int TestCallResp3Double(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     /* we compare strings, since comparing doubles directly can fail in various architectures, e.g. 32bit */
     char got[30], expected[30];
     sprintf(got, "%.17g", d);
-    sprintf(expected, "%.17g", 3.14159265359);
+    sprintf(expected, "%.17g", 3.141);
     if (strcmp(got, expected) != 0) goto fail;
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -936,12 +935,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.basics",
-        TestBasics,"readonly",1,1,1) == REDISMODULE_ERR)
+        TestBasics,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* the following commands are used by an external test and should not be added to TestBasics */
     if (RedisModule_CreateCommand(ctx,"test.rmcallautomode",
-        TestCallRespAutoMode,"readonly",1,1,1) == REDISMODULE_ERR)
+        TestCallRespAutoMode,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.getresp",

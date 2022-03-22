@@ -63,6 +63,13 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
     defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
@@ -118,6 +125,15 @@
 #else
 #define likely(x) (x)
 #define unlikely(x) (x)
+#endif
+
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use

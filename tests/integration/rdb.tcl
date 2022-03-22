@@ -4,6 +4,15 @@ set server_path [tmpdir "server.rdb-encoding-test"]
 
 # Copy RDB with different encodings in server path
 exec cp tests/assets/encodings.rdb $server_path
+exec cp tests/assets/list-quicklist.rdb $server_path
+
+start_server [list overrides [list "dir" $server_path "dbfilename" "list-quicklist.rdb"]] {
+    test "test old version rdb file" {
+        r select 0
+        assert_equal [r get x] 7
+        r lpop list
+    } {7}
+}
 
 start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rdb"]] {
   test "RDB encoding loading test" {
@@ -29,7 +38,7 @@ set server_path [tmpdir "server.rdb-startup-test"]
 
 start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with non-existing RDB file} {
-        r debug digest
+        debug_digest
     } {0000000000000000000000000000000000000000}
     # Save an RDB file, needed for the next test.
     r save
@@ -37,7 +46,7 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
 
 start_server [list overrides [list "dir" $server_path] keep_persistence true] {
     test {Server started empty with empty RDB file} {
-        r debug digest
+        debug_digest
     } {0000000000000000000000000000000000000000}
 }
 
@@ -54,16 +63,16 @@ start_server [list overrides [list "dir" $server_path] keep_persistence true] {
         set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
         r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
         r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
-        set digest [r debug digest]
+        set digest [debug_digest]
         r config set sanitize-dump-payload no
         r debug reload
-        set newdigest [r debug digest]
+        set newdigest [debug_digest]
         assert {$digest eq $newdigest}
     }
     test {Test RDB stream encoding - sanitize dump} {
         r config set sanitize-dump-payload yes
         r debug reload
-        set newdigest [r debug digest]
+        set newdigest [debug_digest]
         assert {$digest eq $newdigest}
     }
     # delete the stream, maybe valgrind will find something
@@ -130,19 +139,21 @@ start_server_and_kill_it [list "dir" $server_path] {
 
 start_server {} {
     test {Test FLUSHALL aborts bgsave} {
-        # 1000 keys with 1ms sleep per key should take 1 second
+        r config set save ""
+        # 5000 keys with 1ms sleep per key should take 5 second
         r config set rdb-key-save-delay 1000
-        r debug populate 1000
+        populate 5000
+        assert_lessthan 999 [s rdb_changes_since_last_save]
         r bgsave
         assert_equal [s rdb_bgsave_in_progress] 1
         r flushall
-        # wait half a second max
-        wait_for_condition 5 100 {
+        # wait a second max (bgsave should take 5)
+        wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] == 0
         } else {
             fail "bgsave not aborted"
         }
-        # veirfy that bgsave failed, by checking that the change counter is still high
+        # verify that bgsave failed, by checking that the change counter is still high
         assert_lessthan 999 [s rdb_changes_since_last_save]
         # make sure the server is still writable
         r set x xx
@@ -161,7 +172,7 @@ start_server {} {
 }
 
 test {client freed during loading} {
-    start_server [list overrides [list key-load-delay 50 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
         # 100mb of rdb, 100k keys will load in more than 5 seconds
@@ -345,5 +356,14 @@ start_server {overrides {save ""}} {
     }
 }
 } ;# system_name
+
+exec cp -f tests/assets/scriptbackup.rdb $server_path
+start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup.rdb" "appendonly" "no"]] {
+    # the script is: "return redis.call('set', 'foo', 'bar')""
+    # its sha1   is: a0c38691e9fffe4563723c32ba77a34398e090e6
+    test {script won't load anymore if it's in rdb} {
+        assert_equal [r script exists a0c38691e9fffe4563723c32ba77a34398e090e6] 0
+    }
+}
 
 } ;# tags

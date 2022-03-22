@@ -19,14 +19,27 @@ proc check_valgrind_errors stderr {
     }
 }
 
+proc check_sanitizer_errors stderr {
+    set res [sanitizer_errors_from_file $stderr]
+    if {$res != ""} {
+        send_data_packet $::test_server_fd err "Sanitizer error: $res\n"
+    }
+}
+
 proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
     set config [dict get $config "config"]
-    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
-    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set dir [dict get $config "dir"]
+    set rdb [format "%s/%s" $dir "dump.rdb"]
+    if {[dict exists $config "appenddirname"]} {
+        set aofdir [dict get $config "appenddirname"]
+    } else {
+        set aofdir "appendonlydir"
+    }
+    set aof_dirpath [format "%s/%s" $dir $aofdir]
+    clean_aof_persistence $aof_dirpath
     catch {exec rm -rf $rdb}
-    catch {exec rm -rf $aof}
 }
 
 proc kill_server config {
@@ -44,6 +57,8 @@ proc kill_server config {
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
         }
+
+        check_sanitizer_errors [dict get $config stderr]
         return
     }
     set pid [dict get $config pid]
@@ -80,14 +95,17 @@ proc kill_server config {
     # Node might have been stopped in the test
     catch {exec kill -SIGCONT $pid}
     if {$::valgrind} {
-        set max_wait 60000
+        set max_wait 120000
     } else {
         set max_wait 10000
     }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= $max_wait} {
+        if {$wait == $max_wait} {
+            puts "Forcing process $pid to crash..."
+            catch {exec kill -SEGV $pid}
+        } elseif {$wait >= $max_wait * 2} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -100,6 +118,8 @@ proc kill_server config {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
+
+    check_sanitizer_errors [dict get $config stderr]
 
     # Remove this pid from the set of active pids in the test server.
     send_data_packet $::test_server_fd server-killed $pid
@@ -207,6 +227,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {!$::large_memory && [lsearch $tags "large-memory"] >= 0} {
+        set err "large memory flag not provided"
+        return 0
+    }
+
     return 1
 }
 
@@ -243,7 +268,10 @@ proc spawn_server {config_file stdout stderr} {
     } elseif ($::stack_logging) {
         set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
     } else {
-        set pid [exec src/redis-server $config_file >> $stdout 2>> $stderr &]
+        # ASAN_OPTIONS environment variable is for address sanitizer. If a test
+        # tries to allocate huge memory area and expects allocator to return
+        # NULL, address sanitizer throws an error without this setting.
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -291,6 +319,10 @@ proc dump_server_log {srv} {
     puts "\n===== Start of server log (pid $pid) =====\n"
     puts [exec cat [dict get $srv "stdout"]]
     puts "===== End of server log (pid $pid) =====\n"
+
+    puts "\n===== Start of server stderr log (pid $pid) =====\n"
+    puts [exec cat [dict get $srv "stderr"]]
+    puts "===== End of server stderr log (pid $pid) =====\n"
 }
 
 proc run_external_server_test {code overrides} {
@@ -317,6 +349,7 @@ proc run_external_server_test {code overrides} {
     }
 
     r flushall
+    r function flush
 
     # store overrides
     set saved_config {}
@@ -352,7 +385,11 @@ proc run_external_server_test {code overrides} {
         r config set $param $val
     }
 
-    lpop ::servers
+    set srv [lpop ::servers]
+    
+    if {[dict exists $srv "client"]} {
+        [dict get $srv "client"] close
+    }
 }
 
 proc start_server {options {code undefined}} {
@@ -468,6 +505,10 @@ proc start_server {options {code undefined}} {
         close $fd
     }
 
+    # We may have a stdout left over from the previous tests, so we need
+    # to get the current count of ready logs
+    set previous_ready_count [count_message_lines $stdout "Ready to accept"]
+
     # We need a loop here to retry with different ports.
     set server_started 0
     while {$server_started == 0} {
@@ -548,7 +589,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > 0} {
+            if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
                 break
             }
             after 10
@@ -589,6 +630,13 @@ proc start_server {options {code undefined}} {
                 if {[string length $crashlog] > 0} {
                     puts [format "\nLogged crash report (pid %d):" [dict get $srv "pid"]]
                     puts "$crashlog"
+                    puts ""
+                }
+
+                set sanitizerlog [sanitizer_errors_from_file [dict get $srv "stderr"]]
+                if {[string length $sanitizerlog] > 0} {
+                    puts [format "\nLogged sanitizer errors (pid %d):" [dict get $srv "pid"]]
+                    puts "$sanitizerlog"
                     puts ""
                 }
             }
@@ -636,8 +684,20 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
+# Start multiple servers with the same options, run code, then stop them.
+proc start_multiple_servers {num options code} {
+    for {set i 0} {$i < $num} {incr i} {
+        set code [list start_server $options $code]
+    }
+    uplevel 1 $code
+}
+
+proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
     set srv [lindex $::servers end+$level]
+    if {$shutdown ne {sigterm}} {
+        catch {[dict get $srv "client"] shutdown $shutdown}
+    }
+    # Kill server doesn't mind if the server is already dead
     kill_server $srv
     # Remove the default client from the server
     dict unset srv "client"

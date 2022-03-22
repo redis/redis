@@ -120,8 +120,9 @@ void zslFree(zskiplist *zsl) {
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
 int zslRandomLevel(void) {
+    static const int threshold = ZSKIPLIST_P*RAND_MAX;
     int level = 1;
-    while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
+    while (random() < threshold)
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
@@ -1377,7 +1378,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         }
     }
 
-    /* Note that the above block handling ziplist would have either returned or
+    /* Note that the above block handling listpack would have either returned or
      * converted the key to skiplist. */
     if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
@@ -2538,7 +2539,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     if (setnum < 1) {
         addReplyErrorFormat(c,
-            "at least 1 input key is needed for %s", c->cmd->name);
+            "at least 1 input key is needed for '%s' command", c->cmd->fullname);
         return;
     }
 
@@ -2551,9 +2552,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        robj *obj = dstkey ?
-            lookupKeyWrite(c->db,c->argv[j]) :
-            lookupKeyRead(c->db,c->argv[j]);
+        robj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -2762,7 +2761,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     if (dstkey) {
         if (dstzset->zsl->length) {
             zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
-            setKey(c, c->db, dstkey, dstobj);
+            setKey(c, c->db, dstkey, dstobj, 0);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
                                 (op == SET_OP_UNION) ? "zunionstore" :
@@ -2850,7 +2849,7 @@ typedef enum {
 
 typedef struct zrange_result_handler zrange_result_handler;
 
-typedef void (*zrangeResultBeginFunction)(zrange_result_handler *c);
+typedef void (*zrangeResultBeginFunction)(zrange_result_handler *c, long length);
 typedef void (*zrangeResultFinalizeFunction)(
     zrange_result_handler *c, size_t result_count);
 typedef void (*zrangeResultEmitCBufferFunction)(
@@ -2878,8 +2877,22 @@ struct zrange_result_handler {
     zrangeResultEmitLongLongFunction     emitResultFromLongLong;
 };
 
-/* Result handler methods for responding the ZRANGE to clients. */
-static void zrangeResultBeginClient(zrange_result_handler *handler) {
+/* Result handler methods for responding the ZRANGE to clients.
+ * length can be used to provide the result length in advance (avoids deferred reply overhead).
+ * length can be set to -1 if the result length is not know in advance.
+ */
+static void zrangeResultBeginClient(zrange_result_handler *handler, long length) {
+    if (length > 0) {
+        /* In case of WITHSCORES, respond with a single array in RESP2, and
+        * nested arrays in RESP3. We can't use a map response type since the
+        * client library needs to know to respect the order. */
+        if (handler->withscores && (handler->client->resp == 2)) {
+            length *= 2;
+        }
+        addReplyArrayLen(handler->client, length);
+        handler->userdata = NULL;
+        return;
+    }
     handler->userdata = addReplyDeferredLen(handler->client);
 }
 
@@ -2914,6 +2927,9 @@ static void zrangeResultEmitLongLongToClient(zrange_result_handler *handler,
 static void zrangeResultFinalizeClient(zrange_result_handler *handler,
     size_t result_count)
 {
+    /* If the reply size was know at start there's nothing left to do */
+    if (!handler->userdata)
+        return;
     /* In case of WITHSCORES, respond with a single array in RESP2, and
      * nested arrays in RESP3. We can't use a map response type since the
      * client library needs to know to respect the order. */
@@ -2925,8 +2941,9 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 }
 
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
-static void zrangeResultBeginStore(zrange_result_handler *handler)
+static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
+    UNUSED(length);
     handler->dstobj = createZsetListpackObject();
 }
 
@@ -2955,7 +2972,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
     if (result_count) {
-        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj);
+        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj, 0);
         addReplyLongLong(handler->client, result_count);
         notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey, handler->client->db->id);
         server.dirty++;
@@ -3021,11 +3038,11 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
 
-    handler->beginResultEmission(handler);
 
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
+        handler->beginResultEmission(handler, 0);
         handler->finalizeResultEmission(handler, 0);
         return;
     }
@@ -3033,6 +3050,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
     rangelen = (end-start)+1;
     result_cardinality = rangelen;
 
+    handler->beginResultEmission(handler, rangelen);
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -3126,7 +3144,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
     int reverse) {
     unsigned long rangelen = 0;
 
-    handler->beginResultEmission(handler);
+    handler->beginResultEmission(handler, -1);
 
     /* For invalid offset, return directly. */
     if (offset > 0 && offset >= (long)zsetLength(zobj)) {
@@ -3411,7 +3429,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 {
     unsigned long rangelen = 0;
 
-    handler->beginResultEmission(handler);
+    handler->beginResultEmission(handler, -1);
 
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
@@ -3646,12 +3664,10 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    zobj = handler->dstkey ?
-        lookupKeyWrite(c->db,key) :
-        lookupKeyRead(c->db,key);
+    zobj = lookupKeyRead(c->db, key);
     if (zobj == NULL) {
         if (store) {
-            handler->beginResultEmission(handler);
+            handler->beginResultEmission(handler, -1);
             handler->finalizeResultEmission(handler, 0);
         } else {
             addReply(c, shared.emptyarray);
@@ -3776,7 +3792,7 @@ void zscanCommand(client *c) {
  * behavior of BZPOP[MIN|MAX], since we can block into multiple keys.
  * Or in ZMPOP/BZMPOP, because we also can take multiple keys.
  *
- * 'count' is the number of elements requested to pop, or 0 for plain single pop.
+ * 'count' is the number of elements requested to pop, or -1 for plain single pop.
  *
  * 'use_nested_array' when false it generates a flat array (with or without key name).
  * When true, it generates a nested 2 level array of field + score pairs, or 3 level when emitkey is set.
@@ -3819,10 +3835,16 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         return;
     }
 
+    if (count == 0) {
+        /* ZPOPMIN/ZPOPMAX with count 0. */
+        addReply(c, shared.emptyarray);
+        return;
+    }
+
     long result_count = 0;
 
-    /* When count is 0, we need to correct it to 1 for plain single pop. */
-    if (count == 0) count = 1;
+    /* When count is -1, we need to correct it to 1 for plain single pop. */
+    if (count == -1) count = 1;
 
     long llen = zsetLength(zobj);
     long rangelen = (count > llen) ? llen : count;
@@ -3926,20 +3948,13 @@ void zpopMinMaxCommand(client *c, int where) {
         return;
     }
 
-    long count = 0; /* 0 for plain single pop. */
-    if (c->argc == 3) {
-        if (getLongFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
-            return;
+    long count = -1; /* -1 for plain single pop. */
+    if (c->argc == 3 && getPositiveLongFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
+        return;
 
-        if (count <= 0) {
-            addReply(c, shared.emptyarray);
-            return;
-        }
-    }
-
-    /* Respond with a single (flat) array in RESP2 or if count is 0
+    /* Respond with a single (flat) array in RESP2 or if count is -1
      * (returning a single element). In RESP3, when count > 0 use nested array. */
-    int use_nested_array = (c->resp > 2 && count != 0);
+    int use_nested_array = (c->resp > 2 && count != -1);
 
     genericZpopCommand(c, &c->argv[1], 1, where, 0, count, use_nested_array, 0, NULL);
 }
@@ -3962,7 +3977,7 @@ void zpopmaxCommand(client *c) {
  *
  * 'where' ZSET_MIN or ZSET_MAX.
  *
- * 'count' is the number of elements requested to pop, or 0 for plain single pop.
+ * 'count' is the number of elements requested to pop, or -1 for plain single pop.
  *
  * 'use_nested_array' when false it generates a flat array (with or without key name).
  * When true, it generates a nested 3 level array of keyname, field + score pairs.
@@ -3992,7 +4007,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
         /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
         genericZpopCommand(c, &key, 1, where, 1, count, use_nested_array, reply_nil_when_empty, NULL);
 
-        if (count == 0) {
+        if (count == -1) {
             /* Replicate it as ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
             rewriteClientCommandVector(c,2,
                                        (where == ZSET_MAX) ? shared.zpopmax : shared.zpopmin,
@@ -4023,12 +4038,12 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
 // BZPOPMIN key [key ...] timeout
 void bzpopminCommand(client *c) {
-    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN, c->argc-1, 0, 0, 0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN, c->argc-1, -1, 0, 0);
 }
 
 // BZPOPMAX key [key ...] timeout
 void bzpopmaxCommand(client *c) {
-    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, 0, 0, 0);
+    blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, -1, 0, 0);
 }
 
 static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
@@ -4287,7 +4302,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     long j;
     long numkeys = 0;      /* Number of keys. */
     int where = 0;         /* ZSET_MIN or ZSET_MAX. */
-    long count = 1;        /* Reply will consist of up to count elements, depending on the zset's length. */
+    long count = -1;       /* Reply will consist of up to count elements, depending on the zset's length. */
 
     /* Parse the numkeys. */
     if (getRangeLongFromObjectOrReply(c, c->argv[numkeys_idx], 1, LONG_MAX,
@@ -4314,7 +4329,7 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc - 1) - j;
 
-        if (!strcasecmp(opt, "COUNT") && moreargs) {
+        if (count == -1 && !strcasecmp(opt, "COUNT") && moreargs) {
             j++;
             if (getRangeLongFromObjectOrReply(c, c->argv[j], 1, LONG_MAX,
                                               &count,"count should be greater than 0") != C_OK)
@@ -4324,6 +4339,8 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
             return;
         }
     }
+
+    if (count == -1) count = 1;
 
     if (is_block) {
         /* BLOCK. We will handle CLIENT_DENY_BLOCKING flag in blockingGenericZpopCommand. */

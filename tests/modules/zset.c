@@ -22,7 +22,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "zset", 1, REDISMODULE_APIVER_1) ==
         REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "zset.rem", zset_rem, "",
+        RedisModule_CreateCommand(ctx, "zset.rem", zset_rem, "write",
                                   1, 1, 1) == REDISMODULE_OK)
         return REDISMODULE_OK;
     else

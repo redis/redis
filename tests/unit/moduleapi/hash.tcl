@@ -20,4 +20,8 @@ start_server {tags {"modules"}} {
         assert_equal 1 [r hash.set k "" sushi :delete: none :delete:]
         r hgetall k
     } {squirrel ofcourse banana no what nothing something nice}
+
+    test "Unload the module - hash" {
+        assert_equal {OK} [r module unload hash]
+    }
 }

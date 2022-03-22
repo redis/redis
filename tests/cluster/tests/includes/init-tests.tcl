@@ -41,6 +41,9 @@ test "Cluster nodes hard reset" {
         R $id config set cluster-slave-validity-factor 10
         R $id config set loading-process-events-interval-bytes 2097152
         R $id config set key-load-delay 0
+        R $id config set repl-diskless-load disabled
+        R $id config set cluster-announce-hostname ""
+        R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
         R $id config rewrite
     }
 }

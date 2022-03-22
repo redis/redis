@@ -1,0 +1,53 @@
+{
+    "CREATECONSUMER": {
+        "summary": "Create a consumer in a consumer group.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "6.2.0",
+        "arity": 5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "groupname",
+                "type": "string"
+            },
+            {
+                "name": "consumername",
+                "type": "string"
+            }
+        ]
+    }
+}
