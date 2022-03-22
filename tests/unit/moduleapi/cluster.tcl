@@ -20,6 +20,7 @@ proc csi {args} {
 
 set testmodule [file normalize tests/modules/blockonkeys.so]
 set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
+set testmodule_blockedclient [file normalize tests/modules/blockedclient.so]
 
 # make sure the test infra won't use SELECT
 set old_singledb $::singledb
@@ -43,6 +44,10 @@ start_server [list overrides $base_conf] {
     $node1 module load $testmodule_nokey
     $node2 module load $testmodule_nokey
     $node3 module load $testmodule_nokey
+
+    $node1 module load $testmodule_blockedclient
+    $node2 module load $testmodule_blockedclient
+    $node3 module load $testmodule_blockedclient
 
     test {Create 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
@@ -192,6 +197,10 @@ start_server [list overrides $base_conf] {
         # verify there are no blocked clients
         assert_equal [s 0 blocked_clients]  {0}
         assert_equal [s -1 blocked_clients]  {0}
+    }
+
+    test "Verify command RM_Call is rejected when cluster is down" {
+        assert_error "ERR Can not execute a command 'set' while the cluster is down" {$node1 do_rm_call set x 1}
     }
 
     exec kill -SIGCONT $node3_pid

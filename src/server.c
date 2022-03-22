@@ -3426,6 +3426,16 @@ void rejectCommand(client *c, robj *reply) {
     }
 }
 
+void rejectCommandSds(client *c, sds s) {
+    if (c->cmd && c->cmd->proc == execCommand) {
+        execCommandAbort(c, s);
+        sdsfree(s);
+    } else {
+        /* The following frees 's'. */
+        addReplyErrorSds(c, s);
+    }
+}
+
 void rejectCommandFormat(client *c, const char *fmt, ...) {
     if (c->cmd) c->cmd->rejected_calls++;
     flagTransaction(c);
@@ -3436,13 +3446,7 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
     /* Make sure there are no newlines in the string, otherwise invalid protocol
      * is emitted (The args come from the user, they may contain any character). */
     sdsmapchars(s, "\r\n", "  ",  2);
-    if (c->cmd && c->cmd->proc == execCommand) {
-        execCommandAbort(c, s);
-        sdsfree(s);
-    } else {
-        /* The following frees 's'. */
-        addReplyErrorSds(c, s);
-    }
+    rejectCommandSds(c, s);
 }
 
 /* This is called after a command in call, we can do some maintenance job in it. */
@@ -3725,23 +3729,14 @@ int processCommand(client *c) {
         server.masterhost == NULL &&
         (is_write_command ||c->cmd->proc == pingCommand))
     {
-        if (deny_write_type == DISK_ERROR_TYPE_RDB)
-            rejectCommand(c, shared.bgsaveerr);
-        else
-            rejectCommandFormat(c,
-                "-MISCONF Errors writing to the AOF file: %s",
-                strerror(server.aof_last_write_errno));
+        sds err = writeCommandsGetDiskErrorMessage(deny_write_type);
+        rejectCommandSds(c, err);
         return C_OK;
     }
 
     /* Don't accept write commands if there are not enough good slaves and
      * user configured the min-slaves-to-write option. */
-    if (server.masterhost == NULL &&
-        server.repl_min_slaves_to_write &&
-        server.repl_min_slaves_max_lag &&
-        is_write_command &&
-        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-    {
+    if (is_write_command && !checkGoodReplicasStatus()) {
         rejectCommand(c, shared.noreplicaserr);
         return C_OK;
     }
@@ -4164,6 +4159,18 @@ int writeCommandsDeniedByDiskError(void) {
     }
 
     return DISK_ERROR_TYPE_NONE;
+}
+
+sds writeCommandsGetDiskErrorMessage(int error_code) {
+    sds ret = NULL;
+    if (error_code == DISK_ERROR_TYPE_RDB) {
+        ret = sdsdup(shared.bgsaveerr->ptr);
+    } else {
+        ret = sdscatfmt(sdsempty(),
+                "-MISCONF Errors writing to the AOF file: %s",
+                strerror(server.aof_last_write_errno));
+    }
+    return ret;
 }
 
 /* The PING command. It works in a different way if the client is in
