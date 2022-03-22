@@ -5596,13 +5596,13 @@ fmterr:
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Check if command can be executed according to ACL rules.
- *     * 'S' -- Run the command in a script mode, this means that it will raise an error
- *              if a command which are not allowed inside a script (flagged with the no-script flag)
- *              is invoked (like SHUTDOWN).
+ *     * 'S' -- Run the command in a script mode, this means that it will raise
+ *              an error if a command which are not allowed inside a script
+ *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
  *              In addition, on script mode, write commands are not allowed if there are
  *              not enough good replicas (as configured with repl_min_slaves_to_write)
  *              or when the server is unable to persist to the disk.
- *     * 'W' -- Do not allow to run any write command (flagged with the write flag).
+ *     * 'W' -- Do not allow to run any write command (flagged with the `write` flag).
  *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
