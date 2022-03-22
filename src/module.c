@@ -10877,8 +10877,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
         return C_ERR;
     }
-    /* If this is a loadex command we want to populate server.module_configs_queue with sds NAME VALUE pairs.
-     * We also want to increment argv to just after ARGS. */
     onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
     if (onload == NULL) {
         dlclose(handle);
@@ -11579,7 +11577,8 @@ NULL
             argc = c->argc - 3;
             argv = &c->argv[3];
         }
-
+        /* If this is a loadex command we want to populate server.module_configs_queue with 
+         * sds NAME VALUE pairs. We also want to increment argv to just after ARGS, if supplied. */
         if (parseLoadexArguments((RedisModuleString ***) &argv, &argc) == REDISMODULE_OK &&
             moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
             addReply(c,shared.ok);

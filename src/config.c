@@ -654,7 +654,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sdsfree(config);
 }
 
-int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
+static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
     sds *argv;
     int argc, res;
 
@@ -851,7 +851,7 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
         if (!apply_fns[i](&errstr)) {
             serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
-            restoreBackupConfig(set_configs, old_values, config_count, apply_fns, module_configs_apply);
+            restoreBackupConfig(set_configs, old_values, config_count, apply_fns, NULL);
             err_arg_name = set_configs[config_map_fns[i]]->name;
             goto err;
         }
@@ -1803,7 +1803,7 @@ static void stringConfigRewrite(standardConfig *config, const char *name, struct
 
 /* SDS Configs */
 static void sdsConfigInit(standardConfig *config) {
-    *config->data.sds.config = (config->data.sds.convert_empty_to_null && !config->data.sds.default_value) ? NULL: sdsnew(config->data.sds.default_value);
+    *config->data.sds.config = (config->data.sds.convert_empty_to_null && !config->data.sds.default_value) ? NULL : sdsnew(config->data.sds.default_value);
 }
 
 static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
