@@ -1104,7 +1104,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     s[j++]="mt.__newindex = function (t, n, v)\n";
     s[j++]="  if dbg.getinfo(2) then\n";
     s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]="    if w ~= \"main\" and w ~= \"C\" then\n";
+    s[j++]="    if w ~= \"C\" then\n";
     s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="    end\n";
     s[j++]="  end\n";
@@ -1423,14 +1423,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
         return dictGetKey(de);
     }
 
-    sds funcdef = sdsempty();
-    funcdef = sdscat(funcdef,"function ");
-    funcdef = sdscatlen(funcdef,funcname,42);
-    funcdef = sdscatlen(funcdef,"() ",3);
-    funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
-    funcdef = sdscatlen(funcdef,"\nend",4);
-
-    if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
+    if (luaL_loadbuffer(lua,body->ptr,sdslen(body->ptr),"@user_script")) {
         if (c != NULL) {
             addReplyErrorFormat(c,
                 "Error compiling script (new function): %s\n",
@@ -1438,20 +1431,12 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
         }
         lua_pop(lua,1);
         sdsfree(sha);
-        sdsfree(funcdef);
         return NULL;
     }
-    sdsfree(funcdef);
 
-    if (lua_pcall(lua,0,0,0)) {
-        if (c != NULL) {
-            addReplyErrorFormat(c,"Error running script (new function): %s\n",
-                lua_tostring(lua,-1));
-        }
-        lua_pop(lua,1);
-        sdsfree(sha);
-        return NULL;
-    }
+    serverAssert(lua_isfunction(lua, -1));
+
+    lua_setfield(lua, LUA_REGISTRYINDEX, funcname);
 
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
@@ -1579,7 +1564,7 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_getglobal(lua, "__redis__err__handler");
 
     /* Try to lookup the Lua function */
-    lua_getglobal(lua, funcname);
+    lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
     if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
@@ -1597,7 +1582,7 @@ void evalGenericCommand(client *c, int evalsha) {
             return;
         }
         /* Now the following is guaranteed to return non nil */
-        lua_getglobal(lua, funcname);
+        lua_getfield(lua, LUA_REGISTRYINDEX, funcname);
         serverAssert(!lua_isnil(lua,-1));
     }
 
