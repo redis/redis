@@ -1086,43 +1086,39 @@ void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_setglobal(lua,"dofile");
 }
 
-/* This function installs metamethods in the global table _G that prevent
- * the creation of globals accidentally.
+static int luaProtectedTableError(lua_State *lua) {
+    int argc = lua_gettop(lua);
+    if (argc != 2) {
+        serverLog(LL_WARNING, "malicious code trying to call luaProtectedTableError with wrong arguments");
+        luaL_error(lua, "Wrong number of arguments to luaProtectedTableError");
+    }
+    if (!lua_isstring(lua, -1) && !lua_isnumber(lua, -1)) {
+        luaL_error(lua, "Second argument to luaProtectedTableError must be a string or number");
+    }
+    const char* variable_name = lua_tostring(lua, -1);
+    luaL_error(lua, "Script attempted to access nonexistent global variable '%s'", variable_name);
+    return 0;
+}
+
+/* Set global protection on table on the top of the stack.
+ * After called, it will no longer be possible to set
+ * new items on the table. Any attempt to access a protected
+ * table for write will result in an error. Any attempt to
+ * get a none existing element from a locked table will result
+ * in an error.
  *
- * It should be the last to be called in the scripting engine initialization
- * sequence, because it may interact with creation of globals. */
-void scriptingEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
-    sds code = sdsempty();
-    int j = 0;
+ * The function assumes the Lua stack have a least enough
+ * space to push 2 element, its up to the caller to verify
+ * this before calling this function. */
+void luaSetGlobalProtection(lua_State *lua) {
+    lua_newtable(lua); /* push metatable */
+    lua_pushcfunction(lua, luaProtectedTableError); /* push get error handler */
+    lua_setfield(lua, -2, "__index");
+    lua_enablereadonlytable(lua, -1, 1); /* protect the metatable */
 
-    /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
-     * Modified to be adapted to Redis. */
-    s[j++]="local dbg=debug\n";
-    s[j++]="local mt = {}\n";
-    s[j++]="setmetatable(_G, mt)\n";
-    s[j++]="mt.__newindex = function (t, n, v)\n";
-    s[j++]="  if dbg.getinfo(2) then\n";
-    s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
-    s[j++]="    if w ~= \"C\" then\n";
-    s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="    end\n";
-    s[j++]="  end\n";
-    s[j++]="  rawset(t, n, v)\n";
-    s[j++]="end\n";
-    s[j++]="mt.__index = function (t, n)\n";
-    s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
-    s[j++]="    error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="  end\n";
-    s[j++]="  return rawget(t, n)\n";
-    s[j++]="end\n";
-    s[j++]="debug = nil\n";
-    s[j++]=NULL;
+    lua_setmetatable(lua, -2);
 
-    for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
-    luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
-    lua_pcall(lua,0,0,0);
-    sdsfree(code);
+    lua_enablereadonlytable(lua, -1, 1);
 }
 
 /* Initialize the scripting environment.
@@ -1308,10 +1304,10 @@ void scriptingInit(int setup) {
         server.lua_client->flags |= CLIENT_DENY_BLOCKING;
     }
 
-    /* Lua beginners often don't use "local", this is likely to introduce
-     * subtle bugs in their code. To prevent problems we protect accesses
-     * to global variables. */
-    scriptingEnableGlobalsProtection(lua);
+    /* Lock the global table from any changes */
+    lua_pushvalue(lua, LUA_GLOBALSINDEX);
+    luaSetGlobalProtection(lua);
+    lua_pop(lua, 1);
 
     server.lua = lua;
 }
@@ -1342,7 +1338,9 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
         lua_pushlstring(lua,(char*)elev[j]->ptr,sdslen(elev[j]->ptr));
         lua_rawseti(lua,-2,j+1);
     }
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 0);
     lua_setglobal(lua,var);
+    lua_enablereadonlytable(lua, LUA_GLOBALSINDEX, 1);
 }
 
 /* ---------------------------------------------------------------------------
