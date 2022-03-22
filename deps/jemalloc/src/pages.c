@@ -40,6 +40,57 @@ thp_mode_t init_system_thp_mode;
 /* Runtime support for lazy purge. Irrelevant when !pages_can_purge_lazy. */
 static bool pages_can_purge_lazy_runtime = true;
 
+#ifdef JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS
+static int madvise_dont_need_zeros_is_faulty = -1;
+/**
+ * Check that MADV_DONTNEED will actually zero pages on subsequent access.
+ *
+ * Since qemu does not support this, yet [1], and you can get very tricky
+ * assert if you will run program with jemalloc in use under qemu:
+ *
+ *     <jemalloc>: ../contrib/jemalloc/src/extent.c:1195: Failed assertion: "p[i] == 0"
+ *
+ *   [1]: https://patchwork.kernel.org/patch/10576637/
+ */
+static int madvise_MADV_DONTNEED_zeroes_pages()
+{
+	int works = -1;
+	size_t size = PAGE;
+
+	void * addr = mmap(NULL, size, PROT_READ|PROT_WRITE,
+	    MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+
+	if (addr == MAP_FAILED) {
+		malloc_write("<jemalloc>: Cannot allocate memory for "
+		    "MADV_DONTNEED check\n");
+		if (opt_abort) {
+			abort();
+		}
+	}
+
+	memset(addr, 'A', size);
+	if (madvise(addr, size, MADV_DONTNEED) == 0) {
+		works = memchr(addr, 'A', size) == NULL;
+	} else {
+		/*
+		 * If madvise() does not support MADV_DONTNEED, then we can
+		 * call it anyway, and use it's return code.
+		 */
+		works = 1;
+	}
+
+	if (munmap(addr, size) != 0) {
+		malloc_write("<jemalloc>: Cannot deallocate memory for "
+		    "MADV_DONTNEED check\n");
+		if (opt_abort) {
+			abort();
+		}
+	}
+
+	return works;
+}
+#endif
+
 /******************************************************************************/
 /*
  * Function prototypes for static functions that are referenced prior to
@@ -334,7 +385,8 @@ pages_purge_forced(void *addr, size_t size) {
 
 #if defined(JEMALLOC_PURGE_MADVISE_DONTNEED) && \
     defined(JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS)
-	return (madvise(addr, size, MADV_DONTNEED) != 0);
+	return (unlikely(madvise_dont_need_zeros_is_faulty) ||
+	    madvise(addr, size, MADV_DONTNEED) != 0);
 #elif defined(JEMALLOC_MAPS_COALESCE)
 	/* Try to overlay a new demand-zeroed mapping. */
 	return pages_commit(addr, size);
@@ -605,6 +657,20 @@ pages_boot(void) {
 		}
 		return true;
 	}
+
+#ifdef JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS
+	if (!opt_trust_madvise) {
+		madvise_dont_need_zeros_is_faulty = !madvise_MADV_DONTNEED_zeroes_pages();
+		if (madvise_dont_need_zeros_is_faulty) {
+			malloc_write("<jemalloc>: MADV_DONTNEED does not work (memset will be used instead)\n");
+			malloc_write("<jemalloc>: (This is the expected behaviour if you are running under QEMU)\n");
+		}
+	} else {
+		/* In case opt_trust_madvise is disable,
+		 * do not do runtime check */
+		madvise_dont_need_zeros_is_faulty = 0;
+	}
+#endif
 
 #ifndef _WIN32
 	mmap_flags = MAP_PRIVATE | MAP_ANON;

@@ -159,6 +159,7 @@ TEST_BEGIN(test_mallctl_opt) {
 
 	TEST_MALLCTL_OPT(bool, abort, always);
 	TEST_MALLCTL_OPT(bool, abort_conf, always);
+	TEST_MALLCTL_OPT(bool, trust_madvise, always);
 	TEST_MALLCTL_OPT(bool, confirm_conf, always);
 	TEST_MALLCTL_OPT(const char *, metadata_thp, always);
 	TEST_MALLCTL_OPT(bool, retain, always);

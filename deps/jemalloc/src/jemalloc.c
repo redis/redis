@@ -66,6 +66,13 @@ bool	opt_junk_free =
     false
 #endif
     ;
+bool	opt_trust_madvise =
+#ifdef JEMALLOC_PURGE_MADVISE_DONTNEED_ZEROS
+    false
+#else
+    true
+#endif
+    ;
 
 bool	opt_utrace = false;
 bool	opt_xmalloc = false;
@@ -1174,6 +1181,7 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 
 			CONF_HANDLE_BOOL(opt_abort, "abort")
 			CONF_HANDLE_BOOL(opt_abort_conf, "abort_conf")
+			CONF_HANDLE_BOOL(opt_trust_madvise, "trust_madvise")
 			if (strncmp("metadata_thp", k, klen) == 0) {
 				int i;
 				bool match = false;
