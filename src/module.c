@@ -5600,7 +5600,7 @@ fmterr:
  *              an error if a command which are not allowed inside a script
  *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
  *              In addition, on script mode, write commands are not allowed if there are
- *              not enough good replicas (as configured with repl_min_slaves_to_write)
+ *              not enough good replicas (as configured with `min-replicas-to-write`)
  *              or when the server is unable to persist to the disk.
  *     * 'W' -- Do not allow to run any write command (flagged with the `write` flag).
  *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
