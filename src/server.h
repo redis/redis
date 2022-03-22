@@ -769,6 +769,7 @@ struct RedisModule {
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
     int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
+    int has_configs;             /* This Module has configurations. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
@@ -2976,6 +2977,7 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
+/* Configuration Flags */
 #define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
@@ -2993,6 +2995,7 @@ sds keyspaceEventsFlagsToString(int flags);
 #define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
 #define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
 
+/* Enum Configs contain an array of configEnum objects that match a string with an integer. */
 typedef struct configEnum {
     char *name;
     int val;
@@ -3022,7 +3025,7 @@ int allowProtectedAction(int config, client *c);
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
-int performConfigSetFromName(sds name, sds value, const char **err);
+int performModuleConfigSetFromName(sds name, sds value, const char **err);
 int performModuleConfigInitFromName(sds name, const char **err);
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);

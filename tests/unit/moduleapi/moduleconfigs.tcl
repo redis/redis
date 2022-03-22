@@ -9,7 +9,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
         assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
-        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
     }
@@ -60,7 +60,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
         assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
-        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
@@ -99,67 +99,78 @@ start_server {tags {"modules"}} {
         catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool CONFIG moduleconfigs.enum two ARGS]} e
         assert_match {*Error*} $e
         assert_equal [r config get moduleconfigs.*] ""
+        # Asan will catch this if this string is not freed
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.string rejectisfreed]}
+        assert_match {*Error*} $e
+        assert_equal [r config get moduleconfigs.*] ""
+        # test we can't set random configs
+        catch {[r module loadex $testmodule CONFIG maxclients 500]}
+        assert_match {*Error*} $e
+        assert_equal [r config get moduleconfigs.*] ""
+        assert_equal [r config get maxclients] "maxclients 10000"
+        # test we can't set other module's configs
+        r module load $testmoduletwo
+        catch {[r module loadex $testmodule CONFIG configs.test no]}
+        assert_match {*Error*} $e
+        assert_equal [r config get configs.test] "configs.test yes"
+        r module unload configs
     }
 
     test {test config rewrite with dynamic load} {
-        start_server {tags {"modules"}} {
-            r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
-            assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
-            r config set moduleconfigs.mutable_bool yes
-            r config set moduleconfigs.memory_numeric 750
-            r config set moduleconfigs.string nice
-            r config set moduleconfigs.enum two
-            r config rewrite
-            restart_server 0 true false
-            # Ensure configs we rewrote are present
-            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
-            assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
-            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
-            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-            assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-        }
+        r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
+        assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+        r config set moduleconfigs.mutable_bool yes
+        r config set moduleconfigs.memory_numeric 750
+        r config set moduleconfigs.enum two
+        r config rewrite
+        restart_server 0 true false
+        # Ensure configs we rewrote are present
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        r module unload moduleconfigs
     }
 
     test {test multiple modules with configs} {
-        start_server {tags {"modules"}} {
-            r module load $testmodule
-            r module loadex $testmoduletwo CONFIG configs.test yes
-            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
-            assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
-            assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
-            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string log4j"
-            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
-            assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
-            assert_equal [r config get configs.test] "configs.test yes"
-            r config set moduleconfigs.mutable_bool no
-            r config set moduleconfigs.string nice
-            r config set moduleconfigs.enum two
-            r config set configs.test no
-            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
-            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
-            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-            assert_equal [r config get configs.test] "configs.test no"
-            r config rewrite
-            restart_server 0 true false
-            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
-            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
-            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-            assert_equal [r config get configs.test] "configs.test no"
-        }
+        r module load $testmodule
+        r module loadex $testmoduletwo CONFIG configs.test yes
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+        assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
+        assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
+        assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+        assert_equal [r config get configs.test] "configs.test yes"
+        r config set moduleconfigs.mutable_bool no
+        r config set moduleconfigs.string nice
+        r config set moduleconfigs.enum two
+        r config set configs.test no
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+        assert_equal [r config get configs.test] "configs.test no"
+        r config rewrite
+        restart_server 0 true false
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
+        assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+        assert_equal [r config get configs.test] "configs.test no"
+        r module unload moduleconfigs
+        r module unload configs
     }
 
     test {test 1.module load 2.config rewrite 3.module unload 4.config rewrite works} {
         # Configs need to be removed from the old config file in this case.
-        start_server {tags {"modules"}} {
-            r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
-            assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
-            r config rewrite
-            r module unload moduleconfigs
-            r config rewrite
-            restart_server 0 true false
-            # Ensure configs we rewrote are no longer present
-            assert_equal [r config get moduleconfigs.*] ""
-        }
+        r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
+        assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+        r config rewrite
+        r module unload moduleconfigs
+        r config rewrite
+        restart_server 0 true false
+        # Ensure configs we rewrote are no longer present
+        assert_equal [r config get moduleconfigs.*] ""
     }
 }
 

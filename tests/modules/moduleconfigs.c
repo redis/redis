@@ -42,13 +42,14 @@ RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
 int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
+    REDISMODULE_NOT_USED(privdata);
     size_t len;
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
         return REDISMODULE_ERR;
     }
-    RedisModule_Free(*(RedisModuleString **)privdata);
+    if (strval) RedisModule_Free(strval);
     RedisModule_RetainString(NULL, new);
-    *(RedisModuleString **)privdata = new;
+    strval = new;
     return REDISMODULE_OK;
 }
 
@@ -102,11 +103,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterBoolConfig(ctx, "immutable_bool", 0, REDISMODULE_CONFIG_IMMUTABLE, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &immutable_bool_val) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    RedisModuleString *default_string = RedisModule_CreateString(ctx, "log4j", 5);
+    RedisModuleString *default_string = RedisModule_CreateString(ctx, "\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64", 15);
     if (RedisModule_RegisterStringConfig(ctx, "string", default_string, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    RedisModule_Free(default_string);
+    RedisModule_FreeString(ctx, default_string);
     if (RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
@@ -119,17 +120,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
     
     if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
-        if (strval) {
-            RedisModule_Free(strval);
-        }
+        if (strval) RedisModule_FreeString(ctx, strval);
         return REDISMODULE_ERR;
     }
-
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     REDISMODULE_NOT_USED(ctx);
-    if (strval) RedisModule_Free(strval);
+    if (strval) RedisModule_FreeString(ctx, strval);
     return REDISMODULE_OK;
 }

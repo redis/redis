@@ -514,6 +514,10 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (strchr(argv[0], '.')) {
+            if (argc != 2) {
+                err = "Module config specified without value";
+                goto loaderr;
+            }
             server.module_configs_queue = listAddNodeTail(server.module_configs_queue, sdsnew(lines[i]));
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
@@ -668,9 +672,9 @@ int performInterfaceSet(standardConfig *config, sds value, const char **errstr) 
 }
 
 /* Find the config by name and attempt to set it to value. */
-int performConfigSetFromName(sds name, sds value, const char **err) {
+int performModuleConfigSetFromName(sds name, sds value, const char **err) {
     standardConfig *config = lookupConfig(name);
-    if (!config) {
+    if (!config || !(config->flags & MODULE_CONFIG)) {
         *err = "Config name not found";
         return 0;
     }
@@ -679,6 +683,11 @@ int performConfigSetFromName(sds name, sds value, const char **err) {
 
 int performModuleConfigInitFromName(sds name, const char **err) {
     standardConfig *config = lookupConfig(name);
+    serverAssert(config);
+    if (!(config->flags & MODULE_CONFIG)) {
+        *err = "Config name not found";
+        return 0;
+    }
     switch (config->type) {
         case BOOL_CONFIG:
             return setModuleBoolConfig(config->privdata, config->data.yesno.default_value, err);
@@ -689,7 +698,7 @@ int performModuleConfigInitFromName(sds name, const char **err) {
         case ENUM_CONFIG:
             return setModuleEnumConfig(config->privdata, config->data.enumd.default_value, err);
         default:
-            return 0;
+            serverPanic("Config type of module config is not allowed.");
     }
     return 0;
 }
@@ -1921,7 +1930,7 @@ static void enumConfigRewrite(standardConfig *config, const char *name, struct r
 
 /* Gets a 'long long val' and sets it into the union, using a macro to get
  * compile time type check. */
-int SET_NUMERIC_TYPE(standardConfig *config, long long val, const char **err) {
+int setNumericType(standardConfig *config, long long val, const char **err) {
     if (config->data.numeric.numeric_type == NUMERIC_TYPE_INT) {
         *(config->data.numeric.config.i) = (int) val;
     } else if (config->data.numeric.numeric_type == NUMERIC_TYPE_UINT) {
@@ -1976,7 +1985,7 @@ int SET_NUMERIC_TYPE(standardConfig *config, long long val, const char **err) {
 
 /* Numeric configs */
 static void numericConfigInit(standardConfig *config) {
-    SET_NUMERIC_TYPE(config, config->data.numeric.default_value, NULL);
+    setNumericType(config, config->data.numeric.default_value, NULL);
 }
 
 static int numericBoundaryCheck(standardConfig *config, long long ll, const char **err) {
@@ -2086,7 +2095,7 @@ static int numericConfigSet(standardConfig *config, sds *argv, int argc, const c
 
     GET_NUMERIC_TYPE(prev)
     if (prev != ll) {
-        return SET_NUMERIC_TYPE(config, ll, err);
+        return setNumericType(config, ll, err);
     }
 
     return 2;
@@ -3087,7 +3096,7 @@ void removeConfig(sds name) {
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     int config_dummy_address;
-    standardConfig module_config = createBoolConfig(config_name, NULL, flags |= MODULE_CONFIG, config_dummy_address, default_val, NULL, NULL);
+    standardConfig module_config = createBoolConfig(config_name, NULL, flags | MODULE_CONFIG, config_dummy_address, default_val, NULL, NULL);
     module_config.data.yesno.config = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);
@@ -3096,7 +3105,7 @@ void addModuleBoolConfig(const char *module_name, const char *name, int flags, v
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     sds config_dummy_address;
-    standardConfig module_config = createSDSConfig(config_name, NULL, flags |= MODULE_CONFIG, EMPTY_STRING_IS_NULL, config_dummy_address, default_val, NULL, NULL);
+    standardConfig module_config = createSDSConfig(config_name, NULL, flags | MODULE_CONFIG, EMPTY_STRING_IS_NULL, config_dummy_address, default_val, NULL, NULL);
     module_config.data.sds.config = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);
@@ -3105,7 +3114,7 @@ void addModuleStringConfig(const char *module_name, const char *name, int flags,
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     int config_dummy_address;
-    standardConfig module_config = createEnumConfig(config_name, NULL, flags |= MODULE_CONFIG, enum_vals, config_dummy_address, default_val, NULL, NULL);
+    standardConfig module_config = createEnumConfig(config_name, NULL, flags | MODULE_CONFIG, enum_vals, config_dummy_address, default_val, NULL, NULL);
     module_config.data.enumd.config = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);
@@ -3114,7 +3123,7 @@ void addModuleEnumConfig(const char *module_name, const char *name, int flags, v
 void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     long long config_dummy_address;
-    standardConfig module_config = createLongLongConfig(config_name, NULL, flags |= MODULE_CONFIG, lower, upper, config_dummy_address, default_val, conf_flags, NULL, NULL);
+    standardConfig module_config = createLongLongConfig(config_name, NULL, flags | MODULE_CONFIG, lower, upper, config_dummy_address, default_val, conf_flags, NULL, NULL);
     module_config.data.numeric.config.ll = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);

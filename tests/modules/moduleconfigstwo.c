@@ -3,7 +3,7 @@
 
 /* Second module configs module, for testing.
  * Need to make sure that multiple modules with configs don't interfere with each other */
-int bool_config = 1;
+int bool_config;
 
 int getBoolConfigCommand(const char *name, void *privdata) {
     REDISMODULE_NOT_USED(privdata);
