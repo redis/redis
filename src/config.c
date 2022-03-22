@@ -592,9 +592,10 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
+#define CONFIG_READ_LEN 1024
 void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
-    char buf[CONFIG_MAX_LINE+1];
+    char buf[CONFIG_READ_LEN+1];
     FILE *fp;
     glob_t globbuf;
 
@@ -626,7 +627,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
                                   globbuf.gl_pathv[i], strerror(errno));
                         exit(1);
                     }
-                    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+                    while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
                         config = sdscat(config,buf);
                     fclose(fp);
                 }
@@ -642,7 +643,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
                           filename, strerror(errno));
                 exit(1);
             }
-            while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+            while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
                 config = sdscat(config,buf);
             fclose(fp);
         }
@@ -652,7 +653,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     if (config_from_stdin) {
         serverLog(LL_WARNING,"Reading config from stdin");
         fp = stdin;
-        while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+        while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
             config = sdscat(config,buf);
     }
 
