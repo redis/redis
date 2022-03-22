@@ -632,6 +632,69 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on redis table" {
+        catch {
+            r eval {
+                redis.call = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on json table" {
+        catch {
+            r eval {
+                cjson.encode = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on cmsgpack table" {
+        catch {
+            r eval {
+                cmsgpack.pack = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on bit table" {
+        catch {
+            r eval {
+                bit.lshift = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Test loadfile are not available" {
+        catch {
+            r eval {
+                loadfile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'loadfile'*}
+
+    test "Test dofile are not available" {
+        catch {
+            r eval {
+                dofile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'dofile'*}
+
+    test "Test print are not available" {
+        catch {
+            r eval {
+                print('some data')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'print'*}
 }
 
 # Start a new server since the last test in this stanza will kill the
