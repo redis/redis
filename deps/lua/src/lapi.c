@@ -1099,3 +1099,11 @@ LUA_API void lua_enablereadonlytable (lua_State *L, int objindex, int enabled) {
   t->readonly = enabled;
 }
 
+LUA_API int lua_isreadonlytable (lua_State *L, int objindex) {
+    const TValue* o = index2adr(L, objindex);
+  api_check(L, ttistable(o));
+  Table* t = hvalue(o);
+  api_check(L, t != hvalue(registry(L)));
+  return t->readonly;
+}
+
