@@ -2412,6 +2412,8 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
 }
 
 const char* getAclErrorMessage(int acl_res) {
+    /* Notice that a variant of this code also exists on aclCommand so
+     * it also need to be updated on changed. */
     switch (acl_res) {
     case ACL_DENIED_CMD:
         return "can't run this command or subcommand";
@@ -2809,6 +2811,8 @@ setuser_cleanup:
 
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        /* Notice that a variant of this code also exists on getAclErrorMessage so
+         * it also need to be updated on changed. */
         if (result != ACL_OK) {
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {
