@@ -721,8 +721,8 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
     char buf[128];
-    if (vlen > sizeof(buf))
-        vlen = sizeof(buf);
+    if (vlen > sizeof(buf) - 1)
+        vlen = sizeof(buf) - 1;
     memcpy(buf,vstr,vlen);
     buf[vlen] = '\0';
     return strtod(buf,NULL);
