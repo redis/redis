@@ -1102,7 +1102,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         /* If the config file contains a configuration that is no longer present
          * in the configs array: remove it from the .conf file. Use case right now
          * is module with configurations unloaded after a rewrite with the module configs. */
-        if (!lookupConfig(argv[0])) {
+        if (strcasecmp(argv[0], "sentinel") && !lookupConfig(argv[0])) {
             linenum--;
             sdsfreesplitres(argv, argc);
             sdsfree(line);
