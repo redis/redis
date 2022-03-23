@@ -160,8 +160,6 @@ struct RedisModuleCtx {
 
     struct RedisModulePoolAllocBlock *pa_head;
     long long next_yield_time;
-    int is_loadex; /* Is this a loadex command context. */
-    int load_configs_called; /* Was RM_LoadConfigs called. */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -10861,83 +10859,6 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
     return REDISMODULE_OK;
 }
 
-/* Load a module and initialize it. On success C_OK is returned, otherwise
- * C_ERR is returned. */
-int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
-    int (*onload)(void *, void **, int);
-    void *handle;
-
-    struct stat st;
-    if (stat(path, &st) == 0)
-    {   // this check is best effort
-        if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
-            serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
-            return C_ERR;
-        }
-    }
-
-    handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
-    if (handle == NULL) {
-        serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
-        return C_ERR;
-    }
-    onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
-    if (onload == NULL) {
-        dlclose(handle);
-        serverLog(LL_WARNING,
-            "Module %s does not export RedisModule_OnLoad() "
-            "symbol. Module not loaded.",path);
-        return C_ERR;
-    }
-    RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
-    ctx.is_loadex = is_loadex;
-    selectDb(ctx.client, 0);
-    if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
-        serverLog(LL_WARNING,
-            "Module %s initialization failed. Module not loaded",path);
-        goto loaderr;
-    }
-
-    if (listLength(ctx.module->module_configs) && !ctx.load_configs_called) {
-        serverLog(LL_WARNING, "Module %s has configurations but not loadconfigs call. Module not loaded", path);
-        goto loaderr;
-    }
-
-    /* Redis module loaded! Register it. */
-    dictAdd(modules,ctx.module->name,ctx.module);
-    ctx.module->blocked_clients = 0;
-    ctx.module->handle = handle;
-    ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
-    ctx.module->loadmod->path = sdsnew(path);
-    ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;
-    ctx.module->loadmod->argc = module_argc;
-    for (int i = 0; i < module_argc; i++) {
-        ctx.module->loadmod->argv[i] = module_argv[i];
-        incrRefCount(ctx.module->loadmod->argv[i]);
-    }
-
-    serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
-    /* Fire the loaded modules event. */
-    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
-                          REDISMODULE_SUBEVENT_MODULE_LOADED,
-                          ctx.module);
-    moduleFreeContext(&ctx);
-    return C_OK;
-loaderr:
-    if (ctx.module) {
-        moduleUnregisterCommands(ctx.module);
-        moduleUnregisterSharedAPI(ctx.module);
-        moduleUnregisterUsedAPI(ctx.module);
-        moduleRemoveConfigs(ctx.module);
-        moduleFreeModuleStructure(ctx.module);
-    }
-    moduleFreeContext(&ctx);
-    dlclose(handle);
-    return C_ERR;
-}
-
-
 /* Unload the module registered with the specified name. On success
  * C_OK is returned, otherwise C_ERR is returned and errno is set
  * to the following values depending on the type of error:
@@ -11014,6 +10935,82 @@ int moduleUnload(sds name) {
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
+    return C_OK;
+}
+
+/* Load a module and initialize it. On success C_OK is returned, otherwise
+ * C_ERR is returned. */
+int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
+    int (*onload)(void *, void **, int);
+    void *handle;
+
+    struct stat st;
+    if (stat(path, &st) == 0)
+    {   // this check is best effort
+        if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
+            serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
+            return C_ERR;
+        }
+    }
+
+    handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
+    if (handle == NULL) {
+        serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
+        return C_ERR;
+    }
+    onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
+    if (onload == NULL) {
+        dlclose(handle);
+        serverLog(LL_WARNING,
+            "Module %s does not export RedisModule_OnLoad() "
+            "symbol. Module not loaded.",path);
+        return C_ERR;
+    }
+    RedisModuleCtx ctx;
+    moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
+    selectDb(ctx.client, 0);
+    if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
+        serverLog(LL_WARNING,
+            "Module %s initialization failed. Module not loaded",path);
+        if (ctx.module) {
+            moduleUnregisterCommands(ctx.module);
+            moduleUnregisterSharedAPI(ctx.module);
+            moduleUnregisterUsedAPI(ctx.module);
+            moduleRemoveConfigs(ctx.module);
+            moduleFreeModuleStructure(ctx.module);
+        }
+        moduleFreeContext(&ctx);
+        dlclose(handle);
+        return C_ERR;
+    }
+
+    /* Redis module loaded! Register it. */
+    dictAdd(modules,ctx.module->name,ctx.module);
+    ctx.module->blocked_clients = 0;
+    ctx.module->handle = handle;
+    ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    ctx.module->loadmod->path = sdsnew(path);
+    ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;
+    ctx.module->loadmod->argc = module_argc;
+    for (int i = 0; i < module_argc; i++) {
+        ctx.module->loadmod->argv[i] = module_argv[i];
+        incrRefCount(ctx.module->loadmod->argv[i]);
+    }
+
+    serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+
+    if (is_loadex && dictSize(server.module_configs_queue)) {
+        moduleUnload(ctx.module->name);
+        moduleFreeContext(&ctx);
+        return C_ERR;
+    }
+    
+    /* Fire the loaded modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
+                          REDISMODULE_SUBEVENT_MODULE_LOADED,
+                          ctx.module);
+
+    moduleFreeContext(&ctx);
     return C_OK;
 }
 
@@ -11212,7 +11209,7 @@ long long getModuleNumericConfig(ModuleConfig *module_config) {
 
 /* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
  * It attempts to call set on each of these configs. */
-int loadModuleConfigs(RedisModule *module, int is_loadex) {
+int loadModuleConfigs(RedisModule *module) {
     listIter li;
     listNode *ln;
     const char *err = NULL;
@@ -11238,10 +11235,6 @@ int loadModuleConfigs(RedisModule *module, int is_loadex) {
         }
         dictDelete(server.module_configs_queue, config_name);
         sdsfree(config_name);
-    }
-    if (is_loadex && dictSize(server.module_configs_queue)) {
-        dictEmpty(server.module_configs_queue, NULL);
-        return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
@@ -11504,9 +11497,8 @@ int RM_LoadConfigs(RedisModuleCtx *ctx) {
         return REDISMODULE_ERR;
     }
     RedisModule *module = ctx->module;
-    ctx->load_configs_called = 1;
     /* Load configs from conf file or arguments from loadex */
-    if (loadModuleConfigs(module, ctx->is_loadex)) return REDISMODULE_ERR;
+    if (loadModuleConfigs(module)) return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }
 
@@ -11561,9 +11553,13 @@ NULL
             moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
             addReply(c,shared.ok);
         else {
-            dictEmpty(server.module_configs_queue, NULL);
-            addReplyError(c,
+            if (dictSize(server.module_configs_queue)) {
+                addReplyErrorFormat(c, "Configuration argument(s) to loadex were incorrect. Module Unloaded.");
+                dictEmpty(server.module_configs_queue, NULL);
+            } else {
+                addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
+            }
         }
 
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {

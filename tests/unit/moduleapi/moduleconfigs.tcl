@@ -98,26 +98,26 @@ start_server {tags {"modules"}} {
     test {test loadex rejects bad configs} {
         # Bad config 200gb is over the limit
         catch {[r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 200gb ARGS]} e
-        assert_match {*Error*} $e
+        assert_match {*ERR*} $e
         # We should completely remove all configs on a failed load
         assert_equal [r config get moduleconfigs.*] ""
         # No value for config, should error out
         catch {[r module loadex $testmodule CONFIG moduleconfigs.mutable_bool CONFIG moduleconfigs.enum two ARGS]} e
-        assert_match {*Error*} $e
+        assert_match {*ERR*} $e
         assert_equal [r config get moduleconfigs.*] ""
         # Asan will catch this if this string is not freed
         catch {[r module loadex $testmodule CONFIG moduleconfigs.string rejectisfreed]}
-        assert_match {*Error*} $e
+        assert_match {*ERR*} $e
         assert_equal [r config get moduleconfigs.*] ""
         # test we can't set random configs
         catch {[r module loadex $testmodule CONFIG maxclients 500]}
-        assert_match {*Error*} $e
+        assert_match {*Configuration argument(s)*} $e
         assert_equal [r config get moduleconfigs.*] ""
         assert_equal [r config get maxclients] "maxclients 10000"
         # test we can't set other module's configs
         r module load $testmoduletwo
         catch {[r module loadex $testmodule CONFIG configs.test no]}
-        assert_match {*Error*} $e
+        assert_match {*Configuration argument(s)*} $e
         assert_equal [r config get configs.test] "configs.test yes"
         r module unload configs
     }
