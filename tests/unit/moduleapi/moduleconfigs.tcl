@@ -89,6 +89,12 @@ start_server {tags {"modules"}} {
         r module unload moduleconfigs
     }
 
+    test {test double config argument to loadex} {
+        r module loadex $testmodule CONFIG moduleconfigs.mutable_bool yes CONFIG moduleconfigs.mutable_bool no
+        assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
+        r module unload moduleconfigs
+    }
+
     test {test loadex rejects bad configs} {
         # Bad config 200gb is over the limit
         catch {[r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 200gb ARGS]} e

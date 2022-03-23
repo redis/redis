@@ -518,7 +518,8 @@ void loadServerConfigFromString(char *config) {
                 err = "Module config specified without value";
                 goto loaderr;
             }
-            server.module_configs_queue = listAddNodeTail(server.module_configs_queue, sdsnew(lines[i]));
+            sds name = sdsdup(argv[0]);
+            if (!dictReplace(server.module_configs_queue, name, sdsdup(argv[1]))) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
