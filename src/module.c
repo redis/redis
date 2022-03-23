@@ -11327,55 +11327,61 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
     return new_flags;
 }
 
-/* Create a string config that server clients can interact with via the 
- * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
- * 
- * The actual config value is owned by the module, with GET, SET and optional APPLY callbacks
- * that are provided to Redis in order to access or manipulate the value. The 
- * GET callback retrieves the value from the module, while the SET
- * callback provides a value to be stored into the config. The optional APPLY callback
- * is called after a CONFIG SET command and can be used to apply a config after it and potentially other
- * configs were changed atomically. If there are multiple apply callbacks specified in
- * a CONFIG SET command, they will be deduplicated if the function and privdata pointers are the same,
- * and it will only be run once. The config also declares a type for the value that is validated by Redis
- * and provided to the module. The config system provides the following types:
- * 
+/* Create a string config that Redis users can interact with via the Redis config file,
+ *`CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
+ *
+ * The actual config value is owned by the module, and the `getfn`, `setfn` and optional
+ * `applyfn` allbacks that are provided to Redis in order to access or manipulate the
+ * value. The `getfn` callback retrieves the value from the module, while the `setfn`
+ * callback provides a value to be stored into the module config.
+ * The optional `applyfn` callback is called after a `CONFIG SET` command modified one or
+ * more configs using the `setfn` callback and can be used to atomically apply a config
+ * after several configs were changed together.
+ * If there are multiple configs with `applyfn` callbacks set by a single `CONFIG SET`
+ * command, they will be deduplicated if their `applyfn` function and `privdata` pointers
+ * are identical, and the callback will only be run once.
+ * Both the `setfn` and `applyfn` can return an error if the provided value is invalid or
+ * cannot be used.
+ * The config also declares a type for the value that is validated by Redis and
+ * provided to the module. The config system provides the following types:
+ *
  * * Redis String: Binary safe string data.
  * * Enum: One of a finite number of string tokens, provided during registration.
  * * Numeric: 64 bit signed integer, which also supports min and max values.
- * * Bool: Yes or no value. 
- * 
- * The SET callback is expected to return REDISMODULE_OK when the value is successfully
+ * * Bool: Yes or no value.
+ *
+ * The `setfn` callback is expected to return REDISMODULE_OK when the value is successfully
  * applied. It can also return REDISMODULE_ERR if the value can't be applied, and the
  * *err pointer can be set with a static c-string error message to provide to the client.
- * 
- * All configs are registered with a name, a type, a default value, private data that is made available in the
- * callbacks, as well as several flags that modify the behavior of the config. The
- * name must only contain alphanumeric characters or dashes. The supported flags are:
- * 
- * * REDISMODULE_CONFIG_DEFAULT: The default flags for a config. This creates a config that can be modified after startup. 
+ *
+ * All configs are registered with a name, a type, a default value, private data that is made
+ * available in the callbacks, as well as several flags that modify the behavior of the config.
+ * The name must only contain alphanumeric characters or dashes. The supported flags are:
+ *
+ * * REDISMODULE_CONFIG_DEFAULT: The default flags for a config. This creates a config that can be modified after startup.
  * * REDISMODULE_CONFIG_IMMUTABLE: This config can only be provided loading time.
  * * REDISMODULE_CONFIG_SENSITIVE: The value stored in this config is redacted from all logging.
- * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching. 
+ * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching.
  * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the value of enable-protected-configs.
  * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
  * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
  *
- * Default values are used on startup to set the value if it is not provided via the command 
- * line or conf file. Default values are also used to compare to on a config rewrite 
+ * Default values are used on startup to set the value if it is not provided via the config file,
+ * command line or config file. Default values are also used to compare to on a config rewrite.
  *
- * Note 
+ * Notes:
+ *
  *  1. On string config sets that the string passed to the set callback will be freed after execution and the module must retain it.
  *  2. On string config gets the string will not be consumed and will be valid after execution.
- * 
+ *
  * Example implementation:
- * 
+ *
  *     RedisModuleString *strval;
  *     int adjustable = 1;
  *     RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
  *         return strval;
  *     }
- *     
+ *
  *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
  *        if (adjustable) {
  *            RedisModule_Free(strval);
@@ -11387,8 +11393,8 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  *     }
  *     ...
  *     RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL);
- * 
- * If the registration fails, REDISMODULE_ERR is returned and one of the following 
+ *
+ * If the registration fails, REDISMODULE_ERR is returned and one of the following
  * errno is set:
  * * EINVAL: The provided flags are invalid for the registration or the name of the config contains invalid characters.
  * * EALREADY: The provided configuration name is already used. */
