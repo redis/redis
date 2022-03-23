@@ -1952,7 +1952,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    if (info->si_code <= SI_USER && info->si_pid != -1) {
+    if (info->si_code == SI_USER && info->si_pid != -1) {
         serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 

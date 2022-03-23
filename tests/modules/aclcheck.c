@@ -136,6 +136,22 @@ int rm_call_aclcheck_cmd_module_user(RedisModuleCtx *ctx, RedisModuleString **ar
     return res;
 }
 
+int rm_call_aclcheck_with_errors(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "vEC", argv + 2, argc - 2);
+    RedisModule_ReplyWithCallReply(ctx, rep);
+    RedisModule_FreeCallReply(rep);
+    return REDISMODULE_OK;
+}
+
 /* A wrap for RM_Call that pass the 'C' flag to do ACL check on the command. */
 int rm_call_aclcheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     REDISMODULE_NOT_USED(argv);
@@ -189,6 +205,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"aclcheck.rm_call", rm_call_aclcheck,
                                   "write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"aclcheck.rm_call_with_errors", rm_call_aclcheck_with_errors,
+                                      "write",0,0,0) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }

@@ -12,6 +12,17 @@ proc restart_killed_instances {} {
     }
 }
 
+proc verify_sentinel_auto_discovery {} {
+    set sentinels [llength $::sentinel_instances]
+    foreach_sentinel_id id {
+        wait_for_condition 1000 50 {
+            [dict get [S $id SENTINEL MASTER mymaster] num-other-sentinels] == ($sentinels-1)
+        } else {
+            fail "At least some sentinel can't detect some other sentinel"
+        }
+    }
+}
+
 test "(init) Restart killed instances" {
     restart_killed_instances
 }
@@ -59,14 +70,7 @@ test "(init) Sentinels can talk with the master" {
 }
 
 test "(init) Sentinels are able to auto-discover other sentinels" {
-    set sentinels [llength $::sentinel_instances]
-    foreach_sentinel_id id {
-        wait_for_condition 1000 50 {
-            [dict get [S $id SENTINEL MASTER mymaster] num-other-sentinels] == ($sentinels-1)
-        } else {
-            fail "At least some sentinel can't detect some other sentinel"
-        }
-    }
+    verify_sentinel_auto_discovery
 }
 
 test "(init) Sentinels are able to auto-discover slaves" {

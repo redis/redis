@@ -103,7 +103,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_MIN_HZ            1
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
-#define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
@@ -165,7 +164,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
-#define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
 
 #define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
@@ -1175,7 +1173,6 @@ typedef struct client {
     size_t last_memory_usage;
     int last_memory_type;
 
-    size_t last_memory_usage_on_bucket_update;
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
 
@@ -1587,8 +1584,8 @@ struct redisServer {
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
-    redisAtomic size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
-    size_t stat_cluster_links_memory;/* Mem usage by cluster links */
+    size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
@@ -1854,7 +1851,7 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
-    char *cluster_announce_hostname;  /* IP address to announce on cluster bus. */
+    char *cluster_announce_hostname;  /* hostname to announce on cluster bus. */
     int cluster_preferred_endpoint_type; /* Use the announced hostname when available. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
@@ -2655,6 +2652,7 @@ void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
+int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
@@ -2695,6 +2693,7 @@ int allPersistenceDisabled(void);
 #define DISK_ERROR_TYPE_RDB 2       /* Don't accept writes: RDB errors. */
 #define DISK_ERROR_TYPE_NONE 0      /* No problems, we can accept writes. */
 int writeCommandsDeniedByDiskError(void);
+sds writeCommandsGetDiskErrorMessage(int);
 
 /* RDB persistence */
 #include "rdb.h"
@@ -2763,6 +2762,7 @@ user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -2775,6 +2775,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
+const char* getAclErrorMessage(int acl_res);
 void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */

@@ -11,6 +11,23 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "parameter_value",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "parameter",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
         ]
     }
 }

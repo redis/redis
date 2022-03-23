@@ -203,6 +203,21 @@ proc wait_for_cluster_propagation {} {
     }
 }
 
+# Check if cluster's view of hostnames is consistent
+proc are_hostnames_propagated {match_string} {
+    for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
+        set cfg [R $j cluster slots]
+        foreach node $cfg {
+            for {set i 2} {$i < [llength $node]} {incr i} {
+                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
+                    return 0
+                }
+            }
+        }
+    }
+    return 1
+}
+
 # Returns a parsed CLUSTER LINKS output of the instance identified
 # by the given `id` as a list of dictionaries, with each dictionary
 # corresponds to a link.

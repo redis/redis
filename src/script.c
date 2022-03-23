@@ -312,25 +312,7 @@ static int scriptVerifyACL(client *c, sds *err) {
     int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
-        switch (acl_retval) {
-        case ACL_DENIED_CMD:
-            *err = sdsnew("The user executing the script can't run this "
-                          "command or subcommand");
-            break;
-        case ACL_DENIED_KEY:
-            *err = sdsnew("The user executing the script can't access "
-                          "at least one of the keys mentioned in the "
-                          "command arguments");
-            break;
-        case ACL_DENIED_CHANNEL:
-            *err = sdsnew("The user executing the script can't publish "
-                          "to the channel mentioned in the command");
-            break;
-        default:
-            *err = sdsnew("The user executing the script is lacking the "
-                          "permissions for the command");
-            break;
-        }
+        *err = sdscatfmt(sdsempty(), "The user executing the script %s", getAclErrorMessage(acl_retval));
         return C_ERR;
     }
     return C_OK;
@@ -360,14 +342,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     }
 
     if (deny_write_type != DISK_ERROR_TYPE_NONE) {
-        if (deny_write_type == DISK_ERROR_TYPE_RDB) {
-            *err = sdsdup(shared.bgsaveerr->ptr);
-        } else {
-            *err = sdsempty();
-            *err = sdscatfmt(*err,
-                    "-MISCONF Errors writing to the AOF file: %s\r\n",
-                    strerror(server.aof_last_write_errno));
-        }
+        *err = writeCommandsGetDiskErrorMessage(deny_write_type);
         return C_ERR;
     }
 
@@ -375,11 +350,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * user configured the min-slaves-to-write option. Note this only reachable
      * for Eval scripts that didn't declare flags, see the other check in
      * scriptPrepareForRun */
-    if (server.masterhost == NULL &&
-        server.repl_min_slaves_max_lag &&
-        server.repl_min_slaves_to_write &&
-        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-    {
+    if (!checkGoodReplicasStatus()) {
         *err = sdsdup(shared.noreplicaserr->ptr);
         return C_ERR;
     }

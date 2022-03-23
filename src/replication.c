@@ -543,7 +543,8 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    if (!(listLength(server.monitors) && !server.loading)) return;
+    /* Fast path to return if the monitors list is empty or the server is in loading. */
+    if (monitors == NULL || listLength(monitors) == 0 || server.loading) return;
     listNode *ln;
     listIter li;
     int j;
@@ -3332,6 +3333,14 @@ void refreshGoodSlavesCount(void) {
             lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
+}
+
+/* return true if status of good replicas is OK. otherwise false */
+int checkGoodReplicasStatus(void) {
+    return server.masterhost || /* not a primary status should be OK */
+           !server.repl_min_slaves_max_lag || /* Min slave max lag not configured */
+           !server.repl_min_slaves_to_write || /* Min slave to write not configured */
+           server.repl_good_slaves_count >= server.repl_min_slaves_to_write; /* check if we have enough slaves */
 }
 
 /* ----------------------- SYNCHRONOUS REPLICATION --------------------------
