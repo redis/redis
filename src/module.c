@@ -423,6 +423,7 @@ struct ModuleConfig {
         RedisModuleConfigSetBoolFunc set_bool;
         RedisModuleConfigSetEnumFunc set_enum;
     } set_fn;
+    int is_initialized;
     RedisModuleConfigApplyFunc apply_fn;
     RedisModule *module;
 };
@@ -10938,6 +10939,19 @@ int moduleUnload(sds name) {
     return C_OK;
 }
 
+int moduleConfigsWereSet(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(module->module_configs, &li);
+    while ((ln = listNext(&li))) {
+        ModuleConfig *module_config = listNodeValue(ln);
+        if (!module_config->is_initialized) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -10972,16 +10986,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
-        if (ctx.module) {
-            moduleUnregisterCommands(ctx.module);
-            moduleUnregisterSharedAPI(ctx.module);
-            moduleUnregisterUsedAPI(ctx.module);
-            moduleRemoveConfigs(ctx.module);
-            moduleFreeModuleStructure(ctx.module);
-        }
-        moduleFreeContext(&ctx);
-        dlclose(handle);
-        return C_ERR;
+        goto loaderr;
     }
 
     /* Redis module loaded! Register it. */
@@ -10999,12 +11004,20 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
-    if (is_loadex && dictSize(server.module_configs_queue)) {
+    if (listLength(ctx.module->module_configs) && !moduleConfigsWereSet(ctx.module)) {
+        serverLogRaw(LL_WARNING, "Module Configurations were not all set, likely a missing LoadConfigs call. Unloading the module.");
         moduleUnload(ctx.module->name);
         moduleFreeContext(&ctx);
         return C_ERR;
     }
-    
+
+    if (is_loadex && dictSize(server.module_configs_queue)) {
+        serverLogRaw(LL_WARNING, "Loadex configurations were not applied, likely due to invalid arguments. Unloading the module.");
+        moduleUnload(ctx.module->name);
+        moduleFreeContext(&ctx);
+        return C_ERR;
+    }
+
     /* Fire the loaded modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
                           REDISMODULE_SUBEVENT_MODULE_LOADED,
@@ -11012,6 +11025,17 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     moduleFreeContext(&ctx);
     return C_OK;
+loaderr:
+    if (ctx.module) {
+        moduleUnregisterCommands(ctx.module);
+        moduleUnregisterSharedAPI(ctx.module);
+        moduleUnregisterUsedAPI(ctx.module);
+        moduleRemoveConfigs(ctx.module);
+        moduleFreeModuleStructure(ctx.module);
+    }
+    moduleFreeContext(&ctx);
+    dlclose(handle);
+    return C_ERR;
 }
 
 void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -11218,9 +11242,10 @@ int loadModuleConfigs(RedisModule *module) {
         ModuleConfig *module_config = listNodeValue(ln);
         sds config_name = sdscatfmt(sdsempty(), "%s.%s", module->name, module_config->name);
         dictEntry *config_argument = dictFind(server.module_configs_queue, config_name);
+        module_config->is_initialized = 1;
         if (config_argument) {
             if (!performModuleConfigSetFromName(dictGetKey(config_argument), dictGetVal(config_argument), &err)) {
-                serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds)config_argument->key, err);
+                serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds) dictGetKey(config_argument), err);
                 sdsfree(config_name);
                 dictEmpty(server.module_configs_queue, NULL);
                 return REDISMODULE_ERR;
@@ -11284,7 +11309,8 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
 /* Create a module config object. */
 ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
-    new_config->name = name;
+    new_config->name = sdsdup(name);
+    new_config->is_initialized = 0;
     new_config->apply_fn = apply_fn;
     new_config->privdata = privdata;
     new_config->module = module;
@@ -11398,6 +11424,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
     new_config->get_fn.get_string = getfn;
     new_config->set_fn.set_string = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -11416,6 +11443,7 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
     new_config->get_fn.get_bool = getfn;
     new_config->set_fn.set_bool = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -11453,6 +11481,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
     new_config->get_fn.get_enum = getfn;
     new_config->set_fn.set_enum = setfn;
     configEnum *enum_vals = zmalloc((num_enum_vals + 1) * sizeof(configEnum));
@@ -11479,6 +11508,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
     new_config->get_fn.get_numeric = getfn;
     new_config->set_fn.set_numeric = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -11553,13 +11583,9 @@ NULL
             moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
             addReply(c,shared.ok);
         else {
-            if (dictSize(server.module_configs_queue)) {
-                addReplyErrorFormat(c, "Configuration argument(s) to loadex were incorrect. Module Unloaded.");
-                dictEmpty(server.module_configs_queue, NULL);
-            } else {
-                addReplyError(c,
+            dictEmpty(server.module_configs_queue, NULL);
+            addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
-            }
         }
 
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
