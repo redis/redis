@@ -11068,12 +11068,6 @@ int moduleUnload(sds name) {
     return C_OK;
 }
 
-/* Check to see if all module configs were initialized for a given module.
- * Used to check if a module did not call RM_LoadConfigs with registered configs. */
-int moduleConfigsWereSet(RedisModule *module) {
-    return module->configs_initialized;
-}
-
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -11135,7 +11129,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
-    if (listLength(ctx.module->module_configs) && !moduleConfigsWereSet(ctx.module)) {
+    if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
         serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
         moduleUnload(ctx.module->name);
         moduleFreeContext(&ctx);
