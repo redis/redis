@@ -4175,7 +4175,10 @@ struct redisCommandArg BGSAVE_Args[] = {
 #define COMMAND_DOCS_History NULL
 
 /* COMMAND DOCS tips */
-#define COMMAND_DOCS_tips NULL
+const char *COMMAND_DOCS_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND DOCS argument table */
 struct redisCommandArg COMMAND_DOCS_Args[] = {
@@ -4217,7 +4220,7 @@ commandHistory COMMAND_INFO_History[] = {
 
 /* COMMAND INFO tips */
 const char *COMMAND_INFO_tips[] = {
-"nondeterministic_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4271,7 +4274,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 
 /* COMMAND tips */
 const char *COMMAND_tips[] = {
-"nondeterministic_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4655,6 +4658,7 @@ struct redisCommandArg LOLWUT_Args[] = {
 const char *MEMORY_DOCTOR_tips[] = {
 "nondeterministic_output",
 "request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -6853,7 +6857,7 @@ struct redisCommandArg MSET_Args[] = {
 /* MSETNX tips */
 const char *MSETNX_tips[] = {
 "request_policy:multi_shard",
-"response_policy:agg_logic_and",
+"response_policy:agg_min",
 NULL
 };
 

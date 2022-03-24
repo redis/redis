@@ -12,11 +12,13 @@
             "LOADING",
             "STALE"
         ],
-        "arguments": [{
-            "name": "channel",
-            "type": "string",
-            "optional": true,
-            "multiple": true
-        }]
+        "arguments": [
+            {
+                "name": "channel",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ]
     }
 }

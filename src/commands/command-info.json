@@ -21,7 +21,7 @@
             "CONNECTION"
         ],
         "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT_ORDER"
         ],
         "arguments": [
             {

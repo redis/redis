@@ -9,7 +9,8 @@
         "function": "memoryCommand",
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT",
-            "REQUEST_POLICY:ALL_SHARDS"
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL"
         ]
     }
 }

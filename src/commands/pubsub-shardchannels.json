@@ -12,10 +12,12 @@
             "LOADING",
             "STALE"
         ],
-        "arguments": [{
-            "name": "pattern",
-            "type": "pattern",
-            "optional": true
-        }]
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "optional": true
+            }
+        ]
     }
 }
