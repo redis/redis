@@ -3032,7 +3032,7 @@ void addModuleBoolConfig(const char *module_name, const char *name, int flags, v
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
 void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
-void addModuleApply(list *module_configs, ModuleConfig *module_config);
+void addModuleConfigApply(list *module_configs, ModuleConfig *module_config);
 int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
 int getModuleBoolConfig(ModuleConfig *module_config);
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);

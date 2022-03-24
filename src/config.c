@@ -830,7 +830,7 @@ void configSetCommand(client *c) {
         } else if (res == 1) {
             /* A new value was set, if this config has an apply function then store it for execution later */
             if (set_configs[i]->flags & MODULE_CONFIG) {
-                addModuleApply(module_configs_apply, set_configs[i]->privdata);
+                addModuleConfigApply(module_configs_apply, set_configs[i]->privdata);
             } else if (set_configs[i]->interface.apply) {
                 /* Check if this apply function is already stored */
                 int exists = 0;

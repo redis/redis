@@ -11394,7 +11394,7 @@ int loadModuleConfigs(RedisModule *module) {
 }
 
 /* Add module_config to the list if the apply and privdata do not match one already in it. */
-void addModuleApply(list *module_configs, ModuleConfig *module_config) {
+void addModuleConfigApply(list *module_configs, ModuleConfig *module_config) {
     if (!module_config->apply_fn) return;
     listIter li;
     listNode *ln;
@@ -11550,6 +11550,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
     RedisModule *module = ctx->module;
     sds config_name = sdsnew(name);
     if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
+        sdsfree(config_name);
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
@@ -11566,9 +11567,10 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, RedisModuleConfigGetBoolFunc getfn, RedisModuleConfigSetBoolFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
-    sds config_name = sdsnew(name);
     RedisModule *module = ctx->module;
+    sds config_name = sdsnew(name);
     if (moduleConfigValidityCheck(module, config_name, flags, BOOL_CONFIG)) {
+        sdsfree(config_name);
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
@@ -11607,6 +11609,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     RedisModule *module = ctx->module;
     sds config_name = sdsnew(name);
     if (moduleConfigValidityCheck(module, config_name, flags, ENUM_CONFIG)) {
+        sdsfree(config_name);
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
@@ -11634,6 +11637,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
     RedisModule *module = ctx->module;
     sds config_name = sdsnew(name);
     if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
+        sdsfree(config_name);
         return REDISMODULE_ERR;
     }
     ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
