@@ -763,11 +763,11 @@ struct RedisModule {
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
     list *module_configs; /* List of configurations the module has registered */
+    int configs_initialized; /* Have the module configurations been initialized? */
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
     int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
-    int has_configs;             /* This Module has configurations. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
@@ -3027,7 +3027,7 @@ int allowProtectedAction(int config, client *c);
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
 int performModuleConfigSetFromName(sds name, sds value, const char **err);
-int performModuleConfigInitFromName(sds name, const char **err);
+int performModuleConfigSetDefaultFromName(sds name, const char **err);
 void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
 void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);

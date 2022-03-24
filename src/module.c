@@ -426,7 +426,6 @@ struct ModuleConfig {
         RedisModuleConfigSetBoolFunc set_bool;
         RedisModuleConfigSetEnumFunc set_enum;
     } set_fn;
-    int is_initialized;
     RedisModuleConfigApplyFunc apply_fn;
     RedisModule *module;
 };
@@ -2006,6 +2005,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     listSetMatchMethod(module->module_configs, moduleListConfigMatch);
     listSetFreeMethod(module->module_configs, moduleListFree);
     module->in_call = 0;
+    module->configs_initialized = 0;
     module->in_hook = 0;
     module->options = 0;
     module->info_cb = 0;
@@ -11068,17 +11068,10 @@ int moduleUnload(sds name) {
     return C_OK;
 }
 
+/* Check to see if all module configs were initialized for a given module.
+ * Used to check if a module did not call RM_LoadConfigs with registered configs. */
 int moduleConfigsWereSet(RedisModule *module) {
-    listIter li;
-    listNode *ln;
-    listRewind(module->module_configs, &li);
-    while ((ln = listNext(&li))) {
-        ModuleConfig *module_config = listNodeValue(ln);
-        if (!module_config->is_initialized) {
-            return 0;
-        }
-    }
-    return 1;
+    return module->configs_initialized;
 }
 
 /* Load a module and initialize it. On success C_OK is returned, otherwise
@@ -11088,8 +11081,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     void *handle;
 
     struct stat st;
-    if (stat(path, &st) == 0)
-    {   // this check is best effort
+    if (stat(path, &st) == 0) {
+        /* This check is best effort */
         if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
             serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
             return C_ERR;
@@ -11115,7 +11108,16 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
-        goto loaderr;
+        if (ctx.module) {
+            moduleUnregisterCommands(ctx.module);
+            moduleUnregisterSharedAPI(ctx.module);
+            moduleUnregisterUsedAPI(ctx.module);
+            moduleRemoveConfigs(ctx.module);
+            moduleFreeModuleStructure(ctx.module);
+        }
+        moduleFreeContext(&ctx);
+        dlclose(handle);
+        return C_ERR;
     }
 
     /* Redis module loaded! Register it. */
@@ -11134,7 +11136,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
 
     if (listLength(ctx.module->module_configs) && !moduleConfigsWereSet(ctx.module)) {
-        serverLogRaw(LL_WARNING, "Module Configurations were not all set, likely a missing LoadConfigs call. Unloading the module.");
+        serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
         moduleUnload(ctx.module->name);
         moduleFreeContext(&ctx);
         return C_ERR;
@@ -11154,17 +11156,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     moduleFreeContext(&ctx);
     return C_OK;
-loaderr:
-    if (ctx.module) {
-        moduleUnregisterCommands(ctx.module);
-        moduleUnregisterSharedAPI(ctx.module);
-        moduleUnregisterUsedAPI(ctx.module);
-        moduleRemoveConfigs(ctx.module);
-        moduleFreeModuleStructure(ctx.module);
-    }
-    moduleFreeContext(&ctx);
-    dlclose(handle);
-    return C_ERR;
 }
 
 void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -11371,7 +11362,6 @@ int loadModuleConfigs(RedisModule *module) {
         ModuleConfig *module_config = listNodeValue(ln);
         sds config_name = sdscatfmt(sdsempty(), "%s.%s", module->name, module_config->name);
         dictEntry *config_argument = dictFind(server.module_configs_queue, config_name);
-        module_config->is_initialized = 1;
         if (config_argument) {
             if (!performModuleConfigSetFromName(dictGetKey(config_argument), dictGetVal(config_argument), &err)) {
                 serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds) dictGetKey(config_argument), err);
@@ -11380,7 +11370,7 @@ int loadModuleConfigs(RedisModule *module) {
                 return REDISMODULE_ERR;
             }
         } else {
-            if (!performModuleConfigInitFromName(config_name, &err)) {
+            if (!performModuleConfigSetDefaultFromName(config_name, &err)) {
                 serverLog(LL_WARNING, "Issue attempting to set default value of configuration %s : %s", module_config->name, err);
                 sdsfree(config_name);
                 dictEmpty(server.module_configs_queue, NULL);
@@ -11390,6 +11380,7 @@ int loadModuleConfigs(RedisModule *module) {
         dictDelete(server.module_configs_queue, config_name);
         sdsfree(config_name);
     }
+    module->configs_initialized = 1;
     return REDISMODULE_OK;
 }
 
@@ -11439,7 +11430,6 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
 ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
     new_config->name = sdsdup(name);
-    new_config->is_initialized = 0;
     new_config->apply_fn = apply_fn;
     new_config->privdata = privdata;
     new_config->module = module;

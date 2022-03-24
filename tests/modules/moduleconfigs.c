@@ -6,7 +6,6 @@ long long longval;
 long long memval;
 RedisModuleString *strval;
 int enumval;
-const char *enum_vals[3] = {"one", "two", "three"};
 
 /* Series of get and set callbacks for each type of config, these rely on the privdata ptr
  * to point to the config, and they register the configs as such. Note that one could also just
@@ -37,13 +36,15 @@ int setNumericConfigCommand(const char *name, long long new, void *privdata, con
 
 RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
     REDISMODULE_NOT_USED(name);
-    return (*(RedisModuleString **) privdata);
+    REDISMODULE_NOT_USED(privdata);
+    return strval;
 }
 int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
     size_t len;
+    /* Address sanitizer will complain about a leak if we're not properly freeing core side. */
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
         return REDISMODULE_ERR;
     }
@@ -92,8 +93,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    const int int_vals[3] = {0, 2, 4};
-
     if (RedisModule_Init(ctx, "moduleconfigs", 1, REDISMODULE_APIVER_1) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_RegisterBoolConfig(ctx, "mutable_bool", 1, REDISMODULE_CONFIG_DEFAULT, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &mutable_bool_val) == REDISMODULE_ERR) {
@@ -108,6 +107,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
     RedisModule_FreeString(ctx, default_string);
+
+    /* On the stack to make sure we're copying them. */
+    const char *enum_vals[3] = {"one", "two", "three"};
+    const int int_vals[3] = {0, 2, 4};
+
     if (RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
@@ -118,7 +122,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterNumericConfig(ctx, "numeric", -1, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    
     if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
         if (strval) RedisModule_FreeString(ctx, strval);
         return REDISMODULE_ERR;

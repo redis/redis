@@ -22,6 +22,8 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1048576"
         r config set moduleconfigs.string wafflewednesdays
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string wafflewednesdays"
+        r config set moduleconfigs.string \x73\x75\x70\x65\x72\x20\x00\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         r config set moduleconfigs.enum two
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
         r config set moduleconfigs.numeric -2
@@ -123,8 +125,10 @@ start_server {tags {"modules"}} {
     }
 
     test {test config rewrite with dynamic load} {
-        r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 500 ARGS
+        #translates to: super \0secret password
+        r module loadex $testmodule CONFIG moduleconfigs.string \x73\x75\x70\x65\x72\x20\x00\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64 ARGS
         assert_equal [lindex [lindex [r module list] 0] 1] moduleconfigs
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         r config set moduleconfigs.mutable_bool yes
         r config set moduleconfigs.memory_numeric 750
         r config set moduleconfigs.enum two
@@ -133,7 +137,7 @@ start_server {tags {"modules"}} {
         # Ensure configs we rewrote are present
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
-        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs

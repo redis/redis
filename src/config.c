@@ -683,7 +683,8 @@ int performModuleConfigSetFromName(sds name, sds value, const char **err) {
     return performInterfaceSet(config, value, err);
 }
 
-int performModuleConfigInitFromName(sds name, const char **err) {
+/* Find config by name and attempt to set it to its default value. */
+int performModuleConfigSetDefaultFromName(sds name, const char **err) {
     standardConfig *config = lookupConfig(name);
     serverAssert(config);
     if (!(config->flags & MODULE_CONFIG)) {
@@ -1102,7 +1103,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         /* If the config file contains a configuration that is no longer present
          * in the configs array: remove it from the .conf file. Use case right now
          * is module with configurations unloaded after a rewrite with the module configs. */
-        if (strcasecmp(argv[0], "sentinel") && !lookupConfig(argv[0])) {
+        if (!server.sentinel_mode && !lookupConfig(argv[0])) {
             linenum--;
             sdsfreesplitres(argv, argc);
             sdsfree(line);
