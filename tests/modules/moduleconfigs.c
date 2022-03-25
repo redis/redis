@@ -103,7 +103,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
     RedisModuleString *default_string = RedisModule_CreateString(ctx, "\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64", 15);
-    if (RedisModule_RegisterStringConfig(ctx, "string", default_string, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, &strval) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterStringConfig(ctx, "string", default_string, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
     RedisModule_FreeString(ctx, default_string);
