@@ -647,6 +647,46 @@ start_server {tags {"hash"}} {
             assert {$len2 == $len3}
         }
     }
+    
+    test {HINCRBY over hash-max-listpack-value encoded with a listpack} {
+        r config set hash-max-listpack-value 8
+        
+        # bighash's value exceeds hash-max-listpack-value
+        r del smallhash bighash
+        r hset smallhash tmp 0
+        r hset bighash tmp 0
+        r hincrby smallhash tmp 10000000
+        r hincrby bighash tmp 100000000
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        # bighash's field exceeds hash-max-listpack-value
+        r del smallhash bighash
+        r hincrby smallhash 10000000 1
+        r hincrby bighash 100000000 1
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+    }
+
+    test {HINCRBYFLOAT over hash-max-listpack-value encoded with a listpack} {
+        r config set hash-max-listpack-value 8
+        
+        # bighash's value exceeds hash-max-listpack-value
+        r del smallhash bighash
+        r hset smallhash tmp 0
+        r hset bighash tmp 0
+        r hincrbyfloat smallhash tmp 10000000
+        r hincrbyfloat bighash tmp 100000000
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        # bighash's field exceeds hash-max-listpack-value
+        r del smallhash bighash
+        r hincrbyfloat smallhash 10000000 1
+        r hincrbyfloat bighash 100000000 1
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+    }
 
     test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
