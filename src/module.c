@@ -11285,7 +11285,7 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
 int moduleVerifyConfigName(sds name) {
     if (sdslen(name) == 0) {
         serverLogRaw(LL_WARNING, "Module config names cannot be an empty string.");
-        return 1;
+        return REDISMODULE_ERR;
     }
     for (size_t i = 0 ; i < sdslen(name) ; ++i) {
         char curr_char = name[i];
@@ -11297,9 +11297,9 @@ int moduleVerifyConfigName(sds name) {
             continue;
         }
         serverLog(LL_WARNING, "Invalid character %c in Module Config name %s.", curr_char, name);
-        return 1;
+        return REDISMODULE_ERR;
     }
-    return 0;
+    return REDISMODULE_OK;
 }
 
 /* This is a series of set functions for each type that act as dispatchers for 
