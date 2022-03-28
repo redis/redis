@@ -3946,10 +3946,8 @@ get_defrag_hint(void* ptr) {
         malloc_mutex_lock(tsdn, &bin->lock);
         /* Don't bother moving allocations from the slab currently used for new allocations */
         if (slab != bin->slabcur) {
-            if (!extent_defrag_retain_get(slab)) {
+            if (bin->highest_slab_to_retain_inited && extent_snad_comp(slab, &bin->highest_slab_to_retain) > 0) {
                 defrag = 1;
-                if (badger && binind == 10)
-                    printf("sn %zu\n", extent_sn_get(slab));
             }
         }
         malloc_mutex_unlock(tsdn, &bin->lock);
@@ -3966,7 +3964,7 @@ static long long ustime(void) {
     ust += tv.tv_usec;
     return ust;
 }
-
+/*
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 init_defrag(void) {
     unsigned long long i;
@@ -4015,8 +4013,106 @@ init_defrag(void) {
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
     printf("Init took: %.6fms\n",(ustime()-t)/1000.0);
+}*/
+
+#define ASSERT(x) do { \
+    if (!(x)) {        \
+        printf("Abort: %s:%d: %s\n", __FILE__, __LINE__, #x); \
+        abort();                   \
+    }                       \
+} while(0)
+
+static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max_time) {
+    for (;bin->defrag_slabs_to_retain > 0; bin->defrag_slabs_to_retain--) {
+        extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
+        if (slab == NULL) {
+            printf("Ran out of non-full slabs to retain: %zu missing\n", bin->defrag_slabs_to_retain);
+            bin->defrag_slabs_to_retain = 0;
+            break;
+        }
+
+        extent_heap_insert(&bin->slabs_nonfull_temp, slab);
+        if (!bin->highest_slab_to_retain_inited || extent_snad_comp(slab, &bin->highest_slab_to_retain) > 0) {
+            bin->highest_slab_to_retain = *slab;
+            bin->highest_slab_to_retain_inited = true;
+        }
+        if (ustime() - start_time >= max_time) {
+            printf("out of time handling initing bin\n");
+            break;
+        }
+    }
+
+    if (bin->defrag_slabs_to_retain == 0) {
+        phn_merge(extent_t, ph_link, extent_heap_first(&bin->slabs_nonfull), extent_heap_first(&bin->slabs_nonfull_temp), extent_snad_comp, bin->slabs_nonfull.ph_root);
+        // Clear the temp heap after merge
+        extent_heap_new(&bin->slabs_nonfull_temp);
+        ASSERT(extent_heap_empty(&bin->slabs_nonfull_temp));
+        bin->initing_defrag = false;
+    }
 }
 
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+init_defrag(void) {
+    unsigned long long i;
+    tsd_t *tsd = tsd_fetch();
+    arena_t *arena = arena_choose(tsd, NULL);
+
+    printf("Initing defrag hints\n");
+
+    // TODO: Consider locking: arena->mtx
+    for (i = 0; i < SC_NBINS; i++) {
+        unsigned binshard;
+        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+        const bin_info_t *bin_info = &bin_infos[i];
+        uint64_t used_slabs = bin->stats.nonfull_slabs + (bin->slabcur ? 1 : 0);
+        uint64_t full_slabs = bin->stats.curslabs - bin->stats.nonfull_slabs - (bin->slabcur ? 1 : 0);
+        uint64_t needed_slabs = (bin->stats.curregs - full_slabs * bin_info->nregs) / bin_info->nregs;
+        if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
+        needed_slabs += full_slabs;
+        used_slabs += full_slabs;
+        bin->highest_slab_to_retain_inited = false;
+        ASSERT(extent_heap_empty(&bin->slabs_nonfull_temp));
+        if (used_slabs != needed_slabs) {
+            int64_t nonfull_to_retain = needed_slabs - full_slabs;
+            if (bin->slabcur) nonfull_to_retain--;
+            printf("%zu: Need %lu slabs but have %lu, non full to retain %ld (out of %ld)\n", bin_info->reg_size,
+                   needed_slabs, used_slabs, nonfull_to_retain, used_slabs - full_slabs - (bin->slabcur ? 1 : 0));
+            bin->defrag_slabs_to_retain = nonfull_to_retain;
+            bin->initing_defrag = true;
+        } else {
+            bin->defrag_slabs_to_retain = 0;
+            bin->initing_defrag = false;
+        }
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+    }
+}
+
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW
+init_defrag_step(long long max_time) {
+    unsigned long long i;
+    tsd_t * tsd = tsd_fetch();
+    arena_t *arena = arena_choose(tsd, NULL);
+
+    long long t;
+    bool need_more = false;
+    t = ustime();
+
+    for (i = 0; i < SC_NBINS; i++) {
+        unsigned binshard;
+        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+        init_defrag_bin_step(bin, t, max_time);
+        need_more |= bin->initing_defrag;
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+        if (ustime() - t >= max_time) {
+            printf("Stopping defrag init step: timed out\n");
+            break;
+        }
+    }
+    //printf("step took %lld\n", ustime() - t);
+    return need_more ? 1 : 0;
+}
+
+/*
 static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) {
     uint64_t c = 0;
     extent_t *leftmost_child, *sibling;
@@ -4035,7 +4131,7 @@ static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) 
         c += zero_extent_heap_defrag_retain(sibling, found);
     }
     return c;
-}
+}*/
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 finish_defrag(void) {
@@ -4049,27 +4145,13 @@ finish_defrag(void) {
     for (i = 0; i < SC_NBINS; i++) {
         unsigned binshard;
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        extent_t *slab;
-        uint64_t scanned_full = 0, found_full = 0, scanned_non = 0, found_non = 0;
-        ql_foreach(slab, &bin->slabs_full, ql_link) {
-            //printf("badger\n");
-            scanned_full++;
-            if (extent_defrag_retain_get(slab)) found_full++;
-            extent_defrag_retain_set(slab, false);
+
+        if (bin->initing_defrag) {
+            printf("%llu: finish defrag but bin defrag didn't complete initing\n", i);
+            phn_merge(extent_t, ph_link, extent_heap_first(&bin->slabs_nonfull), extent_heap_first(&bin->slabs_nonfull_temp), extent_snad_comp, bin->slabs_nonfull.ph_root);
+            bin->initing_defrag = false;
         }
-
-        if (bin->slabs_nonfull.ph_root) {
-            scanned_non += zero_extent_heap_defrag_retain(bin->slabs_nonfull.ph_root, &found_non);
-            for (slab = phn_next_get(extent_t, ph_link, bin->slabs_nonfull.ph_root);
-                 slab != NULL; slab = phn_next_get(extent_t, ph_link, slab)) {
-                scanned_non += zero_extent_heap_defrag_retain(slab, &found_non);
-            }
-        }
-
-        const bin_info_t *bin_info = &bin_infos[i];
-        if (found_non || found_full)
-            printf("%zu: scanned full: %lu, found full: %lu, scanned non: %lu, found non: %lu\n", bin_info->reg_size, scanned_full, found_full, scanned_non, found_non);
-
+        bin->highest_slab_to_retain_inited = false;
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
 }

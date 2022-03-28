@@ -1012,7 +1012,12 @@ arena_slab_dalloc(tsdn_t *tsdn, arena_t *arena, extent_t *slab) {
 static void
 arena_bin_slabs_nonfull_insert(bin_t *bin, extent_t *slab) {
 	assert(extent_nfree_get(slab) > 0);
-	extent_heap_insert(&bin->slabs_nonfull, slab);
+    assert(!bin->initing_defrag || bin->highest_slab_to_retain_inited);
+    if (bin->initing_defrag && extent_snad_comp(&bin->highest_slab_to_retain, slab) >= 0) {
+        extent_heap_insert(&bin->slabs_nonfull_temp, slab);
+    } else {
+        extent_heap_insert(&bin->slabs_nonfull, slab);
+    }
 	if (config_stats) {
 		bin->stats.nonfull_slabs++;
 	}
@@ -1020,8 +1025,11 @@ arena_bin_slabs_nonfull_insert(bin_t *bin, extent_t *slab) {
 
 static void
 arena_bin_slabs_nonfull_remove(bin_t *bin, extent_t *slab) {
-	extent_heap_remove(&bin->slabs_nonfull, slab);
-    extent_defrag_retain_set(slab, false);
+    if (bin->initing_defrag) {
+        extent_heap_remove_either(&bin->slabs_nonfull, &bin->slabs_nonfull_temp, slab);
+    } else {
+        extent_heap_remove(&bin->slabs_nonfull, slab);
+    }
 	if (config_stats) {
 		bin->stats.nonfull_slabs--;
 	}
@@ -1029,11 +1037,18 @@ arena_bin_slabs_nonfull_remove(bin_t *bin, extent_t *slab) {
 
 static extent_t *
 arena_bin_slabs_nonfull_tryget(bin_t *bin) {
-	extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
+    extent_t *slab;
+    if (bin->initing_defrag) {
+        slab = extent_heap_remove_first(&bin->slabs_nonfull_temp);
+        if (slab == NULL) {
+            slab = extent_heap_remove_first(&bin->slabs_nonfull);
+        }
+    } else {
+        slab = extent_heap_remove_first(&bin->slabs_nonfull);
+    }
 	if (slab == NULL) {
 		return NULL;
 	}
-    extent_defrag_retain_set(slab, false);
 	if (config_stats) {
 		bin->stats.reslabs++;
 		bin->stats.nonfull_slabs--;
@@ -1077,7 +1092,6 @@ arena_bin_reset(tsd_t *tsd, arena_t *arena, bin_t *bin) {
 	}
 	while ((slab = extent_heap_remove_first(&bin->slabs_nonfull)) != NULL) {
 		malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
-        extent_defrag_retain_set(slab, false);
 		arena_slab_dalloc(tsd_tsdn(tsd), arena, slab);
 		malloc_mutex_lock(tsd_tsdn(tsd), &bin->lock);
 	}

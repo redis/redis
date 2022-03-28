@@ -115,12 +115,6 @@ extent_slab_get(const extent_t *extent) {
                                                            EXTENT_BITS_SLAB_SHIFT);
 }
 
-static inline bool
-extent_defrag_retain_get(const extent_t *extent) {
-    return (bool)((extent->e_bits & EXTENT_BITS_DEFRAG_RETAIN_MASK) >>
-                                                           EXTENT_BITS_DEFRAG_RETAIN_SHIFT);
-}
-
 static inline unsigned
 extent_nfree_get(const extent_t *extent) {
 	assert(extent_slab_get(extent));
@@ -340,12 +334,6 @@ extent_slab_set(extent_t *extent, bool slab) {
 }
 
 static inline void
-extent_defrag_retain_set(extent_t *extent, bool retain) {
-    extent->e_bits = (extent->e_bits & ~EXTENT_BITS_DEFRAG_RETAIN_MASK) |
-                     ((uint64_t)retain << EXTENT_BITS_DEFRAG_RETAIN_SHIFT);
-}
-
-static inline void
 extent_prof_tctx_set(extent_t *extent, prof_tctx_t *tctx) {
 	atomic_store_p(&extent->e_prof_tctx, tctx, ATOMIC_RELEASE);
 }
@@ -385,7 +373,6 @@ extent_init(extent_t *extent, arena_t *arena, void *addr, size_t size,
 	extent_addr_set(extent, addr);
 	extent_size_set(extent, size);
 	extent_slab_set(extent, slab);
-    extent_defrag_retain_set(extent, false);
 	extent_szind_set(extent, szind);
 	extent_sn_set(extent, sn);
 	extent_state_set(extent, state);

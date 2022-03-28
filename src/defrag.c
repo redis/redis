@@ -45,6 +45,7 @@
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
 void je_init_defrag(void);
+int je_init_defrag_step(long long max_time);
 void je_finish_defrag(void);
 
 /* forward declarations*/
@@ -1149,6 +1150,9 @@ void activeDefragCycle(void) {
     endtime = start + timelimit;
     latencyStartMonitor(latency);
 
+    if (je_init_defrag_step(timelimit))
+        return;
+
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor) {
@@ -1178,8 +1182,11 @@ void activeDefragCycle(void) {
                 je_finish_defrag();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
-                if (server.active_defrag_running != 0 && ustime() < endtime)
+                if (server.active_defrag_running != 0 && ustime() < endtime) {
+                    if (je_init_defrag_step(endtime - ustime()))
+                        break;
                     continue;
+                }
                 break;
             }
             else if (current_db==0) {
