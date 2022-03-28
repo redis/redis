@@ -40,6 +40,7 @@
 /* Flags used with certain functions. */
 #define ANET_NONE 0
 #define ANET_IP_ONLY (1<<0)
+#define ANET_PREFER_IPV4 (1<<1)
 
 #if defined(__sun) || defined(_AIX)
 #define AF_LOCAL AF_UNIX

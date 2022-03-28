@@ -6316,8 +6316,13 @@ assign_replicas:
             if (first == NULL) {
                 first = node;
                 /* Although hiredis supports connecting to a hostname, CLUSTER
-                 * MEET requires an IP address, so we do a DNS lookup here. */
-                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
+                 * MEET requires an IP address, so we do a DNS lookup here.
+                 *
+                 * We prefer IPv4 over IPv6, because this is what hiredis does.
+                 * When we connect to 'node' (using hiredis) and give it the IP
+                 * of 'first', we should use the same kind of IP address for
+                 * both nodes. */
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_PREFER_IPV4)
                     == ANET_ERR)
                 {
                     fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
@@ -6502,7 +6507,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           "join the cluster.\n", ip, port);
     /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
     char first_ip[NET_IP_STR_LEN];
-    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_PREFER_IPV4) == ANET_ERR) {
         fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
         success = 0;
         goto cleanup;

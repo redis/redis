@@ -220,7 +220,9 @@ int anetRecvTimeout(char *err, int fd, long long ms) {
  *
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
- * into a validating / normalizing function. */
+ * into a validating / normalizing function.
+ *
+ * If the flag ANET_PREFER_IPV4 is set, IPv4 is preferred over IPv6. */
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -232,10 +234,17 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
+    if (flags & ANET_PREFER_IPV4) {
+        hints.ai_family = AF_INET;
+        if ((rv = getaddrinfo(host, NULL, &hints, &info)) == 0) goto found;
+        hints.ai_family = AF_INET6;
+    }
     if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
+
+found:
     if (info->ai_family == AF_INET) {
         struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
         inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, ipbuf_len);
