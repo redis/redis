@@ -191,18 +191,25 @@ start_server {tags {"modules"}} {
     test {startup moduleconfigs} {
         # No loadmodule directive
         set nomodload [start_server [list overrides [list moduleconfigs.string "hello"]]]
-        assert_equal 0 [is_alive $nomodload]
+        wait_for_condition 100 50 {
+            ! [is_alive $nomodload]
+        } else {
+            fail "startup should've failed with no load and module configs supplied"
+        }
         set stdout [dict get $nomodload stdout]
         assert_equal [count_message_lines $stdout "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting"] 1
 
         # Bad config value
         set badconfig [start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "rejectisfreed"]]]
-        assert_equal 0 [is_alive $badconfig]
+        wait_for_condition 100 50 {
+            ! [is_alive $badconfig]
+        } else {
+            fail "startup with bad moduleconfigs should've failed"
+        }
         set stdout [dict get $badconfig stdout]
         assert_equal [count_message_lines $stdout "Issue during loading of configuration moduleconfigs.string"] 1
 
         set noload [start_server [list overrides [list loadmodule "$testmodule noload" moduleconfigs.string "hello"]]]
-        # Need to wait here because module has to load completely before we can detect its failed and unload it and kill startup
         wait_for_condition 100 50 {
             ! [is_alive $noload]
         } else {
