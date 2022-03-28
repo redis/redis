@@ -799,9 +799,9 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
-            addReplyPushLen(c, 2);
-            addReplyBulkCString(c, "server-cpu-usage");
-            addReplyLongLong(c, 42);
+            addReplyPushLen(c,2);
+            addReplyBulkCString(c,"server-cpu-usage");
+            addReplyLongLong(c,42);
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
