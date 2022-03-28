@@ -1,4 +1,4 @@
-/* fpconv.h -- floating point conversion utilities.
+/* fpconv_powers.h -- floating point conversion utilities.
  *
  * Fast and accurate double to string conversion based on Florian Loitsch's
  * Grisu-algorithm[1].

@@ -1,4 +1,4 @@
-/* fpconv.c -- floating point conversion utilities.
+/* fpconv_dtoa.c -- floating point conversion utilities.
  *
  * Fast and accurate double to string conversion based on Florian Loitsch's
  * Grisu-algorithm[1].
@@ -35,7 +35,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include "fpconv.h"
+#include "fpconv_dtoa.h"
 
 #include "fpconv_powers.h"
 

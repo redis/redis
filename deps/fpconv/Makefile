@@ -12,10 +12,10 @@ R_LD=$(CC) $(R_LDFLAGS)
 AR= ar
 ARFLAGS= rcs
 
-libfpconv.a: fpconv.o
+libfpconv.a: fpconv_dtoa.o
 	$(AR) $(ARFLAGS) $@ $+
 
-fpconv.o: fpconv.h fpconv.c
+fpconv_dtoa.o: fpconv_dtoa.h fpconv_dtoa.c
 
 .c.o:
 	$(R_CC) -c  $< 
