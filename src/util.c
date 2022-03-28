@@ -552,6 +552,28 @@ int string2d(const char *s, size_t slen, double *dp) {
     return 1;
 }
 
+int doubleIsLongLong(double d, long long *out) {
+#if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
+        /* Check if the float is in a safe range to be casted into a
+         * long long. We are assuming that long long is 64 bit here.
+         * Also we are assuming that there are no implementations around where
+         * double has precision < 52 bit.
+         *
+         * Under this assumptions we test if a double is inside an interval
+         * where casting to long long is safe. Then using two castings we
+         * make sure the decimal part is zero. If all this is true we use
+         * integer printing function that is much faster. */
+        double min = -4503599627370495; /* (2^52)-1 */
+        double max = 4503599627370496; /* -(2^52) */
+        if (d <= min || d >= max)
+            return 0;
+        *out = d;
+        if (*out == d)
+            return 1;
+#endif
+    return 0;
+}
+
 /* Convert a double to a string representation. Returns the number of bytes
  * required. The representation should always be parsable by strtod(3).
  * This function does not support human-friendly formatting like ld2string
@@ -572,22 +594,10 @@ int d2string(char *buf, size_t len, double value) {
         else
             len = snprintf(buf,len,"0");
     } else {
-#if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
-        /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
-         * Also we are assuming that there are no implementations around where
-         * double has precision < 52 bit.
-         *
-         * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
-         * make sure the decimal part is zero. If all this is true we use
-         * integer printing function that is much faster. */
-        double min = -4503599627370495; /* (2^52)-1 */
-        double max = 4503599627370496; /* -(2^52) */
-        if (value > min && value < max && value == ((double)((long long)value)))
-            len = ll2string(buf,len,(long long)value);
+        long long lvalue;
+        if (doubleIsLongLong(value, &lvalue))
+            len = ll2string(buf,len,lvalue);
         else
-#endif
             len = snprintf(buf,len,"%.17g",value);
     }
 
