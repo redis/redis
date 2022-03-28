@@ -97,17 +97,17 @@ test "Sentinels (re)connection following SENTINEL SET mymaster auth-pass" {
 }
 
 test "Sentinels (re)connection following master ACL change" {
-    # 2 types of sentinels to test:
-    # (re)started while master changed pwd. Manage to connect only after setting pwd
+    # Three types of sentinels to test during ACL change:
+    # 1. (re)started Sentinel. Manage to connect only after setting new pwd
+    # 2. (up)dated Sentinel, get just before ACL change the new password
+    # 3. (un)touched Sentinel that kept old connection with master and didn't
+    #    set new ACL password won't persist ACL pwd change (unlike legacy auth-pass)
     set sent2re 0
-    # (up)dated in advance with master new password
     set sent2up 1
-    # (un)touched. Note, sentinel that kept old connection with master and didn't
-    # set new ACL password won't persist ACL pwd change, unlike legacy auth-pass
     set sent2un 2
 
     wait_for_sentinels_connect_servers
-    # kill sentinel 'sent2re' and restart it after
+    # kill sentinel 'sent2re' and restart it after ACL change
     kill_instance sentinel $sent2re
 
     # Update sentinel 'sent2up' with new user and pwd
@@ -120,9 +120,11 @@ test "Sentinels (re)connection following master ACL change" {
 
     restart_instance sentinel $sent2re
 
-    # Verify sentinel that restarted failed to connect master
-    if {![string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]]} {
-       fail "Expected: Sentinel to be disconnected from master due to wrong password"
+    # Verify sentinel that restarted failed to reconnect master
+    wait_for_condition 100 50 {
+        [string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]] != 0
+    } else {
+        fail "Expected: Sentinel to be disconnected from master due to wrong password"
     }
 
     # Verify sentinel with updated password managed to connect (wait for sentinelTimer to reconnect)
