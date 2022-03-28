@@ -2890,8 +2890,11 @@ void RM_ReplySetSetLength(RedisModuleCtx *ctx, long len) {
 }
 
 /* Very similar to RedisModule_ReplySetMapLength
- * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * Must not be called if RM_ReplyWithAttribute returned an error. */
 void RM_ReplySetAttributeLength(RedisModuleCtx *ctx, long len) {
+    if (ctx->client->resp == 2) return;
     moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_ATTRIBUTE);
 }
 
