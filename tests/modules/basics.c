@@ -718,6 +718,25 @@ end:
 
 /* Return 1 if the reply matches the specified string, otherwise log errors
  * in the server log and return 0. */
+int TestAssertErrorReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char *str, size_t len) {
+    RedisModuleString *mystr, *expected;
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_ERROR) {
+        return 0;
+    }
+
+    mystr = RedisModule_CreateStringFromCallReply(reply);
+    expected = RedisModule_CreateString(ctx,str,len);
+    if (RedisModule_StringCompare(mystr,expected) != 0) {
+        const char *mystr_ptr = RedisModule_StringPtrLen(mystr,NULL);
+        const char *expected_ptr = RedisModule_StringPtrLen(expected,NULL);
+        RedisModule_Log(ctx,"warning",
+            "Unexpected Error reply reply '%s' (instead of '%s')",
+            mystr_ptr, expected_ptr);
+        return 0;
+    }
+    return 1;
+}
+
 int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char *str, size_t len) {
     RedisModuleString *mystr, *expected;
 
@@ -845,6 +864,18 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_CallReplyLength(reply) != 2) goto fail;
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 0),"test",4)) goto fail;
     if (!TestAssertStringReply(ctx,RedisModule_CallReplyArrayElement(reply, 1),"1234",4)) goto fail;
+
+    T("foo", "E");
+    if (!TestAssertErrorReply(ctx,reply,"ERR Unknown Redis command 'foo'.",32)) goto fail;
+
+    T("set", "Ec", "x");
+    if (!TestAssertErrorReply(ctx,reply,"ERR Wrong number of args calling Redis command 'set'.",53)) goto fail;
+
+    T("shutdown", "SE");
+    if (!TestAssertErrorReply(ctx,reply,"ERR command 'shutdown' is not allowed on script mode",52)) goto fail;
+
+    T("set", "WEcc", "x", "1");
+    if (!TestAssertErrorReply(ctx,reply,"ERR Write command 'set' was called while write is not allowed.",62)) goto fail;
 
     RedisModule_ReplyWithSimpleString(ctx,"ALL TESTS PASSED");
     return REDISMODULE_OK;

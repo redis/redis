@@ -131,7 +131,7 @@ test "Instance #0 gets converted into a replica" {
 test "Test the replica reports a loading state while it's loading" {
     # Test the command is good for verifying everything moves to a happy state
     set replica_cluster_id [R $replica_id CLUSTER MYID]
-    wait_for_condition 50 100 {
+    wait_for_condition 50 1000 {
         [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health] eq "online"
     } else {
         fail "Replica never transitioned to online"
@@ -165,7 +165,7 @@ test "Test the replica reports a loading state while it's loading" {
     R $primary_id exec
 
     # The replica should reconnect and start a full sync, it will gossip about it's health to the primary.
-    wait_for_condition 50 100 {
+    wait_for_condition 50 1000 {
         "loading" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
         fail "Replica never transitioned to loading"
@@ -174,7 +174,7 @@ test "Test the replica reports a loading state while it's loading" {
     # Speed up the key loading and verify everything resumes
     R $replica_id config set key-load-delay 0
 
-    wait_for_condition 50 100 {
+    wait_for_condition 50 1000 {
         "online" eq [dict get [get_node_info_from_shard $replica_cluster_id $primary_id "node"] health]
     } else {
         fail "Replica never transitioned to online"

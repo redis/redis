@@ -3197,7 +3197,8 @@ void replicationCacheMaster(client *c) {
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
-    sdsclear(server.master->pending_querybuf);
+    server.master->qb_pos = 0;
+    server.master->repl_applied = 0;
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -3333,6 +3334,14 @@ void refreshGoodSlavesCount(void) {
             lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
+}
+
+/* return true if status of good replicas is OK. otherwise false */
+int checkGoodReplicasStatus(void) {
+    return server.masterhost || /* not a primary status should be OK */
+           !server.repl_min_slaves_max_lag || /* Min slave max lag not configured */
+           !server.repl_min_slaves_to_write || /* Min slave to write not configured */
+           server.repl_good_slaves_count >= server.repl_min_slaves_to_write; /* check if we have enough slaves */
 }
 
 /* ----------------------- SYNCHRONOUS REPLICATION --------------------------

@@ -2472,6 +2472,22 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     }
 }
 
+const char* getAclErrorMessage(int acl_res) {
+    /* Notice that a variant of this code also exists on aclCommand so
+     * it also need to be updated on changed. */
+    switch (acl_res) {
+    case ACL_DENIED_CMD:
+        return "can't run this command or subcommand";
+    case ACL_DENIED_KEY:
+        return "can't access at least one of the keys mentioned in the command arguments";
+    case ACL_DENIED_CHANNEL:
+        return "can't publish to the channel mentioned in the command";
+    default:
+        return "lacking the permissions for the command";
+    }
+    serverPanic("Reached deadcode on getAclErrorMessage");
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/
@@ -2863,6 +2879,8 @@ setuser_cleanup:
 
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        /* Notice that a variant of this code also exists on getAclErrorMessage so
+         * it also need to be updated on changed. */
         if (result != ACL_OK) {
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {

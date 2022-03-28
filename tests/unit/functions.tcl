@@ -310,7 +310,7 @@ start_server {tags {"scripting repl external:skip"}} {
     start_server {} {
         test "Connect a replica to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [s -1 role] eq {slave} &&
                 [string match {*master_link_status:up*} [r -1 info replication]]
             } else {
@@ -320,7 +320,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test {FUNCTION - creation is replicated to replica} {
             r function load LUA test DESCRIPTION {some description} [get_no_writes_function_code test {return 'hello'}]
-            wait_for_condition 50 100 {    
+            wait_for_condition 150 100 {    
                 [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags no-writes}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
@@ -335,7 +335,7 @@ start_server {tags {"scripting repl external:skip"}} {
             set e [r function dump]
 
             r function delete test
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 function list] eq {}
             } else {
                 fail "Failed waiting for function to replicate to replica"
@@ -343,7 +343,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
             assert_equal [r function restore $e] {OK}
 
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags no-writes}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
@@ -352,7 +352,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test {FUNCTION - delete is replicated to replica} {
             r function delete test
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 function list] eq {}
             } else {
                 fail "Failed waiting for function to replicate to replica"
@@ -361,13 +361,13 @@ start_server {tags {"scripting repl external:skip"}} {
 
         test {FUNCTION - flush is replicated to replica} {
             r function load LUA test DESCRIPTION {some description} [get_function_code test {return 'hello'}]
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 function list] eq {{library_name test engine LUA description {some description} functions {{name test description {} flags {}}}}}
             } else {
                 fail "Failed waiting for function to replicate to replica"
             }
             r function flush
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 function list] eq {}
             } else {
                 fail "Failed waiting for function to replicate to replica"
@@ -382,7 +382,7 @@ start_server {tags {"scripting repl external:skip"}} {
 
             # reconnect the replica
             r -1 slaveof [srv 0 host] [srv 0 port]
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [s -1 role] eq {slave} &&
                 [string match {*master_link_status:up*} [r -1 info replication]]
             } else {
@@ -416,7 +416,7 @@ start_server {tags {"scripting repl external:skip"}} {
             r function load LUA test REPLACE [get_function_code test {return redis.call('set', 'x', '1')}]
             r fcall test 0
             assert {[r get x] eq {1}}
-            wait_for_condition 50 100 {
+            wait_for_condition 150 100 {
                 [r -1 get x] eq {1}
             } else {
                 fail "Failed waiting function effect to be replicated to replica"
