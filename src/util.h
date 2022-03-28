@@ -44,7 +44,7 @@
 #define MAX_DOUBLE_CHARS 400
 
 /* The maximum number of characters needed to for d2string call.
- * Since it uses %e and not %f, some 40 chars should be enough. */
+ * Since it uses %g and not %f, some 40 chars should be enough. */
 #define MAX_D2STRING_CHARS 128
 
 /* Bytes needed for long -> str + '\0' */
