@@ -1027,7 +1027,7 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
 
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
     unsigned char *sptr;
-    char scorebuf[128];
+    char scorebuf[MAX_D2STRING_CHARS];
     int scorelen;
 
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
