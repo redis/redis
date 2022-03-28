@@ -799,11 +799,13 @@ NULL
                 addReplyPushLen(c, 2);
                 addReplyBulkCString(c, "server-cpu-usage");
                 addReplyLongLong(c, 42);
+                /* Push replies are not synchronous replies, so we emit also a
+                 * normal reply in order for blocking clients just discarding the
+                 * push reply, to actually consume the reply and continue. */
+                addReplyBulkCString(c,"Some real reply following the push reply");
+            } else {
+                addReplyError(c,"RESP2 is not supported by this command");
             }
-            /* Push replies are not synchronous replies, so we emit also a
-             * normal reply in order for blocking clients just discarding the
-             * push reply, to actually consume the reply and continue. */
-            addReplyBulkCString(c,"Some real reply following the push reply");
         } else if (!strcasecmp(name,"true")) {
             addReplyBool(c,1);
         } else if (!strcasecmp(name,"false")) {
