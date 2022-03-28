@@ -2256,7 +2256,7 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
  * The returned string must be released with RedisModule_FreeString() or by
  * enabling automatic memory management. */
 RedisModuleString *RM_CreateStringFromDouble(RedisModuleCtx *ctx, double d) {
-    char buf[128];
+    char buf[MAX_D2STRING_CHARS];
     size_t len = d2string(buf,sizeof(buf),d);
     return RM_CreateString(ctx,buf,len);
 }
