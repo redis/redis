@@ -275,6 +275,86 @@ test {Migrate the last slot away from a node using redis-cli} {
     }
 }
 
+# Test redis-cli --cluster create, add-node with cluster-port.
+# Create five nodes, three with custom cluster_port and two with default values.
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1]] {
+start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
+
+    # The first three are used to test --cluster create.
+    # The last two are used to test --cluster add-node
+    set node1_rd [redis_client 0]
+    set node2_rd [redis_client -1]
+    set node3_rd [redis_client -2]
+    set node4_rd [redis_client -3]
+    set node5_rd [redis_client -4]
+
+    test {redis-cli --cluster create with cluster-port} {
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port]@[status $node1_rd cluster_port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]@[status $node3_rd cluster_port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Make sure each node can meet other nodes
+        assert_equal 3 [csi 0 cluster_known_nodes]
+        assert_equal 3 [csi -1 cluster_known_nodes]
+        assert_equal 3 [csi -2 cluster_known_nodes]
+    }
+
+    test {redis-cli --cluster add-node with cluster-port} {
+        # Adding node to the cluster (without cluster-port)
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                           127.0.0.1:[srv -3 port] \
+                           127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Adding node to the cluster (with cluster-port)
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                           127.0.0.1:[srv -4 port]@[status $node5_rd cluster_port] \
+                           127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok} &&
+            [csi -4 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Make sure each node can meet other nodes
+        assert_equal 5 [csi 0 cluster_known_nodes]
+        assert_equal 5 [csi -1 cluster_known_nodes]
+        assert_equal 5 [csi -2 cluster_known_nodes]
+        assert_equal 5 [csi -3 cluster_known_nodes]
+        assert_equal 5 [csi -4 cluster_known_nodes]
+    }
+# stop 5 servers
+}
+}
+}
+}
+}
+
 } ;# tags
 
 set ::singledb $old_singledb
