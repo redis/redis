@@ -5410,8 +5410,25 @@ NULL
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
 
+            int slot_was_mine = server.cluster->slots[slot] == myself;
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
+
+            /* If we are a master left without slots, we should turn into a
+             * replica of the new master. */
+            if (slot_was_mine &&
+                n != myself &&
+                myself->numslots == 0 &&
+                server.cluster_allow_replica_migration)
+            {
+                serverLog(LL_WARNING,
+                          "Configuration change detected. Reconfiguring myself "
+                          "as a replica of %.40s", n->name);
+                clusterSetMaster(n);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
+                                     CLUSTER_TODO_UPDATE_STATE |
+                                     CLUSTER_TODO_FSYNC_CONFIG);
+            }
 
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */
