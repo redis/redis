@@ -352,6 +352,9 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_RESP_3 (1<<3)
 #define REDISMODULE_ARGV_RESP_AUTO (1<<4)
 #define REDISMODULE_ARGV_CHECK_ACL (1<<5)
+#define REDISMODULE_ARGV_SCRIPT_MODE (1<<6)
+#define REDISMODULE_ARGV_NO_WRITES (1<<7)
+#define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -596,7 +599,10 @@ static void moduleFreeKeyIterator(RedisModuleKey *key) {
     serverAssert(key->iter != NULL);
     switch (key->value->type) {
     case OBJ_LIST: listTypeReleaseIterator(key->iter); break;
-    case OBJ_STREAM: zfree(key->iter); break;
+    case OBJ_STREAM:
+        streamIteratorStop(key->iter);
+        zfree(key->iter);
+        break;
     default: serverAssert(0); /* No key->iter for other types. */
     }
     key->iter = NULL;
@@ -2884,8 +2890,11 @@ void RM_ReplySetSetLength(RedisModuleCtx *ctx, long len) {
 }
 
 /* Very similar to RedisModule_ReplySetMapLength
- * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3. */
+ * Visit https://github.com/antirez/RESP3/blob/master/spec.md for more info about RESP3.
+ *
+ * Must not be called if RM_ReplyWithAttribute returned an error. */
 void RM_ReplySetAttributeLength(RedisModuleCtx *ctx, long len) {
+    if (ctx->client->resp == 2) return;
     moduleReplySetCollectionLength(ctx, len, COLLECTION_REPLY_ATTRIBUTE);
 }
 
@@ -5103,6 +5112,7 @@ int RM_StreamIteratorStop(RedisModuleKey *key) {
         errno = EBADF;
         return REDISMODULE_ERR;
     }
+    streamIteratorStop(key->iter);
     zfree(key->iter);
     key->iter = NULL;
     return REDISMODULE_OK;
@@ -5544,6 +5554,12 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_RESP_AUTO;
         } else if (*p == 'C') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CHECK_ACL;
+        } else if (*p == 'S') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_SCRIPT_MODE;
+        } else if (*p == 'W') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_NO_WRITES;
+        } else if (*p == 'E') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
         } else {
             goto fmterr;
         }
@@ -5583,6 +5599,17 @@ fmterr:
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Check if command can be executed according to ACL rules.
+ *     * 'S' -- Run the command in a script mode, this means that it will raise
+ *              an error if a command which are not allowed inside a script
+ *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
+ *              In addition, on script mode, write commands are not allowed if there are
+ *              not enough good replicas (as configured with `min-replicas-to-write`)
+ *              or when the server is unable to persist to the disk.
+ *     * 'W' -- Do not allow to run any write command (flagged with the `write` flag).
+ *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
+ *              invoking the command, the error is returned using errno mechanism.
+ *              This flag allows to get the error also as an error CallReply with
+ *              relevant error message.
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5597,6 +5624,8 @@ fmterr:
  * * ENETDOWN: operation in Cluster instance when cluster is down.
  * * ENOTSUP: No ACL user for the specified module context
  * * EACCES: Command cannot be executed, according to ACL rules
+ * * ENOSPC: Write command is not allowed
+ * * ESPIPE: Command not allowed on script mode
  *
  * Example code fragment:
  * 
@@ -5616,11 +5645,13 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     va_list ap;
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
+    int error_as_call_replies = 0; /* return errors as RedisModuleCallReply object */
 
     /* Handle arguments. */
     va_start(ap, fmt);
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&argv_len,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
+    error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
     c = moduleAllocTempClient();
@@ -5643,6 +5674,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) {
+        /* We do not return a call reply here this is an error that should only
+         * be catch by the module indicating wrong fmt was given, the module should
+         * handle this error and decide how to continue. It is not an error that
+         * should be propagated to the user. */
         errno = EBADF;
         goto cleanup;
     }
@@ -5656,14 +5691,76 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     cmd = lookupCommand(c->argv,c->argc);
     if (!cmd) {
         errno = ENOENT;
+        if (error_as_call_replies) {
+            sds msg = sdscatfmt(sdsempty(),"Unknown Redis "
+                                           "command '%S'.",c->argv[0]->ptr);
+            reply = callReplyCreateError(msg, ctx);
+        }
         goto cleanup;
     }
-    c->cmd = c->lastcmd = cmd;
+    c->cmd = c->lastcmd = c->realcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         errno = EINVAL;
+        if (error_as_call_replies) {
+            sds msg = sdscatfmt(sdsempty(), "Wrong number of "
+                                            "args calling Redis command '%S'.", c->cmd->fullname);
+            reply = callReplyCreateError(msg, ctx);
+        }
         goto cleanup;
+    }
+
+    if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
+        /* Basically on script mode we want to only allow commands that can
+         * be executed on scripts (CMD_NOSCRIPT is not set on the command flags) */
+        if (cmd->flags & CMD_NOSCRIPT) {
+            errno = ESPIPE;
+            if (error_as_call_replies) {
+                sds msg = sdscatfmt(sdsempty(), "command '%S' is not allowed on script mode", c->cmd->fullname);
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+    }
+
+    if (cmd->flags & CMD_WRITE) {
+        if (flags & REDISMODULE_ARGV_NO_WRITES) {
+            errno = ENOSPC;
+            if (error_as_call_replies) {
+                sds msg = sdscatfmt(sdsempty(), "Write command '%S' was "
+                                                "called while write is not allowed.", c->cmd->fullname);
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+
+        if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
+            /* on script mode, if a command is a write command,
+             * We will not run it if we encounter disk error
+             * or we do not have enough replicas */
+
+            if (!checkGoodReplicasStatus()) {
+                errno = ENOSPC;
+                if (error_as_call_replies) {
+                    sds msg = sdsdup(shared.noreplicaserr->ptr);
+                    reply = callReplyCreateError(msg, ctx);
+                }
+                goto cleanup;
+            }
+
+            int deny_write_type = writeCommandsDeniedByDiskError();
+
+            if (deny_write_type != DISK_ERROR_TYPE_NONE) {
+                errno = ENOSPC;
+                if (error_as_call_replies) {
+                    sds msg = writeCommandsGetDiskErrorMessage(deny_write_type);
+                    reply = callReplyCreateError(msg, ctx);
+                }
+                goto cleanup;
+            }
+
+        }
     }
 
     /* Check if the user can run this command according to the current
@@ -5674,12 +5771,20 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
         if (ctx->client->user == NULL) {
             errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("acl verification failed, context is not attached to a client.");
+                reply = callReplyCreateError(msg, ctx);
+            }
             goto cleanup;
         }
         acl_retval = ACLCheckAllUserCommandPerm(ctx->client->user,c->cmd,c->argv,c->argc,&acl_errpos);
         if (acl_retval != ACL_OK) {
             sds object = (acl_retval == ACL_DENIED_CMD) ? sdsdup(c->cmd->fullname) : sdsdup(c->argv[acl_errpos]->ptr);
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, ctx->client->user->name, object);
+            if (error_as_call_replies) {
+                sds msg = sdscatfmt(sdsempty(), "acl verification failed, %s.", getAclErrorMessage(acl_retval));
+                reply = callReplyCreateError(msg, ctx);
+            }
             errno = EACCES;
             goto cleanup;
         }
@@ -5696,12 +5801,25 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
+            sds msg = NULL;
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
+                if (error_as_call_replies) {
+                    msg = sdscatfmt(sdsempty(), "Can not execute a write command '%S' while the cluster is down and readonly", c->cmd->fullname);
+                }
                 errno = EROFS;
             } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
+                if (error_as_call_replies) {
+                    msg = sdscatfmt(sdsempty(), "Can not execute a command '%S' while the cluster is down", c->cmd->fullname);
+                }
                 errno = ENETDOWN;
             } else {
+                if (error_as_call_replies) {
+                    msg = sdsnew("Attempted to access a non local key in a cluster node");
+                }
                 errno = EPERM;
+            }
+            if (msg) {
+                reply = callReplyCreateError(msg, ctx);
             }
             goto cleanup;
         }
@@ -5744,9 +5862,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
     reply = callReplyCreate(proto, c->deferred_reply_errors, ctx);
     c->deferred_reply_errors = NULL; /* now the responsibility of the reply object. */
-    autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
+    if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
     if (ctx->module) ctx->module->in_call--;
     moduleReleaseTempClient(c);
     return reply;
@@ -8607,6 +8725,24 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
     return REDISMODULE_OK;
 }
 
+/* Redact the client command argument specified at the given position. Redacted arguments 
+ * are obfuscated in user facing commands such as SLOWLOG or MONITOR, as well as
+ * never being written to server logs. This command may be called multiple times on the
+ * same position.
+ * 
+ * Note that the command name, position 0, can not be redacted. 
+ * 
+ * Returns REDISMODULE_OK if the argument was redacted and REDISMODULE_ERR if there 
+ * was an invalid parameter passed in or the position is outside the client 
+ * argument range. */
+int RM_RedactClientCommandArgument(RedisModuleCtx *ctx, int pos) {
+    if (!ctx || !ctx->client || pos <= 0 || ctx->client->argc <= pos) {
+        return REDISMODULE_ERR;
+    }
+    redactClientCommandArgument(ctx->client, pos);
+    return REDISMODULE_OK;
+}
+
 /* Return the X.509 client-side certificate used by the client to authenticate
  * this connection.
  *
@@ -9972,6 +10108,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_FORK_CHILD */
     -1, /* REDISMODULE_EVENT_REPL_ASYNC_LOAD */
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
+    -1, /* REDISMODULE_EVENT_CONFIG */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -10192,7 +10329,7 @@ static uint64_t moduleEventVersions[] = {
  *     are now triggered when repl-diskless-load is set to swapdb.
  *
  *     Called when repl-diskless-load config is set to swapdb,
- *     And redis needs to backup the the current database for the
+ *     And redis needs to backup the current database for the
  *     possibility to be restored later. A module with global data and
  *     maybe with aux_load and aux_save callbacks may need to use this
  *     notification to backup / restore / discard its globals.
@@ -10231,6 +10368,20 @@ static uint64_t moduleEventVersions[] = {
  *
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP`
  *     * `REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP`
+ *
+ * * RedisModule_Event_Config
+ *
+ *     Called when a configuration event happens
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_CONFIG_CHANGE`
+ *
+ *     The data pointer can be casted to a RedisModuleConfigChange
+ *     structure with the following fields:
+ *
+ *         const char **config_names; // An array of C string pointers containing the
+ *                                    // name of each modified configuration item 
+ *         uint32_t num_changes;      // The number of elements in the config_names array
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
@@ -10309,6 +10460,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT;
     case REDISMODULE_EVENT_EVENTLOOP:
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
+    case REDISMODULE_EVENT_CONFIG:
+        return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     default:
         break;
     }
@@ -10384,6 +10537,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_CRON_LOOP) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_SWAPDB) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CONFIG) {
                 moduledata = data;
             }
 
@@ -11785,6 +11940,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsSubEventSupported);
     REGISTER_API(GetServerVersion);
     REGISTER_API(GetClientCertificate);
+    REGISTER_API(RedactClientCommandArgument);
     REGISTER_API(GetCommandKeys);
     REGISTER_API(GetCommandKeysWithFlags);
     REGISTER_API(GetCurrentCommandName);

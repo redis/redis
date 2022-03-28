@@ -405,8 +405,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
-    /* A zero length string is not a valid number. */
-    if (plen == slen)
+    /* A string of zero length or excessive length is not a valid number. */
+    if (plen == slen || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */

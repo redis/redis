@@ -684,6 +684,14 @@ proc start_server {options {code undefined}} {
     }
 }
 
+# Start multiple servers with the same options, run code, then stop them.
+proc start_multiple_servers {num options code} {
+    for {set i 0} {$i < $num} {incr i} {
+        set code [list start_server $options $code]
+    }
+    uplevel 1 $code
+}
+
 proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
     set srv [lindex $::servers end+$level]
     if {$shutdown ne {sigterm}} {

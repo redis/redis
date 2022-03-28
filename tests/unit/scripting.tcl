@@ -73,10 +73,10 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Lua error reply -> Redis protocol type conversion} {
         catch {
-            run_script {return {err='this is an error'}} 0
+            run_script {return {err='ERR this is an error'}} 0
         } e
         set _ $e
-    } {this is an error}
+    } {ERR this is an error}
 
     test {EVAL - Lua table -> Redis protocol type conversion} {
         run_script {return {1,2,3,'ciao',{1,2}}} 0
@@ -378,7 +378,7 @@ start_server {tags {"scripting"}} {
         r set foo bar
         catch {run_script_ro {redis.call('del', KEYS[1]);} 1 foo} e
         set e
-    } {*Write commands are not allowed from read-only scripts*}
+    } {ERR Write commands are not allowed from read-only scripts*}
 
     if {$is_eval eq 1} {
     # script command is only relevant for is_eval Lua
@@ -439,12 +439,12 @@ start_server {tags {"scripting"}} {
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e
-    } {*ERR*attempted to access * global*}
+    } {ERR*attempted to access * global*}
 
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {*ERR*attempted to create global*}
+    } {ERR*attempted to create global*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
@@ -599,8 +599,8 @@ start_server {tags {"scripting"}} {
     } {ERR Number of keys can't be negative}
 
     test {Scripts can handle commands with incorrect arity} {
-        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('set','invalid')" 0}
-        assert_error "*Wrong number of args calling Redis command from script" {run_script "redis.call('incr')" 0}
+        assert_error "ERR Wrong number of args calling Redis command from script*" {run_script "redis.call('set','invalid')" 0}
+        assert_error "ERR Wrong number of args calling Redis command from script*" {run_script "redis.call('incr')" 0}
     }
 
     test {Correct handling of reused argv (issue #1939)} {
@@ -723,7 +723,7 @@ start_server {tags {"scripting"}} {
         } 0] {}
 
         # Check error due to invalid command
-        assert_error {ERR *Invalid command passed to redis.acl_check_cmd()} {run_script {
+        assert_error {ERR *Invalid command passed to redis.acl_check_cmd()*} {run_script {
             return redis.acl_check_cmd('invalid-cmd','arg')
         } 0}
     }
@@ -1288,7 +1288,7 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 1
 
         # Fail to execute deny-oom command in OOM condition (backwards compatibility mode without flags)
-        assert_error {ERR Error running script *OOM command not allowed when used memory > 'maxmemory'.} {
+        assert_error {OOM command not allowed when used memory > 'maxmemory'*} {
             r eval {
                 redis.call('set','x',1)
                 return 1
@@ -1319,7 +1319,7 @@ start_server {tags {"scripting"}} {
     }
 
     test "no-writes shebang flag" {
-        assert_error {ERR Error running script *Write commands are not allowed from read-only scripts.} {
+        assert_error {ERR Write commands are not allowed from read-only scripts*} {
             r eval {#!lua flags=no-writes
                 redis.call('set','x',1)
                 return 1
@@ -1404,12 +1404,19 @@ start_server {tags {"scripting"}} {
 # Additional eval only tests
 start_server {tags {"scripting"}} {
     test "Consistent eval error reporting" {
+        r config resetstat
         r config set maxmemory 1
         # Script aborted due to Redis state (OOM) should report script execution error with detailed internal error
-        assert_error {ERR Error running script (call to *): @user_script:*: OOM command not allowed when used memory > 'maxmemory'.} {
+        assert_error {OOM command not allowed when used memory > 'maxmemory'*} {
             r eval {return redis.call('set','x','y')} 1 x
         }
+        assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
+
         # redis.pcall() failure due to Redis state (OOM) returns lua error table with Redis error message without '-' prefix
+        r config resetstat
         assert_equal [
             r eval {
                 local t = redis.pcall('set','x','y')
@@ -1420,16 +1427,37 @@ start_server {tags {"scripting"}} {
                 end
             } 1 x
         ] 1
+        # error stats were not incremented
+        assert_equal [errorrstat ERR r] {}
+        assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval r]
+        
         # Returning an error object from lua is handled as a valid RESP error result.
+        r config resetstat
         assert_error {OOM command not allowed when used memory > 'maxmemory'.} {
             r eval { return redis.pcall('set','x','y') } 1 x
         }
+        assert_equal [errorrstat ERR r] {}
+        assert_equal [errorrstat OOM r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
+
         r config set maxmemory 0
+        r config resetstat
         # Script aborted due to error result of Redis command
-        assert_error {ERR Error running script (call to *): @user_script:*: ERR DB index is out of range} {
+        assert_error {ERR DB index is out of range*} {
             r eval {return redis.call('select',99)} 0
         }
+        assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat select r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
+        
         # redis.pcall() failure due to error in Redis command returns lua error table with redis error message without '-' prefix
+        r config resetstat
         assert_equal [
             r eval {
                 local t = redis.pcall('select',99)
@@ -1440,11 +1468,23 @@ start_server {tags {"scripting"}} {
                 end
             } 0
         ] 1
+        assert_equal [errorrstat ERR r] {count=1} ;
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat select r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval r]
+
         # Script aborted due to scripting specific error state (write cmd with eval_ro) should report script execution error with detailed internal error
-        assert_error {ERR Error running script (call to *): @user_script:*: ERR Write commands are not allowed from read-only scripts.} {
+        r config resetstat
+        assert_error {ERR Write commands are not allowed from read-only scripts*} {
             r eval_ro {return redis.call('set','x','y')} 1 x
         }
+        assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval_ro r]
+
         # redis.pcall() failure due to scripting specific error state (write cmd with eval_ro) returns lua error table with Redis error message without '-' prefix
+        r config resetstat
         assert_equal [
             r eval_ro {
                 local t = redis.pcall('set','x','y')
@@ -1455,20 +1495,59 @@ start_server {tags {"scripting"}} {
                 end
             } 1 x
         ] 1
+        assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=0*rejected_calls=1,failed_calls=0*} [cmdrstat set r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=0*} [cmdrstat eval_ro r]
+
+        r config resetstat
+        # make sure geoadd will failed
+        r set Sicily 1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {
+            r eval {return redis.call('GEOADD', 'Sicily', '13.361389', '38.115556', 'Palermo', '15.087269', '37.502669', 'Catania')} 1 x
+        }
+        assert_equal [errorrstat WRONGTYPE r] {count=1}
+        assert_equal [s total_error_replies] {1}
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat geoadd r]
+        assert_match {calls=1*rejected_calls=0,failed_calls=1*} [cmdrstat eval r]
     } {} {cluster:skip}
     
     test "LUA redis.error_reply API" {
+        r config resetstat
         assert_error {MY_ERR_CODE custom msg} {
             r eval {return redis.error_reply("MY_ERR_CODE custom msg")} 0
         }
+        assert_equal [errorrstat MY_ERR_CODE r] {count=1}
+    }
+
+    test "LUA redis.error_reply API with empty string" {
+        r config resetstat
+        assert_error {ERR} {
+            r eval {return redis.error_reply("")} 0
+        }
+        assert_equal [errorrstat ERR r] {count=1}
     }
 
     test "LUA redis.status_reply API" {
+        r config resetstat
         r readraw 1
         assert_equal [
             r eval {return redis.status_reply("MY_OK_CODE custom msg")} 0
         ] {+MY_OK_CODE custom msg}
         r readraw 0
+        assert_equal [errorrstat MY_ERR_CODE r] {} ;# error stats were not incremented
+    }
+
+    test "LUA test pcall" {
+        assert_equal [
+            r eval {local status, res = pcall(function() return 1 end); return 'status: ' .. tostring(status) .. ' result: ' .. res} 0
+        ] {status: true result: 1}
+    }
+
+    test "LUA test pcall with error" {
+        assert_match {status: false result:*Script attempted to access nonexistent global variable 'foo'} [
+            r eval {local status, res = pcall(function() return foo end); return 'status: ' .. tostring(status) .. ' result: ' .. res} 0
+        ]
     }
 }
 

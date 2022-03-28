@@ -11,6 +11,27 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            },
+            {
+                "name": "option_value",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "option",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
         ]
     }
 }

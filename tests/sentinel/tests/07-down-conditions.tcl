@@ -24,7 +24,6 @@ proc ensure_master_up {} {
     }
 }
 
-
 proc ensure_master_down {} {
     S $::alive_sentinel sentinel debug info-period 1000
     S $::alive_sentinel sentinel debug ping-period 100
@@ -45,10 +44,14 @@ test "Crash the majority of Sentinels to prevent failovers for this unit" {
 }
 
 test "SDOWN is triggered by non-responding but not crashed instance" {
-    lassign [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
-    exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 3 > /dev/null &
+    set master_addr [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
+    set master_id [get_instance_id_by_port redis [lindex $master_addr 1]]
+
+    set pid [get_instance_attrib redis $master_id pid]
+    exec kill -SIGSTOP $pid
     ensure_master_down
+    exec kill -SIGCONT $pid
     ensure_master_up
 }
 
