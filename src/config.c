@@ -3125,7 +3125,7 @@ void addModuleBoolConfig(const char *module_name, const char *name, int flags, v
 void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val) {
     sds config_name = sdscatfmt(sdsempty(), "%s.%s", module_name, name);
     sds config_dummy_address;
-    standardConfig module_config = createSDSConfig(config_name, NULL, flags | MODULE_CONFIG, EMPTY_STRING_IS_NULL, config_dummy_address, default_val, NULL, NULL);
+    standardConfig module_config = createSDSConfig(config_name, NULL, flags | MODULE_CONFIG, 0, config_dummy_address, default_val, NULL, NULL);
     module_config.data.sds.config = NULL;
     module_config.privdata = privdata;
     registerConfigValue(config_name, &module_config, 0);

@@ -10962,7 +10962,7 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
         char *arg_val = argv[i]->ptr;
         if (!strcasecmp(arg_val, "CONFIG")) {
             if (i + 2 >= argc) {
-                serverLogRaw(LL_NOTICE, "CONFIG specified without name value pair");
+                serverLog(LL_NOTICE, "CONFIG specified without name value pair");
                 return REDISMODULE_ERR;
             }
             sds name = sdsdup(argv[i + 1]->ptr);
@@ -11466,7 +11466,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
  *
  * The actual config value is owned by the module, and the `getfn`, `setfn` and optional
- * `applyfn` allbacks that are provided to Redis in order to access or manipulate the
+ * `applyfn` callbacks that are provided to Redis in order to access or manipulate the
  * value. The `getfn` callback retrieves the value from the module, while the `setfn`
  * callback provides a value to be stored into the module config.
  * The optional `applyfn` callback is called after a `CONFIG SET` command modified one or
@@ -11501,8 +11501,8 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
  * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
  *
- * Default values are used on startup to set the value if it is not provided via the config file,
- * command line or config file. Default values are also used to compare to on a config rewrite.
+ * Default values are used on startup to set the value if it is not provided via the config file
+ * or command line. Default values are also used to compare to on a config rewrite.
  *
  * Notes:
  *
@@ -11571,10 +11571,13 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
 }
 
 /* 
- Create an enum config that server clients can interact with via the 
+ * Create an enum config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
- * enum_values is a array of c-strings that are valid set options. We match
- * enum names with their index partner in int_vals.
+ * Enum configs are a set of string tokens to corresponding integer values, where 
+ * the string value is exposed to Redis clients but the value passed Redis and the
+ * module is the integer value. These values are defined in enum_values, an array
+ * of null-terminated c strings, and int_vals, an array of enum values who has an
+ * index partner in enum_values.
  * Example Implementation:
  *      const char *enum_vals[3] = {"first", "second", "third"};
  *      const int int_vals[3] = {0, 2, 4};
@@ -11617,7 +11620,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
 }
 
 /*
- Create an integer config that server clients can interact with via the 
+ * Create an integer config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
