@@ -120,10 +120,7 @@ typedef struct {
      * understand if the command can be executed. */
     uint64_t allowed_commands[USER_COMMAND_BITS_COUNT/64];
     /* allowed_firstargs is used by ACL rules to block access to a command unless a
-     * specific argv[1] is given (or argv[2] in case it is applied on a sub-command).
-     * For example, a user can use the rule "-select +select|0" to block all
-     * SELECT commands, except "SELECT 0".
-     * And for a sub-command: "+config -config|set +config|set|loglevel"
+     * specific argv[1] is given.
      *
      * For each command ID (corresponding to the command bit set in allowed_commands),
      * This array points to an array of SDS strings, terminated by a NULL pointer,
@@ -1531,6 +1528,37 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
+/* Checks if the provided selector selector has access specified in flags
+ * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
+ * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
+ * the access flags are satisfied with this selector or 0 otherwise.
+ */
+static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
+    /* The selector can access any key */
+    if (selector->flags & SELECTOR_FLAG_ALLKEYS) return 1;
+
+    listIter li;
+    listNode *ln;
+    listRewind(selector->patterns,&li);
+
+    int access_flags = 0;
+    if (flags & CMD_KEY_ACCESS) access_flags |= ACL_READ_PERMISSION;
+    if (flags & CMD_KEY_INSERT) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_DELETE) access_flags |= ACL_WRITE_PERMISSION;
+    if (flags & CMD_KEY_UPDATE) access_flags |= ACL_WRITE_PERMISSION;
+
+    /* Test this key against every pattern. */
+    while((ln = listNext(&li))) {
+        keyPattern *pattern = listNodeValue(ln);
+        if ((pattern->flags & access_flags) != access_flags)
+            continue;
+        if (!strcmp(pattern->pattern,"*")) {
+           return 1;
+       }
+    }
+    return 0;
+}
+
 /* Checks a channel against a provided list of channels. The is_pattern 
  * argument should only be used when subscribing (not when publishing)
  * and controls whether the input channel is evaluated as a channel pattern
@@ -1673,6 +1701,39 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
         }
     }
     return ACL_DENIED_KEY;
+}
+
+/* Checks if the user can execute the given command with the added restriction
+ * it must also have the access specified in flags to any key in the key space. 
+ * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
+ * granted in addition to the access required by the command. Returns 1 
+ * if the user has access or 0 otherwise.
+ */
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+    listIter li;
+    listNode *ln;
+    int local_idxptr;
+
+    /* If there is no associated user, the connection can run anything. */
+    if (u == NULL) return 1;
+
+    /* For multiple selectors, we cache the key result in between selector
+     * calls to prevent duplicate lookups. */
+    aclKeyResultCache cache;
+    initACLKeyResultCache(&cache);
+
+    /* Check each selector sequentially */
+    listRewind(u->selectors,&li);
+    while((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
+        if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
+            cleanupACLKeyResultCache(&cache);
+            return 1;
+        }
+    }
+    cleanupACLKeyResultCache(&cache);
+    return 0;
 }
 
 /* Check if the channel can be accessed by the client according to
@@ -2793,13 +2854,20 @@ setuser_cleanup:
             return;
         }
 
+        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
+            (c->argc-3 < -cmd->arity))
+        {
+            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
+            return;
+        }
+
         int idx;
         int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
         if (result != ACL_OK) {
             sds err = sdsempty();
             if (result == ACL_DENIED_CMD) {
                 err = sdscatfmt(err, "This user has no permissions to run "
-                    "the '%s' command", c->cmd->fullname);
+                    "the '%s' command", cmd->fullname);
             } else if (result == ACL_DENIED_KEY) {
                 err = sdscatfmt(err, "This user has no permissions to access "
                     "the '%s' key", c->argv[idx + 3]->ptr);

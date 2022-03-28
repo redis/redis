@@ -1118,6 +1118,9 @@ static clusterNode **addClusterNode(clusterNode *node) {
     return config.cluster_nodes;
 }
 
+/* TODO: This should be refactored to use CLUSTER SLOTS, the migrating/importing
+ * information is anyway not used.
+ */
 static int fetchClusterConfiguration() {
     int success = 1;
     redisContext *ctx = NULL;
@@ -1179,7 +1182,7 @@ static int fetchClusterConfiguration() {
         clusterNode *node = NULL;
         char *ip = NULL;
         int port = 0;
-        char *paddr = strchr(addr, ':');
+        char *paddr = strrchr(addr, ':');
         if (paddr != NULL) {
             *paddr = '\0';
             ip = addr;

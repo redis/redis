@@ -202,7 +202,7 @@ client *createClient(connection *conn) {
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->last_memory_usage = c->last_memory_usage_on_bucket_update = 0;
+    c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
@@ -1945,7 +1945,7 @@ int writeToClient(client *c, int handler_installed) {
     if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
         /* Note that writeToClient() is called in a threaded way, but
-         * adDeleteFileEvent() is not thread safe: however writeToClient()
+         * aeDeleteFileEvent() is not thread safe: however writeToClient()
          * is always called with handler_installed set to 0 from threads
          * so we are fine. */
         if (handler_installed) {
@@ -1959,7 +1959,11 @@ int writeToClient(client *c, int handler_installed) {
             return C_ERR;
         }
     }
-    updateClientMemUsage(c);
+    /* Update client's memory usage after writing.
+     * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
+     * handleClientsWithPendingWritesUsingThreads(). */
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsage(c);
     return C_OK;
 }
 
@@ -2133,7 +2137,7 @@ int processInlineBuffer(client *c) {
      * we got some desynchronization in the protocol, for example
      * because of a PSYNC gone bad.
      *
-     * However the is an exception: masters may send us just a newline
+     * However there is an exception: masters may send us just a newline
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
@@ -2524,7 +2528,8 @@ int processInputBuffer(client *c) {
     /* Update client memory usage after processing the query buffer, this is
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
-    updateClientMemUsage(c);
+    if (io_threads_op == IO_THREADS_OP_IDLE)
+        updateClientMemUsage(c);
 
     return C_OK;
 }
@@ -2873,8 +2878,6 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
-"GETNAME",
-"    Get the name of the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -3080,6 +3083,10 @@ NULL
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
+        /* Note that we never try to unblock a client blocked on a module command, which
+         * doesn't have a timeout callback (even in the case of UNBLOCK ERROR).
+         * The reason is that we assume that if a command doesn't expect to be timedout,
+         * it also doesn't expect to be unblocked by CLIENT UNBLOCK */
         if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
                 addReplyError(target,
@@ -3469,7 +3476,11 @@ static void retainOriginalCommandVector(client *c) {
  * original_argv array. */
 void redactClientCommandArgument(client *c, int argc) {
     retainOriginalCommandVector(c);
-    decrRefCount(c->argv[argc]);
+    if (c->original_argv[argc] == shared.redacted) {
+        /* This argument has already been redacted */
+        return;
+    }
+    decrRefCount(c->original_argv[argc]);
     c->original_argv[argc] = shared.redacted;
 }
 
@@ -4170,8 +4181,8 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
 
-        /* Update the client in the mem usage buckets after we're done processing it in the io-threads */
-        updateClientMemUsageBucket(c);
+        /* Update the client in the mem usage after we're done processing it in the io-threads */
+        updateClientMemUsage(c);
 
         /* Install the write handler if there are pending writes in some
          * of the clients. */
@@ -4279,8 +4290,8 @@ int handleClientsWithPendingReadsUsingThreads(void) {
             continue;
         }
 
-        /* Once io-threads are idle we can update the client in the mem usage buckets */
-        updateClientMemUsageBucket(c);
+        /* Once io-threads are idle we can update the client in the mem usage */
+        updateClientMemUsage(c);
 
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid

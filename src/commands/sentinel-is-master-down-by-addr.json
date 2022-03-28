@@ -11,6 +11,24 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "ip",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "current-epoch",
+                "type": "integer"
+            },
+            {
+                "name": "runid",
+                "type": "string"
+            }
         ]
     }
 }

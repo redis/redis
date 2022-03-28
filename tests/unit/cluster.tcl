@@ -19,6 +19,7 @@ proc csi {args} {
 }
 
 # make sure the test infra won't use SELECT
+set old_singledb $::singledb
 set ::singledb 1
 
 # cluster creation is complicated with TLS, and the current tests don't really need that coverage
@@ -26,14 +27,13 @@ tags {tls:skip external:skip cluster} {
 
 # start three servers
 set base_conf [list cluster-enabled yes cluster-node-timeout 1]
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
     set node3_pid [srv -2 pid]
+    set node3_rd [redis_deferring_client -2]
 
     test {Create 3 node cluster} {
         exec src/redis-cli --cluster-yes --cluster create \
@@ -52,7 +52,6 @@ start_server [list overrides $base_conf] {
 
     test "Run blocking command on cluster node3" {
         # key9184688 is mapped to slot 10923 (first slot of node 3)
-        set node3_rd [redis_deferring_client -2]
         $node3_rd brpop key9184688 0
         $node3_rd flush
 
@@ -90,10 +89,11 @@ start_server [list overrides $base_conf] {
         }
     }
 
+    set node1_rd [redis_deferring_client 0]
+
     test "Sanity test push cmd after resharding" {
         assert_error {*MOVED*} {$node3 lpush key9184688 v1}
 
-        set node1_rd [redis_deferring_client 0]
         $node1_rd brpop key9184688 0
         $node1_rd flush
 
@@ -109,13 +109,11 @@ start_server [list overrides $base_conf] {
         assert_equal {key9184688 v2} [$node1_rd read]
     }
 
-    $node1_rd close
     $node3_rd close
     
     test "Run blocking command again on cluster node1" {
         $node1 del key9184688
         # key9184688 is mapped to slot 10923 which has been moved to node1
-        set node1_rd [redis_deferring_client 0]
         $node1_rd brpop key9184688 0
         $node1_rd flush
 
@@ -149,18 +147,11 @@ start_server [list overrides $base_conf] {
     exec kill -SIGCONT $node3_pid
     $node1_rd close
 
-# stop three servers
-}
-}
-}
+} ;# stop servers
 
 # Test redis-cli -- cluster create, add-node, call.
 # Test that functions are propagated on add-node
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
-start_server [list overrides $base_conf] {
+start_multiple_servers 5 [list overrides $base_conf] {
 
     set node4_rd [redis_client -3]
     set node5_rd [redis_client -4]
@@ -215,11 +206,85 @@ start_server [list overrides $base_conf] {
         } e
         assert_match {*node already contains functions*} $e        
     }
-# stop 5 servers
-}
-}
-}
-}
+} ;# stop servers
+
+# Test redis-cli --cluster create, add-node.
+# Test that one slot can be migrated to and then away from the new node.
+test {Migrate the last slot away from a node using redis-cli} {
+    start_multiple_servers 4 [list overrides $base_conf] {
+
+        # Create a cluster of 3 nodes
+        exec src/redis-cli --cluster-yes --cluster create \
+                           127.0.0.1:[srv 0 port] \
+                           127.0.0.1:[srv -1 port] \
+                           127.0.0.1:[srv -2 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        # Insert some data
+        assert_equal OK [exec src/redis-cli -c -p [srv 0 port] SET foo bar]
+        set slot [exec src/redis-cli -c -p [srv 0 port] CLUSTER KEYSLOT foo]
+
+        # Add new node to the cluster
+        exec src/redis-cli --cluster-yes --cluster add-node \
+                     127.0.0.1:[srv -3 port] \
+                     127.0.0.1:[srv 0 port]
+
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
+        set newnode_r [redis_client -3]
+        set newnode_id [$newnode_r CLUSTER MYID]
+
+        # Find out which node has the key "foo" by asking the new node for a
+        # redirect.
+        catch { $newnode_r get foo } e
+        assert_match "MOVED $slot *" $e
+        lassign [split [lindex $e 2] :] owner_host owner_port
+        set owner_r [redis $owner_host $owner_port 0 $::tls]
+        set owner_id [$owner_r CLUSTER MYID]
+
+        # Move slot to new node using plain Redis commands
+        assert_equal OK [$newnode_r CLUSTER SETSLOT $slot IMPORTING $owner_id]
+        assert_equal OK [$owner_r CLUSTER SETSLOT $slot MIGRATING $newnode_id]
+        assert_equal {foo} [$owner_r CLUSTER GETKEYSINSLOT $slot 10]
+        assert_equal OK [$owner_r MIGRATE 127.0.0.1 [srv -3 port] "" 0 5000 KEYS foo]
+        assert_equal OK [$newnode_r CLUSTER SETSLOT $slot NODE $newnode_id]
+        assert_equal OK [$owner_r CLUSTER SETSLOT $slot NODE $newnode_id]
+
+        # Move the only slot back to original node using redis-cli
+        exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
+            --cluster-from $newnode_id \
+            --cluster-to $owner_id \
+            --cluster-slots 1 \
+            --cluster-yes
+
+        # Check that the key foo has been migrated back to the original owner.
+        catch { $newnode_r get foo } e
+        assert_equal "MOVED $slot $owner_host:$owner_port" $e
+
+        # Check that the empty node has turned itself into a replica of the new
+        # owner and that the new owner knows that.
+        wait_for_condition 5000 100 {
+            [string match "*slave*" [$owner_r CLUSTER REPLICAS $owner_id]]
+        } else {
+            fail "Empty node didn't turn itself into a replica."
+        }
+    }
 }
 
 } ;# tags
+
+set ::singledb $old_singledb
