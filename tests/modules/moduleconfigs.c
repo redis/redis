@@ -4,7 +4,7 @@ int mutable_bool_val;
 int immutable_bool_val;
 long long longval;
 long long memval;
-RedisModuleString *strval;
+RedisModuleString *strval = NULL;
 int enumval;
 
 /* Series of get and set callbacks for each type of config, these rely on the privdata ptr
@@ -44,11 +44,11 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
     size_t len;
-    /* Address sanitizer will complain about a leak if we're not properly freeing core side. */
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
+        *err = "Cannot set string to 'rejectisfreed'";
         return REDISMODULE_ERR;
     }
-    if (strval) RedisModule_Free(strval);
+    RedisModule_Free(strval);
     RedisModule_RetainString(NULL, new);
     strval = new;
     return REDISMODULE_OK;
@@ -122,8 +122,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterNumericConfig(ctx, "numeric", -1, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
-        if (strval) RedisModule_FreeString(ctx, strval);
+    size_t len;
+    if (argc && !strcasecmp(RedisModule_StringPtrLen(argv[0], &len), "noload")) {
+        return REDISMODULE_OK;
+    } else if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
+        if (strval) {
+            RedisModule_FreeString(ctx, strval);
+            strval = NULL;
+        }
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;

@@ -35,7 +35,7 @@ start_server {tags {"modules"}} {
         catch {[r config set moduleconfigs.immutable_bool yes]} e
         assert_match {*can't set immutable config*} $e
         catch {[r config set moduleconfigs.string rejectisfreed]} e
-        assert_match {*ERR*} $e
+        assert_match {*Cannot set string to 'rejectisfreed'*} $e
     }
     
     test {Numeric limits work properly} {
@@ -97,6 +97,11 @@ start_server {tags {"modules"}} {
         r module unload moduleconfigs
     }
 
+    test {missing loadconfigs call} {
+        catch {[r module loadex $testmodule CONFIG moduleconfigs.string "cool" ARGS noload]} e
+        assert_match {*ERR*} $e
+    }
+
     test {test loadex rejects bad configs} {
         # Bad config 200gb is over the limit
         catch {[r module loadex $testmodule CONFIG moduleconfigs.memory_numeric 200gb ARGS]} e
@@ -134,7 +139,7 @@ start_server {tags {"modules"}} {
         r config set moduleconfigs.enum two
         r config rewrite
         restart_server 0 true false
-        # Ensure configs we rewrote are present
+        # Ensure configs we rewrote are present and that the conf file is readable
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
@@ -162,6 +167,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
         assert_equal [r config get configs.test] "configs.test no"
         r config rewrite
+        # test we can load from conf file with multiple different modules.
         restart_server 0 true false
         assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool no"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string nice"
@@ -181,6 +187,38 @@ start_server {tags {"modules"}} {
         restart_server 0 true false
         # Ensure configs we rewrote are no longer present
         assert_equal [r config get moduleconfigs.*] ""
+    }
+    test {startup moduleconfigs} {
+        # No loadmodule directive
+        set nomodload [start_server [list overrides [list moduleconfigs.string "hello"]]]
+        assert_equal 0 [is_alive $nomodload]
+        set stdout [dict get $nomodload stdout]
+        assert_equal [count_message_lines $stdout "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting"] 1
+
+        # Bad config value
+        set badconfig [start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "rejectisfreed"]]]
+        assert_equal 0 [is_alive $badconfig]
+        set stdout [dict get $badconfig stdout]
+        assert_equal [count_message_lines $stdout "Issue during loading of configuration moduleconfigs.string"] 1
+
+        set noload [start_server [list overrides [list loadmodule "$testmodule noload" moduleconfigs.string "hello"]]]
+        # Need to wait here because module has to load completely before we can detect its failed and unload it and kill startup
+        wait_for_condition 100 50 {
+            ! [is_alive $noload]
+        } else {
+            fail "startup with moduleconfigs and no loadconfigs call should've failed"
+        }
+        set stdout [dict get $noload stdout]
+        assert_equal [count_message_lines $stdout "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module."] 1
+
+        start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "bootedup" moduleconfigs.enum two]] {
+            assert_equal [r config get moduleconfigs.string] "moduleconfigs.string bootedup"
+            assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
+            assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
+            assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
+            assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
+            assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
+        }
     }
 }
 

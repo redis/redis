@@ -10989,85 +10989,6 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
     return REDISMODULE_OK;
 }
 
-/* Unload the module registered with the specified name. On success
- * C_OK is returned, otherwise C_ERR is returned and errno is set
- * to the following values depending on the type of error:
- *
- * * ENONET: No such module having the specified name.
- * * EBUSY: The module exports a new data type and can only be reloaded. 
- * * EPERM: The module exports APIs which are used by other module. 
- * * EAGAIN: The module has blocked clients. 
- * * EINPROGRESS: The module holds timer not fired.
- * * ECANCELED: Unload module error.  */
-int moduleUnload(sds name) {
-    struct RedisModule *module = dictFetchValue(modules,name);
-
-    if (module == NULL) {
-        errno = ENOENT;
-        return C_ERR;
-    } else if (listLength(module->types)) {
-        errno = EBUSY;
-        return C_ERR;
-    } else if (listLength(module->usedby)) {
-        errno = EPERM;
-        return C_ERR;
-    } else if (module->blocked_clients) {
-        errno = EAGAIN;
-        return C_ERR;
-    } else if (moduleHoldsTimer(module)) {
-        errno = EINPROGRESS;
-        return C_ERR;
-    }
-
-    /* Give module a chance to clean up. */
-    int (*onunload)(void *);
-    onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
-    if (onunload) {
-        RedisModuleCtx ctx;
-        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
-        int unload_status = onunload((void*)&ctx);
-        moduleFreeContext(&ctx);
-
-        if (unload_status == REDISMODULE_ERR) {
-            serverLog(LL_WARNING, "Module %s OnUnload failed.  Unload canceled.", name);
-            errno = ECANCELED;
-            return C_ERR;
-        }
-    }
-
-    moduleFreeAuthenticatedClients(module);
-    moduleUnregisterCommands(module);
-    moduleUnregisterSharedAPI(module);
-    moduleUnregisterUsedAPI(module);
-    moduleUnregisterFilters(module);
-    moduleRemoveConfigs(module);
-
-    /* Remove any notification subscribers this module might have */
-    moduleUnsubscribeNotifications(module);
-    moduleUnsubscribeAllServerEvents(module);
-
-    /* Unload the dynamic library. */
-    if (dlclose(module->handle) == -1) {
-        char *error = dlerror();
-        if (error == NULL) error = "Unknown error";
-        serverLog(LL_WARNING,"Error when trying to close the %s module: %s",
-            module->name, error);
-    }
-
-    /* Fire the unloaded modules event. */
-    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
-                          REDISMODULE_SUBEVENT_MODULE_UNLOADED,
-                          module);
-
-    /* Remove from list of modules. */
-    serverLog(LL_NOTICE,"Module %s unloaded",module->name);
-    dictDelete(modules,module->name);
-    module->name = NULL; /* The name was already freed by dictDelete(). */
-    moduleFreeModuleStructure(module);
-
-    return C_OK;
-}
-
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -11149,6 +11070,85 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
                           ctx.module);
 
     moduleFreeContext(&ctx);
+    return C_OK;
+}
+
+/* Unload the module registered with the specified name. On success
+ * C_OK is returned, otherwise C_ERR is returned and errno is set
+ * to the following values depending on the type of error:
+ *
+ * * ENONET: No such module having the specified name.
+ * * EBUSY: The module exports a new data type and can only be reloaded. 
+ * * EPERM: The module exports APIs which are used by other module. 
+ * * EAGAIN: The module has blocked clients. 
+ * * EINPROGRESS: The module holds timer not fired.
+ * * ECANCELED: Unload module error.  */
+int moduleUnload(sds name) {
+    struct RedisModule *module = dictFetchValue(modules,name);
+
+    if (module == NULL) {
+        errno = ENOENT;
+        return C_ERR;
+    } else if (listLength(module->types)) {
+        errno = EBUSY;
+        return C_ERR;
+    } else if (listLength(module->usedby)) {
+        errno = EPERM;
+        return C_ERR;
+    } else if (module->blocked_clients) {
+        errno = EAGAIN;
+        return C_ERR;
+    } else if (moduleHoldsTimer(module)) {
+        errno = EINPROGRESS;
+        return C_ERR;
+    }
+
+    /* Give module a chance to clean up. */
+    int (*onunload)(void *);
+    onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
+    if (onunload) {
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
+        int unload_status = onunload((void*)&ctx);
+        moduleFreeContext(&ctx);
+
+        if (unload_status == REDISMODULE_ERR) {
+            serverLog(LL_WARNING, "Module %s OnUnload failed.  Unload canceled.", name);
+            errno = ECANCELED;
+            return C_ERR;
+        }
+    }
+
+    moduleFreeAuthenticatedClients(module);
+    moduleUnregisterCommands(module);
+    moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
+    moduleRemoveConfigs(module);
+
+    /* Remove any notification subscribers this module might have */
+    moduleUnsubscribeNotifications(module);
+    moduleUnsubscribeAllServerEvents(module);
+
+    /* Unload the dynamic library. */
+    if (dlclose(module->handle) == -1) {
+        char *error = dlerror();
+        if (error == NULL) error = "Unknown error";
+        serverLog(LL_WARNING,"Error when trying to close the %s module: %s",
+            module->name, error);
+    }
+
+    /* Fire the unloaded modules event. */
+    moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
+                          REDISMODULE_SUBEVENT_MODULE_UNLOADED,
+                          module);
+
+    /* Remove from list of modules. */
+    serverLog(LL_NOTICE,"Module %s unloaded",module->name);
+    dictDelete(modules,module->name);
+    module->name = NULL; /* The name was already freed by dictDelete(). */
+    moduleFreeModuleStructure(module);
+
     return C_OK;
 }
 
@@ -11460,7 +11460,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
 }
 
 /* Create a string config that Redis users can interact with via the Redis config file,
- *`CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
  *
  * The actual config value is owned by the module, and the `getfn`, `setfn` and optional
  * `applyfn` allbacks that are provided to Redis in order to access or manipulate the
