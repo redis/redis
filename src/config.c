@@ -1089,24 +1089,15 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL) {
+        if (argv == NULL || (!server.sentinel_mode && !lookupConfig(argv[0]))) {
             /* Apparently the line is unparsable for some reason, for
-             * instance it may have unbalanced quotes. Load it as a
-             * comment. */
+             * instance it may have unbalanced quotes, or may contain a
+             * config that doesn't exist anymore. Load it as a comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
+            if (argv) sdsfreesplitres(argv, argc);
             sdsfree(line);
             rewriteConfigAppendLine(state,aux);
-            continue;
-        }
-
-        /* If the config file contains a configuration that is no longer present
-         * in the configs array: remove it from the .conf file. Use case right now
-         * is module with configurations unloaded after a rewrite with the module configs. */
-        if (!server.sentinel_mode && !lookupConfig(argv[0])) {
-            linenum--;
-            sdsfreesplitres(argv, argc);
-            sdsfree(line);
             continue;
         }
 
