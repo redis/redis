@@ -403,12 +403,12 @@ typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *pri
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetEnumFunc)(const char *name, void *privdata);
 /* The function signatures for module config set callbacks. These are identical to the ones exposed in redismodule.h. */
-typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, const char **err);
-typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, const char **err);
-typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, const char **err);
-typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, const char **err);
+typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
 /* Apply signature, identical to redismodule.h */
-typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, const char **err);
+typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err);
 
 /* Struct representing a module config. These are stored in a list in the module struct */
 struct ModuleConfig {
@@ -11307,25 +11307,56 @@ int moduleVerifyConfigName(sds name) {
 
 /* This is a series of set functions for each type that act as dispatchers for 
  * config.c to call module set callbacks. */
+#define CONFIG_ERR_SIZE 256
+static char configerr[CONFIG_ERR_SIZE];
+
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
-    int return_code = config->set_fn.set_bool(config->name, val, config->privdata, err);
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_bool(config->name, val, config->privdata, &error);
+    if (error) {
+        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(error);
+        *err = configerr;
+    }
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
+    RedisModuleString *error = NULL;
     RedisModuleString *new = createStringObject(strval, sdslen(strval));
-    int return_code = config->set_fn.set_string(config->name, new, config->privdata, err);
+    int return_code = config->set_fn.set_string(config->name, new, config->privdata, &error);
+    if (error) {
+        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(error);
+        *err = configerr;
+    }
     decrRefCount(new);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 int setModuleEnumConfig(ModuleConfig *config, int val, const char **err) {
-    int return_code = config->set_fn.set_enum(config->name, val, config->privdata, err);
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_enum(config->name, val, config->privdata, &error);
+    if (error) {
+        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(error);
+        *err = configerr;
+    }
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err) {
-    int return_code = config->set_fn.set_numeric(config->name, val, config->privdata, err);
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_numeric(config->name, val, config->privdata, &error);
+    if (error) {
+        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(error);
+        *err = configerr;
+    }
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
@@ -11403,14 +11434,21 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
     listIter li;
     listNode *ln;
     ModuleConfig *module_config;
+    RedisModuleString *error = NULL;
     RedisModuleCtx ctx;
 
     listRewind(module_configs, &li);
     while ((ln = listNext(&li))) {
         module_config = listNodeValue(ln);
         moduleCreateContext(&ctx, module_config->module, REDISMODULE_CTX_NONE);
-        if (module_config->apply_fn(&ctx, module_config->privdata, err)) {
+        if (module_config->apply_fn(&ctx, module_config->privdata, &error)) {
             if (err_arg_name) *err_arg_name = module_config->name;
+            if (error) {
+                strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
+                configerr[CONFIG_ERR_SIZE - 1] = '\0';
+                decrRefCount(error);
+                *err = configerr;
+            }
             moduleFreeContext(&ctx);
             return 0;
         }
@@ -11487,7 +11525,8 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  *
  * The `setfn` callback is expected to return REDISMODULE_OK when the value is successfully
  * applied. It can also return REDISMODULE_ERR if the value can't be applied, and the
- * *err pointer can be set with a static c-string error message to provide to the client.
+ * *err pointer can be set with a RedisModuleString error message to provide to the client.
+ * this RedisModuleString will be freed by redis after returning from the set callback.
  *
  * All configs are registered with a name, a type, a default value, private data that is made
  * available in the callbacks, as well as several flags that modify the behavior of the config.
@@ -11517,13 +11556,14 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  *         return strval;
  *     }
  *
- *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
+ *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleString **err) {
  *        if (adjustable) {
  *            RedisModule_Free(strval);
  *            RedisModule_RetainString(NULL, new);
  *            strval = new;
  *            return REDISMODULE_OK;
  *        }
+ *        *err = RedisModule_CreateString(NULL, "Not adjustable.", 15);
  *        return REDISMODULE_ERR;
  *     }
  *     ...

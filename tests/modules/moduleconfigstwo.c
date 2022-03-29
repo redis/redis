@@ -13,7 +13,7 @@ int getBoolConfigCommand(const char *name, void *privdata) {
     return 0;
 }
 
-int setBoolConfigCommand(const char *name, int new, void *privdata, const char **err) {
+int setBoolConfigCommand(const char *name, int new, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(privdata);
     REDISMODULE_NOT_USED(err);
     if (!strcasecmp(name, "test")) {

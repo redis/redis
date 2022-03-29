@@ -15,7 +15,7 @@ int getBoolConfigCommand(const char *name, void *privdata) {
     return (*(int *)privdata);
 }
 
-int setBoolConfigCommand(const char *name, int new, void *privdata, const char **err) {
+int setBoolConfigCommand(const char *name, int new, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     *(int *)privdata = new;
@@ -27,7 +27,7 @@ long long getNumericConfigCommand(const char *name, void *privdata) {
     return (*(long long *) privdata);
 }
 
-int setNumericConfigCommand(const char *name, long long new, void *privdata, const char **err) {
+int setNumericConfigCommand(const char *name, long long new, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     *(long long *)privdata = new;
@@ -39,13 +39,13 @@ RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
     REDISMODULE_NOT_USED(privdata);
     return strval;
 }
-int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, const char **err) {
+int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
     size_t len;
     if (!strcasecmp(RedisModule_StringPtrLen(new, &len), "rejectisfreed")) {
-        *err = "Cannot set string to 'rejectisfreed'";
+        *err = RedisModule_CreateString(NULL, "Cannot set string to 'rejectisfreed'", 36);
         return REDISMODULE_ERR;
     }
     RedisModule_Free(strval);
@@ -60,30 +60,29 @@ int getEnumConfigCommand(const char *name, void *privdata) {
     return enumval;
 }
 
-int setEnumConfigCommand(const char *name, int val, void *privdata, const char **err) {
+int setEnumConfigCommand(const char *name, int val, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(name);
     REDISMODULE_NOT_USED(err);
     REDISMODULE_NOT_USED(privdata);
-    /* We don't have to do any verification here, the core makes sure its in the range of enum_vals we provide */
     enumval = val;
     return REDISMODULE_OK;
 }
 
-int boolApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
+int boolApplyFunc(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(privdata);
     if (mutable_bool_val && immutable_bool_val) {
-        *err = "Bool configs cannot both be yes.";
+        *err = RedisModule_CreateString(NULL, "Bool configs cannot both be yes.", 32);
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
 }
 
-int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, const char **err) {
+int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err) {
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(privdata);
     if (longval == memval) {
-        *err = "These configs cannot equal each other.";
+        *err = RedisModule_CreateString(NULL, "These configs cannot equal each other.", 38);
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
