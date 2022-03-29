@@ -207,7 +207,7 @@ start_server {tags {"modules"}} {
             fail "startup with bad moduleconfigs should've failed"
         }
         set stdout [dict get $badconfig stdout]
-        assert_equal [count_message_lines $stdout "Issue during loading of configuration moduleconfigs.string"] 1
+        assert_equal [count_message_lines $stdout "Issue during loading of configuration moduleconfigs.string : Cannot set string to 'rejectisfreed'"] 1
 
         set noload [start_server [list overrides [list loadmodule "$testmodule noload" moduleconfigs.string "hello"]]]
         wait_for_condition 100 50 {
