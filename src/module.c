@@ -11533,7 +11533,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * errno is set:
  * * EINVAL: The provided flags are invalid for the registration or the name of the config contains invalid characters.
  * * EALREADY: The provided configuration name is already used. */
-int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleString *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
     sds config_name = sdsnew(name);
     if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
@@ -11546,7 +11546,7 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, RedisModuleSt
     new_config->set_fn.set_string = setfn;
     listAddNodeTail(module->module_configs, new_config);
     flags = maskModuleConfigFlags(flags);
-    addModuleStringConfig(module->name, name, flags, new_config, default_val ? sdsdup(default_val->ptr) : NULL);
+    addModuleStringConfig(module->name, name, flags, new_config, default_val ? sdsnew(default_val) : NULL);
     return REDISMODULE_OK;
 }
 

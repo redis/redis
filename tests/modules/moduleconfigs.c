@@ -102,11 +102,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_RegisterBoolConfig(ctx, "immutable_bool", 0, REDISMODULE_CONFIG_IMMUTABLE, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &immutable_bool_val) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    RedisModuleString *default_string = RedisModule_CreateString(ctx, "\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64", 15);
-    if (RedisModule_RegisterStringConfig(ctx, "string", default_string, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
+    if (RedisModule_RegisterStringConfig(ctx, "string", "secret password", REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    RedisModule_FreeString(ctx, default_string);
 
     /* On the stack to make sure we're copying them. */
     const char *enum_vals[3] = {"one", "two", "three"};
