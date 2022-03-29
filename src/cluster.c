@@ -4569,7 +4569,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
  * If the slot ownership is in a contiguous block, it's represented as start-end pair,
  * else each slot is added separately. */
 sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_count) {
-    for(int i = 0; i< slot_info_pairs_count; i+=2) {
+    for (int i = 0; i< slot_info_pairs_count; i+=2) {
         unsigned long start = slot_info_pairs[i];
         unsigned long end = slot_info_pairs[i+1];
         if (start == end) {
@@ -5044,7 +5044,7 @@ void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_
     if (slot_info_pairs) {
         serverAssert((slot_pairs_count % 2) == 0);
         addReplyArrayLen(c, slot_pairs_count);
-        for (int i=0; i<slot_pairs_count; i++)
+        for (int i = 0; i < slot_pairs_count; i++)
             addReplyBulkLongLong(c, (unsigned long)slot_info_pairs[i]);
     } else {
         /* If no slot info pair is provided, the node owns no slots */
