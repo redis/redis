@@ -11526,7 +11526,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * The `setfn` callback is expected to return REDISMODULE_OK when the value is successfully
  * applied. It can also return REDISMODULE_ERR if the value can't be applied, and the
  * *err pointer can be set with a RedisModuleString error message to provide to the client.
- * this RedisModuleString will be freed by redis after returning from the set callback.
+ * This RedisModuleString will be freed by redis after returning from the set callback.
  *
  * All configs are registered with a name, a type, a default value, private data that is made
  * available in the callbacks, as well as several flags that modify the behavior of the config.
