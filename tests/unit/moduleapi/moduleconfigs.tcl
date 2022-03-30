@@ -117,10 +117,10 @@ start_server {tags {"modules"}} {
         assert_match {*ERR*} $e
         assert_equal [r config get moduleconfigs.*] ""
         # test we can't set random configs
-        catch {[r module loadex $testmodule CONFIG maxclients 500]}
+        catch {[r module loadex $testmodule CONFIG maxclients 333]}
         assert_match {*ERR*} $e
         assert_equal [r config get moduleconfigs.*] ""
-        assert_equal [r config get maxclients] "maxclients 10000"
+        assert_not_equal [r config get maxclients] "maxclients 333"
         # test we can't set other module's configs
         r module load $testmoduletwo
         catch {[r module loadex $testmodule CONFIG configs.test no]}
