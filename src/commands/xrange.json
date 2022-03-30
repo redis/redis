@@ -48,15 +48,14 @@
                 "maxItems": 2,
                 "items": [
                     {
-                        "description": "Stream ID",
+                        "description": "Entry ID",
                         "type": "string",
                         "pattern": "[0-9]+-[0-9]+"
                     },
                     {
                         "description": "Data",
-                        "type": "object",
-                        "minProperties": 1,
-                        "additionalProperties": {
+                        "type": "array",
+                        "items": {
                             "type": "string"
                         }
                     }

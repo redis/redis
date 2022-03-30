@@ -6304,6 +6304,100 @@ struct redisCommandArg XAUTOCLAIM_Args[] = {
 {0}
 };
 
+/* XAUTOCLAIM_ReplySchema_items_0 reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Cursor for next call."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_0 = {XAUTOCLAIM_ReplySchema_items_0_elements,.length=3};
+
+/* XAUTOCLAIM_ReplySchema_items_1_items_items_0 reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_1_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_1_items_items_0 = {XAUTOCLAIM_ReplySchema_items_1_items_items_0_elements,.length=3};
+
+/* XAUTOCLAIM_ReplySchema_items_1_items_items_1_items reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_1_items_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_1_items_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_items_items_1_items_elements,.length=1};
+
+/* XAUTOCLAIM_ReplySchema_items_1_items_items_1 reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_1_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XAUTOCLAIM_ReplySchema_items_1_items_items_1_items},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_1_items_items_1 = {XAUTOCLAIM_ReplySchema_items_1_items_items_1_elements,.length=3};
+
+/* XAUTOCLAIM_ReplySchema_items_1_items_items array reply schema */
+struct commandReplySchema *XAUTOCLAIM_ReplySchema_items_1_items_items[] = {
+&XAUTOCLAIM_ReplySchema_items_1_items_items_0,
+&XAUTOCLAIM_ReplySchema_items_1_items_items_1,
+};
+
+/* XAUTOCLAIM_ReplySchema_items_1_items reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XAUTOCLAIM_ReplySchema_items_1_items_items,.length=2}},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_1_items = {XAUTOCLAIM_ReplySchema_items_1_items_elements,.length=4};
+
+/* XAUTOCLAIM_ReplySchema_items_1 reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Claimed stream entries with data."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XAUTOCLAIM_ReplySchema_items_1_items},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_1 = {XAUTOCLAIM_ReplySchema_items_1_elements,.length=4};
+
+/* XAUTOCLAIM_ReplySchema_items_2_items reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_2_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_2_items = {XAUTOCLAIM_ReplySchema_items_2_items_elements,.length=2};
+
+/* XAUTOCLAIM_ReplySchema_items_2 reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry IDs which no longer exist in the stream, and were deleted from the PEL in which they were found."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XAUTOCLAIM_ReplySchema_items_2_items},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema_items_2 = {XAUTOCLAIM_ReplySchema_items_2_elements,.length=3};
+
+/* XAUTOCLAIM_ReplySchema_items array reply schema */
+struct commandReplySchema *XAUTOCLAIM_ReplySchema_items[] = {
+&XAUTOCLAIM_ReplySchema_items_0,
+&XAUTOCLAIM_ReplySchema_items_1,
+&XAUTOCLAIM_ReplySchema_items_2,
+};
+
+/* XAUTOCLAIM_ReplySchema reply schema */
+struct commandReplySchemaElement XAUTOCLAIM_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XAUTOCLAIM_ReplySchema_items,.length=3}},
+};
+
+struct commandReplySchema XAUTOCLAIM_ReplySchema = {XAUTOCLAIM_ReplySchema_elements,.length=4};
+
 /********** XCLAIM ********************/
 
 /* XCLAIM history */
@@ -6538,9 +6632,29 @@ struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_last_
 
 struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id = {XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id_elements,.length=2};
 
+/* XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0 = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1 = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf array reply schema */
+struct commandReplySchema *XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf[] = {
+&XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_0,
+&XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf_1,
+};
+
 /* XINFO_GROUPS_ReplySchema_items_properties_entries_read reply schema */
 struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_GROUPS_ReplySchema_items_properties_entries_read_oneOf,.length=2}},
 };
 
 struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_entries_read = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements,.length=1};
@@ -6884,10 +6998,11 @@ struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entr
 /* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries reply schema */
 struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
 {"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items},
 };
 
-struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements,.length=2};
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements,.length=3};
 
 /* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name reply schema */
 struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name_elements[] = {
@@ -6904,9 +7019,29 @@ struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properti
 
 struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id_elements,.length=2};
 
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf_1,
+};
+
 /* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read reply schema */
 struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_oneOf,.length=2}},
 };
 
 struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements,.length=1};
@@ -7236,6 +7371,163 @@ struct redisCommandArg XPENDING_Args[] = {
 {0}
 };
 
+/* XPENDING_ReplySchema_oneOf_0_items_items_0 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0_items_items_0 = {XPENDING_ReplySchema_oneOf_0_items_items_0_elements,.length=3};
+
+/* XPENDING_ReplySchema_oneOf_0_items_items_1 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Consumer name"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0_items_items_1 = {XPENDING_ReplySchema_oneOf_0_items_items_1_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_0_items_items_2 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_items_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Idle time"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0_items_items_2 = {XPENDING_ReplySchema_oneOf_0_items_items_2_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_0_items_items_3 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_items_items_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery count"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0_items_items_3 = {XPENDING_ReplySchema_oneOf_0_items_items_3_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_0_items_items array reply schema */
+struct commandReplySchema *XPENDING_ReplySchema_oneOf_0_items_items[] = {
+&XPENDING_ReplySchema_oneOf_0_items_items_0,
+&XPENDING_ReplySchema_oneOf_0_items_items_1,
+&XPENDING_ReplySchema_oneOf_0_items_items_2,
+&XPENDING_ReplySchema_oneOf_0_items_items_3,
+};
+
+/* XPENDING_ReplySchema_oneOf_0_items reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XPENDING_ReplySchema_oneOf_0_items_items,.length=4}},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0_items = {XPENDING_ReplySchema_oneOf_0_items_elements,.length=4};
+
+/* XPENDING_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XPENDING_ReplySchema_oneOf_0_items},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_0 = {XPENDING_ReplySchema_oneOf_0_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_1_items_0 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Total number of pending messages"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_0 = {XPENDING_ReplySchema_oneOf_1_items_0_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_1_items_1 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Minimal pending entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_1 = {XPENDING_ReplySchema_oneOf_1_items_1_elements,.length=3};
+
+/* XPENDING_ReplySchema_oneOf_1_items_2 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Maximal pending entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_2 = {XPENDING_ReplySchema_oneOf_1_items_2_elements,.length=3};
+
+/* XPENDING_ReplySchema_oneOf_1_items_3_items_items_0 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_3_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Consumer name"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_3_items_items_0 = {XPENDING_ReplySchema_oneOf_1_items_3_items_items_0_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Number of pending messages"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_3_items_items_1 = {XPENDING_ReplySchema_oneOf_1_items_3_items_items_1_elements,.length=2};
+
+/* XPENDING_ReplySchema_oneOf_1_items_3_items_items array reply schema */
+struct commandReplySchema *XPENDING_ReplySchema_oneOf_1_items_3_items_items[] = {
+&XPENDING_ReplySchema_oneOf_1_items_3_items_items_0,
+&XPENDING_ReplySchema_oneOf_1_items_3_items_items_1,
+};
+
+/* XPENDING_ReplySchema_oneOf_1_items_3_items reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_3_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XPENDING_ReplySchema_oneOf_1_items_3_items_items,.length=2}},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_3_items = {XPENDING_ReplySchema_oneOf_1_items_3_items_elements,.length=4};
+
+/* XPENDING_ReplySchema_oneOf_1_items_3 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_items_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Consumers with pending messages"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XPENDING_ReplySchema_oneOf_1_items_3_items},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1_items_3 = {XPENDING_ReplySchema_oneOf_1_items_3_elements,.length=3};
+
+/* XPENDING_ReplySchema_oneOf_1_items array reply schema */
+struct commandReplySchema *XPENDING_ReplySchema_oneOf_1_items[] = {
+&XPENDING_ReplySchema_oneOf_1_items_0,
+&XPENDING_ReplySchema_oneOf_1_items_1,
+&XPENDING_ReplySchema_oneOf_1_items_2,
+&XPENDING_ReplySchema_oneOf_1_items_3,
+};
+
+/* XPENDING_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XPENDING_ReplySchema_oneOf_1_items,.length=4}},
+};
+
+struct commandReplySchema XPENDING_ReplySchema_oneOf_1 = {XPENDING_ReplySchema_oneOf_1_elements,.length=4};
+
+/* XPENDING_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *XPENDING_ReplySchema_oneOf[] = {
+&XPENDING_ReplySchema_oneOf_0,
+&XPENDING_ReplySchema_oneOf_1,
+};
+
+/* XPENDING_ReplySchema reply schema */
+struct commandReplySchemaElement XPENDING_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XPENDING_ReplySchema_oneOf,.length=2}},
+};
+
+struct commandReplySchema XPENDING_ReplySchema = {XPENDING_ReplySchema_elements,.length=1};
+
 /********** XRANGE ********************/
 
 /* XRANGE history */
@@ -7258,29 +7550,28 @@ struct redisCommandArg XRANGE_Args[] = {
 
 /* XRANGE_ReplySchema_items_items_0 reply schema */
 struct commandReplySchemaElement XRANGE_ReplySchema_items_items_0_elements[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Stream ID"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 {"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
 
 struct commandReplySchema XRANGE_ReplySchema_items_items_0 = {XRANGE_ReplySchema_items_items_0_elements,.length=3};
 
-/* XRANGE_ReplySchema_items_items_1_additionalProperties reply schema */
-struct commandReplySchemaElement XRANGE_ReplySchema_items_items_1_additionalProperties_elements[] = {
+/* XRANGE_ReplySchema_items_items_1_items reply schema */
+struct commandReplySchemaElement XRANGE_ReplySchema_items_items_1_items_elements[] = {
 {"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
 
-struct commandReplySchema XRANGE_ReplySchema_items_items_1_additionalProperties = {XRANGE_ReplySchema_items_items_1_additionalProperties_elements,.length=1};
+struct commandReplySchema XRANGE_ReplySchema_items_items_1_items = {XRANGE_ReplySchema_items_items_1_items_elements,.length=1};
 
 /* XRANGE_ReplySchema_items_items_1 reply schema */
 struct commandReplySchemaElement XRANGE_ReplySchema_items_items_1_elements[] = {
 {"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
-{"minProperties",SCHEMA_VAL_TYPE_INTEGER,.value.integer=1},
-{"additionalProperties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XRANGE_ReplySchema_items_items_1_additionalProperties},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XRANGE_ReplySchema_items_items_1_items},
 };
 
-struct commandReplySchema XRANGE_ReplySchema_items_items_1 = {XRANGE_ReplySchema_items_items_1_elements,.length=4};
+struct commandReplySchema XRANGE_ReplySchema_items_items_1 = {XRANGE_ReplySchema_items_items_1_elements,.length=3};
 
 /* XRANGE_ReplySchema_items_items array reply schema */
 struct commandReplySchema *XRANGE_ReplySchema_items_items[] = {
@@ -8099,13 +8390,13 @@ struct redisCommand redisCommandTable[] = {
 /* stream */
 {"xack","Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.","O(1) for each message ID processed.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XACK_History,XACK_tips,xackCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XACK_Args},
 {"xadd","Appends a new entry to a stream","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XADD_History,XADD_tips,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{"UPDATE instead of INSERT because of the optional trimming feature",CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XADD_Args},
-{"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XAUTOCLAIM_History,XAUTOCLAIM_tips,xautoclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XAUTOCLAIM_Args},
+{"xautoclaim","Changes (or acquires) ownership of messages in a consumer group, as if the messages were delivered to the specified consumer.","O(1) if COUNT is small.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XAUTOCLAIM_History,XAUTOCLAIM_tips,xautoclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XAUTOCLAIM_Args,.reply_schema=&XAUTOCLAIM_ReplySchema},
 {"xclaim","Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XCLAIM_History,XCLAIM_tips,xclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XCLAIM_Args},
 {"xdel","Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XDEL_History,XDEL_tips,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XDEL_Args},
 {"xgroup","A container for consumer groups commands","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XGROUP_History,XGROUP_tips,NULL,-2,0,0,.subcommands=XGROUP_Subcommands},
 {"xinfo","A container for stream introspection commands","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_History,XINFO_tips,NULL,-2,0,0,.subcommands=XINFO_Subcommands},
 {"xlen","Return the number of entries in a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XLEN_History,XLEN_tips,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XLEN_Args},
-{"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XPENDING_History,XPENDING_tips,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XPENDING_Args},
+{"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XPENDING_History,XPENDING_tips,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XPENDING_Args,.reply_schema=&XPENDING_ReplySchema},
 {"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XRANGE_History,XRANGE_tips,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XRANGE_Args,.reply_schema=&XRANGE_ReplySchema},
 {"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREAD_History,XREAD_tips,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREAD_Args},
 {"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREADGROUP_History,XREADGROUP_tips,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},

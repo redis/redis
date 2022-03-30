@@ -137,6 +137,7 @@
                             },
                             "entries": {
                                 "type": "array",
+                                "uniqueItems": true,
                                 "items": {
                                     "type": "array",
                                     "minItems": 2,
@@ -170,7 +171,14 @@
                                             "pattern": "[0-9]+-[0-9]+"
                                         },
                                         "entries-read": {
-                                            "type": "integer"
+                                            "oneOf": [
+                                                {
+                                                    "type": "null"
+                                                },
+                                                {
+                                                    "type": "integer"
+                                                }
+                                            ]
                                         },
                                         "lag": {
                                             "oneOf": [
