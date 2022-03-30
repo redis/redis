@@ -45,11 +45,11 @@ test "Resharding all the master #0 slots away from it" {
 
 }
 
-test "Master #0 should lose its replicas" {
+test "Master #0 who lost all slots should turn into a replica" {
     wait_for_condition 1000 50 {
-        [llength [lindex [R 0 role] 2]] == 0
+        [lindex [R 0 role] 0] == {slave}
     } else {
-        fail "Master #0 still has replicas"
+        fail "Master #0 didn't turn itself into a replica"
     }
 }
 
