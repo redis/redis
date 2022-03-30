@@ -2758,7 +2758,7 @@ static int noninteractive(int argc, char **argv) {
 
     retval = issueCommand(argc, sds_args);
     sdsfreesplitres(sds_args, argc);
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -2845,7 +2845,7 @@ static int evalMode(int argc, char **argv) {
             break; /* Return to the caller. */
         }
     }
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -9064,11 +9064,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
-        int connected = (cliConnect(CC_QUIET) == REDIS_OK);
-        /* Try to serve command even we are not connected. e.g. help command */
-        int retval = noninteractive(argc,argv);
-        /* If failed to connect, exit with "1" for backward compatibility */
-        if (retval != REDIS_OK && !connected) exit(1);
-        return retval;
+        cliConnect(CC_QUIET);
+        return noninteractive(argc,argv);
     }
 }
