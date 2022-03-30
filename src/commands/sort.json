@@ -96,7 +96,7 @@
                 "token": "GET",
                 "name": "pattern",
                 "key_spec_index": 1,
-                "type": "string",
+                "type": "pattern",
                 "optional": true,
                 "multiple": true,
                 "multiple_token": true
