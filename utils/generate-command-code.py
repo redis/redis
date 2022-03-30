@@ -194,10 +194,7 @@ class Argument(object):
 
 class ReplySchema(object):
     def __init__(self, name, desc):
-        #self.desc = desc
-        self.name = name
-        #self.type = self.desc.get("type")
-        #self.parent_name = parent_name
+        self.name = name.replace("-", "_").replace(":", "")
         self.schema = {}
         for k, v in desc.items():
             if isinstance(v, dict):
@@ -208,34 +205,34 @@ class ReplySchema(object):
                     self.schema[k].append(ReplySchema("%s_%s_%i" % (self.name, k,i), subdesc))
             else:
                 self.schema[k] = v
-
-    def kv_struct_code(self, name, k, v):
-        if isinstance(v, ReplySchema):
-            t = "SCHEMA_VAL_TYPE_SCHEMA"
-            vstr = ".value.schema=&%s" % name
-        elif isinstance(v, list):
-            t = "SCHEMA_VAL_TYPE_SCHEMA_ARRAY"
-            vstr = ".value.array={.schemas=%s,.length=%d}" % (name, len(v))
-        elif isinstance(v, bool):
-            t = "SCHEMA_VAL_TYPE_BOOLEAN"
-            vstr = ".value.boolean=%d" % int(v)
-        elif isinstance(v, str):
-            t = "SCHEMA_VAL_TYPE_STRING"
-            vstr = ".value.string=\"%s\"" % v
-        elif isinstance(v, int):
-            t = "SCHEMA_VAL_TYPE_INTEGER"
-            vstr = ".value.integer=%d" % v
-        
-        return "\"%s\",%s,%s" % (k, t, vstr)
-
+    
     def write(self, f):
+        def struct_code(name, k, v):
+            if isinstance(v, ReplySchema):
+                t = "SCHEMA_VAL_TYPE_SCHEMA"
+                vstr = ".value.schema=&%s" % name
+            elif isinstance(v, list):
+                t = "SCHEMA_VAL_TYPE_SCHEMA_ARRAY"
+                vstr = ".value.array={.schemas=%s,.length=%d}" % (name, len(v))
+            elif isinstance(v, bool):
+                t = "SCHEMA_VAL_TYPE_BOOLEAN"
+                vstr = ".value.boolean=%d" % int(v)
+            elif isinstance(v, str):
+                t = "SCHEMA_VAL_TYPE_STRING"
+                vstr = ".value.string=\"%s\"" % v
+            elif isinstance(v, int):
+                t = "SCHEMA_VAL_TYPE_INTEGER"
+                vstr = ".value.integer=%d" % v
+            
+            return "\"%s\",%s,%s" % (k, t, vstr)
+
         for k, v in self.schema.items():
             if isinstance(v, ReplySchema):
                 v.write(f)
             elif isinstance(v, list):
                 for i, schema in enumerate(v):
                     schema.write(f)
-                name = "%s_%s" % (self.name, k)
+                name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
                 f.write("/* %s array reply schema */\n" % name)
                 f.write("struct commandReplySchema *%s[] = {\n" % name)
                 for i, schema in enumerate(v):
@@ -245,8 +242,8 @@ class ReplySchema(object):
         f.write("/* %s reply schema */\n" % self.name)
         f.write("struct commandReplySchemaElement %s_elements[] = {\n" % self.name)
         for k, v in self.schema.items():
-            name = "%s_%s" % (self.name, k)
-            f.write("{%s},\n" % self.kv_struct_code(name, k, v))
+            name = ("%s_%s" % (self.name, k)).replace("-", "_").replace(":", "")
+            f.write("{%s},\n" % struct_code(name, k, v))
         f.write("};\n\n")
         f.write("struct commandReplySchema %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
 

@@ -6509,6 +6509,97 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 {0}
 };
 
+/* XINFO_GROUPS_ReplySchema_items_properties_name reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_name_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_name = {XINFO_GROUPS_ReplySchema_items_properties_name_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_consumers reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_consumers_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_consumers = {XINFO_GROUPS_ReplySchema_items_properties_consumers_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_pending reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_pending_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_pending = {XINFO_GROUPS_ReplySchema_items_properties_pending_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id = {XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id_elements,.length=2};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_entries_read reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_entries_read = {XINFO_GROUPS_ReplySchema_items_properties_entries_read_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0 = {XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1 = {XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf array reply schema */
+struct commandReplySchema *XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf[] = {
+&XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_0,
+&XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf_1,
+};
+
+/* XINFO_GROUPS_ReplySchema_items_properties_lag reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_lag_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_GROUPS_ReplySchema_items_properties_lag_oneOf,.length=2}},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties_lag = {XINFO_GROUPS_ReplySchema_items_properties_lag_elements,.length=1};
+
+/* XINFO_GROUPS_ReplySchema_items_properties reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_properties_elements[] = {
+{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_name},
+{"consumers",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_consumers},
+{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_pending},
+{"last-delivered-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_last_delivered_id},
+{"entries-read",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_entries_read},
+{"lag",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties_lag},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items_properties = {XINFO_GROUPS_ReplySchema_items_properties_elements,.length=6};
+
+/* XINFO_GROUPS_ReplySchema_items reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items_properties},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema_items = {XINFO_GROUPS_ReplySchema_items_elements,.length=2};
+
+/* XINFO_GROUPS_ReplySchema reply schema */
+struct commandReplySchemaElement XINFO_GROUPS_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_GROUPS_ReplySchema_items},
+};
+
+struct commandReplySchema XINFO_GROUPS_ReplySchema = {XINFO_GROUPS_ReplySchema_elements,.length=2};
+
 /********** XINFO HELP ********************/
 
 /* XINFO HELP history */
@@ -6541,12 +6632,553 @@ struct redisCommandArg XINFO_STREAM_Args[] = {
 {0}
 };
 
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items_1,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_items,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1 = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items_1,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_items,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_properties_elements[] = {
+{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_length},
+{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_keys},
+{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_radix_tree_nodes},
+{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_generated_id},
+{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_max_deleted_entry_id},
+{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_entries_added},
+{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_groups},
+{"first-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_first_entry},
+{"last-entry",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties_last_entry},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items_properties = {XINFO_STREAM_ReplySchema_oneOf_0_items_properties_elements,.length=9};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items_properties},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0_items = {XINFO_STREAM_ReplySchema_oneOf_0_items_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_0_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_0_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items_1,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_items,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf_1,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_oneOf,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Consumer name"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery timestamp"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery count"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_1,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_2,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items_3,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=4},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_items,.length=4}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count_elements,.length=1};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Entry ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0_elements,.length=3};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery timestamp"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Delivery count"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2 = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items[] = {
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_0,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_1,
+&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items_2,
+};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_items,.length=3}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_elements[] = {
+{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_name},
+{"seen-time",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_seen_time},
+{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pel_count},
+{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_pending},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties_elements,.length=4};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_properties},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_elements[] = {
+{"name",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_name},
+{"last-delivered-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_last_delivered_id},
+{"entries-read",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_entries_read},
+{"lag",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_lag},
+{"pel-count",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pel_count},
+{"pending",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_pending},
+{"consumers",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_consumers},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties_elements,.length=7};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_properties},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items_properties reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_properties_elements[] = {
+{"length",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_length},
+{"radix-tree-keys",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_keys},
+{"radix-tree-nodes",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_radix_tree_nodes},
+{"last-generated-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_last_generated_id},
+{"max-deleted-entry-id",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_max_deleted_entry_id},
+{"entries-added",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries_added},
+{"entries",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_entries},
+{"groups",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties_groups},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items_properties = {XINFO_STREAM_ReplySchema_oneOf_1_items_properties_elements,.length=8};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1_items reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"properties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items_properties},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1_items = {XINFO_STREAM_ReplySchema_oneOf_1_items_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_oneOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XINFO_STREAM_ReplySchema_oneOf_1_items},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema_oneOf_1 = {XINFO_STREAM_ReplySchema_oneOf_1_elements,.length=2};
+
+/* XINFO_STREAM_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *XINFO_STREAM_ReplySchema_oneOf[] = {
+&XINFO_STREAM_ReplySchema_oneOf_0,
+&XINFO_STREAM_ReplySchema_oneOf_1,
+};
+
+/* XINFO_STREAM_ReplySchema reply schema */
+struct commandReplySchemaElement XINFO_STREAM_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XINFO_STREAM_ReplySchema_oneOf,.length=2}},
+};
+
+struct commandReplySchema XINFO_STREAM_ReplySchema = {XINFO_STREAM_ReplySchema_elements,.length=1};
+
 /* XINFO command table */
 struct redisCommand XINFO_Subcommands[] = {
 {"consumers","List the consumers in a consumer group","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,XINFO_CONSUMERS_tips,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_CONSUMERS_Args},
-{"groups","List the consumer groups of a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_GROUPS_History,XINFO_GROUPS_tips,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_GROUPS_Args},
+{"groups","List the consumer groups of a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_GROUPS_History,XINFO_GROUPS_tips,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_GROUPS_Args,.reply_schema=&XINFO_GROUPS_ReplySchema},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_HELP_History,XINFO_HELP_tips,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM},
-{"stream","Get information about a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_STREAM_History,XINFO_STREAM_tips,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_STREAM_Args},
+{"stream","Get information about a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_STREAM_History,XINFO_STREAM_tips,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XINFO_STREAM_Args,.reply_schema=&XINFO_STREAM_ReplySchema},
 {0}
 };
 
