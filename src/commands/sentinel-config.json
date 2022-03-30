@@ -12,7 +12,7 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
-        "arguments":[
+        "arguments": [
             {
                 "name":"set_or_get",
                 "type":"oneof",
