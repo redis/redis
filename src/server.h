@@ -760,6 +760,8 @@ struct RedisModule {
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
+    list *module_configs; /* List of configurations the module has registered */
+    int configs_initialized; /* Have the module configurations been initialized? */
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
@@ -1474,6 +1476,7 @@ struct redisServer {
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
+    dict *module_configs_queue; /* Dict that stores module configurations from .conf file until after modules are loaded during startup or arguments to loadex. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
@@ -2338,7 +2341,8 @@ int populateArgsStructure(struct redisCommandArg *args);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleLoad(const char *path, void **argv, int argc);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+int moduleUnload(sds name);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2970,6 +2974,40 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
+/* Configuration Flags */
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+                             * config, which is mutable. */
+#define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
+#define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
+#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
+#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
+#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
+#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
+#define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
+#define ALIAS_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the alias. */
+#define MODULE_CONFIG (1ULL<<8) /* This config is a module config */
+
+#define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
+#define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
+#define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+#define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
+
+/* Enum Configs contain an array of configEnum objects that match a string with an integer. */
+typedef struct configEnum {
+    char *name;
+    int val;
+} configEnum;
+
+/* Type of configuration. */
+typedef enum {
+    BOOL_CONFIG,
+    NUMERIC_CONFIG,
+    STRING_CONFIG,
+    SDS_CONFIG,
+    ENUM_CONFIG,
+    SPECIAL_CONFIG,
+} configType;
+
 void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
@@ -2978,8 +3016,28 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues();
+void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+
+/* Module Configuration */
+typedef struct ModuleConfig ModuleConfig;
+int performModuleConfigSetFromName(sds name, sds value, const char **err);
+int performModuleConfigSetDefaultFromName(sds name, const char **err);
+void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
+void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
+void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
+void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
+void addModuleConfigApply(list *module_configs, ModuleConfig *module_config);
+int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
+int getModuleBoolConfig(ModuleConfig *module_config);
+int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);
+sds getModuleStringConfig(ModuleConfig *module_config);
+int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err);
+int getModuleEnumConfig(ModuleConfig *module_config);
+int setModuleEnumConfig(ModuleConfig *config, int val, const char **err);
+long long getModuleNumericConfig(ModuleConfig *module_config);
+int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);

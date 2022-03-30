@@ -396,6 +396,40 @@ typedef struct RedisModuleKeyOptCtx {
                                               as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
 } RedisModuleKeyOptCtx;
 
+/* Data structures related to redis module configurations */
+/* The function signatures for module config get callbacks. These are identical to the ones exposed in redismodule.h. */
+typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, void *privdata);
+typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
+typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
+typedef int (*RedisModuleConfigGetEnumFunc)(const char *name, void *privdata);
+/* The function signatures for module config set callbacks. These are identical to the ones exposed in redismodule.h. */
+typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
+/* Apply signature, identical to redismodule.h */
+typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err);
+
+/* Struct representing a module config. These are stored in a list in the module struct */
+struct ModuleConfig {
+    sds name; /* Name of config without the module name appended to the front */
+    void *privdata; /* Optional data passed into the module config callbacks */
+    union get_fn { /* The get callback specified by the module */
+        RedisModuleConfigGetStringFunc get_string;
+        RedisModuleConfigGetNumericFunc get_numeric;
+        RedisModuleConfigGetBoolFunc get_bool;
+        RedisModuleConfigGetEnumFunc get_enum;
+    } get_fn;
+    union set_fn { /* The set callback specified by the module */
+        RedisModuleConfigSetStringFunc set_string;
+        RedisModuleConfigSetNumericFunc set_numeric;
+        RedisModuleConfigSetBoolFunc set_bool;
+        RedisModuleConfigSetEnumFunc set_enum;
+    } set_fn;
+    RedisModuleConfigApplyFunc apply_fn;
+    RedisModule *module;
+};
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -1941,6 +1975,16 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
  * ## Module information and time measurement
  * -------------------------------------------------------------------------- */
 
+int moduleListConfigMatch(void *config, void *name) {
+    return strcasecmp(((ModuleConfig *) config)->name, (char *) name) == 0;
+}
+
+void moduleListFree(void *config) {
+    ModuleConfig *module_config = (ModuleConfig *) config;
+    sdsfree(module_config->name);
+    zfree(config);
+}
+
 void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     /* Called by RM_Init() to setup the `ctx->module` structure.
      *
@@ -1957,7 +2001,11 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->usedby = listCreate();
     module->using = listCreate();
     module->filters = listCreate();
+    module->module_configs = listCreate();
+    listSetMatchMethod(module->module_configs, moduleListConfigMatch);
+    listSetFreeMethod(module->module_configs, moduleListFree);
     module->in_call = 0;
+    module->configs_initialized = 0;
     module->in_hook = 0;
     module->options = 0;
     module->info_cb = 0;
@@ -10683,9 +10731,21 @@ void moduleRegisterCoreAPI(void);
 void moduleInitModulesSystemLast(void) {
 }
 
+
+dictType sdsKeyValueHashDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructor,          /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
+    server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
     modules = dictCreate(&modulesDictType);
 
     /* Set up the keyspace notification subscriber list and static client */
@@ -10758,6 +10818,20 @@ void moduleLoadQueueEntryFree(struct moduleLoadQueueEntry *loadmod) {
     zfree(loadmod);
 }
 
+/* Remove Module Configs from standardConfig array in config.c */
+void moduleRemoveConfigs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(module->module_configs, &li);
+    while ((ln = listNext(&li))) {
+        ModuleConfig *config = listNodeValue(ln);
+        sds module_name = sdsnew(module->name);
+        sds full_name = sdscat(sdscat(module_name, "."), config->name); /* ModuleName.ModuleConfig */
+        removeConfig(full_name);
+        sdsfree(full_name);
+    }
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -10774,7 +10848,7 @@ void moduleLoadFromQueue(void) {
     listRewind(server.loadmodule_queue,&li);
     while((ln = listNext(&li))) {
         struct moduleLoadQueueEntry *loadmod = ln->value;
-        if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc)
+        if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc, 0)
             == C_ERR)
         {
             serverLog(LL_WARNING,
@@ -10785,6 +10859,10 @@ void moduleLoadFromQueue(void) {
         moduleLoadQueueEntryFree(loadmod);
         listDelNode(server.loadmodule_queue, ln);
     }
+    if (dictSize(server.module_configs_queue)) {
+        serverLog(LL_WARNING, "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting");
+        exit(1);
+    }
 }
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
@@ -10792,6 +10870,7 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->filters);
     listRelease(module->usedby);
     listRelease(module->using);
+    listRelease(module->module_configs);
     sdsfree(module->name);
     moduleLoadQueueEntryFree(module->loadmod);
     zfree(module);
@@ -10872,15 +10951,56 @@ void moduleUnregisterCommands(struct RedisModule *module) {
     dictReleaseIterator(di);
 }
 
+/* We parse argv to add sds "NAME VALUE" pairs to the server.module_configs_queue list of configs.
+ * We also increment the module_argv pointer to just after ARGS if there are args, otherwise
+ * we set it to NULL */
+int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
+    int args_specified = 0;
+    RedisModuleString **argv = *module_argv;
+    int argc = *module_argc;
+    for (int i = 0; i < argc; i++) {
+        char *arg_val = argv[i]->ptr;
+        if (!strcasecmp(arg_val, "CONFIG")) {
+            if (i + 2 >= argc) {
+                serverLog(LL_NOTICE, "CONFIG specified without name value pair");
+                return REDISMODULE_ERR;
+            }
+            sds name = sdsdup(argv[i + 1]->ptr);
+            sds value = sdsdup(argv[i + 2]->ptr);
+            if (!dictReplace(server.module_configs_queue, name, value)) sdsfree(name);
+            i += 2;
+        } else if (!strcasecmp(arg_val, "ARGS")) {
+            args_specified = 1;
+            i++;
+            if (i >= argc) {
+                *module_argv = NULL;
+                *module_argc = 0;
+            } else {
+                *module_argv = argv + i;
+                *module_argc = argc - i;
+            }
+            break;
+        } else {
+            serverLog(LL_NOTICE, "Syntax Error from arguments to loadex around %s.", arg_val);
+            return REDISMODULE_ERR;
+        }
+    }
+    if (!args_specified) {
+        *module_argv = NULL;
+        *module_argc = 0;
+    }
+    return REDISMODULE_OK;
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleLoad(const char *path, void **module_argv, int module_argc) {
+int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
     int (*onload)(void *, void **, int);
     void *handle;
 
     struct stat st;
-    if (stat(path, &st) == 0)
-    {   // this check is best effort
+    if (stat(path, &st) == 0) {
+        /* This check is best effort */
         if (!(st.st_mode & (S_IXUSR  | S_IXGRP | S_IXOTH))) {
             serverLog(LL_WARNING, "Module %s failed to load: It does not have execute permissions.", path);
             return C_ERR;
@@ -10904,16 +11024,17 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     selectDb(ctx.client, 0);
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
+        serverLog(LL_WARNING,
+            "Module %s initialization failed. Module not loaded",path);
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
+            moduleRemoveConfigs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
         dlclose(handle);
-        serverLog(LL_WARNING,
-            "Module %s initialization failed. Module not loaded",path);
         return C_ERR;
     }
 
@@ -10931,14 +11052,29 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     }
 
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+
+    if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
+        serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
+        moduleUnload(ctx.module->name);
+        moduleFreeContext(&ctx);
+        return C_ERR;
+    }
+
+    if (is_loadex && dictSize(server.module_configs_queue)) {
+        serverLogRaw(LL_WARNING, "Loadex configurations were not applied, likely due to invalid arguments. Unloading the module.");
+        moduleUnload(ctx.module->name);
+        moduleFreeContext(&ctx);
+        return C_ERR;
+    }
+
     /* Fire the loaded modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MODULE_CHANGE,
                           REDISMODULE_SUBEVENT_MODULE_LOADED,
                           ctx.module);
+
     moduleFreeContext(&ctx);
     return C_OK;
 }
-
 
 /* Unload the module registered with the specified name. On success
  * C_OK is returned, otherwise C_ERR is returned and errno is set
@@ -10991,6 +11127,7 @@ int moduleUnload(sds name) {
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
+    moduleRemoveConfigs(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
@@ -11119,10 +11256,433 @@ sds genModulesInfoString(sds info) {
     return info;
 }
 
+/* --------------------------------------------------------------------------
+ * Module Configurations API internals
+ * -------------------------------------------------------------------------- */
+	 
+/* Check if the configuration name is already registered */
+int isModuleConfigNameRegistered(RedisModule *module, sds name) {
+    listNode *match = listSearchKey(module->module_configs, (void *) name);
+    return match != NULL;
+}
+
+/* Assert that the flags passed into the RM_RegisterConfig Suite are valid */
+int moduleVerifyConfigFlags(unsigned int flags, configType type) {
+    if ((flags & ~(REDISMODULE_CONFIG_DEFAULT
+                    | REDISMODULE_CONFIG_IMMUTABLE
+                    | REDISMODULE_CONFIG_SENSITIVE
+                    | REDISMODULE_CONFIG_HIDDEN
+                    | REDISMODULE_CONFIG_PROTECTED
+                    | REDISMODULE_CONFIG_DENY_LOADING
+                    | REDISMODULE_CONFIG_MEMORY))) {
+        serverLogRaw(LL_WARNING, "Invalid flag(s) for configuration");
+        return REDISMODULE_ERR;
+    }
+    if (type != NUMERIC_CONFIG && flags & REDISMODULE_CONFIG_MEMORY) {
+        serverLogRaw(LL_WARNING, "Numeric flag provided for non-numeric configuration.");
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+int moduleVerifyConfigName(sds name) {
+    if (sdslen(name) == 0) {
+        serverLogRaw(LL_WARNING, "Module config names cannot be an empty string.");
+        return REDISMODULE_ERR;
+    }
+    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+        char curr_char = name[i];
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_') || (curr_char == '-'))
+        {
+            continue;
+        }
+        serverLog(LL_WARNING, "Invalid character %c in Module Config name %s.", curr_char, name);
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+/* This is a series of set functions for each type that act as dispatchers for 
+ * config.c to call module set callbacks. */
+#define CONFIG_ERR_SIZE 256
+static char configerr[CONFIG_ERR_SIZE];
+static void propagateErrorString(RedisModuleString *err_in, const char **err) {
+    if (err_in) {
+        strncpy(configerr, err_in->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(err_in);
+        *err = configerr;
+    }
+}
+
+int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_bool(config->name, val, config->privdata, &error);
+    propagateErrorString(error, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
+}
+
+int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
+    RedisModuleString *error = NULL;
+    RedisModuleString *new = createStringObject(strval, sdslen(strval));
+    int return_code = config->set_fn.set_string(config->name, new, config->privdata, &error);
+    propagateErrorString(error, err);
+    decrRefCount(new);
+    return return_code == REDISMODULE_OK ? 1 : 0;
+}
+
+int setModuleEnumConfig(ModuleConfig *config, int val, const char **err) {
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_enum(config->name, val, config->privdata, &error);
+    propagateErrorString(error, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
+}
+
+int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err) {
+    RedisModuleString *error = NULL;
+    int return_code = config->set_fn.set_numeric(config->name, val, config->privdata, &error);
+    propagateErrorString(error, err);
+    return return_code == REDISMODULE_OK ? 1 : 0;
+}
+
+/* This is a series of get functions for each type that act as dispatchers for 
+ * config.c to call module set callbacks. */
+int getModuleBoolConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_bool(module_config->name, module_config->privdata);
+}
+
+sds getModuleStringConfig(ModuleConfig *module_config) {
+    RedisModuleString *val = module_config->get_fn.get_string(module_config->name, module_config->privdata);
+    return val ? sdsdup(val->ptr) : NULL;
+}
+
+int getModuleEnumConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_enum(module_config->name, module_config->privdata);
+}
+
+long long getModuleNumericConfig(ModuleConfig *module_config) {
+    return module_config->get_fn.get_numeric(module_config->name, module_config->privdata);
+}
+
+/* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
+ * It attempts to call set on each of these configs. */
+int loadModuleConfigs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    const char *err = NULL;
+    listRewind(module->module_configs, &li);
+    while ((ln = listNext(&li))) {
+        ModuleConfig *module_config = listNodeValue(ln);
+        sds config_name = sdscatfmt(sdsempty(), "%s.%s", module->name, module_config->name);
+        dictEntry *config_argument = dictFind(server.module_configs_queue, config_name);
+        if (config_argument) {
+            if (!performModuleConfigSetFromName(dictGetKey(config_argument), dictGetVal(config_argument), &err)) {
+                serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds) dictGetKey(config_argument), err);
+                sdsfree(config_name);
+                dictEmpty(server.module_configs_queue, NULL);
+                return REDISMODULE_ERR;
+            }
+        } else {
+            if (!performModuleConfigSetDefaultFromName(config_name, &err)) {
+                serverLog(LL_WARNING, "Issue attempting to set default value of configuration %s : %s", module_config->name, err);
+                sdsfree(config_name);
+                dictEmpty(server.module_configs_queue, NULL);
+                return REDISMODULE_ERR;
+            }
+        }
+        dictDelete(server.module_configs_queue, config_name);
+        sdsfree(config_name);
+    }
+    module->configs_initialized = 1;
+    return REDISMODULE_OK;
+}
+
+/* Add module_config to the list if the apply and privdata do not match one already in it. */
+void addModuleConfigApply(list *module_configs, ModuleConfig *module_config) {
+    if (!module_config->apply_fn) return;
+    listIter li;
+    listNode *ln;
+    ModuleConfig *pending_apply;
+    listRewind(module_configs, &li);
+    while ((ln = listNext(&li))) {
+        pending_apply = listNodeValue(ln);
+        if (pending_apply->apply_fn == module_config->apply_fn && pending_apply->privdata == module_config->privdata) {
+            return;
+        }
+    }
+    listAddNodeTail(module_configs, module_config);
+}
+
+/* Call apply on all module configs specified in set, if an apply function was specified at registration time. */
+int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name) {
+    if (!listLength(module_configs)) return 1;
+    listIter li;
+    listNode *ln;
+    ModuleConfig *module_config;
+    RedisModuleString *error = NULL;
+    RedisModuleCtx ctx;
+
+    listRewind(module_configs, &li);
+    while ((ln = listNext(&li))) {
+        module_config = listNodeValue(ln);
+        moduleCreateContext(&ctx, module_config->module, REDISMODULE_CTX_NONE);
+        if (module_config->apply_fn(&ctx, module_config->privdata, &error)) {
+            if (err_arg_name) *err_arg_name = module_config->name;
+            propagateErrorString(error, err);
+            moduleFreeContext(&ctx);
+            return 0;
+        }
+        moduleFreeContext(&ctx);
+    }
+    return 1;
+}
+
+/* --------------------------------------------------------------------------
+ * ## Module Configurations API
+ * -------------------------------------------------------------------------- */
+
+/* Create a module config object. */
+ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
+    ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
+    new_config->name = sdsdup(name);
+    new_config->apply_fn = apply_fn;
+    new_config->privdata = privdata;
+    new_config->module = module;
+    return new_config;
+}
+
+int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags, configType type) {
+    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyConfigName(name)) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+    if (isModuleConfigNameRegistered(module, name)) {
+        serverLog(LL_WARNING, "Configuration by the name: %s already registered", name);
+        errno = EALREADY;
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+unsigned int maskModuleConfigFlags(unsigned int flags) {
+    unsigned int new_flags = 0;
+    if (flags & REDISMODULE_CONFIG_DEFAULT) new_flags |= MODIFIABLE_CONFIG;
+    if (flags & REDISMODULE_CONFIG_IMMUTABLE) new_flags |= IMMUTABLE_CONFIG;
+    if (flags & REDISMODULE_CONFIG_HIDDEN) new_flags |= HIDDEN_CONFIG;
+    if (flags & REDISMODULE_CONFIG_PROTECTED) new_flags |= PROTECTED_CONFIG;
+    if (flags & REDISMODULE_CONFIG_DENY_LOADING) new_flags |= DENY_LOADING_CONFIG;
+    return new_flags;
+}
+
+unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
+    unsigned int new_flags = 0;
+    if (flags & REDISMODULE_CONFIG_MEMORY) new_flags |= MEMORY_CONFIG;
+    return new_flags;
+}
+
+/* Create a string config that Redis users can interact with via the Redis config file,
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
+ *
+ * The actual config value is owned by the module, and the `getfn`, `setfn` and optional
+ * `applyfn` callbacks that are provided to Redis in order to access or manipulate the
+ * value. The `getfn` callback retrieves the value from the module, while the `setfn`
+ * callback provides a value to be stored into the module config.
+ * The optional `applyfn` callback is called after a `CONFIG SET` command modified one or
+ * more configs using the `setfn` callback and can be used to atomically apply a config
+ * after several configs were changed together.
+ * If there are multiple configs with `applyfn` callbacks set by a single `CONFIG SET`
+ * command, they will be deduplicated if their `applyfn` function and `privdata` pointers
+ * are identical, and the callback will only be run once.
+ * Both the `setfn` and `applyfn` can return an error if the provided value is invalid or
+ * cannot be used.
+ * The config also declares a type for the value that is validated by Redis and
+ * provided to the module. The config system provides the following types:
+ *
+ * * Redis String: Binary safe string data.
+ * * Enum: One of a finite number of string tokens, provided during registration.
+ * * Numeric: 64 bit signed integer, which also supports min and max values.
+ * * Bool: Yes or no value.
+ *
+ * The `setfn` callback is expected to return REDISMODULE_OK when the value is successfully
+ * applied. It can also return REDISMODULE_ERR if the value can't be applied, and the
+ * *err pointer can be set with a RedisModuleString error message to provide to the client.
+ * This RedisModuleString will be freed by redis after returning from the set callback.
+ *
+ * All configs are registered with a name, a type, a default value, private data that is made
+ * available in the callbacks, as well as several flags that modify the behavior of the config.
+ * The name must only contain alphanumeric characters or dashes. The supported flags are:
+ *
+ * * REDISMODULE_CONFIG_DEFAULT: The default flags for a config. This creates a config that can be modified after startup.
+ * * REDISMODULE_CONFIG_IMMUTABLE: This config can only be provided loading time.
+ * * REDISMODULE_CONFIG_SENSITIVE: The value stored in this config is redacted from all logging.
+ * * REDISMODULE_CONFIG_HIDDEN: The name is hidden from `CONFIG GET` with pattern matching.
+ * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the value of enable-protected-configs.
+ * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
+ * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
+ *
+ * Default values are used on startup to set the value if it is not provided via the config file
+ * or command line. Default values are also used to compare to on a config rewrite.
+ *
+ * Notes:
+ *
+ *  1. On string config sets that the string passed to the set callback will be freed after execution and the module must retain it.
+ *  2. On string config gets the string will not be consumed and will be valid after execution.
+ *
+ * Example implementation:
+ *
+ *     RedisModuleString *strval;
+ *     int adjustable = 1;
+ *     RedisModuleString *getStringConfigCommand(const char *name, void *privdata) {
+ *         return strval;
+ *     }
+ *
+ *     int setStringConfigCommand(const char *name, RedisModuleString *new, void *privdata, RedisModuleString **err) {
+ *        if (adjustable) {
+ *            RedisModule_Free(strval);
+ *            RedisModule_RetainString(NULL, new);
+ *            strval = new;
+ *            return REDISMODULE_OK;
+ *        }
+ *        *err = RedisModule_CreateString(NULL, "Not adjustable.", 15);
+ *        return REDISMODULE_ERR;
+ *     }
+ *     ...
+ *     RedisModule_RegisterStringConfig(ctx, "string", NULL, REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL);
+ *
+ * If the registration fails, REDISMODULE_ERR is returned and one of the following
+ * errno is set:
+ * * EINVAL: The provided flags are invalid for the registration or the name of the config contains invalid characters.
+ * * EALREADY: The provided configuration name is already used. */
+int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+    RedisModule *module = ctx->module;
+    sds config_name = sdsnew(name);
+    if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
+        sdsfree(config_name);
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
+    new_config->get_fn.get_string = getfn;
+    new_config->set_fn.set_string = setfn;
+    listAddNodeTail(module->module_configs, new_config);
+    flags = maskModuleConfigFlags(flags);
+    addModuleStringConfig(module->name, name, flags, new_config, default_val ? sdsnew(default_val) : NULL);
+    return REDISMODULE_OK;
+}
+
+/* Create a bool config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
+ * RedisModule_RegisterStringConfig for detailed information about configs. */
+int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, RedisModuleConfigGetBoolFunc getfn, RedisModuleConfigSetBoolFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+    RedisModule *module = ctx->module;
+    sds config_name = sdsnew(name);
+    if (moduleConfigValidityCheck(module, config_name, flags, BOOL_CONFIG)) {
+        sdsfree(config_name);
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
+    new_config->get_fn.get_bool = getfn;
+    new_config->set_fn.set_bool = setfn;
+    listAddNodeTail(module->module_configs, new_config);
+    flags = maskModuleConfigFlags(flags);
+    addModuleBoolConfig(module->name, name, flags, new_config, default_val);
+    return REDISMODULE_OK;
+}
+
+/* 
+ * Create an enum config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
+ * Enum configs are a set of string tokens to corresponding integer values, where 
+ * the string value is exposed to Redis clients but the value passed Redis and the
+ * module is the integer value. These values are defined in enum_values, an array
+ * of null-terminated c strings, and int_vals, an array of enum values who has an
+ * index partner in enum_values.
+ * Example Implementation:
+ *      const char *enum_vals[3] = {"first", "second", "third"};
+ *      const int int_vals[3] = {0, 2, 4};
+ *      int enum_val = 0;
+ *
+ *      int getEnumConfigCommand(const char *name, void *privdata) {
+ *          return enum_val;
+ *      }
+ *       
+ *      int setEnumConfigCommand(const char *name, int val, void *privdata, const char **err) {
+ *          enum_val = val;
+ *          return REDISMODULE_OK;
+ *      }
+ *      ...
+ *      RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL);
+ * 
+ * See RedisModule_RegisterStringConfig for detailed general information about configs. */
+int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+    RedisModule *module = ctx->module;
+    sds config_name = sdsnew(name);
+    if (moduleConfigValidityCheck(module, config_name, flags, ENUM_CONFIG)) {
+        sdsfree(config_name);
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
+    new_config->get_fn.get_enum = getfn;
+    new_config->set_fn.set_enum = setfn;
+    configEnum *enum_vals = zmalloc((num_enum_vals + 1) * sizeof(configEnum));
+    for (int i = 0; i < num_enum_vals; i++) {
+        enum_vals[i].name = zstrdup(enum_values[i]);
+        enum_vals[i].val = int_values[i];
+    }
+    enum_vals[num_enum_vals].name = NULL;
+    enum_vals[num_enum_vals].val = 0;
+    listAddNodeTail(module->module_configs, new_config);
+    flags = maskModuleConfigFlags(flags);
+    addModuleEnumConfig(module->name, name, flags, new_config, default_val, enum_vals);
+    return REDISMODULE_OK;
+}
+
+/*
+ * Create an integer config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
+ * RedisModule_RegisterStringConfig for detailed information about configs. */
+int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
+    RedisModule *module = ctx->module;
+    sds config_name = sdsnew(name);
+    if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
+        sdsfree(config_name);
+        return REDISMODULE_ERR;
+    }
+    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
+    sdsfree(config_name);
+    new_config->get_fn.get_numeric = getfn;
+    new_config->set_fn.set_numeric = setfn;
+    listAddNodeTail(module->module_configs, new_config);
+    unsigned int numeric_flags = maskModuleNumericConfigFlags(flags);
+    flags = maskModuleConfigFlags(flags);
+    addModuleNumericConfig(module->name, name, flags, new_config, default_val, numeric_flags, min, max);
+    return REDISMODULE_OK;
+}
+
+/* Applies all pending configurations on the module load. This should be called
+ * after all of the configurations have been registered for the module inside of RedisModule_OnLoad.
+ * This API needs to be called when configurations are provided in either `MODULE LOADEX`
+ * or provided as startup arguments. */
+int RM_LoadConfigs(RedisModuleCtx *ctx) {
+    if (!ctx || !ctx->module) {
+        return REDISMODULE_ERR;
+    }
+    RedisModule *module = ctx->module;
+    /* Load configs from conf file or arguments from loadex */
+    if (loadModuleConfigs(module)) return REDISMODULE_ERR;
+    return REDISMODULE_OK;
+}
+
 /* Redis MODULE command.
  *
  * MODULE LIST
  * MODULE LOAD <path> [args...]
+ * MODULE LOADEX <path> [[CONFIG NAME VALUE] [CONFIG NAME VALUE]] [ARGS ...]
  * MODULE UNLOAD <name>
  */
 void moduleCommand(client *c) {
@@ -11134,6 +11694,8 @@ void moduleCommand(client *c) {
 "    Return a list of loaded modules.",
 "LOAD <path> [<arg> ...]",
 "    Load a module library from <path>, passing to it any optional arguments.",
+"LOADEX <path> [[CONFIG NAME VALUE] [CONFIG NAME VALUE]] [ARGS ...]",
+"    Load a module library from <path>, while passing it module configurations and optional arguments.",
 "UNLOAD <name>",
 "    Unload a module.",
 NULL
@@ -11148,11 +11710,30 @@ NULL
             argv = &c->argv[3];
         }
 
-        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc) == C_OK)
+        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc, 0) == C_OK)
             addReply(c,shared.ok);
         else
             addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
+    } else if (!strcasecmp(subcmd,"loadex") && c->argc >= 3) {
+        robj **argv = NULL;
+        int argc = 0;
+
+        if (c->argc > 3) {
+            argc = c->argc - 3;
+            argv = &c->argv[3];
+        }
+        /* If this is a loadex command we want to populate server.module_configs_queue with 
+         * sds NAME VALUE pairs. We also want to increment argv to just after ARGS, if supplied. */
+        if (parseLoadexArguments((RedisModuleString ***) &argv, &argc) == REDISMODULE_OK &&
+            moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
+            addReply(c,shared.ok);
+        else {
+            dictEmpty(server.module_configs_queue, NULL);
+            addReplyError(c,
+                "Error loading the extension. Please check the server logs.");
+        }
+
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
         if (moduleUnload(c->argv[2]->ptr) == C_OK)
             addReply(c,shared.ok);
@@ -11955,4 +12536,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(EventLoopDel);
     REGISTER_API(EventLoopAddOneShot);
     REGISTER_API(Yield);
+    REGISTER_API(RegisterBoolConfig);
+    REGISTER_API(RegisterNumericConfig);
+    REGISTER_API(RegisterStringConfig);
+    REGISTER_API(RegisterEnumConfig);
+    REGISTER_API(LoadConfigs);
 }

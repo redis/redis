@@ -4776,6 +4776,35 @@ struct redisCommandArg MODULE_LOAD_Args[] = {
 {0}
 };
 
+/********** MODULE LOADEX ********************/
+
+/* MODULE LOADEX history */
+#define MODULE_LOADEX_History NULL
+
+/* MODULE LOADEX tips */
+#define MODULE_LOADEX_tips NULL
+
+/* MODULE LOADEX configs argument table */
+struct redisCommandArg MODULE_LOADEX_configs_Subargs[] = {
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX args argument table */
+struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX argument table */
+struct redisCommandArg MODULE_LOADEX_Args[] = {
+{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_configs_Subargs},
+{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
+{0}
+};
+
 /********** MODULE UNLOAD ********************/
 
 /* MODULE UNLOAD history */
@@ -4795,6 +4824,7 @@ struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
 {"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
+{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
 {"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };
