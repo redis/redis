@@ -1,3 +1,5 @@
+source "../tests/includes/utils.tcl"
+
 proc set_redis_announce_ip {addr} {
     foreach_redis_id id {
         R $id config set replica-announce-ip $addr
