@@ -11309,16 +11309,19 @@ int moduleVerifyConfigName(sds name) {
  * config.c to call module set callbacks. */
 #define CONFIG_ERR_SIZE 256
 static char configerr[CONFIG_ERR_SIZE];
+static void propagateErrorString(RedisModuleString *err_in, const char **err) {
+    if (err_in) {
+        strncpy(configerr, err_in->ptr, CONFIG_ERR_SIZE);
+        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        decrRefCount(err_in);
+        *err = configerr;
+    }
+}
 
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
     RedisModuleString *error = NULL;
     int return_code = config->set_fn.set_bool(config->name, val, config->privdata, &error);
-    if (error) {
-        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
-        configerr[CONFIG_ERR_SIZE - 1] = '\0';
-        decrRefCount(error);
-        *err = configerr;
-    }
+    propagateErrorString(error, err);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
@@ -11326,12 +11329,7 @@ int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
     RedisModuleString *error = NULL;
     RedisModuleString *new = createStringObject(strval, sdslen(strval));
     int return_code = config->set_fn.set_string(config->name, new, config->privdata, &error);
-    if (error) {
-        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
-        configerr[CONFIG_ERR_SIZE - 1] = '\0';
-        decrRefCount(error);
-        *err = configerr;
-    }
+    propagateErrorString(error, err);
     decrRefCount(new);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
@@ -11339,24 +11337,14 @@ int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
 int setModuleEnumConfig(ModuleConfig *config, int val, const char **err) {
     RedisModuleString *error = NULL;
     int return_code = config->set_fn.set_enum(config->name, val, config->privdata, &error);
-    if (error) {
-        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
-        configerr[CONFIG_ERR_SIZE - 1] = '\0';
-        decrRefCount(error);
-        *err = configerr;
-    }
+    propagateErrorString(error, err);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
 int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err) {
     RedisModuleString *error = NULL;
     int return_code = config->set_fn.set_numeric(config->name, val, config->privdata, &error);
-    if (error) {
-        strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
-        configerr[CONFIG_ERR_SIZE - 1] = '\0';
-        decrRefCount(error);
-        *err = configerr;
-    }
+    propagateErrorString(error, err);
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
@@ -11443,12 +11431,7 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
         moduleCreateContext(&ctx, module_config->module, REDISMODULE_CTX_NONE);
         if (module_config->apply_fn(&ctx, module_config->privdata, &error)) {
             if (err_arg_name) *err_arg_name = module_config->name;
-            if (error) {
-                strncpy(configerr, error->ptr, CONFIG_ERR_SIZE);
-                configerr[CONFIG_ERR_SIZE - 1] = '\0';
-                decrRefCount(error);
-                *err = configerr;
-            }
+            propagateErrorString(error, err);
             moduleFreeContext(&ctx);
             return 0;
         }
