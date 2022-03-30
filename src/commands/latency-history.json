@@ -18,7 +18,7 @@
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:SPECIAL"
         ],
-       "arguments": [
+        "arguments": [
             {
                 "name": "event",
                 "type": "string"

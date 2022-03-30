@@ -9,6 +9,9 @@
         "function": "clusterCommand",
         "deprecated_since": "7.0.0",
         "replaced_by": "`CLUSTER SHARDS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "history": [
             [
                 "4.0.0",

@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,ubuntu,centos,malloc'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -34,8 +34,8 @@ jobs:
   test-ubuntu-jemalloc:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis') && !contains(github.event.inputs.skipjobs, 'ubuntu')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'ubuntu')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -44,7 +44,7 @@ jobs:
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
         echo "skipping: ${{github.event.inputs.skipjobs}} and ${{github.event.inputs.skiptests}}"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -71,8 +71,8 @@ jobs:
   test-ubuntu-libc-malloc:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis') && !contains(github.event.inputs.skipjobs, 'malloc')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'malloc')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -80,7 +80,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -104,8 +104,8 @@ jobs:
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis') && !contains(github.event.inputs.skipjobs, 'malloc')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'malloc')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -113,7 +113,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -137,8 +137,8 @@ jobs:
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, '32bit')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, '32bit')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -146,7 +146,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -177,8 +177,8 @@ jobs:
   test-ubuntu-tls:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'tls')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -186,7 +186,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -217,8 +217,8 @@ jobs:
   test-ubuntu-tls-no-tls:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'tls')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -226,7 +226,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -257,8 +257,8 @@ jobs:
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'iothreads')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'iothreads')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -266,7 +266,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -285,8 +285,8 @@ jobs:
   test-valgrind-test:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'valgrind')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'valgrind') && !contains(github.event.inputs.skiptests, 'redis')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -294,7 +294,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -311,8 +311,8 @@ jobs:
   test-valgrind-misc:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'valgrind')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'valgrind') && !(contains(github.event.inputs.skiptests, 'modules') && contains(github.event.inputs.skiptests, 'unittest'))
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -320,7 +320,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -342,8 +342,8 @@ jobs:
   test-valgrind-no-malloc-usable-size-test:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'valgrind')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'valgrind') && !contains(github.event.inputs.skiptests, 'redis')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -351,7 +351,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -368,8 +368,8 @@ jobs:
   test-valgrind-no-malloc-usable-size-misc:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'valgrind')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'valgrind') && !(contains(github.event.inputs.skiptests, 'modules') && contains(github.event.inputs.skiptests, 'unittest'))
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -377,7 +377,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -399,8 +399,8 @@ jobs:
   test-sanitizer-address:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'sanitizer')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'sanitizer')
     timeout-minutes: 14400
     strategy:
       matrix:
@@ -413,7 +413,7 @@ jobs:
         run: |
           echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
           echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
@@ -442,8 +442,8 @@ jobs:
   test-sanitizer-undefined:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'sanitizer')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'sanitizer')
     timeout-minutes: 14400
     strategy:
       matrix:
@@ -456,7 +456,7 @@ jobs:
         run: |
           echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
           echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
@@ -485,8 +485,8 @@ jobs:
   test-centos7-jemalloc:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis') && !contains(github.event.inputs.skipjobs, 'centos')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'centos')
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -495,7 +495,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -521,8 +521,8 @@ jobs:
   test-centos7-tls:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'tls')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -531,7 +531,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -564,8 +564,8 @@ jobs:
   test-centos7-tls-no-tls:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'tls')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
     timeout-minutes: 14400
     steps:
@@ -574,7 +574,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -607,8 +607,8 @@ jobs:
   test-macos-latest:
     runs-on: macos-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'macos')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'macos') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -616,7 +616,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -632,8 +632,8 @@ jobs:
   test-macos-latest-sentinel:
     runs-on: macos-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'macos')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'sentinel')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -641,7 +641,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -654,8 +654,8 @@ jobs:
   test-macos-latest-cluster:
     runs-on: macos-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'macos')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'cluster')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -663,7 +663,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -676,8 +676,8 @@ jobs:
   test-freebsd:
     runs-on: macos-10.15
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'freebsd')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'freebsd') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -685,7 +685,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -704,8 +704,8 @@ jobs:
   test-freebsd-sentinel:
     runs-on: macos-10.15
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'freebsd')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'sentinel')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -713,7 +713,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -731,8 +731,8 @@ jobs:
   test-freebsd-cluster:
     runs-on: macos-10.15
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'freebsd')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'cluster')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -740,7 +740,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -758,8 +758,8 @@ jobs:
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'alpine')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
@@ -767,7 +767,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
@@ -793,8 +793,8 @@ jobs:
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) && !contains(github.event.inputs.skipjobs, 'alpine')
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'alpine')
     container: alpine:latest
     steps:
     - name: prep
@@ -802,7 +802,7 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
