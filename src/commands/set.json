@@ -55,6 +55,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf":[
+                {
+                    "description": "`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options).",
+                    "type": "null"
+                },
+                {
+                    "description": "`GET` not given: The key was set.",
+                    "const": "OK"
+                },
+                {
+                    "description": "`GET` given: The key didn't exist before the `SET`",
+                    "type": "null"
+                },
+                {
+                    "description": "`GET` given: The previous value of the key",
+                    "type": "string"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

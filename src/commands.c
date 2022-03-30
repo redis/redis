@@ -2288,6 +2288,21 @@ struct redisCommandArg HGETALL_Args[] = {
 {0}
 };
 
+/* HGETALL_ReplySchema_additionalProperties reply schema */
+struct commandReplySchemaElement HGETALL_ReplySchema_additionalProperties_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema HGETALL_ReplySchema_additionalProperties = {HGETALL_ReplySchema_additionalProperties_elements,.length=1};
+
+/* HGETALL_ReplySchema reply schema */
+struct commandReplySchemaElement HGETALL_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"additionalProperties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&HGETALL_ReplySchema_additionalProperties},
+};
+
+struct commandReplySchema HGETALL_ReplySchema = {HGETALL_ReplySchema_elements,.length=2};
+
 /********** HINCRBY ********************/
 
 /* HINCRBY history */
@@ -8049,6 +8064,53 @@ struct redisCommandArg SET_Args[] = {
 {0}
 };
 
+/* SET_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement SET_ReplySchema_anyOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options)."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema SET_ReplySchema_anyOf_0 = {SET_ReplySchema_anyOf_0_elements,.length=2};
+
+/* SET_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement SET_ReplySchema_anyOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="`GET` not given: The key was set."},
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema SET_ReplySchema_anyOf_1 = {SET_ReplySchema_anyOf_1_elements,.length=2};
+
+/* SET_ReplySchema_anyOf_2 reply schema */
+struct commandReplySchemaElement SET_ReplySchema_anyOf_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="`GET` given: The key didn't exist before the `SET`"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
+};
+
+struct commandReplySchema SET_ReplySchema_anyOf_2 = {SET_ReplySchema_anyOf_2_elements,.length=2};
+
+/* SET_ReplySchema_anyOf_3 reply schema */
+struct commandReplySchemaElement SET_ReplySchema_anyOf_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="`GET` given: The previous value of the key"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema SET_ReplySchema_anyOf_3 = {SET_ReplySchema_anyOf_3_elements,.length=2};
+
+/* SET_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *SET_ReplySchema_anyOf[] = {
+&SET_ReplySchema_anyOf_0,
+&SET_ReplySchema_anyOf_1,
+&SET_ReplySchema_anyOf_2,
+&SET_ReplySchema_anyOf_3,
+};
+
+/* SET_ReplySchema reply schema */
+struct commandReplySchemaElement SET_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=SET_ReplySchema_anyOf,.length=4}},
+};
+
+struct commandReplySchema SET_ReplySchema = {SET_ReplySchema_elements,.length=1};
+
 /********** SETEX ********************/
 
 /* SETEX history */
@@ -8240,7 +8302,7 @@ struct redisCommand redisCommandTable[] = {
 {"hdel","Delete one or more hash fields","O(N) where N is the number of fields to be removed.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HDEL_History,HDEL_tips,hdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HDEL_Args},
 {"hexists","Determine if a hash field exists","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HEXISTS_History,HEXISTS_tips,hexistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HEXISTS_Args},
 {"hget","Get the value of a hash field","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGET_History,HGET_tips,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGET_Args},
-{"hgetall","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGETALL_History,HGETALL_tips,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGETALL_Args},
+{"hgetall","Get all the fields and values in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HGETALL_History,HGETALL_tips,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HGETALL_Args,.reply_schema=&HGETALL_ReplySchema},
 {"hincrby","Increment the integer value of a hash field by the given number","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBY_History,HINCRBY_tips,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBY_Args},
 {"hincrbyfloat","Increment the float value of a hash field by the given amount","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HINCRBYFLOAT_History,HINCRBYFLOAT_tips,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HINCRBYFLOAT_Args},
 {"hkeys","Get all the fields in a hash","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_HASH,HKEYS_History,HKEYS_tips,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=HKEYS_Args},
@@ -8420,7 +8482,7 @@ struct redisCommand redisCommandTable[] = {
 {"mset","Set multiple keys to multiple values","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSET_History,MSET_tips,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSET_Args},
 {"msetnx","Set multiple keys to multiple values, only if none of the keys exist","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,MSETNX_History,MSETNX_tips,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}},.args=MSETNX_Args},
 {"psetex","Set the value and expiration in milliseconds of a key","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,PSETEX_History,PSETEX_tips,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=PSETEX_Args},
-{"set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{"RW and ACCESS due to the optional `GET` argument",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},setGetKeys,.args=SET_Args},
+{"set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{"RW and ACCESS due to the optional `GET` argument",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},setGetKeys,.args=SET_Args,.reply_schema=&SET_ReplySchema},
 {"setex","Set the value and expiration of a key","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETEX_History,SETEX_tips,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETEX_Args},
 {"setnx","Set the value of a key, only if the key does not exist","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETNX_History,SETNX_tips,setnxCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETNX_Args},
 {"setrange","Overwrite part of a string at key starting at the specified offset","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SETRANGE_History,SETRANGE_tips,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETRANGE_Args},

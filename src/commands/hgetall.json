@@ -35,6 +35,12 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",
