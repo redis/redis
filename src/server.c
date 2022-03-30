@@ -4391,13 +4391,13 @@ const char *RESP3_TYPE_STR[] = {
     "null",
 };
 
-void addReplyCommandReplySchema(client *c, struct commandReplySchema *rs, int length) {
-    addReplyMapLen(c, length);
+void addReplyCommandReplySchema(client *c, struct commandReplySchema *rs) {
+    addReplyMapLen(c, rs->length);
 
-    for (int i = 0; i < length; i++) {
-        struct commandReplySchema *curr = &rs[i];
+    for (int i = 0; i < rs->length; i++) {
+        struct commandReplySchemaElement *curr = &rs->schema[i];
         addReplyBulkCString(c, curr->key);
-        switch (curr->val_type) {
+        switch (curr->type) {
             case (SCHEMA_VAL_TYPE_BOOLEAN):
                 addReplyBool(c, curr->value.boolean);
                 break;
@@ -4408,17 +4408,17 @@ void addReplyCommandReplySchema(client *c, struct commandReplySchema *rs, int le
                 addReplyBulkCString(c, curr->value.string);
                 break;
             case (SCHEMA_VAL_TYPE_SCHEMA):
-                addReplyCommandReplySchema(c, curr->value.schema, curr->length);
+                addReplyCommandReplySchema(c, curr->value.schema);
                 break;
             case (SCHEMA_VAL_TYPE_SCHEMA_ARRAY):
-                addReplyArrayLen(c, curr->length);
-                for (int k = 0; k < curr->length; k++) {
-                    struct commandReplySchemaArray *sub = &curr->value.array[k];
-                    addReplyCommandReplySchema(c, sub->schema, sub->length);
+                addReplyArrayLen(c, curr->value.array.length);
+                for (int k = 0; k < curr->value.array.length; k++) {
+                    struct commandReplySchema *schema = curr->value.array.schemas[k];
+                    addReplyCommandReplySchema(c, schema);
                 }
                 break;
             default:
-                serverPanic("Invalid schema type %d", curr->val_type);
+                serverPanic("Invalid schema type %d", curr->type);
         }
     }
 }
@@ -4658,7 +4658,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     }
     if (cmd->reply_schema) {
         addReplyBulkCString(c, "reply_schema");
-        addReplyCommandReplySchema(c, cmd->reply_schema, cmd->length_reply_schema);
+        addReplyCommandReplySchema(c, cmd->reply_schema);
     }
     if (cmd->args) {
         addReplyBulkCString(c, "arguments");

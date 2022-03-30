@@ -5139,87 +5139,92 @@ struct redisCommandArg BZMPOP_Args[] = {
 };
 
 /* BZMPOP_ReplySchema_oneOf_0 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
+
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_0 = {BZMPOP_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_0 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_0 = {BZMPOP_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0 = {BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0_elements,.length=2};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1 = {BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1_elements,.length=2};
+
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items_items array reply schema */
-struct commandReplySchemaArray BZMPOP_ReplySchema_oneOf_1_items_1_items_items[] = {
-{BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0,.length=2},
-{BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1,.length=2},
-{.schema=NULL}
+struct commandReplySchema *BZMPOP_ReplySchema_oneOf_1_items_1_items_items[] = {
+&BZMPOP_ReplySchema_oneOf_1_items_1_items_items_0,
+&BZMPOP_ReplySchema_oneOf_1_items_1_items_items_1,
 };
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1_items reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZMPOP_ReplySchema_oneOf_1_items_1_items_items,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_items_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZMPOP_ReplySchema_oneOf_1_items_1_items_items,.length=2}},
 };
+
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1_items = {BZMPOP_ReplySchema_oneOf_1_items_1_items_elements,.length=4};
 
 /* BZMPOP_ReplySchema_oneOf_1_items_1 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Popped members and their scores.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=BZMPOP_ReplySchema_oneOf_1_items_1_items,.length=4},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Popped members and their scores."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&BZMPOP_ReplySchema_oneOf_1_items_1_items},
 };
 
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1_items_1 = {BZMPOP_ReplySchema_oneOf_1_items_1_elements,.length=4};
+
 /* BZMPOP_ReplySchema_oneOf_1_items array reply schema */
-struct commandReplySchemaArray BZMPOP_ReplySchema_oneOf_1_items[] = {
-{BZMPOP_ReplySchema_oneOf_1_items_0,.length=2},
-{BZMPOP_ReplySchema_oneOf_1_items_1,.length=4},
-{.schema=NULL}
+struct commandReplySchema *BZMPOP_ReplySchema_oneOf_1_items[] = {
+&BZMPOP_ReplySchema_oneOf_1_items_0,
+&BZMPOP_ReplySchema_oneOf_1_items_1,
 };
 
 /* BZMPOP_ReplySchema_oneOf_1 reply schema */
-struct commandReplySchema BZMPOP_ReplySchema_oneOf_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname and the popped members.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZMPOP_ReplySchema_oneOf_1_items,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname and the popped members."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZMPOP_ReplySchema_oneOf_1_items,.length=2}},
 };
 
+struct commandReplySchema BZMPOP_ReplySchema_oneOf_1 = {BZMPOP_ReplySchema_oneOf_1_elements,.length=5};
+
 /* BZMPOP_ReplySchema_oneOf array reply schema */
-struct commandReplySchemaArray BZMPOP_ReplySchema_oneOf[] = {
-{BZMPOP_ReplySchema_oneOf_0,.length=2},
-{BZMPOP_ReplySchema_oneOf_1,.length=5},
-{.schema=NULL}
+struct commandReplySchema *BZMPOP_ReplySchema_oneOf[] = {
+&BZMPOP_ReplySchema_oneOf_0,
+&BZMPOP_ReplySchema_oneOf_1,
 };
 
 /* BZMPOP_ReplySchema reply schema */
-struct commandReplySchema BZMPOP_ReplySchema[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZMPOP_ReplySchema_oneOf,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement BZMPOP_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZMPOP_ReplySchema_oneOf,.length=2}},
 };
+
+struct commandReplySchema BZMPOP_ReplySchema = {BZMPOP_ReplySchema_elements,.length=1};
 
 /********** BZPOPMAX ********************/
 
@@ -5240,63 +5245,67 @@ struct redisCommandArg BZPOPMAX_Args[] = {
 };
 
 /* BZPOPMAX_ReplySchema_oneOf_0 reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
+
+struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_0 = {BZPOPMAX_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_0 reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_oneOf_1_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_0 = {BZPOPMAX_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_1 reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_oneOf_1_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_1 = {BZPOPMAX_ReplySchema_oneOf_1_items_1_elements,.length=2};
 
 /* BZPOPMAX_ReplySchema_oneOf_1_items_2 reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_2[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_oneOf_1_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
+struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1_items_2 = {BZPOPMAX_ReplySchema_oneOf_1_items_2_elements,.length=2};
+
 /* BZPOPMAX_ReplySchema_oneOf_1_items array reply schema */
-struct commandReplySchemaArray BZPOPMAX_ReplySchema_oneOf_1_items[] = {
-{BZPOPMAX_ReplySchema_oneOf_1_items_0,.length=2},
-{BZPOPMAX_ReplySchema_oneOf_1_items_1,.length=2},
-{BZPOPMAX_ReplySchema_oneOf_1_items_2,.length=2},
-{.schema=NULL}
+struct commandReplySchema *BZPOPMAX_ReplySchema_oneOf_1_items[] = {
+&BZPOPMAX_ReplySchema_oneOf_1_items_0,
+&BZPOPMAX_ReplySchema_oneOf_1_items_1,
+&BZPOPMAX_ReplySchema_oneOf_1_items_2,
 };
 
 /* BZPOPMAX_ReplySchema_oneOf_1 reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname, popped member, and its score.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZPOPMAX_ReplySchema_oneOf_1_items,.length=3},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname, popped member, and its score."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZPOPMAX_ReplySchema_oneOf_1_items,.length=3}},
 };
 
+struct commandReplySchema BZPOPMAX_ReplySchema_oneOf_1 = {BZPOPMAX_ReplySchema_oneOf_1_elements,.length=5};
+
 /* BZPOPMAX_ReplySchema_oneOf array reply schema */
-struct commandReplySchemaArray BZPOPMAX_ReplySchema_oneOf[] = {
-{BZPOPMAX_ReplySchema_oneOf_0,.length=2},
-{BZPOPMAX_ReplySchema_oneOf_1,.length=5},
-{.schema=NULL}
+struct commandReplySchema *BZPOPMAX_ReplySchema_oneOf[] = {
+&BZPOPMAX_ReplySchema_oneOf_0,
+&BZPOPMAX_ReplySchema_oneOf_1,
 };
 
 /* BZPOPMAX_ReplySchema reply schema */
-struct commandReplySchema BZPOPMAX_ReplySchema[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZPOPMAX_ReplySchema_oneOf,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMAX_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZPOPMAX_ReplySchema_oneOf,.length=2}},
 };
+
+struct commandReplySchema BZPOPMAX_ReplySchema = {BZPOPMAX_ReplySchema_elements,.length=1};
 
 /********** BZPOPMIN ********************/
 
@@ -5317,63 +5326,67 @@ struct redisCommandArg BZPOPMIN_Args[] = {
 };
 
 /* BZPOPMIN_ReplySchema_oneOf_0 reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_oneOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Timeout reached and no elements were popped."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
+
+struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_0 = {BZPOPMIN_ReplySchema_oneOf_0_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_0 reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_oneOf_1_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Keyname"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_0 = {BZPOPMIN_ReplySchema_oneOf_1_items_0_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_1 reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_oneOf_1_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_1 = {BZPOPMIN_ReplySchema_oneOf_1_items_1_elements,.length=2};
 
 /* BZPOPMIN_ReplySchema_oneOf_1_items_2 reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_2[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_oneOf_1_items_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
+struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1_items_2 = {BZPOPMIN_ReplySchema_oneOf_1_items_2_elements,.length=2};
+
 /* BZPOPMIN_ReplySchema_oneOf_1_items array reply schema */
-struct commandReplySchemaArray BZPOPMIN_ReplySchema_oneOf_1_items[] = {
-{BZPOPMIN_ReplySchema_oneOf_1_items_0,.length=2},
-{BZPOPMIN_ReplySchema_oneOf_1_items_1,.length=2},
-{BZPOPMIN_ReplySchema_oneOf_1_items_2,.length=2},
-{.schema=NULL}
+struct commandReplySchema *BZPOPMIN_ReplySchema_oneOf_1_items[] = {
+&BZPOPMIN_ReplySchema_oneOf_1_items_0,
+&BZPOPMIN_ReplySchema_oneOf_1_items_1,
+&BZPOPMIN_ReplySchema_oneOf_1_items_2,
 };
 
 /* BZPOPMIN_ReplySchema_oneOf_1 reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname, popped member, and its score.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZPOPMIN_ReplySchema_oneOf_1_items,.length=3},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_oneOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The keyname, popped member, and its score."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=3},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZPOPMIN_ReplySchema_oneOf_1_items,.length=3}},
 };
 
+struct commandReplySchema BZPOPMIN_ReplySchema_oneOf_1 = {BZPOPMIN_ReplySchema_oneOf_1_elements,.length=5};
+
 /* BZPOPMIN_ReplySchema_oneOf array reply schema */
-struct commandReplySchemaArray BZPOPMIN_ReplySchema_oneOf[] = {
-{BZPOPMIN_ReplySchema_oneOf_0,.length=2},
-{BZPOPMIN_ReplySchema_oneOf_1,.length=5},
-{.schema=NULL}
+struct commandReplySchema *BZPOPMIN_ReplySchema_oneOf[] = {
+&BZPOPMIN_ReplySchema_oneOf_0,
+&BZPOPMIN_ReplySchema_oneOf_1,
 };
 
 /* BZPOPMIN_ReplySchema reply schema */
-struct commandReplySchema BZPOPMIN_ReplySchema[] = {
-{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=BZPOPMIN_ReplySchema_oneOf,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement BZPOPMIN_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=BZPOPMIN_ReplySchema_oneOf,.length=2}},
 };
+
+struct commandReplySchema BZPOPMIN_ReplySchema = {BZPOPMIN_ReplySchema_elements,.length=1};
 
 /********** ZADD ********************/
 
@@ -5421,47 +5434,51 @@ struct redisCommandArg ZADD_Args[] = {
 };
 
 /* ZADD_ReplySchema_anyOf_0 reply schema */
-struct commandReplySchema ZADD_ReplySchema_anyOf_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options).",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZADD_ReplySchema_anyOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options)."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="null"},
 };
+
+struct commandReplySchema ZADD_ReplySchema_anyOf_0 = {ZADD_ReplySchema_anyOf_0_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_1 reply schema */
-struct commandReplySchema ZADD_ReplySchema_anyOf_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of new members (when the `CH` option is not used)",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZADD_ReplySchema_anyOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of new members (when the `CH` option is not used)"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
+
+struct commandReplySchema ZADD_ReplySchema_anyOf_1 = {ZADD_ReplySchema_anyOf_1_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_2 reply schema */
-struct commandReplySchema ZADD_ReplySchema_anyOf_2[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of new or updated members (when the `CH` option is used)",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZADD_ReplySchema_anyOf_2_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of new or updated members (when the `CH` option is used)"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
+
+struct commandReplySchema ZADD_ReplySchema_anyOf_2 = {ZADD_ReplySchema_anyOf_2_elements,.length=2};
 
 /* ZADD_ReplySchema_anyOf_3 reply schema */
-struct commandReplySchema ZADD_ReplySchema_anyOf_3[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The updated score of the member (when the `INCR` option is used)",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZADD_ReplySchema_anyOf_3_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The updated score of the member (when the `INCR` option is used)"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
+struct commandReplySchema ZADD_ReplySchema_anyOf_3 = {ZADD_ReplySchema_anyOf_3_elements,.length=2};
+
 /* ZADD_ReplySchema_anyOf array reply schema */
-struct commandReplySchemaArray ZADD_ReplySchema_anyOf[] = {
-{ZADD_ReplySchema_anyOf_0,.length=2},
-{ZADD_ReplySchema_anyOf_1,.length=2},
-{ZADD_ReplySchema_anyOf_2,.length=2},
-{ZADD_ReplySchema_anyOf_3,.length=2},
-{.schema=NULL}
+struct commandReplySchema *ZADD_ReplySchema_anyOf[] = {
+&ZADD_ReplySchema_anyOf_0,
+&ZADD_ReplySchema_anyOf_1,
+&ZADD_ReplySchema_anyOf_2,
+&ZADD_ReplySchema_anyOf_3,
 };
 
 /* ZADD_ReplySchema reply schema */
-struct commandReplySchema ZADD_ReplySchema[] = {
-{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=ZADD_ReplySchema_anyOf,.length=4},
-{.key=NULL}
+struct commandReplySchemaElement ZADD_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZADD_ReplySchema_anyOf,.length=4}},
 };
+
+struct commandReplySchema ZADD_ReplySchema = {ZADD_ReplySchema_elements,.length=1};
 
 /********** ZCARD ********************/
 
@@ -5478,11 +5495,12 @@ struct redisCommandArg ZCARD_Args[] = {
 };
 
 /* ZCARD_ReplySchema reply schema */
-struct commandReplySchema ZCARD_ReplySchema[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The cardinality (number of elements) of the sorted set, or 0 if key does not exist",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZCARD_ReplySchema_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The cardinality (number of elements) of the sorted set, or 0 if key does not exist"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
+
+struct commandReplySchema ZCARD_ReplySchema = {ZCARD_ReplySchema_elements,.length=2};
 
 /********** ZCOUNT ********************/
 
@@ -5501,11 +5519,12 @@ struct redisCommandArg ZCOUNT_Args[] = {
 };
 
 /* ZCOUNT_ReplySchema reply schema */
-struct commandReplySchema ZCOUNT_ReplySchema[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of elements in the specified score range",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZCOUNT_ReplySchema_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of elements in the specified score range"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
 };
+
+struct commandReplySchema ZCOUNT_ReplySchema = {ZCOUNT_ReplySchema_elements,.length=2};
 
 /********** ZDIFF ********************/
 
@@ -5771,72 +5790,77 @@ struct redisCommandArg ZRANGE_Args[] = {
 };
 
 /* ZRANGE_ReplySchema_anyOf_0_items reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_0_items[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_0_items = {ZRANGE_ReplySchema_anyOf_0_items_elements,.length=1};
 
 /* ZRANGE_ReplySchema_anyOf_0 reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of member elements",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=ZRANGE_ReplySchema_anyOf_0_items,.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of member elements"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_0_items},
 };
+
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_0 = {ZRANGE_ReplySchema_anyOf_0_elements,.length=4};
 
 /* ZRANGE_ReplySchema_anyOf_1_items_items_0 reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Member"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_0 = {ZRANGE_ReplySchema_anyOf_1_items_items_0_elements,.length=2};
 
 /* ZRANGE_ReplySchema_anyOf_1_items_items_1 reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Score"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="number"},
 };
 
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items_items_1 = {ZRANGE_ReplySchema_anyOf_1_items_items_1_elements,.length=2};
+
 /* ZRANGE_ReplySchema_anyOf_1_items_items array reply schema */
-struct commandReplySchemaArray ZRANGE_ReplySchema_anyOf_1_items_items[] = {
-{ZRANGE_ReplySchema_anyOf_1_items_items_0,.length=2},
-{ZRANGE_ReplySchema_anyOf_1_items_items_1,.length=2},
-{.schema=NULL}
+struct commandReplySchema *ZRANGE_ReplySchema_anyOf_1_items_items[] = {
+&ZRANGE_ReplySchema_anyOf_1_items_items_0,
+&ZRANGE_ReplySchema_anyOf_1_items_items_1,
 };
 
 /* ZRANGE_ReplySchema_anyOf_1_items reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf_1_items_items,.length=2}},
 };
+
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1_items = {ZRANGE_ReplySchema_anyOf_1_items_elements,.length=4};
 
 /* ZRANGE_ReplySchema_anyOf_1 reply schema */
-struct commandReplySchema ZRANGE_ReplySchema_anyOf_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used.",.length=1},
-{"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=ZRANGE_ReplySchema_anyOf_1_items,.length=4},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_anyOf_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Members and their scores. Returned in case `WITHSCORES` was used."},
+{"notes",SCHEMA_VAL_TYPE_STRING,.value.string="In RESP2 this is returned as a flat array"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ZRANGE_ReplySchema_anyOf_1_items},
 };
 
+struct commandReplySchema ZRANGE_ReplySchema_anyOf_1 = {ZRANGE_ReplySchema_anyOf_1_elements,.length=5};
+
 /* ZRANGE_ReplySchema_anyOf array reply schema */
-struct commandReplySchemaArray ZRANGE_ReplySchema_anyOf[] = {
-{ZRANGE_ReplySchema_anyOf_0,.length=4},
-{ZRANGE_ReplySchema_anyOf_1,.length=5},
-{.schema=NULL}
+struct commandReplySchema *ZRANGE_ReplySchema_anyOf[] = {
+&ZRANGE_ReplySchema_anyOf_0,
+&ZRANGE_ReplySchema_anyOf_1,
 };
 
 /* ZRANGE_ReplySchema reply schema */
-struct commandReplySchema ZRANGE_ReplySchema[] = {
-{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=ZRANGE_ReplySchema_anyOf,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement ZRANGE_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ZRANGE_ReplySchema_anyOf,.length=2}},
 };
+
+struct commandReplySchema ZRANGE_ReplySchema = {ZRANGE_ReplySchema_elements,.length=1};
 
 /********** ZRANGEBYLEX ********************/
 
@@ -6601,52 +6625,56 @@ struct redisCommandArg XRANGE_Args[] = {
 };
 
 /* XRANGE_ReplySchema_items_items_0 reply schema */
-struct commandReplySchema XRANGE_ReplySchema_items_items_0[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Stream ID",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement XRANGE_ReplySchema_items_items_0_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Stream ID"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"pattern",SCHEMA_VAL_TYPE_STRING,.value.string="[0-9]+-[0-9]+"},
 };
+
+struct commandReplySchema XRANGE_ReplySchema_items_items_0 = {XRANGE_ReplySchema_items_items_0_elements,.length=3};
 
 /* XRANGE_ReplySchema_items_items_1_additionalProperties reply schema */
-struct commandReplySchema XRANGE_ReplySchema_items_items_1_additionalProperties[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string",.length=1},
-{.key=NULL}
+struct commandReplySchemaElement XRANGE_ReplySchema_items_items_1_additionalProperties_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
 };
+
+struct commandReplySchema XRANGE_ReplySchema_items_items_1_additionalProperties = {XRANGE_ReplySchema_items_items_1_additionalProperties_elements,.length=1};
 
 /* XRANGE_ReplySchema_items_items_1 reply schema */
-struct commandReplySchema XRANGE_ReplySchema_items_items_1[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object",.length=1},
-{"minProperties",SCHEMA_VAL_TYPE_INTEGER,.value.integer=1,.length=1},
-{"additionalProperties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=XRANGE_ReplySchema_items_items_1_additionalProperties,.length=1},
-{.key=NULL}
+struct commandReplySchemaElement XRANGE_ReplySchema_items_items_1_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Data"},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="object"},
+{"minProperties",SCHEMA_VAL_TYPE_INTEGER,.value.integer=1},
+{"additionalProperties",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XRANGE_ReplySchema_items_items_1_additionalProperties},
 };
 
+struct commandReplySchema XRANGE_ReplySchema_items_items_1 = {XRANGE_ReplySchema_items_items_1_elements,.length=4};
+
 /* XRANGE_ReplySchema_items_items array reply schema */
-struct commandReplySchemaArray XRANGE_ReplySchema_items_items[] = {
-{XRANGE_ReplySchema_items_items_0,.length=3},
-{XRANGE_ReplySchema_items_items_1,.length=4},
-{.schema=NULL}
+struct commandReplySchema *XRANGE_ReplySchema_items_items[] = {
+&XRANGE_ReplySchema_items_items_0,
+&XRANGE_ReplySchema_items_items_1,
 };
 
 /* XRANGE_ReplySchema_items reply schema */
-struct commandReplySchema XRANGE_ReplySchema_items[] = {
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array=XRANGE_ReplySchema_items_items,.length=2},
-{.key=NULL}
+struct commandReplySchemaElement XRANGE_ReplySchema_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"minItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"maxItems",SCHEMA_VAL_TYPE_INTEGER,.value.integer=2},
+{"items",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=XRANGE_ReplySchema_items_items,.length=2}},
 };
 
+struct commandReplySchema XRANGE_ReplySchema_items = {XRANGE_ReplySchema_items_elements,.length=4};
+
 /* XRANGE_ReplySchema reply schema */
-struct commandReplySchema XRANGE_ReplySchema[] = {
-{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Stream entries with IDs matching the specified range.",.length=1},
-{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array",.length=1},
-{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1,.length=1},
-{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=XRANGE_ReplySchema_items,.length=4},
-{.key=NULL}
+struct commandReplySchemaElement XRANGE_ReplySchema_elements[] = {
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Stream entries with IDs matching the specified range."},
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"uniqueItems",SCHEMA_VAL_TYPE_BOOLEAN,.value.boolean=1},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&XRANGE_ReplySchema_items},
 };
+
+struct commandReplySchema XRANGE_ReplySchema = {XRANGE_ReplySchema_elements,.length=4};
 
 /********** XREAD ********************/
 
@@ -7401,12 +7429,12 @@ struct redisCommand redisCommandTable[] = {
 {"sunion","Add multiple sets","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNION_History,SUNION_tips,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNION_Args},
 {"sunionstore","Add multiple sets and store the resulting set in a key","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SET,SUNIONSTORE_History,SUNIONSTORE_tips,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}},.args=SUNIONSTORE_Args},
 /* sorted_set */
-{"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZMPOP_History,BZMPOP_tips,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BZMPOP_Args,.reply_schema=BZMPOP_ReplySchema,.length_reply_schema=1},
-{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,BZPOPMAX_tips,bzpopmaxCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args,.reply_schema=BZPOPMAX_ReplySchema,.length_reply_schema=1},
-{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,BZPOPMIN_tips,bzpopminCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMIN_Args,.reply_schema=BZPOPMIN_ReplySchema,.length_reply_schema=1},
-{"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZADD_History,ZADD_tips,zaddCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZADD_Args,.reply_schema=ZADD_ReplySchema,.length_reply_schema=1},
-{"zcard","Get the number of members in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCARD_History,ZCARD_tips,zcardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCARD_Args,.reply_schema=ZCARD_ReplySchema,.length_reply_schema=2},
-{"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCOUNT_History,ZCOUNT_tips,zcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCOUNT_Args,.reply_schema=ZCOUNT_ReplySchema,.length_reply_schema=2},
+{"bzmpop","Remove and return members with scores in a sorted set or block until one is available","O(K) + O(N*log(M)) where K is the number of provided keys, N being the number of elements in the sorted set, and M being the number of elements popped.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZMPOP_History,BZMPOP_tips,bzmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BZMPOP_Args,.reply_schema=&BZMPOP_ReplySchema},
+{"bzpopmax","Remove and return the member with the highest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMAX_History,BZPOPMAX_tips,bzpopmaxCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMAX_Args,.reply_schema=&BZPOPMAX_ReplySchema},
+{"bzpopmin","Remove and return the member with the lowest score from one or more sorted sets, or block until one is available","O(log(N)) with N being the number of elements in the sorted set.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,BZPOPMIN_History,BZPOPMIN_tips,bzpopminCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_FAST|CMD_BLOCKING,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BZPOPMIN_Args,.reply_schema=&BZPOPMIN_ReplySchema},
+{"zadd","Add one or more members to a sorted set, or update its score if it already exists","O(log(N)) for each item added, where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZADD_History,ZADD_tips,zaddCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZADD_Args,.reply_schema=&ZADD_ReplySchema},
+{"zcard","Get the number of members in a sorted set","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCARD_History,ZCARD_tips,zcardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCARD_Args,.reply_schema=&ZCARD_ReplySchema},
+{"zcount","Count the members in a sorted set with scores within the given values","O(log(N)) with N being the number of elements in the sorted set.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZCOUNT_History,ZCOUNT_tips,zcountCommand,4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZCOUNT_Args,.reply_schema=&ZCOUNT_ReplySchema},
 {"zdiff","Subtract multiple sorted sets","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFF_History,ZDIFF_tips,zdiffCommand,-3,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffGetKeys,.args=ZDIFF_Args},
 {"zdiffstore","Subtract multiple sorted sets and store the resulting sorted set in a new key","O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZDIFFSTORE_History,ZDIFFSTORE_tips,zdiffstoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},zunionInterDiffStoreGetKeys,.args=ZDIFFSTORE_Args},
 {"zincrby","Increment the score of a member in a sorted set","O(log(N)) where N is the number of elements in the sorted set.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZINCRBY_History,ZINCRBY_tips,zincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZINCRBY_Args},
@@ -7419,7 +7447,7 @@ struct redisCommand redisCommandTable[] = {
 {"zpopmax","Remove and return members with the highest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMAX_History,ZPOPMAX_tips,zpopmaxCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMAX_Args},
 {"zpopmin","Remove and return members with the lowest scores in a sorted set","O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZPOPMIN_History,ZPOPMIN_tips,zpopminCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZPOPMIN_Args},
 {"zrandmember","Get one or multiple random elements from a sorted set","O(N) where N is the number of elements returned","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANDMEMBER_History,ZRANDMEMBER_tips,zrandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANDMEMBER_Args},
-{"zrange","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGE_History,ZRANGE_tips,zrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGE_Args,.reply_schema=ZRANGE_ReplySchema,.length_reply_schema=1},
+{"zrange","Return a range of members in a sorted set","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.","1.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGE_History,ZRANGE_tips,zrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGE_Args,.reply_schema=&ZRANGE_ReplySchema},
 {"zrangebylex","Return a range of members in a sorted set, by lexicographical range","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","2.8.9",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYSCORE` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYLEX_History,ZRANGEBYLEX_tips,zrangebylexCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYLEX_Args},
 {"zrangebyscore","Return a range of members in a sorted set, by score","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned. If M is constant (e.g. always asking for the first 10 elements with LIMIT), you can consider it O(log(N)).","1.0.5",CMD_DOC_DEPRECATED,"`ZRANGE` with the `BYSCORE` argument","6.2.0",COMMAND_GROUP_SORTED_SET,ZRANGEBYSCORE_History,ZRANGEBYSCORE_tips,zrangebyscoreCommand,-4,CMD_READONLY,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGEBYSCORE_Args},
 {"zrangestore","Store a range of members from sorted set into another key","O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SORTED_SET,ZRANGESTORE_History,ZRANGESTORE_tips,zrangestoreCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SORTEDSET,{{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=ZRANGESTORE_Args},
@@ -7446,7 +7474,7 @@ struct redisCommand redisCommandTable[] = {
 {"xinfo","A container for stream introspection commands","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XINFO_History,XINFO_tips,NULL,-2,0,0,.subcommands=XINFO_Subcommands},
 {"xlen","Return the number of entries in a stream","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XLEN_History,XLEN_tips,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XLEN_Args},
 {"xpending","Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XPENDING_History,XPENDING_tips,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XPENDING_Args},
-{"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XRANGE_History,XRANGE_tips,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XRANGE_Args,.reply_schema=XRANGE_ReplySchema,.length_reply_schema=4},
+{"xrange","Return a range of elements in a stream, with IDs matching the specified IDs interval","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XRANGE_History,XRANGE_tips,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XRANGE_Args,.reply_schema=&XRANGE_ReplySchema},
 {"xread","Return never seen elements in multiple streams, with IDs greater than the ones reported by the caller for each stream. Can block.","For each stream mentioned: O(N) with N being the number of elements being returned, it means that XREAD-ing with a fixed COUNT is O(1). Note that when the BLOCK option is used, XADD will pay O(M) time in order to serve the M clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREAD_History,XREAD_tips,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREAD_Args},
 {"xreadgroup","Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREADGROUP_History,XREADGROUP_tips,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}},xreadGetKeys,.args=XREADGROUP_Args},
 {"xrevrange","Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XREVRANGE_History,XREVRANGE_tips,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XREVRANGE_Args},

@@ -59,17 +59,6 @@ RESP3_TYPES = {
     "null": "RESP3_NULL",
 }
 
-REPLY_SCHEMA_TYPES = {
-    "string": "SCHEMA_TYPE_STRING",
-    "number": "SCHEMA_TYPE_NUMBER",
-    "integer": "SCHEMA_TYPE_INTEGER",
-    "object": "SCHEMA_TYPE_OBJECT",
-    "array": "SCHEMA_TYPE_ARRAY",
-    "boolean": "SCHEMA_TYPE_BOOLEAN",
-    "null": "SCHEMA_TYPE_NULL",
-    None: "SCHEMA_TYPE_UNSPECIFIED",
-}
-
 
 def get_optional_desc_string(desc, field, force_uppercase=False):
     v = desc.get(field, None)
@@ -77,11 +66,6 @@ def get_optional_desc_string(desc, field, force_uppercase=False):
         v = v.upper()
     ret = "\"%s\"" % v if v else "NULL"
     return ret.replace("\n", "\\n")
-
-
-def get_optional_desc_bool_as_int(desc, field):
-    v = desc.get(field, False)
-    return 1 if v else 0
 
 
 # Globals
@@ -225,57 +209,24 @@ class ReplySchema(object):
             else:
                 self.schema[k] = v
 
-    def struct_name(self):
-        return "%s_ReplySchema" % self.name
-
-
-    def struct_code(self):
-        """
-        Output example:
-        "expiration",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expiration_Subargs
-        """
-
-        s = "%s,%s,%s,%d,%d,%d,%d" % (
-            REPLY_SCHEMA_TYPES[self.type],
-            get_optional_desc_string(self.desc, "description"),
-            get_optional_desc_string(self.desc, "notes"),
-            get_optional_desc_bool_as_int(self.desc, "uniqueItems"),
-            get_optional_desc_bool_as_int(self.desc, "additionalItems"),
-            get_optional_desc_bool_as_int(self.desc, "minItems"),
-            get_optional_desc_bool_as_int(self.desc, "maxItems"),
-        )
-        if self.items:
-            s += ",.items=%s" % self.items_table_name()
-        if self.oneOf:
-            s += ",.oneOf=%s" % self.oneOf_table_name()
-        if self.anyOf:
-            s += ",.anyOf=%s" % self.anyOf_table_name()
-
-        return s
-
     def kv_struct_code(self, name, k, v):
         if isinstance(v, ReplySchema):
             t = "SCHEMA_VAL_TYPE_SCHEMA"
-            vstr = ".value.schema=%s" % name
-            length = len(v.schema)
+            vstr = ".value.schema=&%s" % name
         elif isinstance(v, list):
             t = "SCHEMA_VAL_TYPE_SCHEMA_ARRAY"
-            vstr = ".value.array=%s" % name
-            length = len(v)
+            vstr = ".value.array={.schemas=%s,.length=%d}" % (name, len(v))
         elif isinstance(v, bool):
             t = "SCHEMA_VAL_TYPE_BOOLEAN"
             vstr = ".value.boolean=%d" % int(v)
-            length = 1
         elif isinstance(v, str):
             t = "SCHEMA_VAL_TYPE_STRING"
             vstr = ".value.string=\"%s\"" % v
-            length = 1
         elif isinstance(v, int):
             t = "SCHEMA_VAL_TYPE_INTEGER"
             vstr = ".value.integer=%d" % v
-            length = 1
         
-        return "\"%s\",%s,%s,.length=%d" % (k, t, vstr, length)
+        return "\"%s\",%s,%s" % (k, t, vstr)
 
     def write(self, f):
         for k, v in self.schema.items():
@@ -286,74 +237,18 @@ class ReplySchema(object):
                     schema.write(f)
                 name = "%s_%s" % (self.name, k)
                 f.write("/* %s array reply schema */\n" % name)
-                f.write("struct commandReplySchemaArray %s[] = {\n" % name)
+                f.write("struct commandReplySchema *%s[] = {\n" % name)
                 for i, schema in enumerate(v):
-                    f.write("{%s,.length=%d},\n" % (schema.name, len(schema.schema)))
-                f.write("{.schema=NULL}\n")
+                    f.write("&%s,\n" % schema.name)
                 f.write("};\n\n")
-                
+            
         f.write("/* %s reply schema */\n" % self.name)
-        f.write("struct commandReplySchema %s[] = {\n" % self.name)
+        f.write("struct commandReplySchemaElement %s_elements[] = {\n" % self.name)
         for k, v in self.schema.items():
             name = "%s_%s" % (self.name, k)
             f.write("{%s},\n" % self.kv_struct_code(name, k, v))
-        f.write("{.key=NULL}\n")
         f.write("};\n\n")
-
-    def write_internal_structs(self, f):
-        for k, v in self.schema.items():
-            name = "%s_%s" % (self.name, k)
-            if isinstance(v, ReplySchema):
-                v.write_internal_structs(f)
-
-                f.write("/* %s reply schema */\n" % name)
-                f.write("struct commandReplySchema %s = {%s};\n\n" % (name, v.struct_code()))
-            elif isinstance(v, list):
-                for schema in v:
-                    schema.write_internal_structs(f)
-
-                f.write("/* %s reply schema array */\n" % name)
-                f.write("struct commandReplySchema %s[] = {\n" % name)
-                for schema in v:
-                    f.write("{%s},\n" % v.struct_code())
-                f.write("{.key=NULL}\n")
-                f.write("};\n\n")
-            else:
-                pass
-
-
-        if self.items:
-            for item in self.items:
-                item.write_internal_structs(f)
-
-            f.write("/* %s reply schema (items) */\n" % self.fullname())
-            f.write("struct commandReplySchema %s[] = {\n" % self.items_table_name())
-            for item in self.items:
-                f.write("{%s},\n" % item.struct_code())
-            f.write("{.type=-1}\n")
-            f.write("};\n\n")
-
-        if self.oneOf:
-            for oneOf in self.oneOf:
-                oneOf.write_internal_structs(f)
-
-            f.write("/* %s reply schema (oneOf) */\n" % self.fullname())
-            f.write("struct commandReplySchema %s[] = {\n" % self.oneOf_table_name())
-            for oneOf in self.oneOf:
-                f.write("{%s},\n" % oneOf.struct_code())
-            f.write("{.type=-1}\n")
-            f.write("};\n\n")
-
-        if self.anyOf:
-            for anyOf in self.anyOf:
-                anyOf.write_internal_structs(f)
-
-            f.write("/* %s reply schema (anyOf) */\n" % self.fullname())
-            f.write("struct commandReplySchema %s[] = {\n" % self.anyOf_table_name())
-            for anyOf in self.anyOf:
-                f.write("{%s},\n" % anyOf.struct_code())
-            f.write("{.type=-1}\n")
-            f.write("};\n\n")
+        f.write("struct commandReplySchema %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
 
 
 class Command(object):
@@ -365,7 +260,7 @@ class Command(object):
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
             self.args.append(Argument(self.fullname(), arg_desc))
-        self.reply_schema = {}
+        self.reply_schema = None
         if "reply_schema" in self.desc:
             self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
@@ -473,7 +368,7 @@ class Command(object):
             s += ".args=%s," % self.arg_table_name()
 
         if self.reply_schema:
-            s += ".reply_schema=%s,.length_reply_schema=%d," % (self.reply_schema_name(), len(self.reply_schema.schema))
+            s += ".reply_schema=&%s," % self.reply_schema_name()
 
         return s[:-1]
 
