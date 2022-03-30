@@ -45,6 +45,21 @@ start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
         assert_match {*unauthenticated bulk length*} $e
         $rr close
     }
+
+    test {AUTH entering the wrong password should reset auth} {
+        r auth foobar
+        r acl setuser user1 on ~* &* +@all >user1pass
+        r acl setuser user2 on ~* &* +@all >user2pass
+        r auth user1 user1pass
+        assert_equal {user1} [r acl whoami]
+
+        # Calling auth with wrong user should reset authentication
+        catch {[r auth user2 wrongpass]} e
+        assert_match {*invalid username-password*} $e
+        # WHOAMI should return NOAUTH since the authentication was reset
+        catch {r acl whoami} err
+        set _ $err
+    } {NOAUTH*}
 }
 
 start_server {tags {"auth_binary_password external:skip"}} {
@@ -55,7 +70,6 @@ start_server {tags {"auth_binary_password external:skip"}} {
     } {WRONGPASS*}
 
     test {AUTH succeeds when binary password is correct} {
-        r config set requirepass "abc\x00def"
         r auth "abc\x00def"
     } {OK}
 
