@@ -48,7 +48,7 @@ int setStringConfigCommand(const char *name, RedisModuleString *new, void *privd
         *err = RedisModule_CreateString(NULL, "Cannot set string to 'rejectisfreed'", 36);
         return REDISMODULE_ERR;
     }
-    if (strval) RedisModule_FreeString(NULL, strval);
+    RedisModule_Free(strval);
     RedisModule_RetainString(NULL, new);
     strval = new;
     return REDISMODULE_OK;
@@ -134,9 +134,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     REDISMODULE_NOT_USED(ctx);
-    if (strval) {
-        RedisModule_FreeString(ctx, strval);
-        strval = NULL;
-    }
+    if (strval) RedisModule_FreeString(ctx, strval);
     return REDISMODULE_OK;
 }
