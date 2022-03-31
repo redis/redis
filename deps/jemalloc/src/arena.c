@@ -1012,10 +1012,11 @@ arena_slab_dalloc(tsdn_t *tsdn, arena_t *arena, extent_t *slab) {
 static void
 arena_bin_slabs_nonfull_insert(bin_t *bin, extent_t *slab) {
 	assert(extent_nfree_get(slab) > 0);
-    assert(!bin->initing_defrag || bin->highest_slab_to_retain_inited);
-    if (bin->initing_defrag && extent_snad_comp(&bin->highest_slab_to_retain, slab) >= 0) {
+    if (bin->initing_defrag && bin->highest_slab_to_retain_inited && extent_snad_comp(&bin->highest_slab_to_retain, slab) >= 0) {
+        assert(!extent_heap_empty(&bin->slabs_nonfull_temp));
         extent_heap_insert(&bin->slabs_nonfull_temp, slab);
     } else {
+        assert(extent_heap_empty(&bin->slabs_nonfull_temp));
         extent_heap_insert(&bin->slabs_nonfull, slab);
     }
 	if (config_stats) {
