@@ -111,8 +111,8 @@ extent_dumpable_get(const extent_t *extent) {
 
 static inline bool
 extent_slab_get(const extent_t *extent) {
-    return (bool)((extent->e_bits & EXTENT_BITS_SLAB_MASK) >>
-                                                           EXTENT_BITS_SLAB_SHIFT);
+	return (bool)((extent->e_bits & EXTENT_BITS_SLAB_MASK) >>
+	    EXTENT_BITS_SLAB_SHIFT);
 }
 
 static inline unsigned
@@ -329,8 +329,8 @@ extent_dumpable_set(extent_t *extent, bool dumpable) {
 
 static inline void
 extent_slab_set(extent_t *extent, bool slab) {
-    extent->e_bits = (extent->e_bits & ~EXTENT_BITS_SLAB_MASK) |
-                     ((uint64_t)slab << EXTENT_BITS_SLAB_SHIFT);
+	extent->e_bits = (extent->e_bits & ~EXTENT_BITS_SLAB_MASK) |
+	    ((uint64_t)slab << EXTENT_BITS_SLAB_SHIFT);
 }
 
 static inline void

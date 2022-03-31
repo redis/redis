@@ -73,7 +73,7 @@ struct bin_s {
 	 * allocations come from the non-full slab that is oldest/lowest in
 	 * memory.
 	 */
-    extent_heap_t		slabs_nonfull;
+	extent_heap_t		slabs_nonfull;
     extent_heap_t		slabs_nonfull_temp;
     extent_t highest_slab_to_retain; /*just used for addr/sn comparison, not a real extent */
     bool highest_slab_to_retain_inited;

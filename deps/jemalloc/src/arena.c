@@ -1012,9 +1012,14 @@ arena_slab_dalloc(tsdn_t *tsdn, arena_t *arena, extent_t *slab) {
 static void
 arena_bin_slabs_nonfull_insert(bin_t *bin, extent_t *slab) {
 	assert(extent_nfree_get(slab) > 0);
-    if (bin->initing_defrag && bin->highest_slab_to_retain_inited && extent_snad_comp(&bin->highest_slab_to_retain, slab) >= 0) {
-        assert(!extent_heap_empty(&bin->slabs_nonfull_temp));
-        extent_heap_insert(&bin->slabs_nonfull_temp, slab);
+    if (bin->initing_defrag && bin->highest_slab_to_retain_inited) {
+        printf("Insert to nonfull during init\n");
+        assert(!extent_heap_empty(&bin->slabs_nonfull_temp)); // TODO: might be empty because of a pre call to arena_bin_slabs_nonfull_remove[_first]??
+        if (extent_snad_comp(&bin->highest_slab_to_retain, slab) >= 0) {
+            extent_heap_insert(&bin->slabs_nonfull_temp, slab);
+        } else {
+            extent_heap_insert(&bin->slabs_nonfull, slab);
+        }
     } else {
         assert(extent_heap_empty(&bin->slabs_nonfull_temp));
         extent_heap_insert(&bin->slabs_nonfull, slab);
@@ -1027,6 +1032,7 @@ arena_bin_slabs_nonfull_insert(bin_t *bin, extent_t *slab) {
 static void
 arena_bin_slabs_nonfull_remove(bin_t *bin, extent_t *slab) {
     if (bin->initing_defrag) {
+        printf("Remove from nonfull during init\n");
         extent_heap_remove_either(&bin->slabs_nonfull, &bin->slabs_nonfull_temp, slab);
     } else {
         extent_heap_remove(&bin->slabs_nonfull, slab);
@@ -1040,6 +1046,7 @@ static extent_t *
 arena_bin_slabs_nonfull_tryget(bin_t *bin) {
     extent_t *slab;
     if (bin->initing_defrag) {
+        printf("Tryget from nonfull during init\n");
         slab = extent_heap_remove_first(&bin->slabs_nonfull_temp);
         if (slab == NULL) {
             slab = extent_heap_remove_first(&bin->slabs_nonfull);
@@ -1289,6 +1296,7 @@ arena_bin_nonfull_slab_get(tsdn_t *tsdn, arena_t *arena, bin_t *bin,
 	/* Look for a usable slab. */
 	slab = arena_bin_slabs_nonfull_tryget(bin);
 	if (slab != NULL) {
+        assert(extent_nfree_get(slab) > 0 && extent_slab_get(slab));
 		return slab;
 	}
 	/* No existing slabs have any space available. */
@@ -1306,6 +1314,7 @@ arena_bin_nonfull_slab_get(tsdn_t *tsdn, arena_t *arena, bin_t *bin,
 			bin->stats.nslabs++;
 			bin->stats.curslabs++;
 		}
+        assert(extent_nfree_get(slab) > 0 && extent_slab_get(slab));
 		return slab;
 	}
 
@@ -1316,6 +1325,7 @@ arena_bin_nonfull_slab_get(tsdn_t *tsdn, arena_t *arena, bin_t *bin,
 	 */
 	slab = arena_bin_slabs_nonfull_tryget(bin);
 	if (slab != NULL) {
+        assert(extent_nfree_get(slab) > 0 && extent_slab_get(slab));
 		return slab;
 	}
 

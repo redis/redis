@@ -3921,8 +3921,6 @@ jemalloc_postfork_child(void) {
 
 /******************************************************************************/
 
-JEMALLOC_EXPORT int badger = 0;
-
 /* Helps the application decide if a pointer is worth re-allocating in order to reduce fragmentation.
  * returns 1 if the allocation should be moved, and 0 if the allocation be kept.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
