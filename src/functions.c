@@ -914,7 +914,7 @@ int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) 
     sdsfreesplitres(parts, numparts);
 
     md->name = name;
-    md->code = sdsnew(shebang_end);
+    md->code = sdsnewlen(shebang_end, sdslen(payload) - shebang_len);
     md->engine = engine;
 
     return C_OK;

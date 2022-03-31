@@ -1193,7 +1193,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {ERR Invalid metadata value, name argument was given multiple times}
 
-    test {FUNCTION - function test name with commas} {
+    test {FUNCTION - function test name with quotes} {
         r function load replace {#!lua name="foo"
             redis.register_function('foo', function() return 1 end)
         }

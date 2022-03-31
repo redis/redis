@@ -2800,38 +2800,51 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int r
     UNUSED(ver);
     sds error = NULL;
     sds final_payload = NULL;
-    sds name = NULL;
-    sds engine_name = NULL;
-    sds desc = NULL;
-    sds blob = NULL;
-    uint64_t has_desc;
     int res = C_ERR;
     if (type == RDB_OPCODE_FUNCTION) {
+        /* RDB that was generated on versions 7.0 rc1 and 7.0 rc2 has another
+         * an old format that contains the library name, engine and description.
+         * To support this format we must read those values. */
+        sds name = NULL;
+        sds engine_name = NULL;
+        sds desc = NULL;
+        sds blob = NULL;
+        uint64_t has_desc;
+
         if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
             error = sdsnew("Failed loading library name");
-            goto done;
+            goto cleanup;
         }
 
         if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
             error = sdsnew("Failed loading engine name");
-            goto done;
+            goto cleanup;
         }
 
         if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
             error = sdsnew("Failed loading library description indicator");
-            goto done;
+            goto cleanup;
         }
 
         if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
             error = sdsnew("Failed loading library description");
-            goto done;
+            goto cleanup;
         }
 
         if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
             error = sdsnew("Failed loading library blob");
-            goto done;
+            goto cleanup;
         }
+        /* Translate old format (versions 7.0 rc1 and 7.0 rc2) to new format.
+         * The new format has the library name and engine inside the script payload.
+         * Add those parameters to the original script payload (ignore the description if exists). */
         final_payload = sdscatfmt(sdsempty(), "#!%s name=%s\n%s", engine_name, name, blob);
+cleanup:
+        if (name) sdsfree(name);
+        if (engine_name) sdsfree(engine_name);
+        if (desc) sdsfree(desc);
+        if (blob) sdsfree(blob);
+        if (error) goto done;
     } else if (type == RDB_OPCODE_FUNCTION2) {
         if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
             error = sdsnew("Failed loading library payload");
@@ -2853,10 +2866,6 @@ int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int r
     res = C_OK;
 
 done:
-    if (name) sdsfree(name);
-    if (engine_name) sdsfree(engine_name);
-    if (desc) sdsfree(desc);
-    if (blob) sdsfree(blob);
     if (final_payload) sdsfree(final_payload);
     if (error) {
         if (err) {
