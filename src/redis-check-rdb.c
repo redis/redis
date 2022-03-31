@@ -74,7 +74,7 @@ char *rdb_check_doing_string[] = {
     "check-sum",
     "read-len",
     "read-aux",
-    "read-module-aux"
+    "read-module-aux",
     "read-library-aux"
 };
 
