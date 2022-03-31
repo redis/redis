@@ -569,9 +569,11 @@ int double2ll(double d, long long *out) {
         double max = 4503599627370495; /* (2^52)-1 */
         if (d < min || d > max)
             return 0;
-        *out = d;
-        if (*out == d)
+        long long ll = d;
+        if (ll == d) {
+            *out = ll;
             return 1;
+        }
 #endif
     return 0;
 }
