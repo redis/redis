@@ -893,7 +893,7 @@ int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) 
     sdsrange(engine, 2, -1);
     for (int i = 1 ; i < numparts ; ++i) {
         sds part = parts[i];
-        if (strncasecmp(part, "name=", 4) == 0) {
+        if (strncasecmp(part, "name=", 5) == 0) {
             if (name) {
                 *err = sdscatfmt(sdsempty(), "Invalid metadata value, name argument was given multiple times");
                 goto error;
