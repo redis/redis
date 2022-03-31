@@ -1172,7 +1172,7 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {ERR Engine not found}
 
-    test {FUNCTION - function test unkown metadata value} {
+    test {FUNCTION - function test unknown metadata value} {
          catch {r function load replace {#!lua name=test foo=bar
             redis.register_function('foo', function() return 1 end)
         }} e
