@@ -953,14 +953,14 @@ int functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
 
     engineInfo *ei = dictFetchValue(engines, md.engine);
     if (!ei) {
-        *err = sdsnew("Engine not found");
+        *err = sdscatfmt(sdsempty(), "Engine '%S' not found", md.engine);
         goto error;
     }
     engine *engine = ei->engine;
 
     old_li = dictFetchValue(lib_ctx->libraries, md.name);
     if (old_li && !replace) {
-        *err = sdsnew("Library already exists");
+        *err = sdscatfmt(sdsempty(), "Library '%S' already exists", md.name);
         goto error;
     }
 

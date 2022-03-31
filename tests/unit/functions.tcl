@@ -45,7 +45,7 @@ start_server {tags {"scripting"}} {
             r function load [get_function_code bad_engine test test {return 'hello1'}]
         } e
         set _ $e
-    } {*Engine not found*}
+    } {*Engine 'bad_engine' not found*}
 
     test {FUNCTION - Test uncompiled script} {
         catch {
@@ -1170,7 +1170,7 @@ start_server {tags {"scripting"}} {
             redis.register_function('foo', function() return 1 end)
         }} e
         set _ $e
-    } {ERR Engine not found}
+    } {ERR Engine '' not found}
 
     test {FUNCTION - function test unknown metadata value} {
          catch {r function load replace {#!lua name=test foo=bar
