@@ -1030,7 +1030,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, doub
     char scorebuf[MAX_D2STRING_CHARS];
     int scorelen;
     long long lscore;
-    int score_is_long = doubleIsLongLong(score, &lscore);
+    int score_is_long = double2ll(score, &lscore);
     if (!score_is_long)
         scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {

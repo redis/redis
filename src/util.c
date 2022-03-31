@@ -552,7 +552,9 @@ int string2d(const char *s, size_t slen, double *dp) {
     return 1;
 }
 
-int doubleIsLongLong(double d, long long *out) {
+/* Returns 1 if the double value can safely be represented in long long without
+ * precision loss, in which case the corresponding long long is stored in the out variable. */
+int double2ll(double d, long long *out) {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
          * long long. We are assuming that long long is 64 bit here.
@@ -561,11 +563,11 @@ int doubleIsLongLong(double d, long long *out) {
          *
          * Under this assumptions we test if a double is inside an interval
          * where casting to long long is safe. Then using two castings we
-         * make sure the decimal part is zero. If all this is true we use
-         * integer printing function that is much faster. */
-        double min = -4503599627370495; /* (2^52)-1 */
-        double max = 4503599627370496; /* -(2^52) */
-        if (d <= min || d >= max)
+         * make sure the decimal part is zero. If all this is true we can use
+         * integer without precision loss. */
+        double min = -4503599627370495; /* -(2^52)+1 */
+        double max = 4503599627370495; /* (2^52)-1 */
+        if (d < min || d > max)
             return 0;
         *out = d;
         if (*out == d)
@@ -595,7 +597,8 @@ int d2string(char *buf, size_t len, double value) {
             len = snprintf(buf,len,"0");
     } else {
         long long lvalue;
-        if (doubleIsLongLong(value, &lvalue))
+        /* Integer printing function is much faster, check if we can safely use it. */
+        if (double2ll(value, &lvalue))
             len = ll2string(buf,len,lvalue);
         else
             len = snprintf(buf,len,"%.17g",value);
