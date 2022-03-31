@@ -3964,63 +3964,6 @@ static long long ustime(void) {
     ust += tv.tv_usec;
     return ust;
 }
-/*
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-init_defrag(void) {
-    unsigned long long i;
-    tsd_t *tsd = tsd_fetch();
-    arena_t *arena = arena_choose(tsd, NULL);
-
-    printf("Initing defrag hints\n");
-    long long t;
-    t = ustime();
-
-    // TODO: Consider locking: arena->mtx
-    for (i = 0; i < SC_NBINS; i++) {
-        unsigned binshard;
-        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        const bin_info_t *bin_info = &bin_infos[i];
-        uint64_t used_slabs = bin->stats.nonfull_slabs + (bin->slabcur ? 1 : 0);
-        uint64_t full_slabs = bin->stats.curslabs - bin->stats.nonfull_slabs - (bin->slabcur ? 1 : 0);
-        uint64_t needed_slabs = (bin->stats.curregs - full_slabs * bin_info->nregs) / bin_info->nregs;
-        if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
-        needed_slabs += full_slabs;
-        used_slabs += full_slabs;
-        if (used_slabs != needed_slabs) {
-            int64_t nonfull_to_retain = needed_slabs - full_slabs;
-            if (bin->slabcur) nonfull_to_retain--;
-            printf("%zu: Need %lu slabs but have %lu, non full to retain %ld (out of %ld)\n", bin_info->reg_size, needed_slabs, used_slabs, nonfull_to_retain, used_slabs - full_slabs - (bin->slabcur ? 1 : 0));
-            extent_heap_t slabs_retain;
-            extent_heap_new(&slabs_retain);
-//            extent_list_t slabs_retain;
-//            extent_list_init(&slabs_retain);
-            while (nonfull_to_retain--) {
-                extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
-                //if (slab == NULL) printf("badger!!!!\n");
-                if (extent_defrag_retain_get(slab))
-                    printf("badger!!!!\n");
-                extent_defrag_retain_set(slab, true);
-//                extent_list_append(&slabs_retain, slab);
-                extent_heap_insert(&slabs_retain, slab);
-            }
-//            for (extent_t *slab = extent_list_first(&slabs_retain); slab != NULL; slab = extent_list_first(&slabs_retain)) {
-//                extent_list_remove(&slabs_retain, slab);
-//                extent_heap_insert(&bin->slabs_nonfull, slab);
-//            }
-            phn_merge(extent_t, ph_link, extent_heap_first(&bin->slabs_nonfull), extent_heap_first(&slabs_retain), extent_snad_comp, bin->slabs_nonfull.ph_root);
-        }
-
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
-    }
-    printf("Init took: %.6fms\n",(ustime()-t)/1000.0);
-}*/
-
-#define ASSERT(x) do { \
-    if (!(x)) {        \
-        printf("Abort: %s:%d: %s\n", __FILE__, __LINE__, #x); \
-        abort();                   \
-    }                       \
-} while(0)
 
 static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max_time) {
     for (;bin->defrag_slabs_to_retain > 0; bin->defrag_slabs_to_retain--) {
@@ -4046,7 +3989,7 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
         phn_merge(extent_t, ph_link, extent_heap_first(&bin->slabs_nonfull), extent_heap_first(&bin->slabs_nonfull_temp), extent_snad_comp, bin->slabs_nonfull.ph_root);
         // Clear the temp heap after merge
         extent_heap_new(&bin->slabs_nonfull_temp);
-        ASSERT(extent_heap_empty(&bin->slabs_nonfull_temp));
+        assert(extent_heap_empty(&bin->slabs_nonfull_temp));
         bin->initing_defrag = false;
     }
 }
@@ -4070,8 +4013,8 @@ init_defrag(void) {
         if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
         needed_slabs += full_slabs;
         used_slabs += full_slabs;
-        bin->highest_slab_to_retain_inited = false;
-        ASSERT(extent_heap_empty(&bin->slabs_nonfull_temp));
+        assert(bin->highest_slab_to_retain_inited == false);
+        assert(extent_heap_empty(&bin->slabs_nonfull_temp));
         if (used_slabs != needed_slabs) {
             int64_t nonfull_to_retain = needed_slabs - full_slabs;
             if (bin->slabcur) nonfull_to_retain--;
@@ -4108,30 +4051,8 @@ init_defrag_step(long long max_time) {
             break;
         }
     }
-    //printf("step took %lld\n", ustime() - t);
     return need_more ? 1 : 0;
 }
-
-/*
-static uint64_t zero_extent_heap_defrag_retain(extent_t *node, uint64_t *found) {
-    uint64_t c = 0;
-    extent_t *leftmost_child, *sibling;
-
-    if (extent_defrag_retain_get(node)) (*found)++;
-    extent_defrag_retain_set(node, false);
-    c++;
-
-    leftmost_child = phn_lchild_get(extent_t, ph_link, node);
-    if (leftmost_child == NULL) {
-        return c;
-    }
-    c += zero_extent_heap_defrag_retain(leftmost_child, found);
-
-    for (sibling = phn_next_get(extent_t, ph_link, leftmost_child); sibling != NULL; sibling = phn_next_get(extent_t, ph_link, sibling)) {
-        c += zero_extent_heap_defrag_retain(sibling, found);
-    }
-    return c;
-}*/
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 finish_defrag(void) {
@@ -4156,45 +4077,3 @@ finish_defrag(void) {
     }
 }
 
-static void print_and_iter(extent_t *node) {
-    extent_t *leftmost_child, *sibling;
-
-    printf("%zu-%p: free %u\n", extent_sn_get(node), extent_addr_get(node), extent_nfree_get(node));
-
-    leftmost_child = phn_lchild_get(extent_t, ph_link, node);
-    if (leftmost_child == NULL) {
-        return;
-    }
-    print_and_iter(leftmost_child);
-
-    for (sibling = phn_next_get(extent_t, ph_link, leftmost_child); sibling != NULL; sibling = phn_next_get(extent_t, ph_link, sibling)) {
-        print_and_iter(sibling);
-    }
-    return;
-}
-
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-print_some_je_stats(void) {
-    unsigned long long i;
-    tsd_t *tsd = tsd_fetch();
-    arena_t *arena = arena_choose(tsd, NULL);
-
-    printf("Cleaning up defrag hints\n");
-
-    // TODO: Consider locking: arena->mtx
-    for (i = 0; i < SC_NBINS; i++) {
-        unsigned binshard;
-        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        extent_t *slab;
-
-        if (bin->slabs_nonfull.ph_root && i == 10) {
-            print_and_iter(bin->slabs_nonfull.ph_root);
-            for (slab = phn_next_get(extent_t, ph_link, bin->slabs_nonfull.ph_root);
-                 slab != NULL; slab = phn_next_get(extent_t, ph_link, slab)) {
-                print_and_iter(slab);
-            }
-        }
-
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
-    }
-}
