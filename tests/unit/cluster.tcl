@@ -264,12 +264,38 @@ test {Migrate the last slot away from a node using redis-cli} {
         assert_equal OK [$newnode_r CLUSTER SETSLOT $slot NODE $newnode_id]
         assert_equal OK [$owner_r CLUSTER SETSLOT $slot NODE $newnode_id]
 
+        # Using --cluster check make sure we won't get `Not all slots are covered by nodes`.
+        # Wait for the cluster to become stable make sure the cluster is up during MIGRATE.
+        wait_for_condition 1000 50 {
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -3 port]}] == 0 &&
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
         # Move the only slot back to original node using redis-cli
         exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
             --cluster-from $newnode_id \
             --cluster-to $owner_id \
             --cluster-slots 1 \
             --cluster-yes
+
+        # The empty node will become a replica of the new owner before the
+        # `MOVED` check, so let's wait for the cluster to become stable.
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
 
         # Check that the key foo has been migrated back to the original owner.
         catch { $newnode_r get foo } e
