@@ -19,7 +19,7 @@ test "Cluster is writable" {
 # there might be enough time to elect a replica.
 set replica_ids { 5 6 7 }
 foreach id $replica_ids {
-    R $id config set cluster-replica-no-failover no
+    R $id config set cluster-replica-no-failover yes
 }
 
 test "Killing majority of master nodes" {
