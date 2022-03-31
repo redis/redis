@@ -22,6 +22,9 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1048576"
         r config set moduleconfigs.string wafflewednesdays
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string wafflewednesdays"
+        set not_embstr [string repeat A 50]
+        r config set moduleconfigs.string $not_embstr
+        assert_equal [r config get moduleconfigs.string] "moduleconfigs.string $not_embstr"
         r config set moduleconfigs.string \x73\x75\x70\x65\x72\x20\x00\x73\x65\x63\x72\x65\x74\x20\x70\x61\x73\x73\x77\x6f\x72\x64
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         r config set moduleconfigs.enum two
