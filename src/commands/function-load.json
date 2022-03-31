@@ -4,7 +4,7 @@
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
-        "arity": -5,
+        "arity": -3,
         "container": "FUNCTION",
         "function": "functionLoadCommand",
         "command_flags": [
@@ -21,23 +21,9 @@
         ],
         "arguments": [
             {
-                "name": "engine-name",
-                "type": "string"
-            },
-            {
-                "name": "library-name",
-                "type": "string"
-            },
-            {
                 "name": "replace",
                 "type": "pure-token",
                 "token": "REPLACE",
-                "optional": true
-            },
-            {
-                "name": "library-description",
-                "type": "string",
-                "token": "DESCRIPTION",
                 "optional": true
             },
             {

@@ -1242,24 +1242,9 @@ ssize_t rdbSaveFunctions(rio *rdb) {
     ssize_t written = 0;
     ssize_t ret;
     while ((entry = dictNext(iter))) {
-        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION)) < 0) goto werr;
+        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION2)) < 0) goto werr;
         written += ret;
         functionLibInfo *li = dictGetVal(entry);
-        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->name, sdslen(li->name))) < 0) goto werr;
-        written += ret;
-        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->ei->name, sdslen(li->ei->name))) < 0) goto werr;
-        written += ret;
-        if (li->desc) {
-            /* desc exists */
-            if ((ret = rdbSaveLen(rdb, 1)) < 0) goto werr;
-            written += ret;
-            if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->desc, sdslen(li->desc))) < 0) goto werr;
-            written += ret;
-        } else {
-            /* desc not exists */
-            if ((ret = rdbSaveLen(rdb, 0)) < 0) goto werr;
-            written += ret;
-        }
         if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->code, sdslen(li->code))) < 0) goto werr;
         written += ret;
     }
@@ -2811,56 +2796,68 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  *
  * The lib_ctx argument is also optional. If NULL is given, only verify rdb
  * structure with out performing the actual functions loading. */
-int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int rdbflags, sds *err) {
     UNUSED(ver);
+    sds error = NULL;
+    sds final_payload = NULL;
     sds name = NULL;
     sds engine_name = NULL;
     sds desc = NULL;
     sds blob = NULL;
     uint64_t has_desc;
-    sds error = NULL;
     int res = C_ERR;
-    if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library name");
-        goto error;
-    }
+    if (type == RDB_OPCODE_FUNCTION) {
+        if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library name");
+            goto done;
+        }
 
-    if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading engine name");
-        goto error;
-    }
+        if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading engine name");
+            goto done;
+        }
 
-    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        error = sdsnew("Failed loading library description indicator");
-        goto error;
-    }
+        if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+            error = sdsnew("Failed loading library description indicator");
+            goto done;
+        }
 
-    if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library description");
-        goto error;
-    }
+        if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library description");
+            goto done;
+        }
 
-    if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library blob");
-        goto error;
+        if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library blob");
+            goto done;
+        }
+        final_payload = sdscatfmt(sdsempty(), "#!%s name=%s\n%s", engine_name, name, blob);
+    } else if (type == RDB_OPCODE_FUNCTION2) {
+        if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library payload");
+            goto done;
+        }
+    } else {
+        serverPanic("Bad function type was given to rdbFunctionLoad");
     }
 
     if (lib_ctx) {
-        if (functionsCreateWithLibraryCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
+        if (functionsCreateWithLibraryCtx(final_payload, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
             if (!error) {
                 error = sdsnew("Failed creating the library");
             }
-            goto error;
+            goto done;
         }
     }
 
     res = C_OK;
 
-error:
+done:
     if (name) sdsfree(name);
     if (engine_name) sdsfree(engine_name);
     if (desc) sdsfree(desc);
     if (blob) sdsfree(blob);
+    if (final_payload) sdsfree(final_payload);
     if (error) {
         if (err) {
             *err = error;
@@ -3091,9 +3088,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
-        } else if (type == RDB_OPCODE_FUNCTION) {
+        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, type, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading library, %s", err);
                 sdsfree(err);
                 goto eoferr;

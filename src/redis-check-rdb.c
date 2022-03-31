@@ -303,9 +303,9 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
-        } else if (type == RDB_OPCODE_FUNCTION) {
+        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, type, 0, &err) != C_OK) {
                 rdbCheckError("Failed loading library, %s", err);
                 sdsfree(err);
                 goto err;
