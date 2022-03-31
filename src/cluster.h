@@ -118,7 +118,9 @@ typedef struct clusterNode {
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
-    list *slot_info_pairs; /* Slots info represented as (start/end) pair (consecutive index). */
+    uint16_t *slot_info_pairs; /* Slots info represented as (start/end) pair (consecutive index). */
+    int slot_info_pairs_count; /* Used number of slots in slot_info_pairs */
+    int slot_info_pairs_alloc; /* Allocated number of slots in slot_info_pairs */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */

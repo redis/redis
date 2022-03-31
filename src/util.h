@@ -34,9 +34,18 @@
 #include "sds.h"
 
 /* The maximum number of characters needed to represent a long double
- * as a string (long double has a huge range).
+ * as a string (long double has a huge range of some 4952 chars, see LDBL_MAX).
  * This should be the size of the buffer given to ld2string */
 #define MAX_LONG_DOUBLE_CHARS 5*1024
+
+/* The maximum number of characters needed to represent a double
+ * as a string (double has a huge range of some 328 chars, see DBL_MAX).
+ * This should be the size of the buffer for sprintf with %f */
+#define MAX_DOUBLE_CHARS 400
+
+/* The maximum number of characters needed to for d2string call.
+ * Since it uses %g and not %f, some 40 chars should be enough. */
+#define MAX_D2STRING_CHARS 128
 
 /* Bytes needed for long -> str + '\0' */
 #define LONG_STR_SIZE      21
@@ -67,6 +76,7 @@ int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 int doubleIsLongLong(double d, long long *out);
+int yesnotoi(char *s);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
