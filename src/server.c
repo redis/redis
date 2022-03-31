@@ -1027,7 +1027,12 @@ void databasesCron(void) {
  * such info only when calling this function from serverCron() but not when
  * calling it from call(). */
 void updateCachedTime(int update_daylight_info) {
-    server.ustime = ustime();
+    const long long us = ustime();
+    updateCachedTimeWithUs(update_daylight_info, us);
+}
+
+void updateCachedTimeWithUs(int update_daylight_info, monotime ustime) {
+    server.ustime = ustime;
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
     atomicSet(server.unixtime, unixtime);
@@ -1044,6 +1049,7 @@ void updateCachedTime(int update_daylight_info) {
         server.daylight_active = tm.tm_isdst;
     }
 }
+
 
 void checkChildrenDone(void) {
     int statloc = 0;
@@ -3230,14 +3236,15 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     incrCommandStatsOnError(NULL, 0);
 
+    elapsedStart(&call_timer);
+
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
     if (server.fixed_time_expire++ == 0) {
-        updateCachedTime(0);
+        updateCachedTimeWithUs(0,call_timer);
     }
     server.in_nested_call++;
 
-    elapsedStart(&call_timer);
     c->cmd->proc(c);
     const long duration = elapsedUs(call_timer);
     c->duration = duration;
