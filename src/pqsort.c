@@ -62,7 +62,7 @@ static inline void	 swapfunc (char *, char *, size_t, int);
         } while (--i > 0);				\
 }
 
-#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(long) || \
+#define SWAPINIT(a, es) swaptype = (unsigned long)a % sizeof(long) || \
 	es % sizeof(long) ? 2 : es == sizeof(long)? 0 : 1;
 
 static inline void
