@@ -45,7 +45,6 @@ set ::all_tests {
     integration/replication-2
     integration/replication-3
     integration/replication-4
-    integration/replication-debug
     integration/replication-psync
     integration/replication-buffer
     integration/shutdown
