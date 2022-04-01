@@ -196,7 +196,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl"}} {
+start_server {tags {"repl external:skip"}} {
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
