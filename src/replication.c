@@ -2947,9 +2947,9 @@ void replicationSetMaster(char *ip, int port) {
 
 /* Cancel replication and force a fullsync with our master. */
 void forceFullSyncWithMaster(void) {
-    if (server.master) freeClient(server.master);
-    /* Discard cached master to force resync */
-    replicationDiscardCachedMaster();
+    serverAssert(server.master);
+    if (server.master) freeClientAsync(server.master);
+    server.master->flags |= CLIENT_CORRUPTED_MASTER;
 }
 
 /* Cancel replication, setting the instance as a master itself. */

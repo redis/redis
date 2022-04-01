@@ -522,7 +522,9 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         }
         server.stat_unexpected_error_replies++;
 
-        if (ctype == CLIENT_TYPE_MASTER) {
+        /* If this command was from our master and we are not a writable replica,
+         * disconnect and try to get a fresh copy of data. */
+        if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro) {
             serverLog(LL_WARNING, "Forcing full sync with master to "
                                   "prevent data corruption.");
             forceFullSyncWithMaster(); 
@@ -1553,16 +1555,22 @@ void freeClient(client *c) {
     }
 
     /* If it is our master that's being disconnected we should make sure
-     * to cache the state to try a partial resynchronization later.
+     * to cache the state to try a partial resynchronization later. The
+     * exception to this is if the master has sent us some commands we
+     * couldn't process, so we have to discard it to retry a full sync.
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
-        serverLog(LL_WARNING,"Connection with master lost.");
-        if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
-            c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
-            replicationCacheMaster(c);
-            return;
+        if (c->flags & CLIENT_CORRUPTED_MASTER) {
+            serverLog(LL_WARNING,"Discarding master state to prevent data corruption.");
+        } else {
+            serverLog(LL_WARNING,"Connection with master lost.");
+            if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
+                c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
+                replicationCacheMaster(c);
+                return;
+            }
         }
     }
 
