@@ -218,22 +218,23 @@ start_server {tags {"repl"}} {
             set initial_syncs [s -1 sync_full]
             $master set foo bar
             
-            # Test a multi-exec with an invalid command. Note these won't
+            # Test a multi-exec with invalid commands. Note these won't
             # be replicated as a multi-exec, they'll just be put into
             # the replication output buffer together.
             $master multi
             $master debug replicate fake-command-1
             $master debug replicate fake-command-2
+            # Send a valid command here just to make sure it doesn't
+            # stick around
             $master debug replicate set foo baz
             $master exec
-            # Send a poison pill
 
             # Wait for replication to normalize
             $master set foo bar2
             wait_for_condition 100 100 {
                 [$master debug digest] == [$replica debug digest]
             } else {
-                fail "Replica never synced with its master
+                fail "Replica never synced with its master"
             }
 
             # Check for error messages
@@ -242,7 +243,7 @@ start_server {tags {"repl"}} {
             assert_equal [count_log_message 0 "fake-command-2"] 0
             assert_equal [count_log_message 0 "baz"] 0
 
-            # Check for poison pill
+            # Check for data corruption
             assert_equal [$replica get foo] "bar2"
 
             # Make sure we did a full sync
