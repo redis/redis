@@ -300,6 +300,14 @@ test {Migrate the last slot away from a node using redis-cli} {
         # Check that the key foo has been migrated back to the original owner.
         catch { $newnode_r get foo } e
         assert_equal "MOVED $slot $owner_host:$owner_port" $e
+
+        # Check that the empty node has turned itself into a replica of the new
+        # owner and that the new owner knows that.
+        wait_for_condition 1000 50 {
+            [string match "*slave*" [$owner_r CLUSTER REPLICAS $owner_id]]
+        } else {
+            fail "Empty node didn't turn itself into a replica."
+        }
     }
 }
 

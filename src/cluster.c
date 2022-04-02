@@ -1899,6 +1899,17 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
+    } else if (myself->slaveof && myself->slaveof->slaveof) {
+        /* Safeguard against sub-replicas. A replica's master can turn itself
+         * into a replica if its last slot is removed. If no other node takes
+         * over the slot, there is nothing else to trigger replica migration. */
+        serverLog(LL_WARNING,
+                  "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
+                  myself->slaveof->slaveof->name);
+        clusterSetMaster(myself->slaveof->slaveof);
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_UPDATE_STATE|
+                             CLUSTER_TODO_FSYNC_CONFIG);
     } else if (dirty_slots_count) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
@@ -5403,8 +5414,25 @@ NULL
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
 
+            int slot_was_mine = server.cluster->slots[slot] == myself;
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
+
+            /* If we are a master left without slots, we should turn into a
+             * replica of the new master. */
+            if (slot_was_mine &&
+                n != myself &&
+                myself->numslots == 0 &&
+                server.cluster_allow_replica_migration)
+            {
+                serverLog(LL_WARNING,
+                          "Configuration change detected. Reconfiguring myself "
+                          "as a replica of %.40s", n->name);
+                clusterSetMaster(n);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
+                                     CLUSTER_TODO_UPDATE_STATE |
+                                     CLUSTER_TODO_FSYNC_CONFIG);
+            }
 
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */
