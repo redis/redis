@@ -536,18 +536,13 @@ void loadServerConfigFromString(char *config) {
         sdsfreesplitres(argv,argc);
     }
 
+    /* If logging to file, make sure we're able to open it now */
     if (server.logfile[0] != '\0') {
-        FILE *logfp;
-
-        /* Test if we are able to open the file. The server will not
-         * be able to abort just for this problem later... */
-        logfp = fopen(server.logfile,"a");
-        if (logfp == NULL) {
+        if (serverLogOpen() == C_ERR) {
             err = sdscatprintf(sdsempty(),
                                "Can't open the log file: %s", strerror(errno));
             goto loaderr;
         }
-        fclose(logfp);
     }
 
     /* Sanity checks. */

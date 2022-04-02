@@ -1707,6 +1707,7 @@ struct redisServer {
     int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
+    int log_fd;                     /* Open log file fd */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */
@@ -2886,6 +2887,7 @@ void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
 void serverLogFromHandler(int level, const char *msg);
+int serverLogOpen(void);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
