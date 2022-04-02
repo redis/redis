@@ -673,7 +673,7 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE|CMD_MAY_REPLICATE,0,.args=CLUSTER_SETSLOT_Args},
 {"shards","Get array of cluster slots to node mappings","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,CLUSTER_SHARDS_tips,clusterCommand,2,CMD_STALE,0},
 {"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
-{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,"`CLUSTER SHARDS`","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
+{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
 
@@ -1324,7 +1324,7 @@ struct redisCommandArg MIGRATE_username_password_Subargs[] = {
 /* MIGRATE argument table */
 struct redisCommandArg MIGRATE_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_or_empty_string_Subargs},
 {"destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
@@ -1416,7 +1416,10 @@ struct redisCommandArg OBJECT_IDLETIME_Args[] = {
 #define OBJECT_REFCOUNT_History NULL
 
 /* OBJECT REFCOUNT tips */
-#define OBJECT_REFCOUNT_tips NULL
+const char *OBJECT_REFCOUNT_tips[] = {
+"nondeterministic_output",
+NULL
+};
 
 /* OBJECT REFCOUNT argument table */
 struct redisCommandArg OBJECT_REFCOUNT_Args[] = {
@@ -1670,7 +1673,7 @@ struct redisCommandArg SORT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
 {"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_offset_count_Subargs},
-{"pattern",ARG_TYPE_STRING,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -1704,7 +1707,7 @@ struct redisCommandArg SORT_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
 {"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_offset_count_Subargs},
-{"pattern",ARG_TYPE_STRING,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
@@ -3048,7 +3051,7 @@ struct redisCommandArg PUBLISH_Args[] = {
 
 /* PUBSUB CHANNELS argument table */
 struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
-{"pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3092,7 +3095,7 @@ struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
 
 /* PUBSUB SHARDCHANNELS argument table */
 struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
-{"pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3396,7 +3399,10 @@ NULL
 #define FUNCTION_LIST_History NULL
 
 /* FUNCTION LIST tips */
-#define FUNCTION_LIST_tips NULL
+const char *FUNCTION_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* FUNCTION LIST argument table */
 struct redisCommandArg FUNCTION_LIST_Args[] = {
@@ -3845,7 +3851,7 @@ struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
 
 /* SENTINEL RESET argument table */
 struct redisCommandArg SENTINEL_RESET_Args[] = {
-{"pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4169,7 +4175,10 @@ struct redisCommandArg BGSAVE_Args[] = {
 #define COMMAND_DOCS_History NULL
 
 /* COMMAND DOCS tips */
-#define COMMAND_DOCS_tips NULL
+const char *COMMAND_DOCS_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND DOCS argument table */
 struct redisCommandArg COMMAND_DOCS_Args[] = {
@@ -4210,7 +4219,10 @@ commandHistory COMMAND_INFO_History[] = {
 };
 
 /* COMMAND INFO tips */
-#define COMMAND_INFO_tips NULL
+const char *COMMAND_INFO_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND INFO argument table */
 struct redisCommandArg COMMAND_INFO_Args[] = {
@@ -4224,7 +4236,10 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 #define COMMAND_LIST_History NULL
 
 /* COMMAND LIST tips */
-#define COMMAND_LIST_tips NULL
+const char *COMMAND_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND LIST filterby argument table */
 struct redisCommandArg COMMAND_LIST_filterby_Subargs[] = {
@@ -4245,7 +4260,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_tips,commandCountCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
-{"getkeysandflags","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
+{"getkeysandflags","Extract keys and access flags given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
 {"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args},
@@ -4259,7 +4274,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 
 /* COMMAND tips */
 const char *COMMAND_tips[] = {
-"nondeterministic_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4497,7 +4512,12 @@ NULL
 #define LATENCY_DOCTOR_History NULL
 
 /* LATENCY DOCTOR tips */
-#define LATENCY_DOCTOR_tips NULL
+const char *LATENCY_DOCTOR_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY GRAPH ********************/
 
@@ -4505,7 +4525,12 @@ NULL
 #define LATENCY_GRAPH_History NULL
 
 /* LATENCY GRAPH tips */
-#define LATENCY_GRAPH_tips NULL
+const char *LATENCY_GRAPH_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY GRAPH argument table */
 struct redisCommandArg LATENCY_GRAPH_Args[] = {
@@ -4632,6 +4657,8 @@ struct redisCommandArg LOLWUT_Args[] = {
 /* MEMORY DOCTOR tips */
 const char *MEMORY_DOCTOR_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -4651,6 +4678,8 @@ NULL
 /* MEMORY MALLOC_STATS tips */
 const char *MEMORY_MALLOC_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -4660,7 +4689,11 @@ NULL
 #define MEMORY_PURGE_History NULL
 
 /* MEMORY PURGE tips */
-#define MEMORY_PURGE_tips NULL
+const char *MEMORY_PURGE_tips[] = {
+"request_policy:all_shards",
+"response_policy:all_succeeded",
+NULL
+};
 
 /********** MEMORY STATS ********************/
 
@@ -4723,7 +4756,10 @@ struct redisCommand MEMORY_Subcommands[] = {
 #define MODULE_LIST_History NULL
 
 /* MODULE LIST tips */
-#define MODULE_LIST_tips NULL
+const char *MODULE_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /********** MODULE LOAD ********************/
 
@@ -4737,6 +4773,35 @@ struct redisCommand MEMORY_Subcommands[] = {
 struct redisCommandArg MODULE_LOAD_Args[] = {
 {"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
+/********** MODULE LOADEX ********************/
+
+/* MODULE LOADEX history */
+#define MODULE_LOADEX_History NULL
+
+/* MODULE LOADEX tips */
+#define MODULE_LOADEX_tips NULL
+
+/* MODULE LOADEX configs argument table */
+struct redisCommandArg MODULE_LOADEX_configs_Subargs[] = {
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX args argument table */
+struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX argument table */
+struct redisCommandArg MODULE_LOADEX_Args[] = {
+{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_configs_Subargs},
+{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
 
@@ -4759,6 +4824,7 @@ struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
 {"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
+{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
 {"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };
@@ -4794,7 +4860,7 @@ commandHistory MONITOR_History[] = {
 
 /* PSYNC argument table */
 struct redisCommandArg PSYNC_Args[] = {
-{"replicationid",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -4818,7 +4884,7 @@ struct redisCommandArg PSYNC_Args[] = {
 /* REPLICAOF argument table */
 struct redisCommandArg REPLICAOF_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4884,7 +4950,7 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 /* SLAVEOF argument table */
 struct redisCommandArg SLAVEOF_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6819,7 +6885,11 @@ struct redisCommandArg MSET_Args[] = {
 #define MSETNX_History NULL
 
 /* MSETNX tips */
-#define MSETNX_tips NULL
+const char *MSETNX_tips[] = {
+"request_policy:multi_shard",
+"response_policy:agg_min",
+NULL
+};
 
 /* MSETNX key_value argument table */
 struct redisCommandArg MSETNX_key_value_Subargs[] = {
