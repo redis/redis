@@ -2838,6 +2838,50 @@ int clientSetNameOrReply(client *c, robj *name) {
     return C_OK;
 }
 
+/* This function implements CLIENT SETMETA, including replying to the
+ * user with an error if the charset is wrong (in that case C_ERR is
+ * returned). If the function succeeded C_OK is returned, and it's up
+ * to the caller to send a reply if needed.
+ *
+ * Setting an empty string as meta has the effect of unsetting the
+ * currently set meta: the client will remain without meta.
+ *
+ * This function is also used to implement the HELLO SETMETA option. */
+int clientSetMetaOrReply(client *c, robj *meta)
+{
+    int len = sdslen(meta->ptr);
+    char *p = meta->ptr;
+
+    /* Setting the client meta to an empty string actually removes
+     * the current meta. */
+    if (len == 0)
+    {
+        if (c->meta)
+            decrRefCount(c->meta);
+        c->meta = NULL;
+        return C_OK;
+    }
+
+    /* Otherwise check if the charset is ok. We need to do this otherwise
+     * CLIENT LIST format will break. You should always be able to
+     * split by space to get the different fields. */
+    for (int j = 0; j < len; j++)
+    {
+        if (p[j] < '!' || p[j] > '~')
+        { /* ASCII is assumed. */
+            addReplyError(c,
+                          "Client meta cannot contain spaces, "
+                          "newlines or special characters.");
+            return C_ERR;
+        }
+    }
+    if (c->meta)
+        decrRefCount(c->meta);
+    c->meta = meta;
+    incrRefCount(meta);
+    return C_OK;
+}
+
 /* Reset the client state to resemble a newly connected client.
  */
 void resetCommand(client *c) {
@@ -2904,6 +2948,8 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
+"SETMETA <meta>",
+"    Assign the meta info <meta> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -3129,10 +3175,20 @@ NULL
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"setmeta") && c->argc == 3) {
+        /* CLIENT SETMETA */
+        if (clientSetMetaOrReply(c,c->argv[2]) == C_OK)
+            addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         /* CLIENT GETNAME */
         if (c->name)
             addReplyBulk(c,c->name);
+        else
+            addReplyNull(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getmeta") && c->argc == 2) {
+        /* CLIENT GETMETA */
+        if (c->name)
+            addReplyBulk(c,c->meta);
         else
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {

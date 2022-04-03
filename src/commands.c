@@ -941,6 +941,21 @@ struct redisCommandArg CLIENT_SETNAME_Args[] = {
 {0}
 };
 
+/********** CLIENT SETMETA ********************/
+
+/* CLIENT SETMETA history */
+#define CLIENT_SETMETA_History NULL
+
+/* CLIENT SETMETA tips */
+#define CLIENT_SETMETA_tips NULL
+
+/* CLIENT SETMETA argument table */
+struct redisCommandArg CLIENT_SETMETA_Args[] = {
+{"connection-meta", ARG_TYPE_STRING, -1, NULL, NULL, NULL, CMD_ARG_NONE},
+{0}
+};
+
+
 /********** CLIENT TRACKING ********************/
 
 /* CLIENT TRACKING history */
