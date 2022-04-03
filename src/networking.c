@@ -2919,6 +2919,8 @@ void clientCommand(client *c) {
 "    Return the client ID we are redirecting to when tracking is enabled.",
 "GETNAME",
 "    Return the name of the current connection.",
+"GETMETA",
+"    Return the meta info of the current connection.",
 "ID",
 "    Return the ID of the current connection.",
 "INFO",
