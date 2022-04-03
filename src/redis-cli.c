@@ -177,6 +177,33 @@ static int dictSdsKeyCompare(dict *d, const void *key1,
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
 
+typedef enum {
+    ARG_TYPE_STRING,
+    ARG_TYPE_INTEGER,
+    ARG_TYPE_DOUBLE,
+    ARG_TYPE_KEY, /* A string, but represents a keyname */
+    ARG_TYPE_PATTERN,
+    ARG_TYPE_UNIX_TIME,
+    ARG_TYPE_PURE_TOKEN,
+    ARG_TYPE_ONEOF, /* Has subargs */
+    ARG_TYPE_BLOCK /* Has subargs */
+} commandArgType;
+
+typedef struct commandArg {
+    char *name;
+    commandArgType type;
+    int key_spec_index;
+    char *token;
+    int optional;
+    int multiple;
+    int multiple_token;
+    struct commandArg *subargs;
+    int numsubargs;
+
+    /* How many words of the input have been matched against this argument? */
+    int matched;
+} commandArg;
+
 /* Command documentation info used for help output */
 struct commandDocs {
     char *name;
@@ -184,6 +211,8 @@ struct commandDocs {
     char *summary;
     char *group;
     char *since;
+    commandArg *args; /* An array of the command arguments. Used since Redis 7.0. */
+    int numargs;
 };
 
 /* Cluster Manager Command Info */
@@ -410,7 +439,7 @@ typedef struct {
     sds full;
 
     /* Only used for help on commands */
-    struct commandDocs org;
+    struct commandDocs docs;
 } helpEntry;
 
 static helpEntry *helpEntries = NULL;
@@ -446,11 +475,13 @@ static void cliOldInitHelp(void) {
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
-        tmp.org.name = NULL;
-        tmp.org.params = NULL;
-        tmp.org.summary = NULL;
-        tmp.org.since = NULL;
-        tmp.org.group = NULL;
+        tmp.docs.name = NULL;
+        tmp.docs.params = NULL;
+        tmp.docs.args = NULL;
+        tmp.docs.numargs = 0;
+        tmp.docs.summary = NULL;
+        tmp.docs.since = NULL;
+        tmp.docs.group = NULL;
         helpEntries[pos++] = tmp;
     }
 
@@ -458,11 +489,13 @@ static void cliOldInitHelp(void) {
         tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
         tmp.full = sdsnew(commandHelp[i].name);
         tmp.type = CLI_HELP_COMMAND;
-        tmp.org.name = commandHelp[i].name;
-        tmp.org.params = commandHelp[i].params;
-        tmp.org.summary = commandHelp[i].summary;
-        tmp.org.since = commandHelp[i].since;
-        tmp.org.group = commandGroups[commandHelp[i].group];
+        tmp.docs.name = commandHelp[i].name;
+        tmp.docs.params = commandHelp[i].params;
+        tmp.docs.args = NULL;
+        tmp.docs.numargs = 0;
+        tmp.docs.summary = commandHelp[i].summary;
+        tmp.docs.since = commandHelp[i].since;
+        tmp.docs.group = commandGroups[commandHelp[i].group];
         helpEntries[pos++] = tmp;
     }
 }
@@ -508,20 +541,22 @@ static void cliOldIntegrateHelp(void) {
         new->type = CLI_HELP_COMMAND;
         sdstoupper(new->argv[0]);
 
-        new->org.name = new->argv[0];
-        new->org.params = sdsempty();
+        new->docs.name = new->argv[0];
+        new->docs.args = NULL;
+        new->docs.numargs = 0;
+        new->docs.params = sdsempty();
         int args = llabs(entry->element[1]->integer);
         args--; /* Remove the command name itself. */
         if (entry->element[3]->integer == 1) {
-            new->org.params = sdscat(new->org.params,"key ");
+            new->docs.params = sdscat(new->docs.params,"key ");
             args--;
         }
-        while(args-- > 0) new->org.params = sdscat(new->org.params,"arg ");
+        while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
         if (entry->element[1]->integer < 0)
-            new->org.params = sdscat(new->org.params,"...options...");
-        new->org.summary = "Help not available";
-        new->org.since = "Not known";
-        new->org.group = commandGroups[0];
+            new->docs.params = sdscat(new->docs.params,"...options...");
+        new->docs.summary = "Help not available";
+        new->docs.since = "Not known";
+        new->docs.group = commandGroups[0];
     }
     freeReplyObject(reply);
 }
@@ -534,49 +569,55 @@ static sds sdscat_orempty(sds params, char *value) {
     return sdscat(params, value);
 }
 
-static sds cliAddArgument(sds params, redisReply *argMap);
+static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs);
 
-/* Concatenate a list of arguments to the parameter string, separated by a separator string. */
-static sds cliConcatArguments(sds params, redisReply *arguments, char *separator) {
+static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap);
+
+static void cliMakeCommandDocArgs(redisReply *arguments, commandArg *result) {
     for (size_t j = 0; j < arguments->elements; j++) {
-        params = cliAddArgument(params, arguments->element[j]);
-        if (j != arguments->elements - 1) {
-            params = sdscat(params, separator);
-        }
+        cliAddCommandDocArg(&result[j], arguments->element[j]);
     }
-    return params;
 }
 
-/* Add an argument to the parameter string. */
-static sds cliAddArgument(sds params, redisReply *argMap) {
-    char *name = NULL;
-    char *type = NULL;
-    int optional = 0;
-    int multiple = 0;
-    int multipleToken = 0;
-    redisReply *arguments = NULL;
-    sds tokenPart = sdsempty();
-    sds repeatPart = sdsempty();
-
-    /* First read the fields describing the argument. */
+static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap) {
     if (argMap->type != REDIS_REPLY_MAP && argMap->type != REDIS_REPLY_ARRAY) {
-        return params;
+        return;
     }
+
     for (size_t i = 0; i < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            name = argMap->element[i + 1]->str;
+            cmdArg->name = sdsnew(argMap->element[i + 1]->str);
         } else if (!strcmp(key, "token")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            char *token = argMap->element[i + 1]->str;
-            tokenPart = sdscat_orempty(tokenPart, token);
+            cmdArg->token = sdsnew(argMap->element[i + 1]->str);
         } else if (!strcmp(key, "type")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            type = argMap->element[i + 1]->str;
+            char *type = argMap->element[i + 1]->str;
+            if (!strcmp(type, "string")) {
+                cmdArg->type = ARG_TYPE_STRING;
+            } else if (!strcmp(type, "double")) {
+                cmdArg->type = ARG_TYPE_DOUBLE;
+            } else if (!strcmp(type, "key")) {
+                cmdArg->type = ARG_TYPE_KEY;
+            } else if (!strcmp(type, "pattern")) {
+                cmdArg->type = ARG_TYPE_PATTERN;
+            } else if (!strcmp(type, "unix-time")) {
+                cmdArg->type = ARG_TYPE_UNIX_TIME;
+            } else if (!strcmp(type, "pure-token")) {
+                cmdArg->type = ARG_TYPE_PURE_TOKEN;
+            } else if (!strcmp(type, "oneof")) {
+                cmdArg->type = ARG_TYPE_ONEOF;
+            } else if (!strcmp(type, "block")) {
+                cmdArg->type = ARG_TYPE_BLOCK;
+            }
         } else if (!strcmp(key, "arguments")) {
-            arguments = argMap->element[i + 1];
+            redisReply *arguments = argMap->element[i + 1];
+            cmdArg->subargs = zcalloc(arguments->elements * sizeof(commandArg));
+            cmdArg->numsubargs = arguments->elements;
+            cliMakeCommandDocArgs(arguments, cmdArg->subargs);
         } else if (!strcmp(key, "flags")) {
             redisReply *flags = argMap->element[i + 1];
             assert(flags->type == REDIS_REPLY_SET || flags->type == REDIS_REPLY_ARRAY);
@@ -584,57 +625,15 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
                 assert(flags->element[j]->type == REDIS_REPLY_STATUS);
                 char *flag = flags->element[j]->str;
                 if (!strcmp(flag, "optional")) {
-                    optional = 1;
+                    cmdArg->optional = 1;
                 } else if (!strcmp(flag, "multiple")) {
-                    multiple = 1;
+                    cmdArg->multiple = 1;
                 } else if (!strcmp(flag, "multiple_token")) {
-                    multipleToken = 1;
+                    cmdArg->multiple_token = 1;
                 }
             }
         }
     }
-
-    /* Then build the "repeating part" of the argument string. */
-    if (!strcmp(type, "key") ||
-        !strcmp(type, "string") ||
-        !strcmp(type, "integer") ||
-        !strcmp(type, "double") ||
-        !strcmp(type, "pattern") ||
-        !strcmp(type, "unix-time") ||
-        !strcmp(type, "token"))
-    {
-        repeatPart = sdscat_orempty(repeatPart, name);
-    } else if (!strcmp(type, "oneof")) {
-        repeatPart = cliConcatArguments(repeatPart, arguments, "|");
-    } else if (!strcmp(type, "block")) {
-        repeatPart = cliConcatArguments(repeatPart, arguments, " ");
-    } else if (strcmp(type, "pure-token") != 0) {
-        fprintf(stderr, "Unknown type '%s' set for argument '%s'\n", type, name);
-    }
-
-    /* Finally, build the parameter string. */
-    if (tokenPart[0] != '\0' && strcmp(type, "pure-token") != 0) {
-        tokenPart = sdscat(tokenPart, " ");
-    }
-    if (optional) {
-        params = sdscat(params, "[");
-    }
-    params = sdscat(params, tokenPart);
-    params = sdscat(params, repeatPart);
-    if (multiple) {
-        params = sdscat(params, " [");
-        if (multipleToken) {
-            params = sdscat(params, tokenPart);
-        }
-        params = sdscat(params, repeatPart);
-        params = sdscat(params, " ...]");
-    }
-    if (optional) {
-        params = sdscat(params, "]");
-    }
-    sdsfree(tokenPart);
-    sdsfree(repeatPart);
-    return params;
 }
 
 /* Fill in the fields of a help entry for the command/subcommand name. */
@@ -656,9 +655,11 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->full = fullname;
     help->type = CLI_HELP_COMMAND;
 
-    help->org.name = help->full;
-    help->org.params = sdsempty();
-    help->org.since = NULL;
+    help->docs.name = help->full;
+    help->docs.params = sdsempty();
+    help->docs.args = NULL;
+    help->docs.numargs = 0;
+    help->docs.since = NULL;
 }
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
@@ -680,23 +681,26 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
         if (!strcmp(key, "summary")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.summary = sdsnew(reply->str);
+            help->docs.summary = sdsnew(reply->str);
         } else if (!strcmp(key, "since")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.since = sdsnew(reply->str);
+            help->docs.since = sdsnew(reply->str);
         } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.group = sdsnew(reply->str);
-            sds group = sdsdup(help->org.group);
+            help->docs.group = sdsnew(reply->str);
+            sds group = sdsdup(help->docs.group);
             if (dictAdd(groups, group, NULL) != DICT_OK) {
                 sdsfree(group);
             }
         } else if (!strcmp(key, "arguments")) {
-            redisReply *args = specs->element[j + 1];
-            assert(args->type == REDIS_REPLY_ARRAY);
-            help->org.params = cliConcatArguments(help->org.params, args, " ");
+            redisReply *arguments = specs->element[j + 1];
+            assert(arguments->type == REDIS_REPLY_ARRAY);
+            help->docs.args = zcalloc(arguments->elements * sizeof(commandArg));
+            help->docs.numargs = arguments->elements;
+            cliMakeCommandDocArgs(arguments, help->docs.args);
+            help->docs.params = makeHint(NULL, 0, 0, help->docs);
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
@@ -762,11 +766,13 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)entry->key);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
-        tmp.org.name = NULL;
-        tmp.org.params = NULL;
-        tmp.org.summary = NULL;
-        tmp.org.since = NULL;
-        tmp.org.group = NULL;
+        tmp.docs.name = NULL;
+        tmp.docs.params = NULL;
+        tmp.docs.args = NULL;
+        tmp.docs.numargs = 0;
+        tmp.docs.summary = NULL;
+        tmp.docs.since = NULL;
+        tmp.docs.group = NULL;
         helpEntries[pos++] = tmp;
     }
     dictReleaseIterator(iter);
@@ -889,7 +895,7 @@ static void cliOutputHelp(int argc, char **argv) {
         entry = &helpEntries[i];
         if (entry->type != CLI_HELP_COMMAND) continue;
 
-        help = &entry->org;
+        help = &entry->docs;
         if (group == NULL) {
             /* Compare all arguments */
             if (argc <= entry->argc) {
@@ -936,26 +942,296 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-/* Linenoise hints callback. */
-static char *hintsCallback(const char *buf, int *color, int *bold) {
-    if (!pref.hints) return NULL;
+static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches);
 
-    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0;
-    sds *rawargv, *argv = sdssplitargs(buf,&argc);
-    int endspace = buflen && isspace(buf[buflen-1]);
-    helpEntry *entry = NULL;
+/* Builds a completion hint string describing the arguments, skipping those already matched.
+ * If ignorematches==1, doesn't skip already-matched arguments.
+ *
+ * This algorithm does sensible things for most common argument patterns, but not all of them.
+ * There's still room for improvement. For example, it's not good at handling optional arguments
+ * followed by mandatory arguments. But it's a significant improvement over the previous implementation.
+ */
+static sds buildHintForArguments(commandArg *args, int numargs, char *separator, int ignorematches) {
+    sds hint = sdsempty();
+    int i, j, incomplete;
+    for (i = 0; i < numargs; i++) {
+        if (sdslen(hint) != 0 && hint[sdslen(hint) - 1] != separator[0]) {
+            hint = sdscat(hint, separator);
+        }
 
-    /* Check if the argument list is empty and return ASAP. */
-    if (argc == 0) {
-        sdsfreesplitres(argv,argc);
-        return NULL;
+        if (!args[i].optional || ignorematches) {
+            hint = addHintForArgument(hint, &args[i], ignorematches);
+            continue;
+        }
+
+        /* Handle all successive optional args together. This lets us show the completion of the
+         * currently-incomplete optional arg first, if there is one.
+         */
+        for (j = i, incomplete = -1; j < numargs; j++) {
+            if (!args[j].optional) break;
+            if (args[j].matched == 1 && args[j].token != NULL && args[j].type != ARG_TYPE_PURE_TOKEN) {
+                /* User has typed only the token of this arg; show its completion first. */
+                hint = addHintForArgument(hint, &args[j], ignorematches);
+                incomplete = j;
+            }
+        }
+
+        /* Add hints for remaining optional args in this group. */
+        for (; i < j; i++) {
+            if (incomplete != i) {
+                if (sdslen(hint) != 0 && hint[sdslen(hint) - 1] != separator[0]) {
+                    hint = sdscat(hint, separator);
+                }
+                hint = addHintForArgument(hint, &args[i], ignorematches);
+            }
+        }
+
+        i = j - 1;
+    }
+    return hint;
+}
+
+/* Adds hint string for one argument, if not already matched (unless ignorematches==1). */
+static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
+    sds tokenPart = sdsempty();
+    sds namePart = sdsempty();
+    sds repeatPart = sdsempty();
+    sds optionalPart = sdsempty();
+    int skipped = 0; /* Number of words skipped due to matches. */
+
+    /* Build the "name part" and "repeating part" of the syntax string.
+     * The repeating part is a fixed unit; we don't skip matched elements. */
+    switch (arg->type) {
+     case ARG_TYPE_ONEOF:
+        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", 0);
+        repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", 1);
+        break;
+
+    case ARG_TYPE_BLOCK:
+        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", 0);
+        repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", 1);
+        break;
+
+    case ARG_TYPE_STRING:
+    case ARG_TYPE_INTEGER:
+    case ARG_TYPE_DOUBLE:
+    case ARG_TYPE_KEY:
+    case ARG_TYPE_PATTERN:
+    case ARG_TYPE_UNIX_TIME:
+        namePart = sdscat_orempty(namePart, arg->name);
+        repeatPart = sdscat_orempty(repeatPart, arg->name);
+        break;
+
+    case ARG_TYPE_PURE_TOKEN:
+        break;
     }
 
-    /* Search longest matching prefix command */
+    if (arg->token != NULL) {
+        tokenPart = sdscat_orempty(tokenPart, arg->token);
+        if (arg->type != ARG_TYPE_PURE_TOKEN) {
+            tokenPart = sdscat(tokenPart, " ");
+        }
+    }
+
+    /* Add the token and name parts, if those words aren't matched. */
+    if (arg->matched <= skipped || ignorematches) {
+        optionalPart = sdscat(optionalPart, tokenPart);
+    } else if (arg->token != NULL) {
+        ++skipped;
+    }
+    if (arg->matched <= skipped || ignorematches) {
+        optionalPart = sdscat(optionalPart, namePart);
+    } else {
+        ++skipped;
+    }
+
+    /* Add "[" and " ...]" around repeated part of syntax string. */
+    if (arg->multiple) {
+        if (optionalPart[0] != '\0') {
+            optionalPart = sdscat(optionalPart, " ");
+        }
+        optionalPart = sdscat(optionalPart, "[");
+        if (arg->multiple_token) {
+            optionalPart = sdscat(optionalPart, tokenPart);
+        }
+        optionalPart = sdscat(optionalPart, repeatPart);
+        optionalPart = sdscat(optionalPart, " ...]");
+    }
+
+    /* Add "[" and "]" around optional part, if it's not already matched. */
+    if (arg->optional && optionalPart[0] != '\0' &&
+        !(optionalPart[0] == '[' && optionalPart[sdslen(optionalPart)-1] == ']') &&
+        (!(arg->token != NULL && repeatPart[0] != '\0' && arg->matched == 1) || ignorematches)) {
+        hint = sdscat(hint, "[");
+        hint = sdscat(hint, optionalPart);
+        hint = sdscat(hint, "]");
+    } else {
+        hint = sdscat(hint, optionalPart);
+    }
+    sdsfree(tokenPart);
+    sdsfree(namePart);
+    sdsfree(repeatPart);
+    sdsfree(optionalPart);
+
+    return hint;
+}
+
+/* Recursively zeros the matched fields of all arguments to prepare for matching. */
+static void clearMatchedArgs(commandArg *args, int numargs) {
+    for (int i = 0; i != numargs; ++i) {
+        args[i].matched = 0;
+        if (args[i].subargs) {
+            clearMatchedArgs(args[i].subargs, args[i].numsubargs);
+        }
+    }
+}
+
+static int matchArg(char **nextword, int numwords, commandArg *arg);
+static int matchArgs(char **words, int numwords, commandArg *args, int numargs);
+
+/* Tries to match the next words of the input against a non-token-type argument. */
+static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
+    int i;
+    if (arg->type == ARG_TYPE_BLOCK) {
+        return matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
+    } else if (arg->type == ARG_TYPE_ONEOF) {
+        int matchedWords = 0;
+        for (i = 0; i < arg->numsubargs; i++) {
+            matchedWords = matchArg(nextword, numwords, &arg->subargs[i]);
+            if (matchedWords > 0) {
+                arg->matched = matchedWords;
+                break;
+            }
+        }
+    } else {
+        arg->matched = 1;
+    }
+    return arg->matched;
+}
+
+/* Tries to match the next words of the input against a token-type argument. */
+static int matchTokenArg(char **nextword, int numwords, commandArg *arg) {
+    /* First match the token literal. */
+    if (strcasecmp(arg->token, nextword[0]) != 0) {
+        return 0;
+    }
+
+    arg->matched = 1;
+    if (arg->type != ARG_TYPE_PURE_TOKEN && numwords > 1) {
+        if (arg->type == ARG_TYPE_BLOCK) {
+            return matchArgs(nextword + 1, numwords - 1, arg->subargs, arg->numsubargs) + 1;
+        } else {
+            arg->matched = 2;
+        }
+    }
+    return arg->matched;
+}
+
+/* Tries to match the next words of the input against the next argument. */
+static int matchArg(char **nextword, int numwords, commandArg *arg) {
+    int matchedWords;
+    if (arg->token == NULL) {
+        matchedWords = matchNoTokenArg(nextword, numwords, arg);
+    } else {
+        matchedWords = matchTokenArg(nextword, numwords, arg);
+    }
+    return matchedWords;
+}
+
+/* Tries to match the next words of the input against
+ * any one of a consecutive set of optional arguments.
+ */
+static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int numargs) {
+    for (int nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
+        if (args[nextarg].matched) {
+            /* Already matched this arg. */
+            continue;
+        }
+
+        int matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
+        if (matchedWords != 0) {
+            return matchedWords;
+        }
+    }
+    return 0;
+}
+
+/* Matches as many input words as possible against a set of consecutive optional arguments. */
+static int matchOptionalArgs(char **words, int numwords, commandArg *args, int numargs) {
+    int nextword = 0;
+    while (nextword != numwords) {
+        int matchedWords = matchOneOptionalArg(&words[nextword], numwords - nextword, args, numargs);
+        if (matchedWords == 0) {
+            break;
+        }
+        nextword += matchedWords;
+    }
+    return nextword;
+}
+
+/* Matches as many input words as possible against command arguments. */
+static int matchArgs(char **words, int numwords, commandArg *args, int numargs) {
+    int nextword, nextarg, matchedWords;
+    for (nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
+        /* Optional args can occur in any order. Collect a range of consecutive optional args
+         * and try to match them as a group against the next input words.
+         */
+        if (args[nextarg].optional) {
+            int lastoptional;
+            for (lastoptional = nextarg; lastoptional < numargs; lastoptional++) {
+                if (!args[lastoptional].optional) break;
+            }
+            matchedWords = matchOptionalArgs(&words[nextword], numwords - nextword, &args[nextarg], lastoptional - nextarg);
+            nextarg = lastoptional - 1;
+        } else {
+            matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
+        }
+
+        nextword += matchedWords;
+    }
+    return nextword;
+}
+
+/* Compute the linenoise hint for the input prefix.
+ * If docs.args exists, dynamically creates a hint string by matching the arg specs
+ * against the input words. Otherwise (pre-7.0), does something very primitive.
+ */
+static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs) {
+    sds hint;
+
+    if (docs.args) {
+        /* Remove arguments from the returned hint to show only the
+         * ones the user did not yet type. */
+        clearMatchedArgs(docs.args, docs.numargs);
+        matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
+        hint = buildHintForArguments(docs.args, docs.numargs, " ", 0);
+        return hint;
+    }
+
+    /* Primitive command-line hinting support for pre-7.0 servers
+     * that don't support COMMAND DOCS.
+     */
+    hint = sdsnew(docs.params);
+    int toremove = inputargc-cmdlen;
+    while(toremove > 0 && sdslen(hint)) {
+        if (hint[0] == '[') break;
+        if (hint[0] == ' ') toremove--;
+        sdsrange(hint,1,-1);
+    }
+    return hint;
+}
+
+/* Search for a command matching the longest possible prefix of input words. */
+static helpEntry* findHelpEntry(int argc, char **argv) {
+    helpEntry *entry = NULL;
+    int i, rawargc, matchlen = 0;
+    sds *rawargv;
+
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
-        rawargv = sdssplitargs(helpEntries[i].full,&rawargc);
+        rawargv = helpEntries[i].argv;
+        rawargc = helpEntries[i].argc;
         if (rawargc <= argc) {
             int j;
             for (j = 0; j < rawargc; j++) {
@@ -968,23 +1244,31 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
                 entry = &helpEntries[i];
             }
         }
-        sdsfreesplitres(rawargv,rawargc);
     }
-    sdsfreesplitres(argv,argc);
+    return entry;
+}
+
+/* Linenoise hints callback. */
+static char *hintsCallback(const char *buf, int *color, int *bold) {
+    if (!pref.hints) return NULL;
+
+    int argc, buflen = strlen(buf);
+    sds *argv = sdssplitargs(buf,&argc);
+    int endspace = buflen && isspace(buf[buflen-1]);
+    helpEntry *entry = NULL;
+
+    /* Check if the argument list is empty and return ASAP. */
+    if (argc == 0) {
+        sdsfreesplitres(argv,argc);
+        return NULL;
+    }
+
+    entry = findHelpEntry(argc, argv);
 
     if (entry) {
         *color = 90;
         *bold = 0;
-        sds hint = sdsnew(entry->org.params);
-
-        /* Remove arguments from the returned hint to show only the
-            * ones the user did not yet type. */
-        int toremove = argc-matchlen;
-        while(toremove > 0 && sdslen(hint)) {
-            if (hint[0] == '[') break;
-            if (hint[0] == ' ') toremove--;
-            sdsrange(hint,1,-1);
-        }
+        sds hint = makeHint(argv, argc, entry->argc, entry->docs);
 
         /* Add an initial space if needed. */
         if (!endspace) {
@@ -994,8 +1278,11 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
             hint = newhint;
         }
 
+        sdsfreesplitres(argv,argc);
         return hint;
     }
+
+    sdsfreesplitres(argv,argc);
     return NULL;
 }
 
