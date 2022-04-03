@@ -257,6 +257,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 
     if (!keyfound) {
         dbAdd(db,key,val);
+        notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     } else {
         dbOverwrite(db,key,val);
     }
