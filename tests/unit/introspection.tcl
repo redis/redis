@@ -127,6 +127,15 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
+    test {CLIENT GETMETA should return NIL if meta is not assigned} {
+        r client getmeta
+    } {}
+
+    test {CLIENT GETMETA should return assigned meta info} {
+        assert_equal [r client setmeta "{\"meta\":\"foo\"}"] {OK}
+        r client getmeta
+    } {*{"meta":"foo"}*}
+
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
     } {*name= *}
@@ -159,6 +168,16 @@ start_server {tags {"introspection"}} {
             fail "Client still listed in CLIENT LIST after SETNAME."
         }
     }
+
+    test {CLIENT SETMETA does not accept spaces} {
+        catch {r client setmeta "foo bar"} e
+        set e
+    } {ERR*}
+
+    test {CLIENT SETMETA can assign a meta to this connection} {
+        assert_equal [r client setmeta "{\"meta\":\"foo\"}"] {OK}
+        r client list
+    } {*meta={"meta":"foo"}*}
 
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
