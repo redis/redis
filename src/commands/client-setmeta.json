@@ -1,0 +1,25 @@
+{
+  "SETMETA": {
+      "summary": "Set the current connection meta info",
+      "complexity": "O(1)",
+      "group": "connection",
+      "since": "6.2.8",
+      "arity": 3,
+      "container": "CLIENT",
+      "function": "clientCommand",
+      "command_flags": [
+          "NOSCRIPT",
+          "LOADING",
+          "STALE"
+      ],
+      "acl_categories": [
+          "CONNECTION"
+      ],
+      "arguments": [
+          {
+              "name": "connection-meta",
+              "type": "string"
+          }
+      ]
+  }
+}

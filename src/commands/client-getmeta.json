@@ -1,0 +1,19 @@
+{
+  "GETMETA": {
+      "summary": "Get the current connection meta info",
+      "complexity": "O(1)",
+      "group": "connection",
+      "since": "6.2.8",
+      "arity": 2,
+      "container": "CLIENT",
+      "function": "clientCommand",
+      "command_flags": [
+          "NOSCRIPT",
+          "LOADING",
+          "STALE"
+      ],
+      "acl_categories": [
+          "CONNECTION"
+      ]
+  }
+}
