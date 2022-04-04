@@ -1958,7 +1958,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, clusterNode *senderPrevSl
         serverLog(LL_WARNING,
                   "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
                   myself->slaveof->slaveof->name);
-        clusterSetMaster(myself->slaveof->slaveof);
+        clusterSetMaster(myself->slaveof->slaveof, 1);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
