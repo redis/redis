@@ -1346,8 +1346,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     checkClientPauseTimeoutAndReturnIfPaused();
 
     /* Replication cron function -- used to reconnect to master,
-     * detect transfer failures, start background RDB transfers and so forth. 
-     * 
+     * detect transfer failures, start background RDB transfers and so forth.
+     *
      * If Redis is trying to failover then run the replication cron faster so
      * progress on the handshake happens more quickly. */
     if (server.failover_state != NO_FAILOVER) {
@@ -1576,7 +1576,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * processUnblockedClients(), so if there are multiple pipelined WAITs
      * and the just unblocked WAIT gets blocked again, we don't have to wait
      * a server cron cycle in absence of other event loop events. See #6623.
-     * 
+     *
      * We also don't send the ACKs while clients are paused, since it can
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
@@ -1586,7 +1586,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* We may have received updates from clients about their current offset. NOTE:
-     * this can't be done where the ACK is received since failover will disconnect 
+     * this can't be done where the ACK is received since failover will disconnect
      * our clients. */
     updateFailoverStatus();
 
@@ -3030,7 +3030,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (!shouldPropagate(target))
         return;
 
-    /* This needs to be unreachable since the dataset should be fixed during 
+    /* This needs to be unreachable since the dataset should be fixed during
      * client pause, otherwise data may be lost during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
@@ -3438,6 +3438,8 @@ void rejectCommand(client *c, robj *reply) {
         /* using addReplyError* rather than addReply so that the error can be logged. */
         addReplyErrorObject(c, reply);
     }
+    /* Rejected command can't be rerun */
+    c->flags &= ~CLIENT_RERUN_COMMAND;
 }
 
 void rejectCommandSds(client *c, sds s) {
@@ -3450,6 +3452,8 @@ void rejectCommandSds(client *c, sds s) {
         /* The following frees 's'. */
         addReplyErrorSds(c, s);
     }
+    /* rejected command can't be rerun */
+    c->flags &= ~CLIENT_RERUN_COMMAND;
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
@@ -3556,13 +3560,15 @@ int commandCheckArity(client *c, sds *err) {
 
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
- * processCommand() execute the command or prepare the
- * server for a bulk read from the client.
+ *
+ * validateCommand performs static validation of the command
  *
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
-int processCommand(client *c) {
+int validateCommand(client *c, int *valid) {
+    *valid = 0;
+
     if (!scriptIsTimedout()) {
         /* Both EXEC and EVAL call call() directly so there should be
          * no way in_exec or in_eval is 1.
@@ -3618,22 +3624,6 @@ int processCommand(client *c) {
         }
     }
 
-    int is_read_command = (c->cmd->flags & CMD_READONLY) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
-    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    int is_denyoom_command = (c->cmd->flags & CMD_DENYOOM) ||
-                             (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_DENYOOM));
-    int is_denystale_command = !(c->cmd->flags & CMD_STALE) ||
-                               (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
-    int is_denyloading_command = !(c->cmd->flags & CMD_LOADING) ||
-                                 (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
-    int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
-                                   (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
-                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
-    int obey_client = mustObeyClient(c);
-
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
          * non-authenticated state. */
@@ -3679,6 +3669,42 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    *valid = 1;
+    return C_OK;
+}
+
+/* If this function gets called we already read a whole
+ * command, arguments are in the client argv/argc fields.
+ * processCommand() execute the command or prepare the
+ * server for a bulk read from the client.
+ *
+ * If C_OK is returned the client is still alive and valid and
+ * other operations can be performed by the caller. Otherwise
+ * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+int processCommand(client *c) {
+
+    if (!(c->flags & CLIENT_RERUN_COMMAND)) {
+        int status, valid;
+        status = validateCommand(c, &valid);
+        if (!valid) return status;
+    }
+
+    int is_read_command = (c->cmd->flags & CMD_READONLY) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
+    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
+    int is_denyoom_command = (c->cmd->flags & CMD_DENYOOM) ||
+                             (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_DENYOOM));
+    int is_denystale_command = !(c->cmd->flags & CMD_STALE) ||
+                               (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
+    int is_denyloading_command = !(c->cmd->flags & CMD_LOADING) ||
+                                 (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
+    int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
+                                   (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
+    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
+                                        (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
+    int obey_client = mustObeyClient(c);
+
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
@@ -3698,6 +3724,8 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
+            /* rejected command can't be rerun */
+            c->flags &= ~CLIENT_RERUN_COMMAND;
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -3882,13 +3910,13 @@ int processCommand(client *c) {
 
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
-    if (!(c->flags & CLIENT_SLAVE) && 
+    if (!(c->flags & CLIENT_SLAVE) &&
         ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_POSTPONE);
-        return C_OK;       
+        return C_OK;
     }
 
     /* Exec the command */

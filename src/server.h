@@ -359,6 +359,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
+#define CLIENT_RERUN_COMMAND (1ULL<<44) /* Instruct the event loop to skip processing the input buffer
+                                           but instead rerun the last parsed command */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -370,7 +372,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
 #define BLOCKED_POSTPONE 6 /* Blocked by processCommand, re-try processing later. */
 #define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
-#define BLOCKED_NUM 8      /* Number of blocked states. */
+#define BLOCKED_WAIT_RERUN 8 /* WAIT for synchronous replication and rerun last command. */
+#define BLOCKED_NUM 9      /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -2695,6 +2698,7 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
+void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset, int btype);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

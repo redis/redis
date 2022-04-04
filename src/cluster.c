@@ -62,7 +62,7 @@ int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
 int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
-void clusterSetMaster(clusterNode *n);
+void clusterSetMaster(clusterNode *n, int closeSlots);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
@@ -643,6 +643,10 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
+}
+
+static int areInSameShard(clusterNode *node1, clusterNode *node2) {
+    return memcmp(node1->shard_id, node2->shard_id, CLUSTER_NAMELEN) == 0;
 }
 
 /* Update my hostname based on server configuration values */
@@ -1960,16 +1964,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             /* The slot is already bound to the sender of this message. */
             if (server.cluster->slots[j] == sender) continue;
 
-            /* The slot is in importing state, it should be modified only
-             * manually via redis-cli (example: a resharding is in progress
-             * and the migrating side slot was already closed and is advertising
-             * a new config. We still want the slot to be closed manually). */
-            if (server.cluster->importing_slots_from[j]) continue;
 
-            /* We rebind the slot to the new node claiming it if:
-             * 1) The slot was unassigned or the new node claims it with a
-             *    greater configEpoch.
-             * 2) We are not currently importing the slot. */
+            /* We rebind the slot to the new node claiming it if
+             * the slot was unassigned or the new node claims it with a
+             * greater configEpoch. */
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
@@ -1987,11 +1985,69 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     newmaster = sender;
                     migrated_our_slots++;
                 }
+
+                /* If the sender who claims this slot is not in the same shard,
+                 * it must be a result of deliberate operator actions. Therefore,
+                 * we should honor it and clear the outstanding migrating_slots_to
+                 * state for the slot. Otherwise, we are looking at a failover within
+                 * the same shard and we should retain the migrating_slots_to state
+                 * for the slot in question */
+                if (server.cluster->migrating_slots_to[j] != NULL) {
+                    if (!areInSameShard(sender, myself)) {
+                        serverLog(LL_WARNING,
+                                  "Slot %d is now owned by node %.40s in a different shard."
+                                  " Clear migrating state.",
+                                  j,
+                                  sender->name);
+                        server.cluster->migrating_slots_to[j] = NULL;
+                    }
+                }
+
+                /* Handle the case where we are importing this slot and the ownership changes */
+                if (server.cluster->importing_slots_from[j] != NULL) {
+                    /* Update importing_slots_from to point to the sender, if it is in the
+                     * same shard as the previous slot owner */
+                    if (areInSameShard(sender, server.cluster->importing_slots_from[j])) {
+                        serverLog(LL_WARNING,
+                                  "Failover occurred in migration source."
+                                  " Update importing source for slot %d to node %.40s.",
+                                  j,
+                                  sender->name);
+                        server.cluster->importing_slots_from[j] = sender;
+                    } else {
+                        /* If the sender is from a different shard, it must be a result
+                         * of deliberate operator actions. We should clear the importing
+                         * state to conform to the operator's will. */
+                        serverLog(LL_WARNING,
+                                  "Slot %d is now owned by node %.40s in a different shard."
+                                  " Clear importing state.",
+                                  j,
+                                  sender->name);
+                        server.cluster->importing_slots_from[j] = NULL;
+                    }
+                }
+
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
+            }
+        } else {
+            /* If the sender doesn't claim the slot, check if we are migrating
+             * any slot to its shard and if there is a primaryship change in
+             * the shard. Update the migrating_slots_to state to point to the
+             * sender if it has just taken over the primary role. */
+            if (server.cluster->migrating_slots_to[j] != NULL &&
+                server.cluster->migrating_slots_to[j] != sender &&
+                server.cluster->migrating_slots_to[j]->configEpoch < senderConfigEpoch &&
+                areInSameShard(server.cluster->migrating_slots_to[j], sender)) {
+                serverLog(LL_WARNING,
+                          "Failover occurred in migration destination."
+                          " Update migrating destination for slot %d to node %.40s.",
+                          j,
+                          sender->name);
+                server.cluster->migrating_slots_to[j] = sender;
             }
         }
     }
@@ -2015,18 +2071,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         serverLog(LL_WARNING,
             "Configuration change detected. Reconfiguring myself "
             "as a replica of %.40s", sender->name);
-        clusterSetMaster(sender);
-        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                             CLUSTER_TODO_UPDATE_STATE|
-                             CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (myself->slaveof && myself->slaveof->slaveof) {
-        /* Safeguard against sub-replicas. A replica's master can turn itself
-         * into a replica if its last slot is removed. If no other node takes
-         * over the slot, there is nothing else to trigger replica migration. */
-        serverLog(LL_WARNING,
-                  "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
-                  myself->slaveof->slaveof->name);
-        clusterSetMaster(myself->slaveof->slaveof);
+        /* Don't clear the migrating/importing states if this is a replica that
+         * just gets promoted to the new primary in the shard. */
+        clusterSetMaster(sender, !areInSameShard(sender, myself));
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
@@ -2038,8 +2085,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
          *
          * In order to maintain a consistent state between keys and slots
          * we need to remove all the keys from the slots we lost. */
-        for (j = 0; j < dirty_slots_count; j++)
+        for (j = 0; j < dirty_slots_count; j++) {
+            serverLog(LL_WARNING, "Deleting keys in dirty slot %d", dirty_slots[j]);
             delKeysInSlot(dirty_slots[j]);
+        }
     }
 }
 
@@ -2541,6 +2590,19 @@ int clusterProcessPacket(clusterLink *link) {
                 dirty_slots = memcmp(sender_master->slots,
                         hdr->myslots,sizeof(hdr->myslots)) != 0;
             }
+        }
+
+        if (sender && nodeIsMaster(sender) && myself->slaveof && myself->slaveof->slaveof) {
+            /* Safeguard against sub-replicas. A replica's master can turn itself
+            * into a replica if its last slot is removed. If no other node takes
+            * over the slot, there is nothing else to trigger replica migration. */
+            serverLog(LL_WARNING,
+                    "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
+                    myself->slaveof->slaveof->name);
+            clusterSetMaster(myself->slaveof->slaveof, 1);
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                CLUSTER_TODO_UPDATE_STATE|
+                                CLUSTER_TODO_FSYNC_CONFIG);
         }
 
         /* 1) If the sender of the message is a master, and we detected that
@@ -3926,7 +3988,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
     {
         serverLog(LL_WARNING,"Migrating to orphaned master %.40s",
             target->name);
-        clusterSetMaster(target);
+        clusterSetMaster(target, 1);
     }
 }
 
@@ -4600,14 +4662,9 @@ void clusterUpdateState(void) {
 /* This function is called after the node startup in order to verify that data
  * loaded from disk is in agreement with the cluster configuration:
  *
- * 1) If we find keys about hash slots we have no responsibility for, the
- *    following happens:
- *    A) If no other node is in charge according to the current cluster
- *       configuration, we add these slots to our node.
- *    B) If according to our config other nodes are already in charge for
- *       this slots, we set the slots as IMPORTING from our point of view
- *       in order to justify we have those slots, and in order to make
- *       redis-cli aware of the issue, so that it can try to fix it.
+ * 1) If we find keys about hash slots we have no responsibility for and
+ *    no other node is in charge according to the current cluster
+ *    configuration, we add these slots to our node.
  * 2) If we find data in a DB different than DB0 we return C_ERR to
  *    signal the caller it should quit the server with an error message
  *    or take other actions.
@@ -4652,16 +4709,14 @@ int verifyClusterConfigWithData(void) {
          * assigned to this slot. Fix this condition. */
 
         update_config++;
-        /* Case A: slot is unassigned. Take responsibility for it. */
+        /* slot is unassigned. Take responsibility for it. */
         if (server.cluster->slots[j] == NULL) {
             serverLog(LL_WARNING, "I have keys for unassigned slot %d. "
                                     "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
-        } else {
+        } else if (server.cluster->importing_slots_from[j] != server.cluster->slots[j]) {
             serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
-                                    "assigned to another node. "
-                                    "Setting it to importing state.",j);
-            server.cluster->importing_slots_from[j] = server.cluster->slots[j];
+                                    "assigned to another node. ", j);
         }
     }
     if (update_config) clusterSaveConfigOrDie(1);
@@ -4674,14 +4729,14 @@ int verifyClusterConfigWithData(void) {
 
 /* Set the specified node 'n' as master for this node.
  * If this node is currently a master, it is turned into a slave. */
-void clusterSetMaster(clusterNode *n) {
+void clusterSetMaster(clusterNode *n, int closeSlots) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
     if (nodeIsMaster(myself)) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
-        clusterCloseAllSlots();
+        if (closeSlots) clusterCloseAllSlots();
     } else {
         if (myself->slaveof)
             clusterNodeRemoveSlave(myself->slaveof,myself);
@@ -5505,8 +5560,11 @@ NULL
         /* SETSLOT 10 NODE <node ID> */
         int slot;
         clusterNode *n;
+        int replicateSetSlot = 1;
+        int reply = 1;
 
-        if (nodeIsSlave(myself)) {
+        /* Allow primaries to replicate "CLUSTER SETSLOT" */
+        if (!(c->flags & CLIENT_MASTER) && nodeIsSlave(myself)) {
             addReplyError(c,"Please use SETSLOT only with masters.");
             return;
         }
@@ -5514,7 +5572,8 @@ NULL
         if ((slot = getSlotOrReply(c,c->argv[2])) == -1) return;
 
         if (!strcasecmp(c->argv[3]->ptr,"migrating") && c->argc == 5) {
-            if (server.cluster->slots[slot] != myself) {
+            /* Scope the check to primaries only */
+            if (nodeIsMaster(myself) && server.cluster->slots[slot] != myself) {
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
                 return;
             }
@@ -5553,6 +5612,31 @@ NULL
         } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
             n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+
+            /* When finalizing the slot, there is a possibility that the
+             * destination node B sends cluster PONG to the source node A
+             * before SETSLOT has been replicated to B'. If B crashes here,
+             * B' will be in importing state and the slot will have no owner.
+             * To help mitigate this issue, we enforce the following order
+             * for slot migration finalization such that the replicas will
+             * finalize the slot ownership before this primary:
+             *
+             * 1. Client C issues SETSLOT n NODE B against node B
+             * 2. Node B replicates SETSLOT n NODE B to all of its
+             *    replicas, such as B', B'', etc
+             * 3. On replication completion, node B executes SETSLOT
+             *    n NODE B and returns control back to client C
+             * 4. The following steps can happen in parallel
+             * a. Client C issues SETSLOT n NODE B against node A
+             * b. node B gossips its new slot ownership to the cluster
+             *    including A, A', etc
+             *
+             * Where A is the source primary and B is the destination primary. */
+            int replicationDone = nodeIsSlave(myself) ||
+                                  myself->numslaves == 0 ||
+                                  (c->flags & CLIENT_RERUN_COMMAND);
+            c->flags &= ~CLIENT_RERUN_COMMAND;
+
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
                     (char*)c->argv[4]->ptr);
@@ -5572,63 +5656,93 @@ NULL
                     return;
                 }
             }
-            /* If this slot is in migrating status but we have no keys
-             * for it assigning the slot to another node will clear
-             * the migrating status. */
-            if (countKeysInSlot(slot) == 0 &&
-                server.cluster->migrating_slots_to[slot])
-                server.cluster->migrating_slots_to[slot] = NULL;
 
-            int slot_was_mine = server.cluster->slots[slot] == myself;
-            clusterDelSlot(slot);
-            clusterAddSlot(n,slot);
+            /* Slot states must be updated on replicas first before being
+             * applied to the primary. This is controlled via the retry
+             * flag */
+            if (replicationDone) {
+                /* If this slot is in migrating status but we have no keys
+                * for it assigning the slot to another node will clear
+                * the migrating status. */
+                if (countKeysInSlot(slot) == 0 &&
+                    server.cluster->migrating_slots_to[slot])
+                    server.cluster->migrating_slots_to[slot] = NULL;
 
-            /* If we are a master left without slots, we should turn into a
-             * replica of the new master. */
-            if (slot_was_mine &&
-                n != myself &&
-                myself->numslots == 0 &&
-                server.cluster_allow_replica_migration)
-            {
-                serverLog(LL_WARNING,
-                          "Configuration change detected. Reconfiguring myself "
-                          "as a replica of %.40s", n->name);
-                clusterSetMaster(n);
-                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
-                                     CLUSTER_TODO_UPDATE_STATE |
-                                     CLUSTER_TODO_FSYNC_CONFIG);
-            }
+                int slot_was_mine = server.cluster->slots[slot] == myself;
+                clusterDelSlot(slot);
+                clusterAddSlot(n,slot);
 
-            /* If this node was importing this slot, assigning the slot to
-             * itself also clears the importing status. */
-            if (n == myself &&
-                server.cluster->importing_slots_from[slot])
-            {
-                /* This slot was manually migrated, set this node configEpoch
-                 * to a new epoch so that the new version can be propagated
-                 * by the cluster.
-                 *
-                 * Note that if this ever results in a collision with another
-                 * node getting the same configEpoch, for example because a
-                 * failover happens at the same time we close the slot, the
-                 * configEpoch collision resolution will fix it assigning
-                 * a different epoch to each node. */
-                if (clusterBumpConfigEpochWithoutConsensus() == C_OK) {
+                /* If we are a master left without slots, we should turn into a
+                * replica of the new master. */
+                if (slot_was_mine &&
+                    n != myself &&
+                    myself->numslots == 0 &&
+                    server.cluster_allow_replica_migration)
+                {
                     serverLog(LL_WARNING,
-                        "configEpoch updated after importing slot %d", slot);
+                              "Configuration change detected. Reconfiguring myself "
+                              "as a replica of %.40s", n->name);
+                    clusterSetMaster(n, 1);
+                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
+                                         CLUSTER_TODO_UPDATE_STATE |
+                                         CLUSTER_TODO_FSYNC_CONFIG);
                 }
-                server.cluster->importing_slots_from[slot] = NULL;
-                /* After importing this slot, let the other nodes know as
-                 * soon as possible. */
-                clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+
+                /* If this node or this node's primary was importing this slot,
+                * assigning the slot to itself also clears the importing status. */
+                if ((n == myself || n == myself->slaveof) &&
+                    server.cluster->importing_slots_from[slot])
+                {
+                    server.cluster->importing_slots_from[slot] = NULL;
+
+                    /* Only primary broadcasts the updates */
+                    if (n == myself) {
+                        /* This slot was manually migrated, set this node configEpoch
+                        * to a new epoch so that the new version can be propagated
+                        * by the cluster.
+                        *
+                        * Note that if this ever results in a collision with another
+                        * node getting the same configEpoch, for example because a
+                        * failover happens at the same time we close the slot, the
+                        * configEpoch collision resolution will fix it assigning
+                        * a different epoch to each node. */
+                        if (clusterBumpConfigEpochWithoutConsensus() == C_OK) {
+                            serverLog(LL_WARNING,
+                                "configEpoch updated after importing slot %d", slot);
+                        }
+                        /* After importing this slot, let the other nodes know as
+                        * soon as possible. */
+                        clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+                    }
+                }
+
+                /* Replication is already done before reaching here */
+                replicateSetSlot = 0;
+            } else {
+                /* We are a primary and this is the first time we see this "setslot"
+                 * command. Force-replicate the setslot command to all of our replicas
+                 * first and only on success will we handle the command.
+                 * Note that
+                 * 1. All replicas are expected to ack the replication within 1000ms
+                 * 2. The repl offset target is set to the master's current repl offset + 1.
+                 *    There is no concern of partial replication because replicas always
+                 *    ack the repl offset at the command boundary. */
+                waitForReplication(c, mstime()+1000, myself->numslaves, server.master_repl_offset+1, BLOCKED_WAIT_RERUN);
+
+                /* Don't reply to the client yet */
+                reply = 0;
             }
         } else {
             addReplyError(c,
                 "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
             return;
         }
+
+        /* Force-replicate "CLUSTER SETSLOT" */
+        if (replicateSetSlot) forceCommandPropagation(c, PROPAGATE_REPL);
+
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
-        addReply(c,shared.ok);
+        if (reply) addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch") && c->argc == 2) {
         /* CLUSTER BUMPEPOCH */
         int retval = clusterBumpConfigEpochWithoutConsensus();
@@ -5813,7 +5927,7 @@ NULL
         }
 
         /* Set the master. */
-        clusterSetMaster(n);
+        clusterSetMaster(n,1);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
@@ -6812,7 +6926,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * can safely serve the request, otherwise we return a TRYAGAIN
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
-                if (n == myself &&
+                if ((n == myself || n == myself->slaveof) &&
                     server.cluster->migrating_slots_to[slot] != NULL)
                 {
                     migrating_slot = 1;
@@ -7187,4 +7301,61 @@ unsigned int countChannelsInSlot(unsigned int hashslot) {
     }
     raxStop(&iter);
     return j;
+}
+
+/* Replicate all migrating and importing slot states to a
+ * a given replica client. */
+void replicateOpenSlots(client *c)
+{
+    if (!server.cluster_enabled) return;
+
+    list *replicas = listCreate();
+    listAddNodeHead(replicas, c);
+
+    int argc = 5;
+    robj **argv = zmalloc(sizeof(robj*)*argc);
+
+    sds cmd = sdsnew("CLUSTER");
+    sds subcmd = sdsnew("SETSLOT");
+    sds importing = sdsnew("IMPORTING");
+    sds migrating = sdsnew("MIGRATING");
+    robj *cmd_obj = createObject(OBJ_STRING, cmd);
+    robj *subcmd_obj = createObject(OBJ_STRING, subcmd);
+    robj *imp_obj = createObject(OBJ_STRING, importing);
+    robj *mig_obj = createObject(OBJ_STRING, migrating);
+
+    argv[0] = cmd_obj;
+    argv[1] = subcmd_obj;
+
+    for (int i = 0; i < 2; i++) {
+        clusterNode **nodes_ptr = NULL;
+        if (i == 0) {
+            nodes_ptr = server.cluster->importing_slots_from;
+            argv[3] = imp_obj;
+        } else {
+            nodes_ptr = server.cluster->migrating_slots_to;
+            argv[3] = mig_obj;
+        }
+
+        for (int j = 0; j < CLUSTER_SLOTS; j++) {
+            if (nodes_ptr[j] == NULL) continue;
+
+            sds slot = sdsfromlonglong(j);
+            argv[2] = createObject(OBJ_STRING, slot);
+            sds name = sdsnewlen(nodes_ptr[j]->name, sizeof(nodes_ptr[j]->name));
+            argv[4] = createObject(OBJ_STRING, name);
+
+            replicationFeedSlaves(replicas, 0, argv, argc);
+
+            decrRefCount(argv[2]);
+            decrRefCount(argv[4]);
+        }
+    }
+
+    decrRefCount(mig_obj);
+    decrRefCount(imp_obj);
+    decrRefCount(subcmd_obj);
+    decrRefCount(cmd_obj);
+    zfree(argv);
+    listRelease(replicas);
 }

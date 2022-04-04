@@ -39,6 +39,8 @@ int checkBlockedClientTimeout(client *c, mstime_t now) {
         c->bpop.timeout != 0
         && c->bpop.timeout < now)
     {
+        /* Don't rerun command on timeout */
+        c->flags &= ~CLIENT_RERUN_COMMAND;
         /* Handle blocking operation specific timeout. */
         replyToBlockedClientTimedOut(c);
         unblockClient(c);

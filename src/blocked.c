@@ -93,6 +93,7 @@ void blockClient(client *c, int btype) {
                    btype != BLOCKED_POSTPONE));
 
     c->flags |= CLIENT_BLOCKED;
+    if (btype == BLOCKED_WAIT_RERUN) c->flags |= CLIENT_RERUN_COMMAND ;
     c->btype = btype;
     server.blocked_clients++;
     server.blocked_clients_by_type[btype]++;
@@ -181,7 +182,8 @@ void unblockClient(client *c) {
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
-    } else if (c->btype == BLOCKED_WAIT) {
+    } else if (c->btype == BLOCKED_WAIT ||
+               c->btype == BLOCKED_WAIT_RERUN) {
         unblockClientWaitingReplicas(c);
     } else if (c->btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
@@ -199,7 +201,9 @@ void unblockClient(client *c) {
      * we do not do it immediately after the command returns (when the
      * client got blocked) in order to be still able to access the argument
      * vector from module callbacks and updateStatsOnUnblock. */
-    if (c->btype != BLOCKED_POSTPONE && c->btype != BLOCKED_SHUTDOWN) {
+    if (c->btype != BLOCKED_POSTPONE &&
+        c->btype != BLOCKED_SHUTDOWN &&
+        c->btype != BLOCKED_WAIT_RERUN) {
         freeClientOriginalArgv(c);
         resetClient(c);
     }
@@ -224,6 +228,8 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
+    } else if (c->btype == BLOCKED_WAIT_RERUN) {
+        addReplyErrorObject(c, shared.noreplicaserr);
     } else if (c->btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
     } else {
