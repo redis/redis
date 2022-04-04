@@ -396,5 +396,6 @@ void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
+void replicateOpenSlots(client *slave);
 
 #endif /* __CLUSTER_H */

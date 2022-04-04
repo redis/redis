@@ -5,10 +5,6 @@
 # 4. migration is half finished on "migrating" node
 # 5. migration is half finished on "importing" node
 
-# TODO: Test is currently disabled until it is stabilized (fixing the test
-# itself or real issues in Redis).
-
-if {false} {
 source "../tests/includes/init-tests.tcl"
 source "../tests/includes/utils.tcl"
 
@@ -90,9 +86,10 @@ test "Move key back" {
 test "Half-finish importing" {
     # Now we half finish 'importing' node
     assert_equal {OK} [$nodeto(link) cluster setslot 609 node $nodeto(id)]
+    # Wait for the source to upate its slot mapping
+    after 5000
     fix_cluster $nodefrom(addr)
     assert_equal "xyz" [$cluster get aga]
 }
 
 config_set_all_nodes cluster-allow-replica-migration yes
-}

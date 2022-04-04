@@ -1246,7 +1246,8 @@ void replconfCommand(client *c) {
  * It does a few things:
  * 1) Put the slave in ONLINE state.
  * 2) Update the count of "good replicas".
- * 3) Trigger the module event. */
+ * 3) Trigger the module event. 
+ * 4) Replicate slots being migrated/imported to the new replica. */
 void replicaPutOnline(client *slave) {
     if (slave->flags & CLIENT_REPL_RDBONLY) {
         return;
@@ -1262,6 +1263,9 @@ void replicaPutOnline(client *slave) {
                           NULL);
     serverLog(LL_NOTICE,"Synchronization with replica %s succeeded",
         replicationGetSlaveName(slave));
+
+    /* Replicate slot being migrated/imported to the new replica */
+    replicateOpenSlots(slave);
 }
 
 /* This function should be called just after a replica received the RDB file
