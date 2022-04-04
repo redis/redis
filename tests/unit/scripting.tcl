@@ -16,16 +16,24 @@ if {$is_eval == 1} {
 } else {
     proc run_script {args} {
         r function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
         r function load replace [format "#!lua name=test\nredis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
         $rd function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
-        # read the ok reply of function create
+        # read name
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
     }
@@ -808,8 +816,8 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
 
         if {$is_eval == 0} {
-            # read the ok reply of function create
-            assert_match {OK} [$rd read]
+            # read the function name
+            assert_match {test} [$rd read]
         }
 
         catch {$rd read} res

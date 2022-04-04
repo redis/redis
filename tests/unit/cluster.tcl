@@ -195,7 +195,7 @@ start_multiple_servers 5 [list overrides $base_conf] {
         assert_equal {{library_name TEST engine LUA functions {{name test description {} flags {}}}}} [$node4_rd FUNCTION LIST]
 
         # add function to node 5
-        assert_equal {OK} [$node5_rd FUNCTION LOAD {#!lua name=TEST
+        assert_equal {TEST} [$node5_rd FUNCTION LOAD {#!lua name=TEST
             redis.register_function('test', function() return 'hello' end)
         }]
 

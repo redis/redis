@@ -929,21 +929,21 @@ error:
 }
 
 void functionFreeLibMetaData(functionsLibMataData *md) {
-    sdsfree(md->code);
-    sdsfree(md->name);
-    sdsfree(md->engine);
+    if (md->code) sdsfree(md->code);
+    if (md->name) sdsfree(md->name);
+    if (md->engine) sdsfree(md->engine);
 }
 
-/* Compile and save the given library, return C_OK on success and C_ERR on failure.
- * In case on failure the err out param is set with relevant error message */
-int functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx) {
+/* Compile and save the given library, return the loaded library name on success
+ * and NULL on failure. In case on failure the err out param is set with relevant error message */
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx) {
     dictIterator *iter = NULL;
     dictEntry *entry = NULL;
     functionLibInfo *new_li = NULL;
     functionLibInfo *old_li = NULL;
     functionsLibMataData md = {0};
     if (functionExtractLibMetaData(code, &md, err) != C_OK) {
-        return C_ERR;
+        return NULL;
     }
 
     if (functionsVerifyName(md.name)) {
@@ -997,16 +997,18 @@ int functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
         engineLibraryFree(old_li);
     }
 
+    sds loaded_lib_name = md.name;
+    md.name = NULL;
     functionFreeLibMetaData(&md);
 
-    return C_OK;
+    return loaded_lib_name;
 
 error:
     if (iter) dictReleaseIterator(iter);
     if (new_li) engineLibraryFree(new_li);
     if (old_li) libraryLink(lib_ctx, old_li);
     functionFreeLibMetaData(&md);
-    return C_ERR;
+    return NULL;
 }
 
 /*
@@ -1034,7 +1036,8 @@ void functionLoadCommand(client *c) {
 
     robj *code = c->argv[argc_pos];
     sds err = NULL;
-    if (functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx) != C_OK)
+    sds library_name = NULL;
+    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx)))
     {
         addReplyErrorSds(c, err);
         return;
@@ -1042,7 +1045,7 @@ void functionLoadCommand(client *c) {
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
     server.dirty++;
-    addReply(c, shared.ok);
+    addReplyBulkSds(c, library_name);
 }
 
 /* Return memory usage of all the engines combine */

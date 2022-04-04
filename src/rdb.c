@@ -2855,12 +2855,14 @@ cleanup:
     }
 
     if (lib_ctx) {
-        if (functionsCreateWithLibraryCtx(final_payload, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
+        sds library_name = NULL;
+        if (!(library_name = functionsCreateWithLibraryCtx(final_payload, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx))) {
             if (!error) {
                 error = sdsnew("Failed creating the library");
             }
             goto done;
         }
+        sdsfree(library_name);
     }
 
     res = C_OK;

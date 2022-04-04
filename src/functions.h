@@ -109,7 +109,7 @@ struct functionLibInfo {
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
-int functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 unsigned long functionsNum();

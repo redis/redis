@@ -1197,5 +1197,5 @@ start_server {tags {"scripting"}} {
         r function load replace {#!lua name="foo"
             redis.register_function('foo', function() return 1 end)
         }
-    } {OK}
+    } {foo}
 }
