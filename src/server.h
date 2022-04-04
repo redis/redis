@@ -1717,6 +1717,7 @@ struct redisServer {
                                      * abort(). useful for Valgrind. */
     /* Shutdown */
     int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
+    int replica_shutdown_nosave;    /* Disable auto RDB SAVE on shutdown for replicas. */
 
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */

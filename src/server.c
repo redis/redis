@@ -3899,8 +3899,9 @@ int prepareForShutdown(int flags) {
      * the dataset on shutdown (otherwise it could overwrite the current DB
      * with half-read data).
      *
-     * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
-    if (server.loading || server.sentinel_mode)
+     * Also clear the SAVE flag and force NOSAVE when either in Sentinel mode
+     * or replica_shutdown_nosave configuration is enabled. */
+    if (server.loading || server.sentinel_mode || (server.masterhost && server.replica_shutdown_nosave))
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
 
     server.shutdown_flags = flags;
