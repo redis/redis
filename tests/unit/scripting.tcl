@@ -1399,6 +1399,19 @@ start_server {tags {"scripting"}} {
         r config set replica-serve-stale-data yes
         set _ {}
     } {} {external:skip}
+
+    test "reject script do not cause a Lua stack leak" {
+        r config set maxmemory 1
+        for {set i 0} {$i < 50} {incr i} {
+            assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {r eval {#!lua
+                return 1
+            } 0}
+        }
+        r config set maxmemory 0
+        assert_equal [r eval {#!lua
+            return 1
+        } 0] 1
+    }
 }
 
 # Additional eval only tests
