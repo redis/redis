@@ -508,6 +508,7 @@ void evalGenericCommand(client *c, int evalsha) {
 
     scriptRunCtx rctx;
     if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
+        lua_pop(lua,2); /* Remove the function and error handler. */
         return;
     }
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
