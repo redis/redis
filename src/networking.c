@@ -139,6 +139,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
+    c->meta = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -2845,9 +2846,7 @@ int clientSetNameOrReply(client *c, robj *name) {
  * to the caller to send a reply if needed.
  *
  * Setting an empty string as meta has the effect of unsetting the
- * currently set meta: the client will remain without meta.
- *
- * This function is also used to implement the HELLO SETMETA option. */
+ * currently set meta: the client will remain without meta.*/
 int clientSetMetaOrReply(client *c, robj *meta)
 {
     int len = sdslen(meta->ptr);
@@ -4450,3 +4449,4 @@ void evictClients(void) {
         }
     }
 }
+
