@@ -1016,22 +1016,7 @@ void databasesCron(void) {
     }
 }
 
-/* We take a cached value of the unix time in the global state because with
- * virtual memory and aging there is to store the current time in objects at
- * every object access, and accuracy is not needed. To access a global var is
- * a lot faster than calling time(NULL).
- *
- * This function should be fast because it is called at every command execution
- * in call(), so it is possible to decide if to update the daylight saving
- * info or not using the 'update_daylight_info' argument. Normally we update
- * such info only when calling this function from serverCron() but not when
- * calling it from call(). */
-void updateCachedTime(int update_daylight_info) {
-    const long long us = ustime();
-    updateCachedTimeWithUs(update_daylight_info, us);
-}
-
-void updateCachedTimeWithUs(int update_daylight_info, monotime ustime) {
+static inline void updateCachedTimeWithUs(int update_daylight_info, monotime ustime) {
     server.ustime = ustime;
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
@@ -1050,6 +1035,20 @@ void updateCachedTimeWithUs(int update_daylight_info, monotime ustime) {
     }
 }
 
+/* We take a cached value of the unix time in the global state because with
+ * virtual memory and aging there is to store the current time in objects at
+ * every object access, and accuracy is not needed. To access a global var is
+ * a lot faster than calling time(NULL).
+ *
+ * This function should be fast because it is called at every command execution
+ * in call(), so it is possible to decide if to update the daylight saving
+ * info or not using the 'update_daylight_info' argument. Normally we update
+ * such info only when calling this function from serverCron() but not when
+ * calling it from call(). */
+void updateCachedTime(int update_daylight_info) {
+    const long long us = ustime();
+    updateCachedTimeWithUs(update_daylight_info, us);
+}
 
 void checkChildrenDone(void) {
     int statloc = 0;

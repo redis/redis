@@ -2896,7 +2896,6 @@ void adjustOpenFilesLimit(void);
 void incrementErrorCount(const char *fullerr, size_t namelen);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
-void updateCachedTimeWithUs(int update_daylight_info,monotime start_time);
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
