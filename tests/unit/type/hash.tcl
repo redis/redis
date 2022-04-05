@@ -650,19 +650,19 @@ start_server {tags {"hash"}} {
 
     test {HINCRBYFLOAT over hash-max-listpack-value encoded with a listpack} {
         set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
-        r config set hash-max-ziplist-value 8
+        r config set hash-max-listpack-value 8
         
-        # hash's value exceeds hash-max-ziplist-value
+        # hash's value exceeds hash-max-listpack-value
         r del smallhash
         r del bighash
         r hset smallhash tmp 0
         r hset bighash tmp 0
-        r hincrbyfloat smallhash tmp 12345678
-        r hincrbyfloat bighash tmp 123456789
+        r hincrbyfloat smallhash tmp 0.000005
+        r hincrbyfloat bighash tmp 0.0000005
         assert_encoding listpack smallhash
         assert_encoding hashtable bighash
 
-        # hash's field exceeds hash-max-ziplist-value
+        # hash's field exceeds hash-max-listpack-value
         r del smallhash
         r del bighash
         r hincrbyfloat smallhash 12345678 1
@@ -670,7 +670,7 @@ start_server {tags {"hash"}} {
         assert_encoding listpack smallhash
         assert_encoding hashtable bighash
 
-        r config set hash-max-ziplist-value $original_max_value
+        r config set hash-max-listpack-value $original_max_value
     }
 
     test {Hash ziplist regression test for large keys} {
