@@ -109,42 +109,41 @@ void serverLogRaw(int level, const char *msg) {
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
+    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
     if (server.log_fd == -1) return;
-
     if (rawmode) {
         ignored = write(server.log_fd,msg,strlen(msg));
-    } else {
-        pid_t pid = getpid();
-
-        int role_char;
-        if (server.sentinel_mode) {
-            role_char = 'X'; /* Sentinel. */
-        } else if (pid != server.pid) {
-            role_char = 'C'; /* RDB / AOF writing child. */
-        } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
-        }
-
-        struct timeval tv;
-        struct tm tm;
-        gettimeofday(&tv,NULL);
-        nolocks_localtime(&tm, tv.tv_sec, server.timezone, server.daylight_active);
-
-        size_t len = snprintf(buf, sizeof(buf), "%d:%c ", (int) pid, role_char);
-        len += strftime(buf + len, sizeof(buf) - len, "%d %b %Y %H:%M:%S.", &tm);
-        len += snprintf(buf + len, sizeof(buf) - len, "%03d %c ", (int) tv.tv_usec/1000, c[level]);
-
-        char eol[] = "\n";
-        struct iovec iov[3] = {
-            { .iov_base = buf, .iov_len = len },
-            { .iov_base = (void *) msg, .iov_len = strlen(msg) },
-            { .iov_base = eol, .iov_len = 1 }
-        };
-
-        ignored = writev(server.log_fd, iov, 3);
+        return;
     }
 
-    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+    pid_t pid = getpid();
+
+    int role_char;
+    if (server.sentinel_mode) {
+        role_char = 'X'; /* Sentinel. */
+    } else if (pid != server.pid) {
+        role_char = 'C'; /* RDB / AOF writing child. */
+    } else {
+        role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+    }
+
+    struct timeval tv;
+    struct tm tm;
+    gettimeofday(&tv,NULL);
+    nolocks_localtime(&tm, tv.tv_sec, server.timezone, server.daylight_active);
+
+    size_t len = snprintf(buf, sizeof(buf), "%d:%c ", (int) pid, role_char);
+    len += strftime(buf + len, sizeof(buf) - len, "%d %b %Y %H:%M:%S.", &tm);
+    len += snprintf(buf + len, sizeof(buf) - len, "%03d %c ", (int) tv.tv_usec/1000, c[level]);
+
+    char eol[] = "\n";
+    struct iovec iov[3] = {
+        { .iov_base = buf, .iov_len = len },
+        { .iov_base = (void *) msg, .iov_len = strlen(msg) },
+        { .iov_base = eol, .iov_len = 1 }
+    };
+
+    ignored = writev(server.log_fd, iov, 3);
 }
 
 /* Like serverLogRaw() but with printf-alike support. This is the function that
