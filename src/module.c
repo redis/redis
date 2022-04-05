@@ -7951,8 +7951,9 @@ size_t RM_GetClusterSize(void) {
 }
 
 /* Populate the specified info for the node having as ID the specified 'id',
- * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
- * the POV of this local node, REDISMODULE_ERR is returned.
+ * then returns REDISMODULE_OK. Otherwise if the format of node ID is invalid
+ * or the node ID does not exist from the POV of this local node, REDISMODULE_ERR
+ * is returned.
  *
  * The arguments `ip`, `master_id`, `port` and `flags` can be NULL in case we don't
  * need to populate back certain info. If an `ip` and `master_id` (only populated
@@ -7972,7 +7973,7 @@ size_t RM_GetClusterSize(void) {
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
 
-    clusterNode *node = clusterLookupNode(id);
+    clusterNode *node = clusterLookupNode(id, strlen(id));
     if (node == NULL ||
         node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
     {
