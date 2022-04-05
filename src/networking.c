@@ -522,11 +522,14 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         }
         server.stat_unexpected_error_replies++;
 
-        /* If this command was from our master and we are not a writable replica,
-         * disconnect and try to get a fresh copy of data. */
-        if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro) {
+        /* If this command was from our master, we are not a writable replica,
+         * and replication resync on error is enabled, disconnect and try to 
+         * get a fresh copy of data. */
+        if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro &&
+            server.repl_resync_on_error)
+        {
             serverLog(LL_WARNING, "Forcing full sync with master to "
-                                  "prevent data corruption.");
+                                  "prevent data divergence.");
             forceFullSyncWithMaster(); 
         }
     }
@@ -1562,7 +1565,7 @@ void freeClient(client *c) {
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
-        if (c->flags & CLIENT_CORRUPTED_MASTER) {
+        if (c->flags & CLIENT_DISCARD_MASTER) {
             serverLog(LL_WARNING,"Discarding master state to prevent data corruption.");
         } else {
             serverLog(LL_WARNING,"Connection with master lost.");

@@ -359,7 +359,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
-#define CLIENT_CORRUPTED_MASTER (1ULL<<44)  /* This master has sent corrupted data. */
+#define CLIENT_DISCARD_MASTER (1ULL<<44)  /* Discard cached master on disconnect */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1770,6 +1770,8 @@ struct redisServer {
     int replica_announced;          /* If true, replica is announced by Sentinel */
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
+    int repl_resync_on_error;       /* Configures the replica to resync if an
+                                     * error is recieved on the replication link */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */

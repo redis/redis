@@ -2949,7 +2949,7 @@ void replicationSetMaster(char *ip, int port) {
 void forceFullSyncWithMaster(void) {
     serverAssert(server.master);
     if (server.master) freeClientAsync(server.master);
-    server.master->flags |= CLIENT_CORRUPTED_MASTER;
+    server.master->flags |= CLIENT_DISCARD_MASTER;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
