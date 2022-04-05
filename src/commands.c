@@ -635,7 +635,7 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 /* CLUSTER SLOTS history */
 commandHistory CLUSTER_SLOTS_History[] = {
 {"4.0.0","Added node IDs."},
-{"7.0.0","Added additional networking metadata and added support for hostnames and unknown endpoints."},
+{"7.0.0","Added additional networking metadata field."},
 {0}
 };
 
@@ -883,7 +883,6 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 
 /* CLIENT PAUSE history */
 commandHistory CLIENT_PAUSE_History[] = {
-{"3.2.10","Client pause prevents client pause and key eviction as well."},
 {"6.2.0","`CLIENT PAUSE WRITE` mode added along with the `mode` option."},
 {0}
 };
@@ -1564,10 +1563,7 @@ NULL
 /********** RENAME ********************/
 
 /* RENAME history */
-commandHistory RENAME_History[] = {
-{"3.2.0","The command no longer returns an error when source and destination names are the same."},
-{0}
-};
+#define RENAME_History NULL
 
 /* RENAME tips */
 #define RENAME_tips NULL
@@ -3178,10 +3174,7 @@ struct redisCommandArg SSUBSCRIBE_Args[] = {
 /********** SUBSCRIBE ********************/
 
 /* SUBSCRIBE history */
-commandHistory SUBSCRIBE_History[] = {
-{"6.2.0","`RESET` can be called to exit subscribed state."},
-{0}
-};
+#define SUBSCRIBE_History NULL
 
 /* SUBSCRIBE tips */
 #define SUBSCRIBE_tips NULL
@@ -3536,7 +3529,7 @@ struct redisCommandArg SCRIPT_EXISTS_Args[] = {
 
 /* SCRIPT FLUSH history */
 commandHistory SCRIPT_FLUSH_History[] = {
-{"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers."},
 {0}
 };
 
@@ -4417,7 +4410,7 @@ struct redisCommandArg FAILOVER_Args[] = {
 /* FLUSHALL history */
 commandHistory FLUSHALL_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
-{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `SYNC` flushing mode modifier."},
 {0}
 };
 
@@ -4446,7 +4439,7 @@ struct redisCommandArg FLUSHALL_Args[] = {
 /* FLUSHDB history */
 commandHistory FLUSHDB_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
-{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `SYNC` flushing mode modifier."},
 {0}
 };
 
@@ -4837,12 +4830,7 @@ struct redisCommand MODULE_Subcommands[] = {
 /********** MONITOR ********************/
 
 /* MONITOR history */
-commandHistory MONITOR_History[] = {
-{"6.0.0","`AUTH` excluded from the command's output."},
-{"6.2.0","`RESET` can be called to exit monitor mode."},
-{"6.2.4","`AUTH`, `HELLO`, `EVAL`, `EVAL_RO`, `EVALSHA` and `EVALSHA_RO` included in the command's output."},
-{0}
-};
+#define MONITOR_History NULL
 
 /* MONITOR tips */
 #define MONITOR_tips NULL
@@ -4913,7 +4901,7 @@ struct redisCommandArg REPLICAOF_Args[] = {
 
 /* SHUTDOWN history */
 commandHistory SHUTDOWN_History[] = {
-{"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."},
+{"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers."},
 {0}
 };
 
