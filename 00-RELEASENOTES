@@ -1,5 +1,87 @@
 ================================================================================
-Redis 7.0 RC1   Released Mon Feb 28 12:00:00 IST 2022
+Redis 7.0 RC3   Released Tue Apr 5 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency LOW: This is another Release Candidate of Redis 7.0.
+
+New Features
+============
+
+New administrative and introspection commands and command arguments
+-------------------------------------------------------------------
+
+* CLUSTER SHARDS command deprecates CLUSTER SLOTS (#10293)
+
+
+Potentially Breaking Changes
+============================
+
+* CONFIG GET response returned in a non-deterministic order.
+  It's possible that a client was relying on configs order (#10323)
+* SORT / SORT_RO commands reject keys access patterns in GET and BY if ACL
+  doesn't grant the command full keyspace access (#10340)
+* FUNCTION LOAD command introduced in 7.0-RC1 was stripped of the ENGINE, and
+  NAME arguments which are now part of the script itself. The DESCRIPTION
+  argument was completely removed (#10500)
+* Set disable-thp config to be immutable (#10409)
+
+
+Performance and resource utilization improvements
+=================================================
+
+* Optimize performance and memory usage on replicas (#10413)
+* A faster and more robust code of zslRandomLevel using RAND_MAX (#5539)
+
+
+Changes in CLI tools
+====================
+
+* redis-cli: Use exit code 1 on error (#10468)
+* redis-cli: Do DNS lookup before sending CLUSTER MEET (#10436)
+* redis-benchmark: Fix --cluster with IPv6. (#10393)
+* redis-cli: Better --json Unicode support and --quoted-json (#10286)
+
+
+INFO fields and introspection changes
+=====================================
+
+* MEMORY STATS: Show cluster.links memory usage (#10302)
+
+
+Module API changes
+==================
+
+* APIs for exposing module configs to config file and CONFIG command (#10285)
+* Add an event notifying about configuration changes (#10311)
+* Add API for redacting command arguments from SLOWLOG and MONITOR (#10425)
+* RM_Call: new flags for script mode compatibility, no writes, and error replies (#10372)
+
+
+Bug Fixes
+=========
+
+* Sentinel: Fix no reconnect after auth-pass is changed (#10400)
+* Cluster: Fix race condition: Turn into replica on SETSLOT (#10489, #10381)
+* XREADGROUP: Unblock client when the stream key is deleted (#10306)
+
+
+Fixes for issue in previous release candidates of Redis 7.0
+-----------------------------------------------------------
+
+* ACL DRYRUN does not validate the verified command args. (#10405)
+* ACL DRYRUN returns the tested common permission error (#10359)
+* Incorrect parsing of hostname information from nodes.conf (#10435)
+* BITSET and BITFIELD SET should propagate even if just length changed (#10459)
+* SHUTDOWN, Fix a possible crash when the shutdown was aborted (#10440)
+* Script should not allow may-replicate commands when client pause write (#10364)
+* Optimization tracking memory usage from i/o threads. (#10401)
+* Initialize help when using redis-cli help or redis-cli ? (#10382)
+* Dismiss COW of client output buffer now that it's dynamic (#10371)
+* Fix memory corruption when EVAL fails before being processed (#10519)
+
+
+================================================================================
+Redis 7.0 RC2   Released Mon Feb 28 12:00:00 IST 2022
 ================================================================================
 
 Upgrade urgency LOW: This is another Release Candidate of Redis 7.0.
@@ -439,6 +521,7 @@ A special thank you for the amount of work put into this release by:
 - Viktor Söderqvist
 - Wang Yuan
 - Harkrishn Patro
+- Nick Chun
 - Ozan Tezcan
 - Wen Hui
 - Huang Zhw
@@ -449,8 +532,10 @@ A special thank you for the amount of work put into this release by:
 - Itamar Haber
 - Zhao Zhao
 - Itay Perry
+- Moti Cohen
 - Ning Sun
 - zhugezy
+- Ran Shidlansik
 - menwen
 - Andy Pan
 
