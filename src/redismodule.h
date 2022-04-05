@@ -80,6 +80,15 @@
 #define REDISMODULE_HASH_EXISTS     (1<<3)
 #define REDISMODULE_HASH_COUNT_ALL  (1<<4)
 
+#define REDISMODULE_CONFIG_DEFAULT 0 /* This is the default for a module config. */
+#define REDISMODULE_CONFIG_IMMUTABLE (1ULL<<0) /* Can this value only be set at startup? */
+#define REDISMODULE_CONFIG_SENSITIVE (1ULL<<1) /* Does this value contain sensitive information */
+#define REDISMODULE_CONFIG_HIDDEN (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
+#define REDISMODULE_CONFIG_PROTECTED (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
+#define REDISMODULE_CONFIG_DENY_LOADING (1ULL<<6) /* This config is forbidden during loading. */
+
+#define REDISMODULE_CONFIG_MEMORY (1ULL<<7) /* Indicates if this value can be set as a memory value */
+
 /* StreamID type. */
 typedef struct RedisModuleStreamID {
     uint64_t ms;
@@ -429,7 +438,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_FORK_CHILD 13
 #define REDISMODULE_EVENT_REPL_ASYNC_LOAD 14
 #define REDISMODULE_EVENT_EVENTLOOP 15
-#define _REDISMODULE_EVENT_NEXT 16 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CONFIG 16
+#define _REDISMODULE_EVENT_NEXT 17 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -532,7 +542,11 @@ static const RedisModuleEvent
     RedisModuleEvent_EventLoop = {
         REDISMODULE_EVENT_EVENTLOOP,
         1
-};
+    },
+    RedisModuleEvent_Config = {
+        REDISMODULE_EVENT_CONFIG,
+        1
+    };
 
 /* Those are values that are used for the 'subevent' callback argument. */
 #define REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START 0
@@ -573,6 +587,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_MODULE_LOADED 0
 #define REDISMODULE_SUBEVENT_MODULE_UNLOADED 1
 #define _REDISMODULE_SUBEVENT_MODULE_NEXT 2
+
+#define REDISMODULE_SUBEVENT_CONFIG_CHANGE 0
+#define _REDISMODULE_SUBEVENT_CONFIG_NEXT 1
 
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_RDB 0
 #define REDISMODULE_SUBEVENT_LOADING_PROGRESS_AOF 1
@@ -673,6 +690,17 @@ typedef struct RedisModuleModuleChange {
 } RedisModuleModuleChangeV1;
 
 #define RedisModuleModuleChange RedisModuleModuleChangeV1
+
+#define REDISMODULE_CONFIGCHANGE_VERSION 1
+typedef struct RedisModuleConfigChange {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint32_t num_changes;   /* how many redis config options were changed */
+    const char **config_names; /* the config names that were changed */
+} RedisModuleConfigChangeV1;
+
+#define RedisModuleConfigChange RedisModuleConfigChangeV1
 
 #define REDISMODULE_CRON_LOOP_VERSION 1
 typedef struct RedisModuleCronLoopInfo {
@@ -788,6 +816,15 @@ typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keynam
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 typedef int (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
+typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, void *privdata);
+typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
+typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
+typedef int (*RedisModuleConfigGetEnumFunc)(const char *name, void *privdata);
+typedef int (*RedisModuleConfigSetStringFunc)(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetNumericFunc)(const char *name, long long val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetBoolFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigSetEnumFunc)(const char *name, int val, void *privdata, RedisModuleString **err);
+typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, RedisModuleString **err);
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
@@ -1124,6 +1161,7 @@ REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisMod
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RedactClientCommandArgument)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientCertificate)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int *(*RedisModule_GetCommandKeys)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) REDISMODULE_ATTR;
 REDISMODULE_API int *(*RedisModule_GetCommandKeysWithFlags)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys, int **out_flags) REDISMODULE_ATTR;
@@ -1139,6 +1177,11 @@ REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromDefragCtx)
 REDISMODULE_API int (*RedisModule_EventLoopAdd)(int fd, int mask, RedisModuleEventLoopFunc func, void *user_data) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopDel)(int fd, int mask) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_EventLoopAddOneShot)(RedisModuleEventLoopOneShotFunc func, void *user_data) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterBoolConfig)(RedisModuleCtx *ctx, char *name, int default_val, unsigned int flags, RedisModuleConfigGetBoolFunc getfn, RedisModuleConfigSetBoolFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterNumericConfig)(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterStringConfig)(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterEnumConfig)(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_LoadConfigs)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1447,6 +1490,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DeauthenticateAndCloseClient);
     REDISMODULE_GET_API(AuthenticateClientWithACLUser);
     REDISMODULE_GET_API(AuthenticateClientWithUser);
+    REDISMODULE_GET_API(RedactClientCommandArgument);
     REDISMODULE_GET_API(GetClientCertificate);
     REDISMODULE_GET_API(GetCommandKeys);
     REDISMODULE_GET_API(GetCommandKeysWithFlags);
@@ -1462,6 +1506,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(EventLoopAdd);
     REDISMODULE_GET_API(EventLoopDel);
     REDISMODULE_GET_API(EventLoopAddOneShot);
+    REDISMODULE_GET_API(RegisterBoolConfig);
+    REDISMODULE_GET_API(RegisterNumericConfig);
+    REDISMODULE_GET_API(RegisterStringConfig);
+    REDISMODULE_GET_API(RegisterEnumConfig);
+    REDISMODULE_GET_API(LoadConfigs);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

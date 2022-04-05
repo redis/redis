@@ -813,10 +813,10 @@ int openNewIncrAofForAppend(void) {
  * AOFs has not reached the limit threshold.
  * */
 #define AOF_REWRITE_LIMITE_THRESHOLD    3
-#define AOF_REWRITE_LIMITE_NAX_MINUTES  60 /* 1 hour */
+#define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     int limit = 0;
-    static int limit_deley_minutes = 0;
+    static int limit_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
@@ -824,25 +824,25 @@ int aofRewriteLimited(void) {
         if (server.unixtime < next_rewrite_time) {
             limit = 1;
         } else {
-            if (limit_deley_minutes == 0) {
+            if (limit_delay_minutes == 0) {
                 limit = 1;
-                limit_deley_minutes = 1;
+                limit_delay_minutes = 1;
             } else {
-                limit_deley_minutes *= 2;
+                limit_delay_minutes *= 2;
             }
 
-            if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_MINUTES) {
-                limit_deley_minutes = AOF_REWRITE_LIMITE_NAX_MINUTES;
+            if (limit_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
+                limit_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
             }
 
-            next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
+            next_rewrite_time = server.unixtime + limit_delay_minutes * 60;
 
             serverLog(LL_WARNING,
                 "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
-                incr_aof_num, limit_deley_minutes);
+                incr_aof_num, limit_delay_minutes);
         }
     } else {
-        limit_deley_minutes = 0;
+        limit_delay_minutes = 0;
         next_rewrite_time = 0;
     }
 
@@ -2142,19 +2142,9 @@ static int rewriteFunctions(rio *aof) {
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         functionLibInfo *li = dictGetVal(entry);
-        if (li->desc) {
-            if (rioWrite(aof, "*7\r\n", 4) == 0) goto werr;
-        } else {
-            if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
-        }
+        if (rioWrite(aof, "*3\r\n", 4) == 0) goto werr;
         char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
         if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
-        if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
-        if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
-        if (li->desc) {
-            if (rioWriteBulkString(aof, "description", 11) == 0) goto werr;
-            if (rioWriteBulkString(aof, li->desc, sdslen(li->desc)) == 0) goto werr;
-        }
         if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
     }
     dictReleaseIterator(iter);

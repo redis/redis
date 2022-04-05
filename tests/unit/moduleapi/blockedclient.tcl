@@ -184,17 +184,17 @@ start_server {tags {"modules"}} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "NULL reply returned" {r do_rm_call hgetalllll}
-        assert_equal [errorrstat NULL r] {count=1}
+        assert_error "ERR Unknown Redis command 'hgetalllll'." {r do_rm_call hgetalllll}
+        assert_equal [errorrstat ERR r] {count=1}
 
         # module command that replies with string error from bg thread
         assert_error "NULL reply returned" {r do_bg_rm_call hgetalllll}
-        assert_equal [errorrstat NULL r] {count=2}
+        assert_equal [errorrstat NULL r] {count=1}
 
         # module command that returns an arity error
         r do_rm_call set x x
         assert_error "ERR wrong number of arguments for 'do_rm_call' command" {r do_rm_call}
-        assert_equal [errorrstat ERR r] {count=1}
+        assert_equal [errorrstat ERR r] {count=2}
 
         # RM_Call that propagates an error
         assert_error "WRONGTYPE*" {r do_rm_call hgetall x}

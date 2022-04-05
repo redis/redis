@@ -543,7 +543,8 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    if (!(listLength(server.monitors) && !server.loading)) return;
+    /* Fast path to return if the monitors list is empty or the server is in loading. */
+    if (monitors == NULL || listLength(monitors) == 0 || server.loading) return;
     listNode *ln;
     listIter li;
     int j;
@@ -1528,15 +1529,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
     }
 }
 
-/* This function is called at the end of every background saving,
- * or when the replication RDB transfer strategy is modified from
- * disk to socket or the other way around.
- *
- * The goal of this function is to handle slaves waiting for a successful
- * background saving in order to perform non-blocking synchronization, and
- * to schedule a new BGSAVE if there are slaves that attached while a
- * BGSAVE was in progress, but it was not a good one for replication (no
- * other slave was accumulating differences).
+/* This function is called at the end of every background saving.
  *
  * The argument bgsaveerr is C_OK if the background saving succeeded
  * otherwise C_ERR is passed to the function.
@@ -3204,7 +3197,8 @@ void replicationCacheMaster(client *c) {
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
-    sdsclear(server.master->pending_querybuf);
+    server.master->qb_pos = 0;
+    server.master->repl_applied = 0;
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
@@ -3340,6 +3334,14 @@ void refreshGoodSlavesCount(void) {
             lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;
+}
+
+/* return true if status of good replicas is OK. otherwise false */
+int checkGoodReplicasStatus(void) {
+    return server.masterhost || /* not a primary status should be OK */
+           !server.repl_min_slaves_max_lag || /* Min slave max lag not configured */
+           !server.repl_min_slaves_to_write || /* Min slave to write not configured */
+           server.repl_good_slaves_count >= server.repl_min_slaves_to_write; /* check if we have enough slaves */
 }
 
 /* ----------------------- SYNCHRONOUS REPLICATION --------------------------

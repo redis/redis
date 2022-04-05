@@ -84,7 +84,7 @@
             },
             {
                 "name": "port",
-                "type": "string"
+                "type": "integer"
             },
             {
                 "name": "key_or_empty_string",

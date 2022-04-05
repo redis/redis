@@ -391,7 +391,6 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 sentinelRedisInstance *sentinelGetMasterByName(char *name);
 char *sentinelGetSubjectiveLeader(sentinelRedisInstance *master);
 char *sentinelGetObjectiveLeader(sentinelRedisInstance *master);
-int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);
@@ -1132,6 +1131,27 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     }
     dictReleaseIterator(di);
     return C_ERR;
+}
+
+/* Disconnect the relevant master and its replicas. */
+void dropInstanceConnections(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_MASTER);
+
+    /* Disconnect with the master. */
+    instanceLinkCloseConnection(ri->link, ri->link->cc);
+    instanceLinkCloseConnection(ri->link, ri->link->pc);
+    
+    /* Disconnect with all replicas. */
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *repl_ri;
+    di = dictGetIterator(ri->slaves);
+    while ((de = dictNext(di)) != NULL) {
+        repl_ri = dictGetVal(de);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
+        instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
+    }
+    dictReleaseIterator(di);
 }
 
 /* Drop all connections to other sentinels. Returns the number of connections
@@ -4063,7 +4083,7 @@ NULL
         dictReleaseIterator(di);
         if (masters_local != sentinel.masters) dictRelease(masters_local);
     } else if (!strcasecmp(c->argv[1]->ptr,"simulate-failure")) {
-        /* SENTINEL SIMULATE-FAILURE <flag> <flag> ... <flag> */
+        /* SENTINEL SIMULATE-FAILURE [CRASH-AFTER-ELECTION] [CRASH-AFTER-PROMOTION] [HELP] */
         int j;
 
         sentinel.simfailure_flags = SENTINEL_SIMFAILURE_NONE;
@@ -4297,6 +4317,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
             redacted = 1;
         } else if (!strcasecmp(option,"auth-user") && moreargs > 0) {
@@ -4304,6 +4325,7 @@ void sentinelSetCommand(client *c) {
             char *value = c->argv[++j]->ptr;
             sdsfree(ri->auth_user);
             ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
+            dropInstanceConnections(ri);
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */

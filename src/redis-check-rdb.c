@@ -63,6 +63,7 @@ struct {
 #define RDB_CHECK_DOING_READ_LEN 6
 #define RDB_CHECK_DOING_READ_AUX 7
 #define RDB_CHECK_DOING_READ_MODULE_AUX 8
+#define RDB_CHECK_DOING_READ_FUNCTIONS 9
 
 char *rdb_check_doing_string[] = {
     "start",
@@ -73,7 +74,8 @@ char *rdb_check_doing_string[] = {
     "check-sum",
     "read-len",
     "read-aux",
-    "read-module-aux"
+    "read-module-aux",
+    "read-functions"
 };
 
 char *rdb_type_string[] = {
@@ -303,9 +305,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *o = rdbLoadCheckModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
-        } else if (type == RDB_OPCODE_FUNCTION) {
+        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(&rdb, rdbver, NULL, 0, &err) != C_OK) {
+            rdbstate.doing = RDB_CHECK_DOING_READ_FUNCTIONS;
+            if (rdbFunctionLoad(&rdb, rdbver, NULL, type, 0, &err) != C_OK) {
                 rdbCheckError("Failed loading library, %s", err);
                 sdsfree(err);
                 goto err;

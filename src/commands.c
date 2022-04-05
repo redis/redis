@@ -602,6 +602,17 @@ struct redisCommandArg CLUSTER_SETSLOT_Args[] = {
 {0}
 };
 
+/********** CLUSTER SHARDS ********************/
+
+/* CLUSTER SHARDS history */
+#define CLUSTER_SHARDS_History NULL
+
+/* CLUSTER SHARDS tips */
+const char *CLUSTER_SHARDS_tips[] = {
+"nondeterministic_output",
+NULL
+};
+
 /********** CLUSTER SLAVES ********************/
 
 /* CLUSTER SLAVES history */
@@ -624,7 +635,7 @@ struct redisCommandArg CLUSTER_SLAVES_Args[] = {
 /* CLUSTER SLOTS history */
 commandHistory CLUSTER_SLOTS_History[] = {
 {"4.0.0","Added node IDs."},
-{"7.0.0","Added additional networking metadata and added support for hostnames and unknown endpoints."},
+{"7.0.0","Added additional networking metadata field."},
 {0}
 };
 
@@ -660,8 +671,9 @@ struct redisCommand CLUSTER_Subcommands[] = {
 {"saveconfig","Forces the node to save cluster state on disk","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,CLUSTER_SAVECONFIG_tips,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0},
 {"set-config-epoch","Set the configuration epoch in a new node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,CLUSTER_SET_CONFIG_EPOCH_tips,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SET_CONFIG_EPOCH_Args},
 {"setslot","Bind a hash slot to a specific node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,CLUSTER_SETSLOT_tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SETSLOT_Args},
-{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_NONE,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
-{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
+{"shards","Get array of cluster slots to node mappings","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,CLUSTER_SHARDS_tips,clusterCommand,2,CMD_STALE,0},
+{"slaves","List replica nodes of the specified master node","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,CLUSTER_SLAVES_tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,.args=CLUSTER_SLAVES_Args},
+{"slots","Get array of Cluster slot to node mappings","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,CLUSTER_SLOTS_tips,clusterCommand,2,CMD_STALE,0},
 {0}
 };
 
@@ -871,7 +883,6 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 
 /* CLIENT PAUSE history */
 commandHistory CLIENT_PAUSE_History[] = {
-{"3.2.10","Client pause prevents client pause and key eviction as well."},
 {"6.2.0","`CLIENT PAUSE WRITE` mode added along with the `mode` option."},
 {0}
 };
@@ -1312,7 +1323,7 @@ struct redisCommandArg MIGRATE_username_password_Subargs[] = {
 /* MIGRATE argument table */
 struct redisCommandArg MIGRATE_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_or_empty_string_Subargs},
 {"destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
@@ -1404,7 +1415,10 @@ struct redisCommandArg OBJECT_IDLETIME_Args[] = {
 #define OBJECT_REFCOUNT_History NULL
 
 /* OBJECT REFCOUNT tips */
-#define OBJECT_REFCOUNT_tips NULL
+const char *OBJECT_REFCOUNT_tips[] = {
+"nondeterministic_output",
+NULL
+};
 
 /* OBJECT REFCOUNT argument table */
 struct redisCommandArg OBJECT_REFCOUNT_Args[] = {
@@ -1549,10 +1563,7 @@ NULL
 /********** RENAME ********************/
 
 /* RENAME history */
-commandHistory RENAME_History[] = {
-{"3.2.0","The command no longer returns an error when source and destination names are the same."},
-{0}
-};
+#define RENAME_History NULL
 
 /* RENAME tips */
 #define RENAME_tips NULL
@@ -1658,7 +1669,7 @@ struct redisCommandArg SORT_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
 {"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_offset_count_Subargs},
-{"pattern",ARG_TYPE_STRING,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -1692,7 +1703,7 @@ struct redisCommandArg SORT_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
 {"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_offset_count_Subargs},
-{"pattern",ARG_TYPE_STRING,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
 {"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
@@ -3036,7 +3047,7 @@ struct redisCommandArg PUBLISH_Args[] = {
 
 /* PUBSUB CHANNELS argument table */
 struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
-{"pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3080,7 +3091,7 @@ struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
 
 /* PUBSUB SHARDCHANNELS argument table */
 struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
-{"pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3163,10 +3174,7 @@ struct redisCommandArg SSUBSCRIBE_Args[] = {
 /********** SUBSCRIBE ********************/
 
 /* SUBSCRIBE history */
-commandHistory SUBSCRIBE_History[] = {
-{"6.2.0","`RESET` can be called to exit subscribed state."},
-{0}
-};
+#define SUBSCRIBE_History NULL
 
 /* SUBSCRIBE tips */
 #define SUBSCRIBE_tips NULL
@@ -3384,7 +3392,10 @@ NULL
 #define FUNCTION_LIST_History NULL
 
 /* FUNCTION LIST tips */
-#define FUNCTION_LIST_tips NULL
+const char *FUNCTION_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* FUNCTION LIST argument table */
 struct redisCommandArg FUNCTION_LIST_Args[] = {
@@ -3407,10 +3418,7 @@ NULL
 
 /* FUNCTION LOAD argument table */
 struct redisCommandArg FUNCTION_LOAD_Args[] = {
-{"engine-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"library-description",ARG_TYPE_STRING,-1,"DESCRIPTION",NULL,NULL,CMD_ARG_OPTIONAL},
 {"function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -3449,8 +3457,9 @@ struct redisCommandArg FUNCTION_RESTORE_Args[] = {
 
 /* FUNCTION STATS tips */
 const char *FUNCTION_STATS_tips[] = {
+"nondeterministic_output",
 "request_policy:all_shards",
-"response_policy:one_succeeded",
+"response_policy:special",
 NULL
 };
 
@@ -3462,7 +3471,7 @@ struct redisCommand FUNCTION_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_HELP_History,FUNCTION_HELP_tips,functionHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_SCRIPTING},
 {"kill","Kill the function currently in execution.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_KILL_History,FUNCTION_KILL_tips,functionKillCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING},
 {"list","List information about all the functions","O(N) where N is the number of functions","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LIST_History,FUNCTION_LIST_tips,functionListCommand,-2,CMD_NOSCRIPT,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LIST_Args},
-{"load","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LOAD_History,FUNCTION_LOAD_tips,functionLoadCommand,-5,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LOAD_Args},
+{"load","Create a function with the given arguments (name, code, description)","O(1) (considering compilation time is redundant)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_LOAD_History,FUNCTION_LOAD_tips,functionLoadCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_LOAD_Args},
 {"restore","Restore all the functions on the given payload","O(N) where N is the number of functions on the payload","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_RESTORE_History,FUNCTION_RESTORE_tips,functionRestoreCommand,-3,CMD_NOSCRIPT|CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SCRIPTING,.args=FUNCTION_RESTORE_Args},
 {"stats","Return information about the function currently running (name, description, duration)","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SCRIPTING,FUNCTION_STATS_History,FUNCTION_STATS_tips,functionStatsCommand,2,CMD_NOSCRIPT|CMD_ALLOW_BUSY,ACL_CATEGORY_SCRIPTING},
 {0}
@@ -3520,7 +3529,7 @@ struct redisCommandArg SCRIPT_EXISTS_Args[] = {
 
 /* SCRIPT FLUSH history */
 commandHistory SCRIPT_FLUSH_History[] = {
-{"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers, as well as the  **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers."},
 {0}
 };
 
@@ -3609,6 +3618,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL CKQUORUM tips */
 #define SENTINEL_CKQUORUM_tips NULL
 
+/* SENTINEL CKQUORUM argument table */
+struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL CONFIG ********************/
 
 /* SENTINEL CONFIG history */
@@ -3616,6 +3631,26 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL CONFIG tips */
 #define SENTINEL_CONFIG_tips NULL
+
+/* SENTINEL CONFIG set_or_get set_param_value argument table */
+struct redisCommandArg SENTINEL_CONFIG_set_or_get_set_param_value_Subargs[] = {
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SENTINEL CONFIG set_or_get argument table */
+struct redisCommandArg SENTINEL_CONFIG_set_or_get_Subargs[] = {
+{"set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
+{"parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE},
+{0}
+};
+
+/* SENTINEL CONFIG argument table */
+struct redisCommandArg SENTINEL_CONFIG_Args[] = {
+{"set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
+{0}
+};
 
 /********** SENTINEL DEBUG ********************/
 
@@ -3625,6 +3660,19 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL DEBUG tips */
 #define SENTINEL_DEBUG_tips NULL
 
+/* SENTINEL DEBUG parameter_value argument table */
+struct redisCommandArg SENTINEL_DEBUG_parameter_value_Subargs[] = {
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SENTINEL DEBUG argument table */
+struct redisCommandArg SENTINEL_DEBUG_Args[] = {
+{"parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
+{0}
+};
+
 /********** SENTINEL FAILOVER ********************/
 
 /* SENTINEL FAILOVER history */
@@ -3632,6 +3680,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL FAILOVER tips */
 #define SENTINEL_FAILOVER_tips NULL
+
+/* SENTINEL FAILOVER argument table */
+struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
 
 /********** SENTINEL FLUSHCONFIG ********************/
 
@@ -3649,6 +3703,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL GET_MASTER_ADDR_BY_NAME tips */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_tips NULL
 
+/* SENTINEL GET_MASTER_ADDR_BY_NAME argument table */
+struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL HELP ********************/
 
 /* SENTINEL HELP history */
@@ -3665,6 +3725,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL INFO_CACHE tips */
 #define SENTINEL_INFO_CACHE_tips NULL
 
+/* SENTINEL INFO_CACHE argument table */
+struct redisCommandArg SENTINEL_INFO_CACHE_Args[] = {
+{"nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{0}
+};
+
 /********** SENTINEL IS_MASTER_DOWN_BY_ADDR ********************/
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR history */
@@ -3673,6 +3739,15 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR tips */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips NULL
 
+/* SENTINEL IS_MASTER_DOWN_BY_ADDR argument table */
+struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL MASTER ********************/
 
 /* SENTINEL MASTER history */
@@ -3680,6 +3755,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL MASTER tips */
 #define SENTINEL_MASTER_tips NULL
+
+/* SENTINEL MASTER argument table */
+struct redisCommandArg SENTINEL_MASTER_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
 
 /********** SENTINEL MASTERS ********************/
 
@@ -3696,6 +3777,15 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL MONITOR tips */
 #define SENTINEL_MONITOR_tips NULL
+
+/* SENTINEL MONITOR argument table */
+struct redisCommandArg SENTINEL_MONITOR_Args[] = {
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
 
 /********** SENTINEL MYID ********************/
 
@@ -3721,6 +3811,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL REMOVE tips */
 #define SENTINEL_REMOVE_tips NULL
 
+/* SENTINEL REMOVE argument table */
+struct redisCommandArg SENTINEL_REMOVE_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL REPLICAS ********************/
 
 /* SENTINEL REPLICAS history */
@@ -3728,6 +3824,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL REPLICAS tips */
 #define SENTINEL_REPLICAS_tips NULL
+
+/* SENTINEL REPLICAS argument table */
+struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
 
 /********** SENTINEL RESET ********************/
 
@@ -3737,6 +3839,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL RESET tips */
 #define SENTINEL_RESET_tips NULL
 
+/* SENTINEL RESET argument table */
+struct redisCommandArg SENTINEL_RESET_Args[] = {
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL SENTINELS ********************/
 
 /* SENTINEL SENTINELS history */
@@ -3744,6 +3852,12 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL SENTINELS tips */
 #define SENTINEL_SENTINELS_tips NULL
+
+/* SENTINEL SENTINELS argument table */
+struct redisCommandArg SENTINEL_SENTINELS_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
 
 /********** SENTINEL SET ********************/
 
@@ -3753,6 +3867,20 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL SET tips */
 #define SENTINEL_SET_tips NULL
 
+/* SENTINEL SET option_value argument table */
+struct redisCommandArg SENTINEL_SET_option_value_Subargs[] = {
+{"option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SENTINEL SET argument table */
+struct redisCommandArg SENTINEL_SET_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_SET_option_value_Subargs},
+{0}
+};
+
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
 /* SENTINEL SIMULATE_FAILURE history */
@@ -3761,28 +3889,42 @@ struct redisCommand SCRIPT_Subcommands[] = {
 /* SENTINEL SIMULATE_FAILURE tips */
 #define SENTINEL_SIMULATE_FAILURE_tips NULL
 
+/* SENTINEL SIMULATE_FAILURE mode argument table */
+struct redisCommandArg SENTINEL_SIMULATE_FAILURE_mode_Subargs[] = {
+{"crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SENTINEL SIMULATE_FAILURE argument table */
+struct redisCommandArg SENTINEL_SIMULATE_FAILURE_Args[] = {
+{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
+{0}
+};
+
 /* SENTINEL command table */
 struct redisCommand SENTINEL_Subcommands[] = {
-{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"debug","List or update the current configurable parameters","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,SENTINEL_DEBUG_tips,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"ckquorum","Check for a Sentinel quorum",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,SENTINEL_CKQUORUM_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CKQUORUM_Args},
+{"config","Configure Sentinel","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,SENTINEL_CONFIG_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_CONFIG_Args},
+{"debug","List or update the current configurable parameters","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,SENTINEL_DEBUG_tips,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_DEBUG_Args},
+{"failover","Force a failover",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,SENTINEL_FAILOVER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_FAILOVER_Args},
 {"flushconfig","Rewrite configuration file","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,SENTINEL_FLUSHCONFIG_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"get-master-addr-by-name","Get port and address of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,SENTINEL_GET_MASTER_ADDR_BY_NAME_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args},
 {"help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,SENTINEL_HELP_tips,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"info-cache","Get cached INFO from the instances in the deployment","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,SENTINEL_INFO_CACHE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"info-cache","Get cached INFO from the instances in the deployment","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,SENTINEL_INFO_CACHE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_INFO_CACHE_Args},
+{"is-master-down-by-addr","Check if a master is down","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,SENTINEL_IS_MASTER_DOWN_BY_ADDR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args},
+{"master","Shows the state of a master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,SENTINEL_MASTER_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MASTER_Args},
 {"masters","List the monitored masters","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,SENTINEL_MASTERS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args},
 {"myid","Get the Sentinel instance ID","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,SENTINEL_MYID_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"pending-scripts","Get information about pending scripts",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,SENTINEL_PENDING_SCRIPTS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
-{"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args},
+{"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args},
+{"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_RESET_Args},
+{"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SENTINELS_Args},
+{"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args},
+{"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SIMULATE_FAILURE_Args},
 {0}
 };
 
@@ -4023,7 +4165,10 @@ struct redisCommandArg BGSAVE_Args[] = {
 #define COMMAND_DOCS_History NULL
 
 /* COMMAND DOCS tips */
-#define COMMAND_DOCS_tips NULL
+const char *COMMAND_DOCS_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND DOCS argument table */
 struct redisCommandArg COMMAND_DOCS_Args[] = {
@@ -4064,7 +4209,10 @@ commandHistory COMMAND_INFO_History[] = {
 };
 
 /* COMMAND INFO tips */
-#define COMMAND_INFO_tips NULL
+const char *COMMAND_INFO_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND INFO argument table */
 struct redisCommandArg COMMAND_INFO_Args[] = {
@@ -4078,7 +4226,10 @@ struct redisCommandArg COMMAND_INFO_Args[] = {
 #define COMMAND_LIST_History NULL
 
 /* COMMAND LIST tips */
-#define COMMAND_LIST_tips NULL
+const char *COMMAND_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /* COMMAND LIST filterby argument table */
 struct redisCommandArg COMMAND_LIST_filterby_Subargs[] = {
@@ -4099,7 +4250,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 {"count","Get total number of Redis commands","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_COUNT_History,COMMAND_COUNT_tips,commandCountCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"docs","Get array of specific Redis command documentation","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_DOCS_History,COMMAND_DOCS_tips,commandDocsCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_DOCS_Args},
 {"getkeys","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,COMMAND_GETKEYS_tips,commandGetKeysCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
-{"getkeysandflags","Extract keys given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
+{"getkeysandflags","Extract keys and access flags given a full Redis command","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,COMMAND_GETKEYSANDFLAGS_tips,commandGetKeysAndFlagsCommand,-4,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_HELP_History,COMMAND_HELP_tips,commandHelpCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"info","Get array of specific Redis command details, or all when no argument is given.","O(N) where N is the number of commands to look up","2.8.13",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_INFO_History,COMMAND_INFO_tips,commandInfoCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_INFO_Args},
 {"list","Get an array of Redis command names","O(N) where N is the total number of Redis commands","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,COMMAND_LIST_History,COMMAND_LIST_tips,commandListCommand,-2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=COMMAND_LIST_Args},
@@ -4113,7 +4264,7 @@ struct redisCommand COMMAND_Subcommands[] = {
 
 /* COMMAND tips */
 const char *COMMAND_tips[] = {
-"nondeterministic_output",
+"nondeterministic_output_order",
 NULL
 };
 
@@ -4259,7 +4410,7 @@ struct redisCommandArg FAILOVER_Args[] = {
 /* FLUSHALL history */
 commandHistory FLUSHALL_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
-{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `SYNC` flushing mode modifier."},
 {0}
 };
 
@@ -4288,7 +4439,7 @@ struct redisCommandArg FLUSHALL_Args[] = {
 /* FLUSHDB history */
 commandHistory FLUSHDB_History[] = {
 {"4.0.0","Added the `ASYNC` flushing mode modifier."},
-{"6.2.0","Added the `SYNC` flushing mode modifier and the **lazyfree-lazy-user-flush** configuration directive."},
+{"6.2.0","Added the `SYNC` flushing mode modifier."},
 {0}
 };
 
@@ -4351,7 +4502,12 @@ NULL
 #define LATENCY_DOCTOR_History NULL
 
 /* LATENCY DOCTOR tips */
-#define LATENCY_DOCTOR_tips NULL
+const char *LATENCY_DOCTOR_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY GRAPH ********************/
 
@@ -4359,7 +4515,12 @@ NULL
 #define LATENCY_GRAPH_History NULL
 
 /* LATENCY GRAPH tips */
-#define LATENCY_GRAPH_tips NULL
+const char *LATENCY_GRAPH_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY GRAPH argument table */
 struct redisCommandArg LATENCY_GRAPH_Args[] = {
@@ -4381,7 +4542,12 @@ struct redisCommandArg LATENCY_GRAPH_Args[] = {
 #define LATENCY_HISTOGRAM_History NULL
 
 /* LATENCY HISTOGRAM tips */
-#define LATENCY_HISTOGRAM_tips NULL
+const char *LATENCY_HISTOGRAM_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTOGRAM argument table */
 struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
@@ -4395,7 +4561,12 @@ struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
 #define LATENCY_HISTORY_History NULL
 
 /* LATENCY HISTORY tips */
-#define LATENCY_HISTORY_tips NULL
+const char *LATENCY_HISTORY_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /* LATENCY HISTORY argument table */
 struct redisCommandArg LATENCY_HISTORY_Args[] = {
@@ -4409,7 +4580,12 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_LATEST_History NULL
 
 /* LATENCY LATEST tips */
-#define LATENCY_LATEST_tips NULL
+const char *LATENCY_LATEST_tips[] = {
+"nondeterministic_output",
+"request_policy:all_nodes",
+"response_policy:special",
+NULL
+};
 
 /********** LATENCY RESET ********************/
 
@@ -4417,7 +4593,11 @@ struct redisCommandArg LATENCY_HISTORY_Args[] = {
 #define LATENCY_RESET_History NULL
 
 /* LATENCY RESET tips */
-#define LATENCY_RESET_tips NULL
+const char *LATENCY_RESET_tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+NULL
+};
 
 /* LATENCY RESET argument table */
 struct redisCommandArg LATENCY_RESET_Args[] = {
@@ -4467,6 +4647,8 @@ struct redisCommandArg LOLWUT_Args[] = {
 /* MEMORY DOCTOR tips */
 const char *MEMORY_DOCTOR_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -4486,6 +4668,8 @@ NULL
 /* MEMORY MALLOC_STATS tips */
 const char *MEMORY_MALLOC_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -4495,7 +4679,11 @@ NULL
 #define MEMORY_PURGE_History NULL
 
 /* MEMORY PURGE tips */
-#define MEMORY_PURGE_tips NULL
+const char *MEMORY_PURGE_tips[] = {
+"request_policy:all_shards",
+"response_policy:all_succeeded",
+NULL
+};
 
 /********** MEMORY STATS ********************/
 
@@ -4505,6 +4693,8 @@ NULL
 /* MEMORY STATS tips */
 const char *MEMORY_STATS_tips[] = {
 "nondeterministic_output",
+"request_policy:all_shards",
+"response_policy:special",
 NULL
 };
 
@@ -4556,7 +4746,10 @@ struct redisCommand MEMORY_Subcommands[] = {
 #define MODULE_LIST_History NULL
 
 /* MODULE LIST tips */
-#define MODULE_LIST_tips NULL
+const char *MODULE_LIST_tips[] = {
+"nondeterministic_output_order",
+NULL
+};
 
 /********** MODULE LOAD ********************/
 
@@ -4570,6 +4763,35 @@ struct redisCommand MEMORY_Subcommands[] = {
 struct redisCommandArg MODULE_LOAD_Args[] = {
 {"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{0}
+};
+
+/********** MODULE LOADEX ********************/
+
+/* MODULE LOADEX history */
+#define MODULE_LOADEX_History NULL
+
+/* MODULE LOADEX tips */
+#define MODULE_LOADEX_tips NULL
+
+/* MODULE LOADEX configs argument table */
+struct redisCommandArg MODULE_LOADEX_configs_Subargs[] = {
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX args argument table */
+struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MODULE LOADEX argument table */
+struct redisCommandArg MODULE_LOADEX_Args[] = {
+{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_configs_Subargs},
+{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
 
@@ -4592,6 +4814,7 @@ struct redisCommand MODULE_Subcommands[] = {
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_HELP_History,MODULE_HELP_tips,moduleCommand,2,CMD_LOADING|CMD_STALE,0},
 {"list","List all modules loaded by the server","O(N) where N is the number of loaded modules.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LIST_History,MODULE_LIST_tips,moduleCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0},
 {"load","Load a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOAD_History,MODULE_LOAD_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOAD_Args},
+{"loadex","Load a module with extended parameters","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_LOADEX_History,MODULE_LOADEX_tips,moduleCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_LOADEX_Args},
 {"unload","Unload a module","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MODULE_UNLOAD_History,MODULE_UNLOAD_tips,moduleCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_PROTECTED,0,.args=MODULE_UNLOAD_Args},
 {0}
 };
@@ -4607,12 +4830,7 @@ struct redisCommand MODULE_Subcommands[] = {
 /********** MONITOR ********************/
 
 /* MONITOR history */
-commandHistory MONITOR_History[] = {
-{"6.0.0","`AUTH` excluded from the command's output."},
-{"6.2.0","`RESET` can be called to exit monitor mode."},
-{"6.2.4","`AUTH`, `HELLO`, `EVAL`, `EVAL_RO`, `EVALSHA` and `EVALSHA_RO` included in the command's output."},
-{0}
-};
+#define MONITOR_History NULL
 
 /* MONITOR tips */
 #define MONITOR_tips NULL
@@ -4627,7 +4845,7 @@ commandHistory MONITOR_History[] = {
 
 /* PSYNC argument table */
 struct redisCommandArg PSYNC_Args[] = {
-{"replicationid",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
@@ -4651,7 +4869,7 @@ struct redisCommandArg PSYNC_Args[] = {
 /* REPLICAOF argument table */
 struct redisCommandArg REPLICAOF_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4683,7 +4901,7 @@ struct redisCommandArg REPLICAOF_Args[] = {
 
 /* SHUTDOWN history */
 commandHistory SHUTDOWN_History[] = {
-{"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers. Introduced waiting for lagging replicas before exiting."},
+{"7.0.0","Added the `NOW`, `FORCE` and `ABORT` modifiers."},
 {0}
 };
 
@@ -4717,7 +4935,7 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 /* SLAVEOF argument table */
 struct redisCommandArg SLAVEOF_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6652,7 +6870,11 @@ struct redisCommandArg MSET_Args[] = {
 #define MSETNX_History NULL
 
 /* MSETNX tips */
-#define MSETNX_tips NULL
+const char *MSETNX_tips[] = {
+"request_policy:multi_shard",
+"response_policy:agg_min",
+NULL
+};
 
 /* MSETNX key_value argument table */
 struct redisCommandArg MSETNX_key_value_Subargs[] = {

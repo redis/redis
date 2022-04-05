@@ -57,6 +57,12 @@ struct functionsLibCtx {
     dict *engines_stats; /* Per engine statistics */
 };
 
+typedef struct functionsLibMataData {
+    sds engine;
+    sds name;
+    sds code;
+} functionsLibMataData;
+
 dictType engineDictType = {
         dictSdsCaseHash,       /* hash function */
         dictSdsDup,            /* key dup */
@@ -124,7 +130,6 @@ static size_t functionMallocSize(functionInfo *fi) {
 
 static size_t libraryMallocSize(functionLibInfo *li) {
     return zmalloc_size(li) + sdsZmallocSize(li->name)
-            + (li->desc ? sdsZmallocSize(li->desc) : 0)
             + sdsZmallocSize(li->code);
 }
 
@@ -157,7 +162,6 @@ static void engineLibraryFree(functionLibInfo* li) {
     dictRelease(li->functions);
     sdsfree(li->name);
     sdsfree(li->code);
-    if (li->desc) sdsfree(li->desc);
     zfree(li);
 }
 
@@ -265,14 +269,13 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
     return C_OK;
 }
 
-static functionLibInfo* engineLibraryCreate(sds name, engineInfo *ei, sds desc, sds code) {
+static functionLibInfo* engineLibraryCreate(sds name, engineInfo *ei, sds code) {
     functionLibInfo *li = zmalloc(sizeof(*li));
     *li = (functionLibInfo) {
         .name = sdsdup(name),
         .functions = dictCreate(&libraryFunctionDictType),
         .ei = ei,
         .code = sdsdup(code),
-        .desc = desc ? sdsdup(desc) : NULL,
     };
     return li;
 }
@@ -540,17 +543,11 @@ void functionListCommand(client *c) {
             }
         }
         ++reply_len;
-        addReplyMapLen(c, with_code? 5 : 4);
+        addReplyMapLen(c, with_code? 4 : 3);
         addReplyBulkCString(c, "library_name");
         addReplyBulkCBuffer(c, li->name, sdslen(li->name));
         addReplyBulkCString(c, "engine");
         addReplyBulkCBuffer(c, li->ei->name, sdslen(li->ei->name));
-        addReplyBulkCString(c, "description");
-        if (li->desc) {
-            addReplyBulkCBuffer(c, li->desc, sdslen(li->desc));
-        } else {
-            addReplyNull(c);
-        }
 
         addReplyBulkCString(c, "functions");
         addReplyArrayLen(c, dictSize(li->functions));
@@ -745,11 +742,11 @@ void functionRestoreCommand(client *c) {
             err = sdsnew("can not read data type");
             goto load_error;
         }
-        if (type != RDB_OPCODE_FUNCTION) {
+        if (type != RDB_OPCODE_FUNCTION && type != RDB_OPCODE_FUNCTION2) {
             err = sdsnew("given type is not a function");
             goto load_error;
         }
-        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, RDBFLAGS_NONE, &err) != C_OK) {
+        if (rdbFunctionLoad(&payload, rdbver, functions_lib_ctx, type, RDBFLAGS_NONE, &err) != C_OK) {
             if (!err) {
                 err = sdsnew("failed loading the given functions payload");
             }
@@ -868,36 +865,111 @@ static int functionsVerifyName(sds name) {
     return C_OK;
 }
 
-/* Compile and save the given library, return C_OK on success and C_ERR on failure.
- * In case on failure the err out param is set with relevant error message */
-int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds code,
-                                  int replace, sds* err, functionsLibCtx *lib_ctx) {
-    dictIterator *iter = NULL;
-    dictEntry *entry = NULL;
-    if (functionsVerifyName(lib_name)) {
-        *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
+int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) {
+    sds name = NULL;
+    sds desc = NULL;
+    sds engine = NULL;
+    sds code = NULL;
+    if (strncmp(payload, "#!", 2) != 0) {
+        *err = sdsnew("Missing library metadata");
         return C_ERR;
     }
-
-    engineInfo *ei = dictFetchValue(engines, engine_name);
-    if (!ei) {
-        *err = sdsnew("Engine not found");
+    char *shebang_end = strchr(payload, '\n');
+    if (shebang_end == NULL) {
+        *err = sdsnew("Invalid library metadata");
         return C_ERR;
+    }
+    size_t shebang_len = shebang_end - payload;
+    sds shebang = sdsnewlen(payload, shebang_len);
+    int numparts;
+    sds *parts = sdssplitargs(shebang, &numparts);
+    sdsfree(shebang);
+    if (!parts || numparts == 0) {
+        *err = sdsnew("Invalid library metadata");
+        sdsfreesplitres(parts, numparts);
+        return C_ERR;
+    }
+    engine = sdsdup(parts[0]);
+    sdsrange(engine, 2, -1);
+    for (int i = 1 ; i < numparts ; ++i) {
+        sds part = parts[i];
+        if (strncasecmp(part, "name=", 5) == 0) {
+            if (name) {
+                *err = sdscatfmt(sdsempty(), "Invalid metadata value, name argument was given multiple times");
+                goto error;
+            }
+            name = sdsdup(part);
+            sdsrange(name, 5, -1);
+            continue;
+        }
+        *err = sdscatfmt(sdsempty(), "Invalid metadata value given: %s", part);
+        goto error;
+    }
+
+    if (!name) {
+        *err = sdsnew("Library name was not given");
+        goto error;
+    }
+
+    sdsfreesplitres(parts, numparts);
+
+    md->name = name;
+    md->code = sdsnewlen(shebang_end, sdslen(payload) - shebang_len);
+    md->engine = engine;
+
+    return C_OK;
+
+error:
+    if (name) sdsfree(name);
+    if (desc) sdsfree(desc);
+    if (engine) sdsfree(engine);
+    if (code) sdsfree(code);
+    sdsfreesplitres(parts, numparts);
+    return C_ERR;
+}
+
+void functionFreeLibMetaData(functionsLibMataData *md) {
+    if (md->code) sdsfree(md->code);
+    if (md->name) sdsfree(md->name);
+    if (md->engine) sdsfree(md->engine);
+}
+
+/* Compile and save the given library, return the loaded library name on success
+ * and NULL on failure. In case on failure the err out param is set with relevant error message */
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx) {
+    dictIterator *iter = NULL;
+    dictEntry *entry = NULL;
+    functionLibInfo *new_li = NULL;
+    functionLibInfo *old_li = NULL;
+    functionsLibMataData md = {0};
+    if (functionExtractLibMetaData(code, &md, err) != C_OK) {
+        return NULL;
+    }
+
+    if (functionsVerifyName(md.name)) {
+        *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
+        goto error;
+    }
+
+    engineInfo *ei = dictFetchValue(engines, md.engine);
+    if (!ei) {
+        *err = sdscatfmt(sdsempty(), "Engine '%S' not found", md.engine);
+        goto error;
     }
     engine *engine = ei->engine;
 
-    functionLibInfo *old_li = dictFetchValue(lib_ctx->libraries, lib_name);
+    old_li = dictFetchValue(lib_ctx->libraries, md.name);
     if (old_li && !replace) {
-        *err = sdsnew("Library already exists");
-        return C_ERR;
+        *err = sdscatfmt(sdsempty(), "Library '%S' already exists", md.name);
+        goto error;
     }
 
     if (old_li) {
         libraryUnlink(lib_ctx, old_li);
     }
 
-    functionLibInfo *new_li = engineLibraryCreate(lib_name, ei, desc, code);
-    if (engine->create(engine->engine_ctx, new_li, code, err) != C_OK) {
+    new_li = engineLibraryCreate(md.name, ei, code);
+    if (engine->create(engine->engine_ctx, new_li, md.code, err) != C_OK) {
         goto error;
     }
 
@@ -925,46 +997,32 @@ int functionsCreateWithLibraryCtx(sds lib_name,sds engine_name, sds desc, sds co
         engineLibraryFree(old_li);
     }
 
-    return C_OK;
+    sds loaded_lib_name = md.name;
+    md.name = NULL;
+    functionFreeLibMetaData(&md);
+
+    return loaded_lib_name;
 
 error:
     if (iter) dictReleaseIterator(iter);
-    engineLibraryFree(new_li);
-    if (old_li) {
-        libraryLink(lib_ctx, old_li);
-    }
-    return C_ERR;
+    if (new_li) engineLibraryFree(new_li);
+    if (old_li) libraryLink(lib_ctx, old_li);
+    functionFreeLibMetaData(&md);
+    return NULL;
 }
 
 /*
- * FUNCTION LOAD <ENGINE NAME> <LIBRARY NAME>
- *             [REPLACE] [DESC <LIBRARY DESCRIPTION>] <LIBRARY CODE>
- *
- * ENGINE NAME     - name of the engine to use the run the library
- * LIBRARY NAME    - name of the library
+ * FUNCTION LOAD [REPLACE] <LIBRARY CODE>
  * REPLACE         - optional, replace existing library
- * DESCRIPTION     - optional, library description
  * LIBRARY CODE    - library code to pass to the engine
  */
 void functionLoadCommand(client *c) {
-    robj *engine_name = c->argv[2];
-    robj *library_name = c->argv[3];
-
     int replace = 0;
-    int argc_pos = 4;
-    sds desc = NULL;
+    int argc_pos = 2;
     while (argc_pos < c->argc - 1) {
         robj *next_arg = c->argv[argc_pos++];
         if (!strcasecmp(next_arg->ptr, "replace")) {
             replace = 1;
-            continue;
-        }
-        if (!strcasecmp(next_arg->ptr, "description")) {
-            if (argc_pos >= c->argc) {
-                addReplyError(c, "Bad function description");
-                return;
-            }
-            desc = c->argv[argc_pos++]->ptr;
             continue;
         }
         addReplyErrorFormat(c, "Unknown option given: %s", (char*)next_arg->ptr);
@@ -978,8 +1036,8 @@ void functionLoadCommand(client *c) {
 
     robj *code = c->argv[argc_pos];
     sds err = NULL;
-    if (functionsCreateWithLibraryCtx(library_name->ptr, engine_name->ptr,
-                                      desc, code->ptr, replace, &err, curr_functions_lib_ctx) != C_OK)
+    sds library_name = NULL;
+    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx)))
     {
         addReplyErrorSds(c, err);
         return;
@@ -987,7 +1045,7 @@ void functionLoadCommand(client *c) {
     /* Indicate that the command changed the data so it will be replicated and
      * counted as a data change (for persistence configuration) */
     server.dirty++;
-    addReply(c, shared.ok);
+    addReplyBulkSds(c, library_name);
 }
 
 /* Return memory usage of all the engines combine */

@@ -103,7 +103,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #define CONFIG_MIN_HZ            1
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
-#define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
@@ -165,10 +164,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
-#define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
-
-#define LIMIT_PENDING_QUERYBUF (4*1024*1024) /* 4mb */
 
 #define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
 
@@ -764,6 +760,8 @@ struct RedisModule {
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
+    list *module_configs; /* List of configurations the module has registered */
+    int configs_initialized; /* Have the module configurations been initialized? */
     int in_call;    /* RM_Call() nesting level */
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
@@ -1084,10 +1082,6 @@ typedef struct client {
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
-    sds pending_querybuf;   /* If this client is flagged as master, this buffer
-                               represents the yet not applied portion of the
-                               replication stream that we are receiving from
-                               the master. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
@@ -1124,6 +1118,7 @@ typedef struct client {
     sds replpreamble;       /* Replication DB preamble. */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long reploff;      /* Applied replication offset if this is a master. */
+    long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
@@ -1173,7 +1168,6 @@ typedef struct client {
     size_t last_memory_usage;
     int last_memory_type;
 
-    size_t last_memory_usage_on_bucket_update;
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
 
@@ -1482,6 +1476,7 @@ struct redisServer {
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
+    dict *module_configs_queue; /* Dict that stores module configurations from .conf file until after modules are loaded during startup or arguments to loadex. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
@@ -1584,8 +1579,8 @@ struct redisServer {
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
-    redisAtomic size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
-    size_t stat_cluster_links_memory;/* Mem usage by cluster links */
+    size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
@@ -1697,7 +1692,7 @@ struct redisServer {
     int rdb_pipe_numconns;          /* target of diskless rdb fork child. */
     int rdb_pipe_numconns_writing;  /* Number of rdb conns with pending writes. */
     char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
-    int rdb_pipe_bufflen;           /* that was read from the the rdb pipe. */
+    int rdb_pipe_bufflen;           /* that was read from the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
                                      * writing the RDB. (for testings). negative
                                      * value means fractions of microseconds (on average). */
@@ -1851,7 +1846,7 @@ struct redisServer {
     int cluster_slave_no_failover;  /* Prevent slave from starting a failover
                                        if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
-    char *cluster_announce_hostname;  /* IP address to announce on cluster bus. */
+    char *cluster_announce_hostname;  /* hostname to announce on cluster bus. */
     int cluster_preferred_endpoint_type; /* Use the announced hostname when available. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_tls_port; /* TLS port to announce on cluster bus. */
@@ -1914,6 +1909,7 @@ struct redisServer {
     int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
     long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
+    int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2326,6 +2322,8 @@ extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
 extern dictType stringSetDictType;
+extern dictType externalStringType;
+extern dictType sdsHashDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
@@ -2343,7 +2341,8 @@ int populateArgsStructure(struct redisCommandArg *args);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleLoad(const char *path, void **argv, int argc);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+int moduleUnload(sds name);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2649,6 +2648,7 @@ void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
+int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
@@ -2689,6 +2689,7 @@ int allPersistenceDisabled(void);
 #define DISK_ERROR_TYPE_RDB 2       /* Don't accept writes: RDB errors. */
 #define DISK_ERROR_TYPE_NONE 0      /* No problems, we can accept writes. */
 int writeCommandsDeniedByDiskError(void);
+sds writeCommandsGetDiskErrorMessage(int);
 
 /* RDB persistence */
 #include "rdb.h"
@@ -2757,6 +2758,7 @@ user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -2769,6 +2771,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
+const char* getAclErrorMessage(int acl_res);
 void ACLUpdateDefaultUserPassword(sds password);
 
 /* Sorted sets data type */
@@ -2844,7 +2847,7 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
 size_t freeMemoryGetNotCountedMemory();
 int overMaxmemoryAfterAlloc(size_t moremem);
 int processCommand(client *c);
-int processPendingCommandsAndResetClient(client *c);
+int processPendingCommandAndInputBuffer(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
@@ -2971,6 +2974,40 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
+/* Configuration Flags */
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+                             * config, which is mutable. */
+#define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
+#define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
+#define DEBUG_CONFIG (1ULL<<2) /* Values that are useful for debugging. */
+#define MULTI_ARG_CONFIG (1ULL<<3) /* This config receives multiple arguments. */
+#define HIDDEN_CONFIG (1ULL<<4) /* This config is hidden in `config get <pattern>` (used for tests/debugging) */
+#define PROTECTED_CONFIG (1ULL<<5) /* Becomes immutable if enable-protected-configs is enabled. */
+#define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
+#define ALIAS_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the alias. */
+#define MODULE_CONFIG (1ULL<<8) /* This config is a module config */
+
+#define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
+#define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
+#define PERCENT_CONFIG (1<<1) /* Indicates if this value can be loaded as a percent (and stored as a negative int) */
+#define OCTAL_CONFIG (1<<2) /* This value uses octal representation */
+
+/* Enum Configs contain an array of configEnum objects that match a string with an integer. */
+typedef struct configEnum {
+    char *name;
+    int val;
+} configEnum;
+
+/* Type of configuration. */
+typedef enum {
+    BOOL_CONFIG,
+    NUMERIC_CONFIG,
+    STRING_CONFIG,
+    SDS_CONFIG,
+    ENUM_CONFIG,
+    SPECIAL_CONFIG,
+} configType;
+
 void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
@@ -2979,8 +3016,28 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues();
+void removeConfig(sds name);
 sds getConfigDebugInfo();
 int allowProtectedAction(int config, client *c);
+
+/* Module Configuration */
+typedef struct ModuleConfig ModuleConfig;
+int performModuleConfigSetFromName(sds name, sds value, const char **err);
+int performModuleConfigSetDefaultFromName(sds name, const char **err);
+void addModuleBoolConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val);
+void addModuleStringConfig(const char *module_name, const char *name, int flags, void *privdata, sds default_val);
+void addModuleEnumConfig(const char *module_name, const char *name, int flags, void *privdata, int default_val, configEnum *enum_vals);
+void addModuleNumericConfig(const char *module_name, const char *name, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
+void addModuleConfigApply(list *module_configs, ModuleConfig *module_config);
+int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
+int getModuleBoolConfig(ModuleConfig *module_config);
+int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);
+sds getModuleStringConfig(ModuleConfig *module_config);
+int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err);
+int getModuleEnumConfig(ModuleConfig *module_config);
+int setModuleEnumConfig(ModuleConfig *config, int val, const char **err);
+long long getModuleNumericConfig(ModuleConfig *module_config);
+int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
@@ -3128,6 +3185,7 @@ void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
+void scanDatabaseForDeletedStreams(redisDb *emptied, redisDb *replaced_with);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);

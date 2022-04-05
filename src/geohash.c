@@ -46,7 +46,7 @@
 
 /* Interleave lower bits of x and y, so the bits of x
  * are in the even positions and bits from y in the odd;
- * x and y must initially be less than 2**32 (65536).
+ * x and y must initially be less than 2**32 (4294967296).
  * From:  https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
  */
 static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
