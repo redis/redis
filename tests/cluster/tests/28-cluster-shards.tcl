@@ -43,7 +43,7 @@ proc get_node_info_from_shard {id reference {type node}} {
 }
 
 proc cluster_ensure_master {id} {
-    if { [regexp "master" [R $id role]] == 0 } {
+    if {[R $id role] eq "master"} {
         assert_equal {OK} [R $id CLUSTER FAILOVER]
         wait_for_condition 50 100 {
             [regexp "master" [R $id role]] == 1

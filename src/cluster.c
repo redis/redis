@@ -160,13 +160,24 @@ typedef enum {
 /* Note that
  * 1. the order of the elements below must match that of their
  *    indices as defined in auxFieldIndex
- * 2. aux name can contain alnum and '_' only */
+ * 2. aux name can contain characters that pass the isValidAuxChar check only */
 auxFieldUpdater auxUpdaters[] = {
-    {"shard_id", auxShardIdUpdater, 0},
+    {"shard-id", auxShardIdUpdater, 0},
 };
 
+int isValidAuxChar(int c) {
+    return isalnum(c) || (strchr("!#$%&()*+-.:;<>?@[]^_{|}~", c) != NULL);
+}
+
+int isValidAuxString(sds s) {
+    for (unsigned i = 0; i < sdslen(s); i++) {
+        if (!isValidAuxChar(s[i])) return 0;
+    }
+    return 1;
+}
+
 int auxShardIdUpdater(clusterNode *n, void *value, int length) {
-    if (length != CLUSTER_NAMELEN) {
+    if (verifyClusterNodeId(value, length) == C_ERR) {
         return 0;
     }
     memcpy(n->shard_id, value, CLUSTER_NAMELEN);
@@ -283,7 +294,7 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Format for the node address and auxiliary argument information:
-         * ip:port[@cport][,hostname][,aux=val]* */
+         * ip:port[@cport][,hostname[,aux=val]*] */
 
         aux_argv = sdssplitlen(argv[1], sdslen(argv[1]), ",", 1, &aux_argc);
         if (aux_argv == NULL) {
@@ -314,15 +325,13 @@ int clusterLoadConfig(char *filename) {
                 goto fmterr;
             }
 
-            /* Validate that both aux and value contain alnum and '_' only */
+            /* Validate that both aux and value contain valid characters only */
             for (unsigned j = 0; j < 2; j++) {
-                for (unsigned k = 0; k < sdslen(field_argv[j]); k++) {
-                    if (!isalnum(field_argv[j][k]) && field_argv[j][k] != '_') {
-                        /* Invalid aux field format */
-                        sdsfreesplitres(field_argv, field_argc);
-                        sdsfreesplitres(argv,argc);
-                        goto fmterr;
-                    }
+                if (!isValidAuxString(field_argv[j])) {
+                    /* Invalid aux field format */
+                    sdsfreesplitres(field_argv, field_argc);
+                    sdsfreesplitres(argv,argc);
+                    goto fmterr;
                 }
             }
 
@@ -5390,7 +5399,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
     serverAssert(listLength(nodes) > 0);
     clusterNode *n = listNodeValue(listFirst(nodes));
     addReplyMapLen(c, 3);
-    addReplyBulkCString(c, "shard-id");
+    addReplyBulkCString(c, auxUpdaters[shard_id_idx].field);
     addReplyBulkCBuffer(c, n->shard_id, CLUSTER_NAMELEN);
     addReplyBulkCString(c, "slots");
 
