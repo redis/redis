@@ -1192,7 +1192,7 @@ void clusterDelNode(clusterNode *delnode) {
     freeClusterNode(delnode);
 }
 
-/* Cluster node sanity check. Returns C_OK if the node name
+/* Cluster node sanity check. Returns C_OK if the node id
  * is valid an C_ERR otherwise. */
 int verifyClusterNodeId(const char *name, int length) {
     if (length != CLUSTER_NAMELEN) return C_ERR;
