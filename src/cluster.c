@@ -4987,7 +4987,6 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
 
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
-
     /* Node's ip/port and optional announced hostname */
     if (sdslen(node->hostname) != 0) {
         ci = sdscatprintf(ci," %s:%i@%i,%s",
@@ -5001,6 +5000,8 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
             port,
             node->cport);
     }
+    /* Node's shard_id */
+    ci = sdscatprintf(ci, ",%s=%.40s ", auxUpdaters[shard_id_idx].field, node->shard_id);
 
     /* Node's aux fields */
     for (int i = af_start; i < af_count; i++) {
