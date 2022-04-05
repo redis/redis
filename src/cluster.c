@@ -231,6 +231,16 @@ int clusterLoadConfig(char *filename) {
             sdsclear(n->hostname);
         }
 
+        /* shard_id is the name of the shard this node belongs to.
+         * It is mandatory on 7.0 and above but can be absent right
+         * after the upgrade to 7.0+ */
+        char *shard_id = strchr(argv[1], ',');
+        if (shard_id) {
+            *shard_id = '\0';
+            shard_id++;
+            memcpy(n->shard_id, shard_id, min(strlen(shard_id), CLUSTER_NAMELEN));
+        }
+
         /* Address and port */
         if ((p = strrchr(argv[1],':')) == NULL) {
             sdsfreesplitres(argv,argc);
@@ -581,6 +591,22 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
     } else if (sdslen(node->hostname) != 0) {
         sdsclear(node->hostname);
     }
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+}
+
+static void updateShardId(clusterNode *node, char shard_id[CLUSTER_NAMELEN]) {
+    if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+        memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+    }
+    if (myself != node && myself->slaveof == node) {
+        if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+            /* shard-id can diverge right after a rolling upgrade 
+             * from pre-7.0 releases */
+            memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+        }
+    }
 }
 
 /* Update my hostname based on server configuration values */
@@ -738,6 +764,7 @@ void clusterReset(int hard) {
         dictDelete(server.cluster->nodes,oldname);
         sdsfree(oldname);
         getRandomHexChars(myself->name, CLUSTER_NAMELEN);
+        getRandomHexChars(myself->shard_id, CLUSTER_NAMELEN);
         clusterAddNode(myself);
         serverLog(LL_NOTICE,"Node hard reset, now I'm %.40s", myself->name);
     }
@@ -940,6 +967,8 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         memcpy(node->name, nodename, CLUSTER_NAMELEN);
     else
         getRandomHexChars(node->name, CLUSTER_NAMELEN);
+    getRandomHexChars(node->shard_id, CLUSTER_NAMELEN);
+    node->shard_id[CLUSTER_NAMELEN] = 0;
     node->ctime = mstime();
     node->configEpoch = 0;
     node->flags = flags;
@@ -1952,34 +1981,74 @@ static clusterMsgPingExt *getNextPingExt(clusterMsgPingExt *ext) {
     return next;
 }
 
-/* Returns the exact size needed to store the hostname. The returned value
- * will be 8 byte padded. */
-int getHostnamePingExtSize() {
-    /* If hostname is not set, we don't send this extension */
-    if (sdslen(myself->hostname) == 0) return 0;
+/* All PING extensions must be 8-byte aligned */
+uint32_t getAlignedPingExtSize(uint32_t dataSize) {
 
-    int totlen = sizeof(clusterMsgPingExt) + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1);
-    return totlen;
+    return sizeof(clusterMsgPingExt) + EIGHT_BYTE_ALIGN(dataSize);
+}
+
+uint32_t getHostnamePingExtSize() {
+    if (sdslen(myself->hostname) == 0) {
+        return 0;
+    }
+    return getAlignedPingExtSize(strlen(myself->hostname) + 1);
+}
+
+uint32_t getShardIDPingExtSize() {
+    return getAlignedPingExtSize(CLUSTER_NAMELEN);
 }
 
 /* Write the hostname ping extension at the start of the cursor. This function
  * will update the cursor to point to the end of the written extension and
  * will return the amount of bytes written. */
-int writeHostnamePingExt(clusterMsgPingExt **cursor) {
-    /* If hostname is not set, we don't send this extension */
-    if (sdslen(myself->hostname) == 0) return 0;
+uint32_t writePingExt(clusterMsg *hdr)  {
+    uint16_t extensions = 0;
+    uint32_t totlen = 0;
+    clusterMsgPingExt *cursor = NULL;
+    
+    /* Set the initial extension position */
+    if (hdr != NULL) {
+        cursor = getInitialPingExt(hdr, ntohs(hdr->count));
+    }
 
-    /* Add the hostname information at the extension cursor */
-    clusterMsgPingExtHostname *ext = &(*cursor)->ext[0].hostname;
-    memcpy(ext->hostname, myself->hostname, sdslen(myself->hostname));
-    uint32_t extension_size = getHostnamePingExtSize();
+    /* hostname is optional */
+    if (sdslen(myself->hostname) != 0) {
+        if (cursor != NULL) {
+            /* Populate hostname */
+            cursor->type = htons(CLUSTERMSG_EXT_TYPE_HOSTNAME);
+            cursor->length = htonl(getHostnamePingExtSize());
+            clusterMsgPingExtHostname *ext = &cursor->ext[0].hostname;
+            memcpy(ext->hostname, myself->hostname, sdslen(myself->hostname));
 
-    /* Move the write cursor */
-    (*cursor)->type = CLUSTERMSG_EXT_TYPE_HOSTNAME;
-    (*cursor)->length = htonl(extension_size);
-    /* Make sure the string is NULL terminated by adding 1 */
-    *cursor = (clusterMsgPingExt *) (ext->hostname + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
-    return extension_size;
+            /* Move the write cursor */
+            cursor = (clusterMsgPingExt *)((char*)cursor + getHostnamePingExtSize());
+        }
+
+        totlen += getHostnamePingExtSize();
+        extensions++; 
+    }
+
+    /* Populate shard_id */
+    if (cursor != NULL) {
+        cursor->type = htons(CLUSTERMSG_EXT_TYPE_SHARDID);
+        cursor->length = htonl(getShardIDPingExtSize());
+        clusterMsgPingExtShardId *ext = &cursor->ext[0].shard_id;
+        memcpy(ext->shard_id, myself->shard_id, CLUSTER_NAMELEN);
+
+        /* Move the write cursor */
+        cursor = (clusterMsgPingExt *)((char*)cursor + getShardIDPingExtSize());
+    }
+    totlen += getShardIDPingExtSize();
+    extensions++;
+
+    if (hdr != NULL) {
+        if (extensions !=0) {
+            hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
+        }
+        hdr->extensions = htons(extensions);
+    }
+
+    return totlen;
 }
 
 /* We previously validated the extensions, so this function just needs to
@@ -1987,6 +2056,7 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
 void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
     char *ext_hostname = NULL;
+    char ext_shardid[CLUSTER_NAMELEN] = {0};
     uint16_t extensions = ntohs(hdr->extensions);
     /* Loop through all the extensions and process them */
     clusterMsgPingExt *ext = getInitialPingExt(hdr, ntohs(hdr->count));
@@ -1995,6 +2065,9 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
             ext_hostname = hostname_ext->hostname;
+        } else if (type == CLUSTERMSG_EXT_TYPE_SHARDID) {
+            clusterMsgPingExtShardId *shardid_ext = (clusterMsgPingExtShardId *) &(ext->ext[0].shard_id);
+            memcpy(ext_shardid, shardid_ext->shard_id, CLUSTER_NAMELEN);
         } else {
             /* Unknown type, we will ignore it but log what happened. */
             serverLog(LL_WARNING, "Received unknown extension type %d", type);
@@ -2007,6 +2080,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
      * they don't have an announced hostname. Otherwise, we'll
      * set it now. */
     updateAnnouncedHostname(sender, ext_hostname);
+    updateShardId(sender, ext_shardid);
 }
 
 static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
@@ -2908,7 +2982,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * to put inside the packet. */
     estlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     estlen += (sizeof(clusterMsgDataGossip)*(wanted + pfail_wanted));
-    estlen += sizeof(clusterMsgPingExt) + getHostnamePingExtSize();
+    estlen += writePingExt(NULL);
 
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
@@ -2977,23 +3051,14 @@ void clusterSendPing(clusterLink *link, int type) {
         dictReleaseIterator(di);
     }
 
-    
-    int totlen = 0;
-    int extensions = 0;
-    /* Set the initial extension position */
-    clusterMsgPingExt *cursor = getInitialPingExt(hdr, gossipcount);
-    /* Add in the extensions */
-    if (sdslen(myself->hostname) != 0) {
-        hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
-        totlen += writeHostnamePingExt(&cursor);
-        extensions++;
-    }
+    /* writePingExt expects hdr->count to be valid */
+    hdr->count = htons(gossipcount);
 
     /* Compute the actual total length and send! */
+    int totlen = 0;
+    totlen += writePingExt(hdr);
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
-    hdr->count = htons(gossipcount);
-    hdr->extensions = htons(extensions);
     hdr->totlen = htonl(totlen);
     clusterSendMessage(link,buf,totlen);
     zfree(buf);
@@ -4536,6 +4601,7 @@ void clusterSetMaster(clusterNode *n) {
             clusterNodeRemoveSlave(myself->slaveof,myself);
     }
     myself->slaveof = n;
+    updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, n->port);
     resetManualFailover();
@@ -4604,16 +4670,18 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
     if (sdslen(node->hostname) != 0) {
-        ci = sdscatfmt(ci," %s:%i@%i,%s ",
+        ci = sdscatfmt(ci," %s:%i@%i,%s,%s ",
             node->ip,
             port,
             node->cport,
-            node->hostname);
+            node->hostname,
+            node->shard_id);
     } else {
-        ci = sdscatfmt(ci," %s:%i@%i ",
+        ci = sdscatfmt(ci," %s:%i@%i,,%s ",
             node->ip,
             port,
-            node->cport);
+            node->cport,
+            node->shard_id);
     }
 
     /* Flags */
@@ -5050,7 +5118,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 
 /* Add the shard reply of a single shard based off the given primary node. */
 void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_info_pairs, int slot_pairs_count) {
-    addReplyMapLen(c, 2);
+    addReplyMapLen(c, 3);
+    addReplyBulkCString(c, "shard-id");
+    addReplyBulkCString(c, node->shard_id);
     addReplyBulkCString(c, "slots");
     if (slot_info_pairs) {
         serverAssert((slot_pairs_count % 2) == 0);
