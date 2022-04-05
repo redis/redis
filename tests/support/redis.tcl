@@ -188,6 +188,10 @@ proc ::redis::__method__readraw {id fd val} {
     set ::redis::readraw($id) $val
 }
 
+proc ::redis::__method__readingraw {id fd} {
+    return $::redis::readraw($id)
+}
+
 proc ::redis::__method__attributes {id fd} {
     set _ $::redis::attributes($id)
 }
