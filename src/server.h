@@ -1771,7 +1771,7 @@ struct redisServer {
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
     int repl_resync_on_error;       /* Configures the replica to resync if an
-                                     * error is recieved on the replication link */
+                                     * error is received on the replication link */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
