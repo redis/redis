@@ -665,8 +665,8 @@ start_server {tags {"hash"}} {
         # hash's field exceeds hash-max-listpack-value
         r del smallhash
         r del bighash
-        r hincrbyfloat smallhash 12345678 1
-        r hincrbyfloat bighash 123456789 1
+        r hincrbyfloat smallhash abcdefgh 1
+        r hincrbyfloat bighash abcdefghi 1
         assert_encoding listpack smallhash
         assert_encoding hashtable bighash
 
