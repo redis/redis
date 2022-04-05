@@ -86,6 +86,14 @@ start_server {tags {"pause network"}} {
         $rd close
     }
 
+    test "Test may-replicate commands are rejected in ro script by pause RO" {
+        r client PAUSE 60000 WRITE
+        assert_error {ERR May-replicate commands are not allowed when client pause write*} {
+            r EVAL_RO "return redis.call('publish','ch','msg')" 0
+        }
+        r client unpause
+    }
+
     test "Test multiple clients can be queued up and unblocked" {
         r client PAUSE 60000 WRITE
         set clients [list [redis_deferring_client] [redis_deferring_client] [redis_deferring_client]]

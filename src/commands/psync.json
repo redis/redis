@@ -14,7 +14,7 @@
         "arguments": [
             {
                 "name": "replicationid",
-                "type": "integer"
+                "type": "string"
             },
             {
                 "name": "offset",

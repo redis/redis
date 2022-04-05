@@ -8,7 +8,9 @@
         "container": "MEMORY",
         "function": "memoryCommand",
         "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL"
         ]
     }
 }

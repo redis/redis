@@ -395,13 +395,14 @@ start_server {} {
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
-        r debug replybuffer-peak-reset-time never
+        r debug replybuffer resizing 0
         r config set maxmemory-clients 0
         r client setname control
         r client no-evict on
         
         # Make multiple clients consume together roughly 1mb less than maxmemory_clients
         set total_client_mem 0
+        set max_client_mem 0
         set rrs {}
         for {set j 0} {$j < $client_count} {incr j} {
             set rr [redis_client]
@@ -414,20 +415,27 @@ start_server {} {
             } else {
                 fail "Failed to fill qbuf for test"
             }
-            incr total_client_mem [client_field client$j tot-mem]
+            # In theory all these clients should use the same amount of memory (~1mb). But in practice
+            # some allocators (libc) can return different allocation sizes for the same malloc argument causing
+            # some clients to use slightly more memory than others. We find the largest client and make sure
+            # all clients are roughly the same size (+-1%). Then we can safely set the client eviction limit and
+            # expect consistent results in the test.
+            set cmem [client_field client$j tot-mem]
+            if {$max_client_mem > 0} {
+                set size_ratio [expr $max_client_mem.0/$cmem.0]
+                assert_range $size_ratio 0.99 1.01
+            }
+            if {$cmem > $max_client_mem} {
+                set max_client_mem $cmem
+            }
         }
-
-        set client_actual_mem [expr $total_client_mem / $client_count]
-        
-        # Make sure client_acutal_mem is more or equal to what we intended
-        assert {$client_actual_mem >= $client_mem}
 
         # Make sure all clients are still connected
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == $client_count}
 
         # Set maxmemory-clients to accommodate half our clients (taking into account the control client)
-        set maxmemory_clients [expr ($client_actual_mem * $client_count) / 2 + [client_field control tot-mem]]
+        set maxmemory_clients [expr ($max_client_mem * $client_count) / 2 + [client_field control tot-mem]]
         r config set maxmemory-clients $maxmemory_clients
         
         # Make sure total used memory is below maxmemory_clients
@@ -438,8 +446,8 @@ start_server {} {
         set connected_clients [llength [lsearch -all [split [string trim [r client list]] "\r\n"] *name=client*]]
         assert {$connected_clients == [expr $client_count / 2]}
 
-        # Restore the peak reset time to default
-        r debug replybuffer-peak-reset-time reset
+        # Restore the reply buffer resize to default
+        r debug replybuffer resizing 1
         
         foreach rr $rrs {$rr close}
     } {} {needs:debug}
@@ -454,7 +462,7 @@ start_server {} {
         r client setname control
         r client no-evict on
         r config set maxmemory-clients 0
-        r debug replybuffer-peak-reset-time never
+        r debug replybuffer resizing 0
         
         # Run over all sizes and create some clients using up that size
         set total_client_mem 0
@@ -505,8 +513,8 @@ start_server {} {
             }
         }
         
-        # Restore the peak reset time to default
-        r debug replybuffer-peak-reset-time reset
+        # Restore the reply buffer resize to default
+        r debug replybuffer resizing 1
         
         foreach rr $rrs {$rr close}
     } {} {needs:debug}
