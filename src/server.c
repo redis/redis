@@ -1016,7 +1016,7 @@ void databasesCron(void) {
     }
 }
 
-static inline void updateCachedTimeWithUs(int update_daylight_info, monotime ustime) {
+static inline void updateCachedTimeWithUs(int update_daylight_info, const long long ustime) {
     server.ustime = ustime;
     server.mstime = server.ustime / 1000;
     time_t unixtime = server.mstime / 1000;
@@ -3210,7 +3210,6 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
  */
 void call(client *c, int flags) {
     long long dirty;
-    monotime call_timer;
     uint64_t client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->realcmd;
 
@@ -3235,7 +3234,7 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     incrCommandStatsOnError(NULL, 0);
 
-    elapsedStart(&call_timer);
+    const long long call_timer = ustime();
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
@@ -3245,7 +3244,7 @@ void call(client *c, int flags) {
     server.in_nested_call++;
 
     c->cmd->proc(c);
-    const long duration = elapsedUs(call_timer);
+    const long duration = call_timer - ustime();
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
