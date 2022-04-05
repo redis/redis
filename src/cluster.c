@@ -289,7 +289,7 @@ int clusterLoadConfig(char *filename) {
         /* Get master if any. Set the master and populate master's
          * slave list. */
         if (argv[3][0] != '-') {
-            if (verifyClusterNodeId(argv[0], sdslen(argv[0])) == C_ERR) {
+            if (verifyClusterNodeId(argv[3], sdslen(argv[3])) == C_ERR) {
                 sdsfreesplitres(argv, argc);
                 goto fmterr;
             }
@@ -1213,8 +1213,6 @@ clusterNode *clusterLookupNode(const char *name, int length) {
     if (de == NULL) return NULL;
     return dictGetVal(de);
 }
-
-
 
 /* Get all the nodes serving the same slots as myself. */
 list *clusterGetNodesServingMySlots(clusterNode *node) {
