@@ -234,29 +234,29 @@ int clusterLoadConfig(char *filename) {
             n = createClusterNode(argv[0],0);
             clusterAddNode(n);
         }
-        /* Format for the node address information: 
-         * ip:port[@cport],shard_id[,hostname] */
+        /* Format for the node address information:
+         * ip:port[@cport][,hostname],shard_id */
 
-        ep_argv = sdssplitargs(sdsmapchars(argv[1], ",", " ", 1), &ep_argc);
+        ep_argv = sdssplitlen(argv[1], sdslen(argv[1]), ",", 1, &ep_argc);
         if (ep_argv == NULL) {
             sdsfreesplitres(argv,argc);
             goto fmterr;
         }
 
+        /* Hostname is an optional argument that defines the endpoint
+         * that can be reported to clients instead of IP. */
+        if (ep_argc > 1 && sdslen(ep_argv[1]) > 0) {
+            n->hostname = sdscpy(n->hostname, ep_argv[1]);
+        } else if (sdslen(n->hostname) != 0) {
+            sdsclear(n->hostname);
+        }
+
         /* shard_id is the name of the shard this node belongs to.
          * It is mandatory on 7.0 and above but can be absent right
          * after the upgrade to 7.0+ */
-        if (ep_argc > 1) {
-            memcpy(n->shard_id, ep_argv[1], min(strlen(ep_argv[1]), CLUSTER_NAMELEN));
-            clusterAddNodeToShard(ep_argv[1], n);
-        }
-
-        /* Hostname is an optional argument that defines the endpoint
-         * that can be reported to clients instead of IP. */
         if (ep_argc > 2) {
-            n->hostname = sdscpy(n->hostname, ep_argv[2]);
-        } else if (sdslen(n->hostname) != 0) {
-            sdsclear(n->hostname);
+            memcpy(n->shard_id, ep_argv[2], min(strlen(ep_argv[2]), CLUSTER_NAMELEN));
+            clusterAddNodeToShard(ep_argv[2], n);
         }
 
         /* Address and port */
@@ -457,7 +457,7 @@ int clusterSaveConfig(int do_fsync) {
         ci = sdsgrowzero(ci,sb.st_size);
         memset(ci+content_size,'\n',sb.st_size-content_size);
     }
-    
+
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
@@ -551,7 +551,7 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
     *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    
+
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -626,7 +626,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 }
 
-static void updateShardId(clusterNode *node, char shard_id[CLUSTER_NAMELEN]) {
+static void updateShardId(clusterNode *node, const char *shard_id) {
     if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
         clusterRemoveNodeFromShard(node->shard_id, node);
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
@@ -635,7 +635,7 @@ static void updateShardId(clusterNode *node, char shard_id[CLUSTER_NAMELEN]) {
     }
     if (myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-            /* shard-id can diverge right after a rolling upgrade 
+            /* shard-id can diverge right after a rolling upgrade
              * from pre-7.0 releases */
             clusterRemoveNodeFromShard(myself->shard_id, myself);
             memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
@@ -726,7 +726,7 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", cport);
         exit(1);
     }
-    
+
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
@@ -1280,7 +1280,7 @@ clusterNode *clusterLookupNode(const char *name, int length) {
 
 /* Get all the nodes serving the same slots as myself.
  * Note that the list returned is not computed on the fly
- * via slaveof; rather, it is maintained permanently to 
+ * via slaveof; rather, it is maintained permanently to
  * track the shard membership and its life cycle is tied
  * to this Redis process. Therefore, the caller must not
  * release the list. */
@@ -1322,7 +1322,7 @@ void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
             serverAssert(listAddNodeTail(l, node) == l);
         }
         sdsfree(s);
-    } 
+    }
 }
 
 void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node) {
@@ -2048,7 +2048,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
  * The ping/pong/meet messages support arbitrary extensions to add additional
  * metadata to the messages that are sent between the various nodes in the
  * cluster. The extensions take the form:
- * [ Header length + type (8 bytes) ] 
+ * [ Header length + type (8 bytes) ]
  * [ Extension information (Arbitrary length, but must be 8 byte padded) ]
  */
 
@@ -2063,7 +2063,7 @@ static uint32_t getPingExtLength(clusterMsgPingExt *ext) {
 static clusterMsgPingExt *getInitialPingExt(clusterMsg *hdr, uint16_t count) {
     clusterMsgPingExt *initial = (clusterMsgPingExt*) &(hdr->data.ping.gossip[count]);
     return initial;
-} 
+}
 
 /* Given a current ping extension, returns the start of the next extension. May return
  * an invalid address if there are no further ping extensions. */
@@ -2085,7 +2085,7 @@ uint32_t getHostnamePingExtSize() {
     return getAlignedPingExtSize(strlen(myself->hostname) + 1);
 }
 
-uint32_t getShardIDPingExtSize() {
+uint32_t getShardIdPingExtSize() {
     return getAlignedPingExtSize(CLUSTER_NAMELEN);
 }
 
@@ -2099,7 +2099,6 @@ uint32_t writePingExt(clusterMsg *hdr)  {
     uint16_t extensions = 0;
     uint32_t totlen = 0;
     clusterMsgPingExt *cursor = NULL;
-    
     /* Set the initial extension position */
     if (hdr != NULL) {
         cursor = getInitialPingExt(hdr, ntohs(hdr->count));
@@ -2119,24 +2118,24 @@ uint32_t writePingExt(clusterMsg *hdr)  {
         }
 
         totlen += getHostnamePingExtSize();
-        extensions++; 
+        extensions++;
     }
 
     /* Populate shard_id */
     if (cursor != NULL) {
         cursor->type = htons(CLUSTERMSG_EXT_TYPE_SHARDID);
-        cursor->length = htonl(getShardIDPingExtSize());
+        cursor->length = htonl(getShardIdPingExtSize());
         clusterMsgPingExtShardId *ext = &cursor->ext[0].shard_id;
         memcpy(ext->shard_id, myself->shard_id, CLUSTER_NAMELEN);
 
         /* Move the write cursor */
-        cursor = (clusterMsgPingExt *)((char*)cursor + getShardIDPingExtSize());
+        cursor = (clusterMsgPingExt *)((char*)cursor + getShardIdPingExtSize());
     }
-    totlen += getShardIDPingExtSize();
+    totlen += getShardIdPingExtSize();
     extensions++;
 
     if (hdr != NULL) {
-        if (extensions !=0) {
+        if (extensions != 0) {
             hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
         }
         hdr->extensions = htons(extensions);
@@ -2252,7 +2251,7 @@ int clusterProcessPacket(clusterLink *link) {
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
                 if (extlen % 8 != 0) {
-                    serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)", 
+                    serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
                     return 1;
                 }
@@ -2293,10 +2292,10 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     if (totlen != explen) {
-        serverLog(LL_WARNING, "Received invalid %s packet of length %lld but expected length %lld", 
+        serverLog(LL_WARNING, "Received invalid %s packet of length %lld but expected length %lld",
             clusterGetMessageTypeString(type), (unsigned long long) totlen, (unsigned long long) explen);
         return 1;
-    } 
+    }
 
     sender = getNodeFromLinkAndMsg(link, hdr);
 
@@ -4150,7 +4149,7 @@ void clusterCron(void) {
          */
         if(clusterNodeCronHandleReconnect(node, handshake_timeout, now)) continue;
     }
-    dictReleaseIterator(di); 
+    dictReleaseIterator(di);
 
     /* Ping some random node 1 time every 10 iterations, so that we usually ping
      * one random node every second. */
@@ -4757,14 +4756,14 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
     if (sdslen(node->hostname) != 0) {
-        ci = sdscatprintf(ci," %s:%i@%i,%.40s,%s ",
+        ci = sdscatprintf(ci," %s:%i@%i,%s,%.40s ",
             node->ip,
             port,
             node->cport,
-            node->shard_id,
-            node->hostname);
+            node->hostname,
+            node->shard_id);
     } else {
-        ci = sdscatprintf(ci," %s:%i@%i,%.40s ",
+        ci = sdscatprintf(ci," %s:%i@%i,,%.40s ",
             node->ip,
             port,
             node->cport,
@@ -5026,8 +5025,8 @@ int getSlotOrReply(client *c, robj *o) {
 
 /* Returns an indication if the replica node is fully available
  * and should be listed in CLUSTER SLOTS response.
- * Returns 1 for available nodes, 0 for nodes that have 
- * not finished their initial sync, in failed state, or are 
+ * Returns 1 for available nodes, 0 for nodes that have
+ * not finished their initial sync, in failed state, or are
  * otherwise considered not available to serve read commands. */
 static int isReplicaAvailable(clusterNode *node) {
     if (nodeFailed(node)) {
@@ -5065,7 +5064,7 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (slots[j]) {
             int retval;
-                
+
             /* If this slot was set as importing we can clear this
              * state as now we are the real owner of the slot. */
             if (server.cluster->importing_slots_from[j])
@@ -5089,7 +5088,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     } else {
         serverPanic("Unrecognized preferred endpoint type");
     }
-    
+
     /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
     int use_pport = (server.tls_cluster &&
                      c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
@@ -5121,7 +5120,7 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     addReplyLongLong(c, start_slot);
     addReplyLongLong(c, end_slot);
     addNodeToNodeReply(c, node);
-    
+
     /* Remaining nodes in reply are replicas for slot range */
     for (i = 0; i < node->numslaves; i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
@@ -5456,7 +5455,7 @@ NULL
                 return;
             }
         }
-        clusterUpdateSlots(c, slots, del);    
+        clusterUpdateSlots(c, slots, del);
         zfree(slots);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
