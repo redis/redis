@@ -15,17 +15,25 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function load LUA test replace [format "redis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
-        # read the ok reply of function create
+        $rd function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
+        # read name
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
     }
@@ -784,7 +792,7 @@ start_server {tags {"scripting"}} {
             set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         } else {
-            set buf "*6\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$81\r\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
+            set buf "*4\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$7\r\nreplace\r\n\$97\r\n#!lua name=test\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
             append buf "*3\r\n\$5\r\nfcall\r\n\$4\r\ntest\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         }
@@ -808,8 +816,8 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
 
         if {$is_eval == 0} {
-            # read the ok reply of function create
-            assert_match {OK} [$rd read]
+            # read the function name
+            assert_match {test} [$rd read]
         }
 
         catch {$rd read} res
