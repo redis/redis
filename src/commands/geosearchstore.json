@@ -95,7 +95,6 @@
                     {
                         "name": "circle",
                         "type": "block",
-                        "optional": true,
                         "arguments": [
                             {
                                 "token": "BYRADIUS",
@@ -133,7 +132,6 @@
                     {
                         "name": "box",
                         "type": "block",
-                        "optional": true,
                         "arguments": [
                             {
                                 "token": "BYBOX",

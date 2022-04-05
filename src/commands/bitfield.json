@@ -52,7 +52,6 @@
                         "token": "GET",
                         "name": "encoding_offset",
                         "type": "block",
-                        "optional": true,
                         "arguments": [
                             {
                                 "name": "encoding",
@@ -65,65 +64,75 @@
                         ]
                     },
                     {
-                        "token": "SET",
-                        "name": "encoding_offset_value",
+                        "name": "write",
                         "type": "block",
-                        "optional": true,
                         "arguments": [
                             {
-                                "name": "encoding",
-                                "type": "string"
+                                "token": "OVERFLOW",
+                                "name": "wrap_sat_fail",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "wrap",
+                                        "type": "pure-token",
+                                        "token": "WRAP"
+                                    },
+                                    {
+                                        "name": "sat",
+                                        "type": "pure-token",
+                                        "token": "SAT"
+                                    },
+                                    {
+                                        "name": "fail",
+                                        "type": "pure-token",
+                                        "token": "FAIL"
+                                    }
+                                ]
                             },
                             {
-                                "name": "offset",
-                                "type": "integer"
-                            },
-                            {
-                                "name": "value",
-                                "type": "integer"
-                            }
-                        ]
-                    },
-                    {
-                        "token": "INCRBY",
-                        "name": "encoding_offset_increment",
-                        "type": "block",
-                        "optional": true,
-                        "arguments": [
-                            {
-                                "name": "encoding",
-                                "type": "string"
-                            },
-                            {
-                                "name": "offset",
-                                "type": "integer"
-                            },
-                            {
-                                "name": "increment",
-                                "type": "integer"
-                            }
-                        ]
-                    },
-                    {
-                        "token": "OVERFLOW",
-                        "name": "wrap_sat_fail",
-                        "type": "oneof",
-                        "optional": true,
-                        "arguments": [
-                            {
-                                "name": "wrap",
-                                "type": "pure-token",
-                                "token": "WRAP"
-                            },
-                            {
-                                "name": "sat",
-                                "type": "pure-token",
-                                "token": "SAT"
-                            },
-                            {
-                                "name": "fail",
-                                "type": "pure-token",
-                                "token": "FAIL"
+                                "name": "write_operation",
+                                "type": "oneof",
+                                "arguments": [
+                                    {
+                                        "token": "SET",
+                                        "name": "encoding_offset_value",
+                                        "type": "block",
+                                        "arguments": [
+                                            {
+                                                "name": "encoding",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "name": "offset",
+                                                "type": "integer"
+                                            },
+                                            {
+                                                "name": "value",
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "token": "INCRBY",
+                                        "name": "encoding_offset_increment",
+                                        "type": "block",
+                                        "arguments": [
+                                            {
+                                                "name": "encoding",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "name": "offset",
+                                                "type": "integer"
+                                            },
+                                            {
+                                                "name": "increment",
+                                                "type": "integer"
+                                            }
+                                        ]
+                                    }
+                                ]
                             }
                         ]
                     }
