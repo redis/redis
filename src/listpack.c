@@ -956,7 +956,7 @@ unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char 
  * If the double happens have a value representable by long long, it'll be inserted as an integer,
  * if not, it'll be converted to string.
  * The advantage of exposing such an interface is that the caller doesn't convert doubles to strings,
- * and then the listpack code tries to see if they hapen to be integers (inefficient). */
+ * and then the listpack code tries to see if they happen to be integers (inefficient). */
 unsigned char *lpInsertDouble(unsigned char *lp, double dval, unsigned char *p, int where, unsigned char **newp) {
     long long lval;
     if (double2ll(dval, &lval)) {
