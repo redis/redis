@@ -18,7 +18,8 @@ proc get_cluster_nodes id {
         set args [split $l]
         set node [dict create \
             id [lindex $args 0] \
-            addr [lindex $args 1] \
+            addr [lindex [split [lindex $args 1] ,] 0] \
+            shard-id [lindex [split [lindex [split [lindex $args 1] ,] 2] = ] 1]\
             flags [split [lindex $args 2] ,] \
             slaveof [lindex $args 3] \
             ping_sent [lindex $args 4] \
