@@ -14,8 +14,6 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-set replica_id 2
-
 set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 
 test "CLUSTER Unknown node" {
