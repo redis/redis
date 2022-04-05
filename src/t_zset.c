@@ -1027,27 +1027,14 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
 
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
     unsigned char *sptr;
-    char scorebuf[MAX_D2STRING_CHARS];
-    int scorelen;
-    long long lscore;
-    int score_is_long = double2ll(score, &lscore);
-    if (!score_is_long)
-        scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
         zl = lpAppend(zl,(unsigned char*)ele,sdslen(ele));
-        if (score_is_long)
-            zl = lpAppendInteger(zl,lscore);
-        else
-            zl = lpAppend(zl,(unsigned char*)scorebuf,scorelen);
+        zl = lpAppendDouble(zl,score);
     } else {
         /* Insert member before the element 'eptr'. */
         zl = lpInsertString(zl,(unsigned char*)ele,sdslen(ele),eptr,LP_BEFORE,&sptr);
-
         /* Insert score after the member. */
-        if (score_is_long)
-            zl = lpInsertInteger(zl,lscore,sptr,LP_AFTER,NULL);
-        else
-            zl = lpInsertString(zl,(unsigned char*)scorebuf,scorelen,sptr,LP_AFTER,NULL);
+        zl = lpInsertDouble(zl,score,sptr,LP_AFTER,NULL);
     }
     return zl;
 }
