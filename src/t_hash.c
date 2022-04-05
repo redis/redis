@@ -205,10 +205,11 @@ int hashTypeExists(robj *o, sds field) {
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
-    /* It's here to serve HINCRBY* and that in case of HSET/HMSET it'll actually be a NOP 
-     * since we have the early check before appending the first item. */
+    /* Check if the field is too long for listpack, and convert before adding the item.
+     * This is needed for HINCRBY* case since in other commands this is handled early by
+     * hashTypeTryConversion, so this check will be a NOP. */
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        if (sdslen(field) > server.hash_max_listpack_value || sdslen(value)> server.hash_max_listpack_value)
+        if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     }
     
