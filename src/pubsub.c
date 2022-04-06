@@ -589,6 +589,8 @@ int pubsubPublishMessageByType(robj *channel, robj *message, int sharded) {
             clusterPropagatePublish(channel, message);
         }
     }
+
+    return receivers;
 }
 
 /* PUBLISH <channel> <message> */
