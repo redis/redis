@@ -19,23 +19,23 @@ commandHistory BITCOUNT_History[] = {
 
 /* BITCOUNT index index_unit argument table */
 struct redisCommandArg BITCOUNT_index_index_unit_Subargs[] = {
-{"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE},
-{"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE},
+{"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITCOUNT index argument table */
 struct redisCommandArg BITCOUNT_index_Subargs[] = {
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITCOUNT_index_index_unit_Subargs},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=BITCOUNT_index_index_unit_Subargs},
 {0}
 };
 
 /* BITCOUNT argument table */
 struct redisCommandArg BITCOUNT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITCOUNT_index_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITCOUNT_index_Subargs},
 {0}
 };
 
@@ -49,60 +49,60 @@ struct redisCommandArg BITCOUNT_Args[] = {
 
 /* BITFIELD operation encoding_offset argument table */
 struct redisCommandArg BITFIELD_operation_encoding_offset_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITFIELD operation write wrap_sat_fail argument table */
 struct redisCommandArg BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
-{"wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE},
-{"sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE},
-{"fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE},
+{"wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,NULL,CMD_ARG_NONE},
+{"sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_value argument table */
 struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_increment argument table */
 struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITFIELD operation write write_operation argument table */
 struct redisCommandArg BITFIELD_operation_write_write_operation_Subargs[] = {
-{"encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
-{"encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
+{"encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
+{"encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
 {0}
 };
 
 /* BITFIELD operation write argument table */
 struct redisCommandArg BITFIELD_operation_write_Subargs[] = {
-{"wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
-{"write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_Subargs},
+{"wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
+{"write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_Subargs},
 {0}
 };
 
 /* BITFIELD operation argument table */
 struct redisCommandArg BITFIELD_operation_Subargs[] = {
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_encoding_offset_Subargs},
-{"write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_Subargs},
+{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_encoding_offset_Subargs},
+{"write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_Subargs},
 {0}
 };
 
 /* BITFIELD argument table */
 struct redisCommandArg BITFIELD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_operation_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_operation_Subargs},
 {0}
 };
 
@@ -116,15 +116,15 @@ struct redisCommandArg BITFIELD_Args[] = {
 
 /* BITFIELD_RO encoding_offset argument table */
 struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITFIELD_RO argument table */
 struct redisCommandArg BITFIELD_RO_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_RO_encoding_offset_Subargs},
 {0}
 };
 
@@ -138,9 +138,9 @@ struct redisCommandArg BITFIELD_RO_Args[] = {
 
 /* BITOP argument table */
 struct redisCommandArg BITOP_Args[] = {
-{"operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -157,30 +157,30 @@ commandHistory BITPOS_History[] = {
 
 /* BITPOS index end_index index_unit argument table */
 struct redisCommandArg BITPOS_index_end_index_index_unit_Subargs[] = {
-{"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE},
-{"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE},
+{"byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BITPOS index end_index argument table */
 struct redisCommandArg BITPOS_index_end_index_Subargs[] = {
-{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_index_unit_Subargs},
+{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_index_unit_Subargs},
 {0}
 };
 
 /* BITPOS index argument table */
 struct redisCommandArg BITPOS_index_Subargs[] = {
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_Subargs},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_end_index_Subargs},
 {0}
 };
 
 /* BITPOS argument table */
 struct redisCommandArg BITPOS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITPOS_index_Subargs},
 {0}
 };
 
@@ -194,8 +194,8 @@ struct redisCommandArg BITPOS_Args[] = {
 
 /* GETBIT argument table */
 struct redisCommandArg GETBIT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -209,9 +209,9 @@ struct redisCommandArg GETBIT_Args[] = {
 
 /* SETBIT argument table */
 struct redisCommandArg SETBIT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -236,7 +236,7 @@ NULL
 
 /* CLUSTER ADDSLOTS argument table */
 struct redisCommandArg CLUSTER_ADDSLOTS_Args[] = {
-{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -253,14 +253,14 @@ NULL
 
 /* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
 struct redisCommandArg CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
-{"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLUSTER ADDSLOTSRANGE argument table */
 struct redisCommandArg CLUSTER_ADDSLOTSRANGE_Args[] = {
-{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
+{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
 {0}
 };
 
@@ -288,7 +288,7 @@ NULL
 
 /* CLUSTER COUNT_FAILURE_REPORTS argument table */
 struct redisCommandArg CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
-{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -305,7 +305,7 @@ NULL
 
 /* CLUSTER COUNTKEYSINSLOT argument table */
 struct redisCommandArg CLUSTER_COUNTKEYSINSLOT_Args[] = {
-{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -322,7 +322,7 @@ NULL
 
 /* CLUSTER DELSLOTS argument table */
 struct redisCommandArg CLUSTER_DELSLOTS_Args[] = {
-{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -339,14 +339,14 @@ NULL
 
 /* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
 struct redisCommandArg CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
-{"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLUSTER DELSLOTSRANGE argument table */
 struct redisCommandArg CLUSTER_DELSLOTSRANGE_Args[] = {
-{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
+{"start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
 {0}
 };
 
@@ -363,14 +363,14 @@ NULL
 
 /* CLUSTER FAILOVER options argument table */
 struct redisCommandArg CLUSTER_FAILOVER_options_Subargs[] = {
-{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_NONE},
-{"takeover",ARG_TYPE_PURE_TOKEN,-1,"TAKEOVER",NULL,NULL,CMD_ARG_NONE},
+{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"takeover",ARG_TYPE_PURE_TOKEN,-1,"TAKEOVER",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLUSTER FAILOVER argument table */
 struct redisCommandArg CLUSTER_FAILOVER_Args[] = {
-{"options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_FAILOVER_options_Subargs},
+{"options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_FAILOVER_options_Subargs},
 {0}
 };
 
@@ -398,7 +398,7 @@ NULL
 
 /* CLUSTER FORGET argument table */
 struct redisCommandArg CLUSTER_FORGET_Args[] = {
-{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -415,8 +415,8 @@ NULL
 
 /* CLUSTER GETKEYSINSLOT argument table */
 struct redisCommandArg CLUSTER_GETKEYSINSLOT_Args[] = {
-{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -452,7 +452,7 @@ NULL
 
 /* CLUSTER KEYSLOT argument table */
 struct redisCommandArg CLUSTER_KEYSLOT_Args[] = {
-{"key",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -480,8 +480,8 @@ NULL
 
 /* CLUSTER MEET argument table */
 struct redisCommandArg CLUSTER_MEET_Args[] = {
-{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -520,7 +520,7 @@ NULL
 
 /* CLUSTER REPLICAS argument table */
 struct redisCommandArg CLUSTER_REPLICAS_Args[] = {
-{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -537,7 +537,7 @@ NULL
 
 /* CLUSTER REPLICATE argument table */
 struct redisCommandArg CLUSTER_REPLICATE_Args[] = {
-{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -554,14 +554,14 @@ NULL
 
 /* CLUSTER RESET hard_soft argument table */
 struct redisCommandArg CLUSTER_RESET_hard_soft_Subargs[] = {
-{"hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE},
-{"soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE},
+{"hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,NULL,CMD_ARG_NONE},
+{"soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLUSTER RESET argument table */
 struct redisCommandArg CLUSTER_RESET_Args[] = {
-{"hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_RESET_hard_soft_Subargs},
+{"hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLUSTER_RESET_hard_soft_Subargs},
 {0}
 };
 
@@ -589,7 +589,7 @@ NULL
 
 /* CLUSTER SET_CONFIG_EPOCH argument table */
 struct redisCommandArg CLUSTER_SET_CONFIG_EPOCH_Args[] = {
-{"config-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"config-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -606,17 +606,17 @@ NULL
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct redisCommandArg CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE},
-{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE},
-{"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLUSTER SETSLOT argument table */
 struct redisCommandArg CLUSTER_SETSLOT_Args[] = {
-{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLUSTER_SETSLOT_subcommand_Subargs},
+{"slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLUSTER_SETSLOT_subcommand_Subargs},
 {0}
 };
 
@@ -644,7 +644,7 @@ NULL
 
 /* CLUSTER SLAVES argument table */
 struct redisCommandArg CLUSTER_SLAVES_Args[] = {
-{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -732,8 +732,8 @@ commandHistory AUTH_History[] = {
 
 /* AUTH argument table */
 struct redisCommandArg AUTH_Args[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,"6.0.0",CMD_ARG_OPTIONAL},
-{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,"6.0.0",NULL,CMD_ARG_OPTIONAL},
+{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -747,14 +747,14 @@ struct redisCommandArg AUTH_Args[] = {
 
 /* CLIENT CACHING mode argument table */
 struct redisCommandArg CLIENT_CACHING_mode_Subargs[] = {
-{"yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE},
-{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE},
+{"yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,NULL,CMD_ARG_NONE},
+{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT CACHING argument table */
 struct redisCommandArg CLIENT_CACHING_Args[] = {
-{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_CACHING_mode_Subargs},
+{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_CACHING_mode_Subargs},
 {0}
 };
 
@@ -818,23 +818,23 @@ commandHistory CLIENT_KILL_History[] = {
 
 /* CLIENT KILL normal_master_slave_pubsub argument table */
 struct redisCommandArg CLIENT_KILL_normal_master_slave_pubsub_Subargs[] = {
-{"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE},
-{"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE},
-{"slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE},
-{"replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,"5.0.0",CMD_ARG_NONE},
-{"pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE},
+{"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,NULL,CMD_ARG_NONE},
+{"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",NULL,CMD_ARG_NONE},
+{"slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,"5.0.0",NULL,CMD_ARG_NONE},
+{"pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT KILL argument table */
 struct redisCommandArg CLIENT_KILL_Args[] = {
-{"ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
-{"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL},
-{"normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_normal_master_slave_pubsub_Subargs},
-{"username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL},
-{"ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL},
+{"ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",NULL,CMD_ARG_OPTIONAL},
+{"normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_normal_master_slave_pubsub_Subargs},
+{"username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -856,23 +856,23 @@ NULL
 
 /* CLIENT LIST normal_master_replica_pubsub argument table */
 struct redisCommandArg CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
-{"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE},
-{"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE},
-{"replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE},
-{"pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE},
+{"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,NULL,CMD_ARG_NONE},
+{"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,NULL,CMD_ARG_NONE},
+{"replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,NULL,CMD_ARG_NONE},
+{"pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT LIST id argument table */
 struct redisCommandArg CLIENT_LIST_id_Subargs[] = {
-{"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
 /* CLIENT LIST argument table */
 struct redisCommandArg CLIENT_LIST_Args[] = {
-{"normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
-{"id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_id_Subargs},
+{"normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
+{"id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_LIST_id_Subargs},
 {0}
 };
 
@@ -886,14 +886,14 @@ struct redisCommandArg CLIENT_LIST_Args[] = {
 
 /* CLIENT NO_EVICT enabled argument table */
 struct redisCommandArg CLIENT_NO_EVICT_enabled_Subargs[] = {
-{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE},
-{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE},
+{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,NULL,CMD_ARG_NONE},
+{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT NO_EVICT argument table */
 struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
-{"enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_NO_EVICT_enabled_Subargs},
+{"enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_NO_EVICT_enabled_Subargs},
 {0}
 };
 
@@ -910,15 +910,15 @@ commandHistory CLIENT_PAUSE_History[] = {
 
 /* CLIENT PAUSE mode argument table */
 struct redisCommandArg CLIENT_PAUSE_mode_Subargs[] = {
-{"write",ARG_TYPE_PURE_TOKEN,-1,"WRITE",NULL,NULL,CMD_ARG_NONE},
-{"all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE},
+{"write",ARG_TYPE_PURE_TOKEN,-1,"WRITE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT PAUSE argument table */
 struct redisCommandArg CLIENT_PAUSE_Args[] = {
-{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=CLIENT_PAUSE_mode_Subargs},
+{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_PAUSE_mode_Subargs},
 {0}
 };
 
@@ -932,15 +932,15 @@ struct redisCommandArg CLIENT_PAUSE_Args[] = {
 
 /* CLIENT REPLY on_off_skip argument table */
 struct redisCommandArg CLIENT_REPLY_on_off_skip_Subargs[] = {
-{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE},
-{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE},
-{"skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE},
+{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,NULL,CMD_ARG_NONE},
+{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,NULL,CMD_ARG_NONE},
+{"skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT REPLY argument table */
 struct redisCommandArg CLIENT_REPLY_Args[] = {
-{"on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_REPLY_on_off_skip_Subargs},
+{"on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_REPLY_on_off_skip_Subargs},
 {0}
 };
 
@@ -954,7 +954,7 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 
 /* CLIENT SETNAME argument table */
 struct redisCommandArg CLIENT_SETNAME_Args[] = {
-{"connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -968,20 +968,20 @@ struct redisCommandArg CLIENT_SETNAME_Args[] = {
 
 /* CLIENT TRACKING status argument table */
 struct redisCommandArg CLIENT_TRACKING_status_Subargs[] = {
-{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE},
-{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE},
+{"on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,NULL,CMD_ARG_NONE},
+{"off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT TRACKING argument table */
 struct redisCommandArg CLIENT_TRACKING_Args[] = {
-{"status",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_TRACKING_status_Subargs},
-{"client-id",ARG_TYPE_INTEGER,-1,"REDIRECT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"prefix",ARG_TYPE_STRING,-1,"PREFIX",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
-{"bcast",ARG_TYPE_PURE_TOKEN,-1,"BCAST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"optin",ARG_TYPE_PURE_TOKEN,-1,"OPTIN",NULL,NULL,CMD_ARG_OPTIONAL},
-{"optout",ARG_TYPE_PURE_TOKEN,-1,"OPTOUT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,CMD_ARG_OPTIONAL},
+{"status",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_TRACKING_status_Subargs},
+{"client-id",ARG_TYPE_INTEGER,-1,"REDIRECT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"prefix",ARG_TYPE_STRING,-1,"PREFIX",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"bcast",ARG_TYPE_PURE_TOKEN,-1,"BCAST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"optin",ARG_TYPE_PURE_TOKEN,-1,"OPTIN",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"optout",ARG_TYPE_PURE_TOKEN,-1,"OPTOUT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1003,15 +1003,15 @@ struct redisCommandArg CLIENT_TRACKING_Args[] = {
 
 /* CLIENT UNBLOCK timeout_error argument table */
 struct redisCommandArg CLIENT_UNBLOCK_timeout_error_Subargs[] = {
-{"timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE},
-{"error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE},
+{"timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CLIENT UNBLOCK argument table */
 struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
-{"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
+{"client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
 {0}
 };
 
@@ -1062,7 +1062,7 @@ struct redisCommand CLIENT_Subcommands[] = {
 
 /* ECHO argument table */
 struct redisCommandArg ECHO_Args[] = {
-{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1079,22 +1079,22 @@ commandHistory HELLO_History[] = {
 
 /* HELLO arguments username_password argument table */
 struct redisCommandArg HELLO_arguments_username_password_Subargs[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* HELLO arguments argument table */
 struct redisCommandArg HELLO_arguments_Subargs[] = {
-{"protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_username_password_Subargs},
-{"clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL},
+{"protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_username_password_Subargs},
+{"clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* HELLO argument table */
 struct redisCommandArg HELLO_Args[] = {
-{"arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_Subargs},
+{"arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HELLO_arguments_Subargs},
 {0}
 };
 
@@ -1112,7 +1112,7 @@ NULL
 
 /* PING argument table */
 struct redisCommandArg PING_Args[] = {
-{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1142,7 +1142,7 @@ struct redisCommandArg PING_Args[] = {
 
 /* SELECT argument table */
 struct redisCommandArg SELECT_Args[] = {
-{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1156,10 +1156,10 @@ struct redisCommandArg SELECT_Args[] = {
 
 /* COPY argument table */
 struct redisCommandArg COPY_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination-db",ARG_TYPE_INTEGER,-1,"DB",NULL,NULL,CMD_ARG_OPTIONAL},
-{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination-db",ARG_TYPE_INTEGER,-1,"DB",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1177,7 +1177,7 @@ NULL
 
 /* DEL argument table */
 struct redisCommandArg DEL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1194,7 +1194,7 @@ NULL
 
 /* DUMP argument table */
 struct redisCommandArg DUMP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1215,7 +1215,7 @@ NULL
 
 /* EXISTS argument table */
 struct redisCommandArg EXISTS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1232,18 +1232,18 @@ commandHistory EXPIRE_History[] = {
 
 /* EXPIRE condition argument table */
 struct redisCommandArg EXPIRE_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
-{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE},
-{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* EXPIRE argument table */
 struct redisCommandArg EXPIRE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=EXPIRE_condition_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=EXPIRE_condition_Subargs},
 {0}
 };
 
@@ -1260,18 +1260,18 @@ commandHistory EXPIREAT_History[] = {
 
 /* EXPIREAT condition argument table */
 struct redisCommandArg EXPIREAT_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
-{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE},
-{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* EXPIREAT argument table */
 struct redisCommandArg EXPIREAT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=EXPIREAT_condition_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=EXPIREAT_condition_Subargs},
 {0}
 };
 
@@ -1285,7 +1285,7 @@ struct redisCommandArg EXPIREAT_Args[] = {
 
 /* EXPIRETIME argument table */
 struct redisCommandArg EXPIRETIME_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1303,7 +1303,7 @@ NULL
 
 /* KEYS argument table */
 struct redisCommandArg KEYS_Args[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1326,36 +1326,36 @@ NULL
 
 /* MIGRATE key_or_empty_string argument table */
 struct redisCommandArg MIGRATE_key_or_empty_string_Subargs[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MIGRATE authentication username_password argument table */
 struct redisCommandArg MIGRATE_authentication_username_password_Subargs[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MIGRATE authentication argument table */
 struct redisCommandArg MIGRATE_authentication_Subargs[] = {
-{"password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL},
-{"username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_username_password_Subargs},
+{"password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",NULL,CMD_ARG_OPTIONAL},
+{"username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_username_password_Subargs},
 {0}
 };
 
 /* MIGRATE argument table */
 struct redisCommandArg MIGRATE_Args[] = {
-{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_or_empty_string_Subargs},
-{"destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL},
-{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL},
-{"authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_Subargs},
-{"key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=MIGRATE_key_or_empty_string_Subargs},
+{"destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",NULL,CMD_ARG_OPTIONAL},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",NULL,CMD_ARG_OPTIONAL},
+{"authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_Subargs},
+{"key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1369,8 +1369,8 @@ struct redisCommandArg MIGRATE_Args[] = {
 
 /* MOVE argument table */
 struct redisCommandArg MOVE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1387,7 +1387,7 @@ NULL
 
 /* OBJECT ENCODING argument table */
 struct redisCommandArg OBJECT_ENCODING_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1404,7 +1404,7 @@ NULL
 
 /* OBJECT FREQ argument table */
 struct redisCommandArg OBJECT_FREQ_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1429,7 +1429,7 @@ NULL
 
 /* OBJECT IDLETIME argument table */
 struct redisCommandArg OBJECT_IDLETIME_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1446,7 +1446,7 @@ NULL
 
 /* OBJECT REFCOUNT argument table */
 struct redisCommandArg OBJECT_REFCOUNT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1478,7 +1478,7 @@ struct redisCommand OBJECT_Subcommands[] = {
 
 /* PERSIST argument table */
 struct redisCommandArg PERSIST_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1495,18 +1495,18 @@ commandHistory PEXPIRE_History[] = {
 
 /* PEXPIRE condition argument table */
 struct redisCommandArg PEXPIRE_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
-{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE},
-{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* PEXPIRE argument table */
 struct redisCommandArg PEXPIRE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=PEXPIRE_condition_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=PEXPIRE_condition_Subargs},
 {0}
 };
 
@@ -1523,18 +1523,18 @@ commandHistory PEXPIREAT_History[] = {
 
 /* PEXPIREAT condition argument table */
 struct redisCommandArg PEXPIREAT_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
-{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE},
-{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* PEXPIREAT argument table */
 struct redisCommandArg PEXPIREAT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,.subargs=PEXPIREAT_condition_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL,.subargs=PEXPIREAT_condition_Subargs},
 {0}
 };
 
@@ -1548,7 +1548,7 @@ struct redisCommandArg PEXPIREAT_Args[] = {
 
 /* PEXPIRETIME argument table */
 struct redisCommandArg PEXPIRETIME_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1568,7 +1568,7 @@ NULL
 
 /* PTTL argument table */
 struct redisCommandArg PTTL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1594,8 +1594,8 @@ NULL
 
 /* RENAME argument table */
 struct redisCommandArg RENAME_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"newkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"newkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1612,8 +1612,8 @@ commandHistory RENAMENX_History[] = {
 
 /* RENAMENX argument table */
 struct redisCommandArg RENAMENX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"newkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"newkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1632,13 +1632,13 @@ commandHistory RESTORE_History[] = {
 
 /* RESTORE argument table */
 struct redisCommandArg RESTORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL},
-{"absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL},
-{"seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL},
-{"frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",NULL,CMD_ARG_OPTIONAL},
+{"absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",NULL,CMD_ARG_OPTIONAL},
+{"seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",NULL,CMD_ARG_OPTIONAL},
+{"frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1659,10 +1659,10 @@ NULL
 
 /* SCAN argument table */
 struct redisCommandArg SCAN_Args[] = {
-{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL},
+{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1676,27 +1676,27 @@ struct redisCommandArg SCAN_Args[] = {
 
 /* SORT offset_count argument table */
 struct redisCommandArg SORT_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SORT order argument table */
 struct redisCommandArg SORT_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SORT argument table */
 struct redisCommandArg SORT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_offset_count_Subargs},
-{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
-{"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
-{"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_offset_count_Subargs},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_order_Subargs},
+{"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1710,26 +1710,26 @@ struct redisCommandArg SORT_Args[] = {
 
 /* SORT_RO offset_count argument table */
 struct redisCommandArg SORT_RO_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SORT_RO order argument table */
 struct redisCommandArg SORT_RO_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SORT_RO argument table */
 struct redisCommandArg SORT_RO_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_offset_count_Subargs},
-{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
-{"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_offset_count_Subargs},
+{"pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SORT_RO_order_Subargs},
+{"sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1747,7 +1747,7 @@ NULL
 
 /* TOUCH argument table */
 struct redisCommandArg TOUCH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1767,7 +1767,7 @@ NULL
 
 /* TTL argument table */
 struct redisCommandArg TTL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1781,7 +1781,7 @@ struct redisCommandArg TTL_Args[] = {
 
 /* TYPE argument table */
 struct redisCommandArg TYPE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1799,7 +1799,7 @@ NULL
 
 /* UNLINK argument table */
 struct redisCommandArg UNLINK_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1817,8 +1817,8 @@ NULL
 
 /* WAIT argument table */
 struct redisCommandArg WAIT_Args[] = {
-{"numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -1835,25 +1835,25 @@ commandHistory GEOADD_History[] = {
 
 /* GEOADD condition argument table */
 struct redisCommandArg GEOADD_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOADD longitude_latitude_member argument table */
 struct redisCommandArg GEOADD_longitude_latitude_member_Subargs[] = {
-{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOADD argument table */
 struct redisCommandArg GEOADD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=GEOADD_condition_Subargs},
-{"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=GEOADD_longitude_latitude_member_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=GEOADD_condition_Subargs},
+{"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=GEOADD_longitude_latitude_member_Subargs},
 {0}
 };
 
@@ -1867,19 +1867,19 @@ struct redisCommandArg GEOADD_Args[] = {
 
 /* GEODIST unit argument table */
 struct redisCommandArg GEODIST_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEODIST argument table */
 struct redisCommandArg GEODIST_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member2",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEODIST_unit_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member2",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEODIST_unit_Subargs},
 {0}
 };
 
@@ -1893,8 +1893,8 @@ struct redisCommandArg GEODIST_Args[] = {
 
 /* GEOHASH argument table */
 struct redisCommandArg GEOHASH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1908,8 +1908,8 @@ struct redisCommandArg GEOHASH_Args[] = {
 
 /* GEOPOS argument table */
 struct redisCommandArg GEOPOS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -1926,41 +1926,41 @@ commandHistory GEORADIUS_History[] = {
 
 /* GEORADIUS unit argument table */
 struct redisCommandArg GEORADIUS_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUS count argument table */
 struct redisCommandArg GEORADIUS_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEORADIUS order argument table */
 struct redisCommandArg GEORADIUS_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUS argument table */
 struct redisCommandArg GEORADIUS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUS_unit_Subargs},
-{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_count_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_order_Subargs},
-{"key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUS_unit_Subargs},
+{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_count_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_order_Subargs},
+{"key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -1974,40 +1974,40 @@ struct redisCommandArg GEORADIUS_Args[] = {
 
 /* GEORADIUSBYMEMBER unit argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUSBYMEMBER count argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEORADIUSBYMEMBER order argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUSBYMEMBER argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUSBYMEMBER_unit_Subargs},
-{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_count_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{"key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUSBYMEMBER_unit_Subargs},
+{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_count_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_order_Subargs},
+{"key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2021,38 +2021,38 @@ struct redisCommandArg GEORADIUSBYMEMBER_Args[] = {
 
 /* GEORADIUSBYMEMBER_RO unit argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_RO_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO count argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_RO_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO order argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_RO_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO argument table */
 struct redisCommandArg GEORADIUSBYMEMBER_RO_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUSBYMEMBER_RO_unit_Subargs},
-{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUSBYMEMBER_RO_unit_Subargs},
+{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
 {0}
 };
 
@@ -2069,39 +2069,39 @@ commandHistory GEORADIUS_RO_History[] = {
 
 /* GEORADIUS_RO unit argument table */
 struct redisCommandArg GEORADIUS_RO_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUS_RO count argument table */
 struct redisCommandArg GEORADIUS_RO_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEORADIUS_RO order argument table */
 struct redisCommandArg GEORADIUS_RO_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEORADIUS_RO argument table */
 struct redisCommandArg GEORADIUS_RO_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUS_RO_unit_Subargs},
-{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_RO_count_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_RO_order_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEORADIUS_RO_unit_Subargs},
+{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_RO_count_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEORADIUS_RO_order_Subargs},
 {0}
 };
 
@@ -2115,82 +2115,82 @@ struct redisCommandArg GEORADIUS_RO_Args[] = {
 
 /* GEOSEARCH from longitude_latitude argument table */
 struct redisCommandArg GEOSEARCH_from_longitude_latitude_Subargs[] = {
-{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCH from argument table */
 struct redisCommandArg GEOSEARCH_from_Subargs[] = {
-{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE},
-{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
+{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
 {0}
 };
 
 /* GEOSEARCH by circle unit argument table */
 struct redisCommandArg GEOSEARCH_by_circle_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCH by circle argument table */
 struct redisCommandArg GEOSEARCH_by_circle_Subargs[] = {
-{"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_unit_Subargs},
+{"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCH by box unit argument table */
 struct redisCommandArg GEOSEARCH_by_box_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCH by box argument table */
 struct redisCommandArg GEOSEARCH_by_box_Subargs[] = {
-{"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE},
-{"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_unit_Subargs},
+{"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCH by argument table */
 struct redisCommandArg GEOSEARCH_by_Subargs[] = {
-{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_Subargs},
-{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_Subargs},
+{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_Subargs},
 {0}
 };
 
 /* GEOSEARCH order argument table */
 struct redisCommandArg GEOSEARCH_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCH count argument table */
 struct redisCommandArg GEOSEARCH_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEOSEARCH argument table */
 struct redisCommandArg GEOSEARCH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_Subargs},
-{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_order_Subargs},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_count_Subargs},
-{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_Subargs},
+{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_order_Subargs},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_count_Subargs},
+{"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2204,81 +2204,81 @@ struct redisCommandArg GEOSEARCH_Args[] = {
 
 /* GEOSEARCHSTORE from longitude_latitude argument table */
 struct redisCommandArg GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
-{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCHSTORE from argument table */
 struct redisCommandArg GEOSEARCHSTORE_from_Subargs[] = {
-{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE},
-{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
+{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,NULL,CMD_ARG_NONE},
+{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by circle unit argument table */
 struct redisCommandArg GEOSEARCHSTORE_by_circle_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCHSTORE by circle argument table */
 struct redisCommandArg GEOSEARCHSTORE_by_circle_Subargs[] = {
-{"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
+{"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by box unit argument table */
 struct redisCommandArg GEOSEARCHSTORE_by_box_unit_Subargs[] = {
-{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
-{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
-{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
-{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE},
+{"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,NULL,CMD_ARG_NONE},
+{"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCHSTORE by box argument table */
 struct redisCommandArg GEOSEARCHSTORE_by_box_Subargs[] = {
-{"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE},
-{"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
+{"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by argument table */
 struct redisCommandArg GEOSEARCHSTORE_by_Subargs[] = {
-{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_Subargs},
-{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_Subargs},
+{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE order argument table */
 struct redisCommandArg GEOSEARCHSTORE_order_Subargs[] = {
-{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE},
-{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE},
+{"asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GEOSEARCHSTORE count argument table */
 struct redisCommandArg GEOSEARCHSTORE_count_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE},
-{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* GEOSEARCHSTORE argument table */
 struct redisCommandArg GEOSEARCHSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"source",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_Subargs},
-{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_Subargs},
-{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_order_Subargs},
-{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_count_Subargs},
-{"storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_Subargs},
+{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_Subargs},
+{"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_order_Subargs},
+{"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_count_Subargs},
+{"storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2295,8 +2295,8 @@ commandHistory HDEL_History[] = {
 
 /* HDEL argument table */
 struct redisCommandArg HDEL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2310,8 +2310,8 @@ struct redisCommandArg HDEL_Args[] = {
 
 /* HEXISTS argument table */
 struct redisCommandArg HEXISTS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2325,8 +2325,8 @@ struct redisCommandArg HEXISTS_Args[] = {
 
 /* HGET argument table */
 struct redisCommandArg HGET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2343,7 +2343,7 @@ NULL
 
 /* HGETALL argument table */
 struct redisCommandArg HGETALL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2357,9 +2357,9 @@ struct redisCommandArg HGETALL_Args[] = {
 
 /* HINCRBY argument table */
 struct redisCommandArg HINCRBY_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2373,9 +2373,9 @@ struct redisCommandArg HINCRBY_Args[] = {
 
 /* HINCRBYFLOAT argument table */
 struct redisCommandArg HINCRBYFLOAT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2392,7 +2392,7 @@ NULL
 
 /* HKEYS argument table */
 struct redisCommandArg HKEYS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2406,7 +2406,7 @@ struct redisCommandArg HKEYS_Args[] = {
 
 /* HLEN argument table */
 struct redisCommandArg HLEN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2420,8 +2420,8 @@ struct redisCommandArg HLEN_Args[] = {
 
 /* HMGET argument table */
 struct redisCommandArg HMGET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2435,15 +2435,15 @@ struct redisCommandArg HMGET_Args[] = {
 
 /* HMSET field_value argument table */
 struct redisCommandArg HMSET_field_value_Subargs[] = {
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* HMSET argument table */
 struct redisCommandArg HMSET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=HMSET_field_value_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=HMSET_field_value_Subargs},
 {0}
 };
 
@@ -2460,15 +2460,15 @@ NULL
 
 /* HRANDFIELD options argument table */
 struct redisCommandArg HRANDFIELD_options_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* HRANDFIELD argument table */
 struct redisCommandArg HRANDFIELD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HRANDFIELD_options_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=HRANDFIELD_options_Subargs},
 {0}
 };
 
@@ -2485,10 +2485,10 @@ NULL
 
 /* HSCAN argument table */
 struct redisCommandArg HSCAN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2505,15 +2505,15 @@ commandHistory HSET_History[] = {
 
 /* HSET field_value argument table */
 struct redisCommandArg HSET_field_value_Subargs[] = {
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* HSET argument table */
 struct redisCommandArg HSET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=HSET_field_value_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=HSET_field_value_Subargs},
 {0}
 };
 
@@ -2527,9 +2527,9 @@ struct redisCommandArg HSET_Args[] = {
 
 /* HSETNX argument table */
 struct redisCommandArg HSETNX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2543,8 +2543,8 @@ struct redisCommandArg HSETNX_Args[] = {
 
 /* HSTRLEN argument table */
 struct redisCommandArg HSTRLEN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2561,7 +2561,7 @@ NULL
 
 /* HVALS argument table */
 struct redisCommandArg HVALS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2575,8 +2575,8 @@ struct redisCommandArg HVALS_Args[] = {
 
 /* PFADD argument table */
 struct redisCommandArg PFADD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2590,7 +2590,7 @@ struct redisCommandArg PFADD_Args[] = {
 
 /* PFCOUNT argument table */
 struct redisCommandArg PFCOUNT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2612,8 +2612,8 @@ struct redisCommandArg PFCOUNT_Args[] = {
 
 /* PFMERGE argument table */
 struct redisCommandArg PFMERGE_Args[] = {
-{"destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2635,25 +2635,25 @@ struct redisCommandArg PFMERGE_Args[] = {
 
 /* BLMOVE wherefrom argument table */
 struct redisCommandArg BLMOVE_wherefrom_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BLMOVE whereto argument table */
 struct redisCommandArg BLMOVE_whereto_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BLMOVE argument table */
 struct redisCommandArg BLMOVE_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMOVE_wherefrom_Subargs},
-{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMOVE_whereto_Subargs},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMOVE_wherefrom_Subargs},
+{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMOVE_whereto_Subargs},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2667,18 +2667,18 @@ struct redisCommandArg BLMOVE_Args[] = {
 
 /* BLMPOP where argument table */
 struct redisCommandArg BLMPOP_where_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BLMPOP argument table */
 struct redisCommandArg BLMPOP_Args[] = {
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMPOP_where_Subargs},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMPOP_where_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2695,8 +2695,8 @@ commandHistory BLPOP_History[] = {
 
 /* BLPOP argument table */
 struct redisCommandArg BLPOP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2713,8 +2713,8 @@ commandHistory BRPOP_History[] = {
 
 /* BRPOP argument table */
 struct redisCommandArg BRPOP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2731,9 +2731,9 @@ commandHistory BRPOPLPUSH_History[] = {
 
 /* BRPOPLPUSH argument table */
 struct redisCommandArg BRPOPLPUSH_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2747,8 +2747,8 @@ struct redisCommandArg BRPOPLPUSH_Args[] = {
 
 /* LINDEX argument table */
 struct redisCommandArg LINDEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2762,17 +2762,17 @@ struct redisCommandArg LINDEX_Args[] = {
 
 /* LINSERT where argument table */
 struct redisCommandArg LINSERT_where_Subargs[] = {
-{"before",ARG_TYPE_PURE_TOKEN,-1,"BEFORE",NULL,NULL,CMD_ARG_NONE},
-{"after",ARG_TYPE_PURE_TOKEN,-1,"AFTER",NULL,NULL,CMD_ARG_NONE},
+{"before",ARG_TYPE_PURE_TOKEN,-1,"BEFORE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"after",ARG_TYPE_PURE_TOKEN,-1,"AFTER",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* LINSERT argument table */
 struct redisCommandArg LINSERT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LINSERT_where_Subargs},
-{"pivot",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LINSERT_where_Subargs},
+{"pivot",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2786,7 +2786,7 @@ struct redisCommandArg LINSERT_Args[] = {
 
 /* LLEN argument table */
 struct redisCommandArg LLEN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2800,24 +2800,24 @@ struct redisCommandArg LLEN_Args[] = {
 
 /* LMOVE wherefrom argument table */
 struct redisCommandArg LMOVE_wherefrom_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* LMOVE whereto argument table */
 struct redisCommandArg LMOVE_whereto_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* LMOVE argument table */
 struct redisCommandArg LMOVE_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_wherefrom_Subargs},
-{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_whereto_Subargs},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_wherefrom_Subargs},
+{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_whereto_Subargs},
 {0}
 };
 
@@ -2831,17 +2831,17 @@ struct redisCommandArg LMOVE_Args[] = {
 
 /* LMPOP where argument table */
 struct redisCommandArg LMPOP_where_Subargs[] = {
-{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
-{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* LMPOP argument table */
 struct redisCommandArg LMPOP_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMPOP_where_Subargs},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMPOP_where_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2858,8 +2858,8 @@ commandHistory LPOP_History[] = {
 
 /* LPOP argument table */
 struct redisCommandArg LPOP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2873,11 +2873,11 @@ struct redisCommandArg LPOP_Args[] = {
 
 /* LPOS argument table */
 struct redisCommandArg LPOS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"rank",ARG_TYPE_INTEGER,-1,"RANK",NULL,NULL,CMD_ARG_OPTIONAL},
-{"num-matches",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"rank",ARG_TYPE_INTEGER,-1,"RANK",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"num-matches",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -2894,8 +2894,8 @@ commandHistory LPUSH_History[] = {
 
 /* LPUSH argument table */
 struct redisCommandArg LPUSH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2912,8 +2912,8 @@ commandHistory LPUSHX_History[] = {
 
 /* LPUSHX argument table */
 struct redisCommandArg LPUSHX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -2927,9 +2927,9 @@ struct redisCommandArg LPUSHX_Args[] = {
 
 /* LRANGE argument table */
 struct redisCommandArg LRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2943,9 +2943,9 @@ struct redisCommandArg LRANGE_Args[] = {
 
 /* LREM argument table */
 struct redisCommandArg LREM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2959,9 +2959,9 @@ struct redisCommandArg LREM_Args[] = {
 
 /* LSET argument table */
 struct redisCommandArg LSET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2975,9 +2975,9 @@ struct redisCommandArg LSET_Args[] = {
 
 /* LTRIM argument table */
 struct redisCommandArg LTRIM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -2994,8 +2994,8 @@ commandHistory RPOP_History[] = {
 
 /* RPOP argument table */
 struct redisCommandArg RPOP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3009,8 +3009,8 @@ struct redisCommandArg RPOP_Args[] = {
 
 /* RPOPLPUSH argument table */
 struct redisCommandArg RPOPLPUSH_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3027,8 +3027,8 @@ commandHistory RPUSH_History[] = {
 
 /* RPUSH argument table */
 struct redisCommandArg RPUSH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3045,8 +3045,8 @@ commandHistory RPUSHX_History[] = {
 
 /* RPUSHX argument table */
 struct redisCommandArg RPUSHX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3060,13 +3060,13 @@ struct redisCommandArg RPUSHX_Args[] = {
 
 /* PSUBSCRIBE pattern argument table */
 struct redisCommandArg PSUBSCRIBE_pattern_Subargs[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* PSUBSCRIBE argument table */
 struct redisCommandArg PSUBSCRIBE_Args[] = {
-{"pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=PSUBSCRIBE_pattern_Subargs},
+{"pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=PSUBSCRIBE_pattern_Subargs},
 {0}
 };
 
@@ -3080,8 +3080,8 @@ struct redisCommandArg PSUBSCRIBE_Args[] = {
 
 /* PUBLISH argument table */
 struct redisCommandArg PUBLISH_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3095,7 +3095,7 @@ struct redisCommandArg PUBLISH_Args[] = {
 
 /* PUBSUB CHANNELS argument table */
 struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3125,7 +3125,7 @@ struct redisCommandArg PUBSUB_CHANNELS_Args[] = {
 
 /* PUBSUB NUMSUB argument table */
 struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3139,7 +3139,7 @@ struct redisCommandArg PUBSUB_NUMSUB_Args[] = {
 
 /* PUBSUB SHARDCHANNELS argument table */
 struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3153,7 +3153,7 @@ struct redisCommandArg PUBSUB_SHARDCHANNELS_Args[] = {
 
 /* PUBSUB SHARDNUMSUB argument table */
 struct redisCommandArg PUBSUB_SHARDNUMSUB_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3186,7 +3186,7 @@ struct redisCommand PUBSUB_Subcommands[] = {
 
 /* PUNSUBSCRIBE argument table */
 struct redisCommandArg PUNSUBSCRIBE_Args[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3200,8 +3200,8 @@ struct redisCommandArg PUNSUBSCRIBE_Args[] = {
 
 /* SPUBLISH argument table */
 struct redisCommandArg SPUBLISH_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3215,7 +3215,7 @@ struct redisCommandArg SPUBLISH_Args[] = {
 
 /* SSUBSCRIBE argument table */
 struct redisCommandArg SSUBSCRIBE_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3229,7 +3229,7 @@ struct redisCommandArg SSUBSCRIBE_Args[] = {
 
 /* SUBSCRIBE argument table */
 struct redisCommandArg SUBSCRIBE_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3243,7 +3243,7 @@ struct redisCommandArg SUBSCRIBE_Args[] = {
 
 /* SUNSUBSCRIBE argument table */
 struct redisCommandArg SUNSUBSCRIBE_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3257,7 +3257,7 @@ struct redisCommandArg SUNSUBSCRIBE_Args[] = {
 
 /* UNSUBSCRIBE argument table */
 struct redisCommandArg UNSUBSCRIBE_Args[] = {
-{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3271,10 +3271,10 @@ struct redisCommandArg UNSUBSCRIBE_Args[] = {
 
 /* EVAL argument table */
 struct redisCommandArg EVAL_Args[] = {
-{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3288,10 +3288,10 @@ struct redisCommandArg EVAL_Args[] = {
 
 /* EVALSHA argument table */
 struct redisCommandArg EVALSHA_Args[] = {
-{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3305,10 +3305,10 @@ struct redisCommandArg EVALSHA_Args[] = {
 
 /* EVALSHA_RO argument table */
 struct redisCommandArg EVALSHA_RO_Args[] = {
-{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3322,10 +3322,10 @@ struct redisCommandArg EVALSHA_RO_Args[] = {
 
 /* EVAL_RO argument table */
 struct redisCommandArg EVAL_RO_Args[] = {
-{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3339,10 +3339,10 @@ struct redisCommandArg EVAL_RO_Args[] = {
 
 /* FCALL argument table */
 struct redisCommandArg FCALL_Args[] = {
-{"function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3356,10 +3356,10 @@ struct redisCommandArg FCALL_Args[] = {
 
 /* FCALL_RO argument table */
 struct redisCommandArg FCALL_RO_Args[] = {
-{"function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3377,7 +3377,7 @@ NULL
 
 /* FUNCTION DELETE argument table */
 struct redisCommandArg FUNCTION_DELETE_Args[] = {
-{"library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3403,14 +3403,14 @@ NULL
 
 /* FUNCTION FLUSH async argument table */
 struct redisCommandArg FUNCTION_FLUSH_async_Subargs[] = {
-{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE},
-{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE},
+{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* FUNCTION FLUSH argument table */
 struct redisCommandArg FUNCTION_FLUSH_Args[] = {
-{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_FLUSH_async_Subargs},
+{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_FLUSH_async_Subargs},
 {0}
 };
 
@@ -3447,8 +3447,8 @@ NULL
 
 /* FUNCTION LIST argument table */
 struct redisCommandArg FUNCTION_LIST_Args[] = {
-{"library-name-pattern",ARG_TYPE_STRING,-1,"LIBRARYNAME",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withcode",ARG_TYPE_PURE_TOKEN,-1,"WITHCODE",NULL,NULL,CMD_ARG_OPTIONAL},
+{"library-name-pattern",ARG_TYPE_STRING,-1,"LIBRARYNAME",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withcode",ARG_TYPE_PURE_TOKEN,-1,"WITHCODE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -3466,8 +3466,8 @@ NULL
 
 /* FUNCTION LOAD argument table */
 struct redisCommandArg FUNCTION_LOAD_Args[] = {
-{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3485,16 +3485,16 @@ NULL
 
 /* FUNCTION RESTORE policy argument table */
 struct redisCommandArg FUNCTION_RESTORE_policy_Subargs[] = {
-{"flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE},
-{"append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE},
-{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE},
+{"flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,NULL,CMD_ARG_NONE},
+{"append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,NULL,CMD_ARG_NONE},
+{"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* FUNCTION RESTORE argument table */
 struct redisCommandArg FUNCTION_RESTORE_Args[] = {
-{"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_RESTORE_policy_Subargs},
+{"serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FUNCTION_RESTORE_policy_Subargs},
 {0}
 };
 
@@ -3543,15 +3543,15 @@ struct redisCommand FUNCTION_Subcommands[] = {
 
 /* SCRIPT DEBUG mode argument table */
 struct redisCommandArg SCRIPT_DEBUG_mode_Subargs[] = {
-{"yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE},
-{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE},
-{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE},
+{"yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,NULL,CMD_ARG_NONE},
+{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SCRIPT DEBUG argument table */
 struct redisCommandArg SCRIPT_DEBUG_Args[] = {
-{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SCRIPT_DEBUG_mode_Subargs},
+{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SCRIPT_DEBUG_mode_Subargs},
 {0}
 };
 
@@ -3569,7 +3569,7 @@ NULL
 
 /* SCRIPT EXISTS argument table */
 struct redisCommandArg SCRIPT_EXISTS_Args[] = {
-{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3590,14 +3590,14 @@ NULL
 
 /* SCRIPT FLUSH async argument table */
 struct redisCommandArg SCRIPT_FLUSH_async_Subargs[] = {
-{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE},
-{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE},
+{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,NULL,CMD_ARG_NONE},
+{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SCRIPT FLUSH argument table */
 struct redisCommandArg SCRIPT_FLUSH_Args[] = {
-{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=SCRIPT_FLUSH_async_Subargs},
+{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=SCRIPT_FLUSH_async_Subargs},
 {0}
 };
 
@@ -3635,7 +3635,7 @@ NULL
 
 /* SCRIPT LOAD argument table */
 struct redisCommandArg SCRIPT_LOAD_Args[] = {
-{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3668,7 +3668,7 @@ struct redisCommand SCRIPT_Subcommands[] = {
 
 /* SENTINEL CKQUORUM argument table */
 struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3682,21 +3682,21 @@ struct redisCommandArg SENTINEL_CKQUORUM_Args[] = {
 
 /* SENTINEL CONFIG set_or_get set_param_value argument table */
 struct redisCommandArg SENTINEL_CONFIG_set_or_get_set_param_value_Subargs[] = {
-{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SENTINEL CONFIG set_or_get argument table */
 struct redisCommandArg SENTINEL_CONFIG_set_or_get_Subargs[] = {
-{"set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
-{"parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE},
+{"set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
+{"parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
 /* SENTINEL CONFIG argument table */
 struct redisCommandArg SENTINEL_CONFIG_Args[] = {
-{"set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
+{"set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
 {0}
 };
 
@@ -3710,14 +3710,14 @@ struct redisCommandArg SENTINEL_CONFIG_Args[] = {
 
 /* SENTINEL DEBUG parameter_value argument table */
 struct redisCommandArg SENTINEL_DEBUG_parameter_value_Subargs[] = {
-{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SENTINEL DEBUG argument table */
 struct redisCommandArg SENTINEL_DEBUG_Args[] = {
-{"parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
+{"parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
 {0}
 };
 
@@ -3731,7 +3731,7 @@ struct redisCommandArg SENTINEL_DEBUG_Args[] = {
 
 /* SENTINEL FAILOVER argument table */
 struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3753,7 +3753,7 @@ struct redisCommandArg SENTINEL_FAILOVER_Args[] = {
 
 /* SENTINEL GET_MASTER_ADDR_BY_NAME argument table */
 struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3775,7 +3775,7 @@ struct redisCommandArg SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
 
 /* SENTINEL INFO_CACHE argument table */
 struct redisCommandArg SENTINEL_INFO_CACHE_Args[] = {
-{"nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -3789,10 +3789,10 @@ struct redisCommandArg SENTINEL_INFO_CACHE_Args[] = {
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR argument table */
 struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
-{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3806,7 +3806,7 @@ struct redisCommandArg SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
 
 /* SENTINEL MASTER argument table */
 struct redisCommandArg SENTINEL_MASTER_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3828,10 +3828,10 @@ struct redisCommandArg SENTINEL_MASTER_Args[] = {
 
 /* SENTINEL MONITOR argument table */
 struct redisCommandArg SENTINEL_MONITOR_Args[] = {
-{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3861,7 +3861,7 @@ struct redisCommandArg SENTINEL_MONITOR_Args[] = {
 
 /* SENTINEL REMOVE argument table */
 struct redisCommandArg SENTINEL_REMOVE_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3875,7 +3875,7 @@ struct redisCommandArg SENTINEL_REMOVE_Args[] = {
 
 /* SENTINEL REPLICAS argument table */
 struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3889,7 +3889,7 @@ struct redisCommandArg SENTINEL_REPLICAS_Args[] = {
 
 /* SENTINEL RESET argument table */
 struct redisCommandArg SENTINEL_RESET_Args[] = {
-{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3903,7 +3903,7 @@ struct redisCommandArg SENTINEL_RESET_Args[] = {
 
 /* SENTINEL SENTINELS argument table */
 struct redisCommandArg SENTINEL_SENTINELS_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -3917,15 +3917,15 @@ struct redisCommandArg SENTINEL_SENTINELS_Args[] = {
 
 /* SENTINEL SET option_value argument table */
 struct redisCommandArg SENTINEL_SET_option_value_Subargs[] = {
-{"option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SENTINEL SET argument table */
 struct redisCommandArg SENTINEL_SET_Args[] = {
-{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_SET_option_value_Subargs},
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=SENTINEL_SET_option_value_Subargs},
 {0}
 };
 
@@ -3939,15 +3939,15 @@ struct redisCommandArg SENTINEL_SET_Args[] = {
 
 /* SENTINEL SIMULATE_FAILURE mode argument table */
 struct redisCommandArg SENTINEL_SIMULATE_FAILURE_mode_Subargs[] = {
-{"crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SENTINEL SIMULATE_FAILURE argument table */
 struct redisCommandArg SENTINEL_SIMULATE_FAILURE_Args[] = {
-{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
+{"mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
 {0}
 };
 
@@ -3994,7 +3994,7 @@ struct redisCommand SENTINEL_Subcommands[] = {
 
 /* ACL CAT argument table */
 struct redisCommandArg ACL_CAT_Args[] = {
-{"categoryname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"categoryname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4008,7 +4008,7 @@ struct redisCommandArg ACL_CAT_Args[] = {
 
 /* ACL DELUSER argument table */
 struct redisCommandArg ACL_DELUSER_Args[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4022,9 +4022,9 @@ struct redisCommandArg ACL_DELUSER_Args[] = {
 
 /* ACL DRYRUN argument table */
 struct redisCommandArg ACL_DRYRUN_Args[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4038,7 +4038,7 @@ struct redisCommandArg ACL_DRYRUN_Args[] = {
 
 /* ACL GENPASS argument table */
 struct redisCommandArg ACL_GENPASS_Args[] = {
-{"bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4056,7 +4056,7 @@ commandHistory ACL_GETUSER_History[] = {
 
 /* ACL GETUSER argument table */
 struct redisCommandArg ACL_GETUSER_Args[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4094,14 +4094,14 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 
 /* ACL LOG operation argument table */
 struct redisCommandArg ACL_LOG_operation_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"reset",ARG_TYPE_PURE_TOKEN,-1,"RESET",NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"reset",ARG_TYPE_PURE_TOKEN,-1,"RESET",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ACL LOG argument table */
 struct redisCommandArg ACL_LOG_Args[] = {
-{"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ACL_LOG_operation_Subargs},
+{"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ACL_LOG_operation_Subargs},
 {0}
 };
 
@@ -4127,8 +4127,8 @@ commandHistory ACL_SETUSER_History[] = {
 
 /* ACL SETUSER argument table */
 struct redisCommandArg ACL_SETUSER_Args[] = {
-{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"rule",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"rule",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4195,7 +4195,7 @@ commandHistory BGSAVE_History[] = {
 
 /* BGSAVE argument table */
 struct redisCommandArg BGSAVE_Args[] = {
-{"schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",CMD_ARG_OPTIONAL},
+{"schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4220,7 +4220,7 @@ NULL
 
 /* COMMAND DOCS argument table */
 struct redisCommandArg COMMAND_DOCS_Args[] = {
-{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4264,7 +4264,7 @@ NULL
 
 /* COMMAND INFO argument table */
 struct redisCommandArg COMMAND_INFO_Args[] = {
-{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4281,15 +4281,15 @@ NULL
 
 /* COMMAND LIST filterby argument table */
 struct redisCommandArg COMMAND_LIST_filterby_Subargs[] = {
-{"module-name",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,CMD_ARG_NONE},
-{"category",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE},
+{"module-name",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"category",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* COMMAND LIST argument table */
 struct redisCommandArg COMMAND_LIST_Args[] = {
-{"filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=COMMAND_LIST_filterby_Subargs},
+{"filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=COMMAND_LIST_filterby_Subargs},
 {0}
 };
 
@@ -4329,13 +4329,13 @@ commandHistory CONFIG_GET_History[] = {
 
 /* CONFIG GET parameter argument table */
 struct redisCommandArg CONFIG_GET_parameter_Subargs[] = {
-{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CONFIG GET argument table */
 struct redisCommandArg CONFIG_GET_Args[] = {
-{"parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CONFIG_GET_parameter_Subargs},
+{"parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CONFIG_GET_parameter_Subargs},
 {0}
 };
 
@@ -4380,14 +4380,14 @@ NULL
 
 /* CONFIG SET parameter_value argument table */
 struct redisCommandArg CONFIG_SET_parameter_value_Subargs[] = {
-{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* CONFIG SET argument table */
 struct redisCommandArg CONFIG_SET_Args[] = {
-{"parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CONFIG_SET_parameter_value_Subargs},
+{"parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CONFIG_SET_parameter_value_Subargs},
 {0}
 };
 
@@ -4439,17 +4439,17 @@ NULL
 
 /* FAILOVER target argument table */
 struct redisCommandArg FAILOVER_target_Subargs[] = {
-{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL},
+{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* FAILOVER argument table */
 struct redisCommandArg FAILOVER_Args[] = {
-{"target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FAILOVER_target_Subargs},
-{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FAILOVER_target_Subargs},
+{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4471,14 +4471,14 @@ NULL
 
 /* FLUSHALL async argument table */
 struct redisCommandArg FLUSHALL_async_Subargs[] = {
-{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE},
-{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE},
+{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",NULL,CMD_ARG_NONE},
+{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* FLUSHALL argument table */
 struct redisCommandArg FLUSHALL_Args[] = {
-{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FLUSHALL_async_Subargs},
+{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FLUSHALL_async_Subargs},
 {0}
 };
 
@@ -4500,14 +4500,14 @@ NULL
 
 /* FLUSHDB async argument table */
 struct redisCommandArg FLUSHDB_async_Subargs[] = {
-{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE},
-{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE},
+{"async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",NULL,CMD_ARG_NONE},
+{"sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* FLUSHDB argument table */
 struct redisCommandArg FLUSHDB_Args[] = {
-{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FLUSHDB_async_Subargs},
+{"async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=FLUSHDB_async_Subargs},
 {0}
 };
 
@@ -4529,7 +4529,7 @@ NULL
 
 /* INFO argument table */
 struct redisCommandArg INFO_Args[] = {
-{"section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4572,7 +4572,7 @@ NULL
 
 /* LATENCY GRAPH argument table */
 struct redisCommandArg LATENCY_GRAPH_Args[] = {
-{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4599,7 +4599,7 @@ NULL
 
 /* LATENCY HISTOGRAM argument table */
 struct redisCommandArg LATENCY_HISTOGRAM_Args[] = {
-{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4618,7 +4618,7 @@ NULL
 
 /* LATENCY HISTORY argument table */
 struct redisCommandArg LATENCY_HISTORY_Args[] = {
-{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4649,7 +4649,7 @@ NULL
 
 /* LATENCY RESET argument table */
 struct redisCommandArg LATENCY_RESET_Args[] = {
-{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4683,7 +4683,7 @@ struct redisCommand LATENCY_Subcommands[] = {
 
 /* LOLWUT argument table */
 struct redisCommandArg LOLWUT_Args[] = {
-{"version",ARG_TYPE_INTEGER,-1,"VERSION",NULL,NULL,CMD_ARG_OPTIONAL},
+{"version",ARG_TYPE_INTEGER,-1,"VERSION",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4756,8 +4756,8 @@ NULL
 
 /* MEMORY USAGE argument table */
 struct redisCommandArg MEMORY_USAGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4809,8 +4809,8 @@ NULL
 
 /* MODULE LOAD argument table */
 struct redisCommandArg MODULE_LOAD_Args[] = {
-{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -4824,22 +4824,22 @@ struct redisCommandArg MODULE_LOAD_Args[] = {
 
 /* MODULE LOADEX configs argument table */
 struct redisCommandArg MODULE_LOADEX_configs_Subargs[] = {
-{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MODULE LOADEX args argument table */
 struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
-{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MODULE LOADEX argument table */
 struct redisCommandArg MODULE_LOADEX_Args[] = {
-{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=MODULE_LOADEX_configs_Subargs},
-{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
+{"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=MODULE_LOADEX_configs_Subargs},
+{"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
 
@@ -4853,7 +4853,7 @@ struct redisCommandArg MODULE_LOADEX_Args[] = {
 
 /* MODULE UNLOAD argument table */
 struct redisCommandArg MODULE_UNLOAD_Args[] = {
-{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4893,8 +4893,8 @@ struct redisCommand MODULE_Subcommands[] = {
 
 /* PSYNC argument table */
 struct redisCommandArg PSYNC_Args[] = {
-{"replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4916,8 +4916,8 @@ struct redisCommandArg PSYNC_Args[] = {
 
 /* REPLICAOF argument table */
 struct redisCommandArg REPLICAOF_Args[] = {
-{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -4958,17 +4958,17 @@ commandHistory SHUTDOWN_History[] = {
 
 /* SHUTDOWN nosave_save argument table */
 struct redisCommandArg SHUTDOWN_nosave_save_Subargs[] = {
-{"nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,CMD_ARG_NONE},
-{"save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,CMD_ARG_NONE},
+{"nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SHUTDOWN argument table */
 struct redisCommandArg SHUTDOWN_Args[] = {
-{"nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SHUTDOWN_nosave_save_Subargs},
-{"now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL},
-{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL},
-{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL},
+{"nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SHUTDOWN_nosave_save_Subargs},
+{"now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL},
+{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL},
+{"abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -4982,8 +4982,8 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 
 /* SLAVEOF argument table */
 struct redisCommandArg SLAVEOF_Args[] = {
-{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5004,7 +5004,7 @@ NULL
 
 /* SLOWLOG GET argument table */
 struct redisCommandArg SLOWLOG_GET_Args[] = {
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5068,8 +5068,8 @@ struct redisCommand SLOWLOG_Subcommands[] = {
 
 /* SWAPDB argument table */
 struct redisCommandArg SWAPDB_Args[] = {
-{"index1",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"index2",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index1",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index2",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5105,8 +5105,8 @@ commandHistory SADD_History[] = {
 
 /* SADD argument table */
 struct redisCommandArg SADD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5120,7 +5120,7 @@ struct redisCommandArg SADD_Args[] = {
 
 /* SCARD argument table */
 struct redisCommandArg SCARD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5137,7 +5137,7 @@ NULL
 
 /* SDIFF argument table */
 struct redisCommandArg SDIFF_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5151,8 +5151,8 @@ struct redisCommandArg SDIFF_Args[] = {
 
 /* SDIFFSTORE argument table */
 struct redisCommandArg SDIFFSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5169,7 +5169,7 @@ NULL
 
 /* SINTER argument table */
 struct redisCommandArg SINTER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5183,9 +5183,9 @@ struct redisCommandArg SINTER_Args[] = {
 
 /* SINTERCARD argument table */
 struct redisCommandArg SINTERCARD_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5199,8 +5199,8 @@ struct redisCommandArg SINTERCARD_Args[] = {
 
 /* SINTERSTORE argument table */
 struct redisCommandArg SINTERSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5214,8 +5214,8 @@ struct redisCommandArg SINTERSTORE_Args[] = {
 
 /* SISMEMBER argument table */
 struct redisCommandArg SISMEMBER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5232,7 +5232,7 @@ NULL
 
 /* SMEMBERS argument table */
 struct redisCommandArg SMEMBERS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5246,8 +5246,8 @@ struct redisCommandArg SMEMBERS_Args[] = {
 
 /* SMISMEMBER argument table */
 struct redisCommandArg SMISMEMBER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5261,9 +5261,9 @@ struct redisCommandArg SMISMEMBER_Args[] = {
 
 /* SMOVE argument table */
 struct redisCommandArg SMOVE_Args[] = {
-{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5283,8 +5283,8 @@ NULL
 
 /* SPOP argument table */
 struct redisCommandArg SPOP_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5304,8 +5304,8 @@ NULL
 
 /* SRANDMEMBER argument table */
 struct redisCommandArg SRANDMEMBER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5322,8 +5322,8 @@ commandHistory SREM_History[] = {
 
 /* SREM argument table */
 struct redisCommandArg SREM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5340,10 +5340,10 @@ NULL
 
 /* SSCAN argument table */
 struct redisCommandArg SSCAN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5360,7 +5360,7 @@ NULL
 
 /* SUNION argument table */
 struct redisCommandArg SUNION_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5374,8 +5374,8 @@ struct redisCommandArg SUNION_Args[] = {
 
 /* SUNIONSTORE argument table */
 struct redisCommandArg SUNIONSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5389,18 +5389,18 @@ struct redisCommandArg SUNIONSTORE_Args[] = {
 
 /* BZMPOP where argument table */
 struct redisCommandArg BZMPOP_where_Subargs[] = {
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* BZMPOP argument table */
 struct redisCommandArg BZMPOP_Args[] = {
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BZMPOP_where_Subargs},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BZMPOP_where_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5417,8 +5417,8 @@ commandHistory BZPOPMAX_History[] = {
 
 /* BZPOPMAX argument table */
 struct redisCommandArg BZPOPMAX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5435,8 +5435,8 @@ commandHistory BZPOPMIN_History[] = {
 
 /* BZPOPMIN argument table */
 struct redisCommandArg BZPOPMIN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5455,33 +5455,33 @@ commandHistory ZADD_History[] = {
 
 /* ZADD condition argument table */
 struct redisCommandArg ZADD_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZADD comparison argument table */
 struct redisCommandArg ZADD_comparison_Subargs[] = {
-{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE},
-{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE},
+{"gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZADD score_member argument table */
 struct redisCommandArg ZADD_score_member_Subargs[] = {
-{"score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZADD argument table */
 struct redisCommandArg ZADD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",CMD_ARG_OPTIONAL,.subargs=ZADD_condition_Subargs},
-{"comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=ZADD_comparison_Subargs},
-{"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL},
-{"increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL},
-{"score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=ZADD_score_member_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",NULL,CMD_ARG_OPTIONAL,.subargs=ZADD_condition_Subargs},
+{"comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=ZADD_comparison_Subargs},
+{"change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",NULL,CMD_ARG_OPTIONAL},
+{"increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",NULL,CMD_ARG_OPTIONAL},
+{"score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=ZADD_score_member_Subargs},
 {0}
 };
 
@@ -5495,7 +5495,7 @@ struct redisCommandArg ZADD_Args[] = {
 
 /* ZCARD argument table */
 struct redisCommandArg ZCARD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5509,9 +5509,9 @@ struct redisCommandArg ZCARD_Args[] = {
 
 /* ZCOUNT argument table */
 struct redisCommandArg ZCOUNT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5525,9 +5525,9 @@ struct redisCommandArg ZCOUNT_Args[] = {
 
 /* ZDIFF argument table */
 struct redisCommandArg ZDIFF_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5541,9 +5541,9 @@ struct redisCommandArg ZDIFF_Args[] = {
 
 /* ZDIFFSTORE argument table */
 struct redisCommandArg ZDIFFSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5557,9 +5557,9 @@ struct redisCommandArg ZDIFFSTORE_Args[] = {
 
 /* ZINCRBY argument table */
 struct redisCommandArg ZINCRBY_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5573,19 +5573,19 @@ struct redisCommandArg ZINCRBY_Args[] = {
 
 /* ZINTER aggregate argument table */
 struct redisCommandArg ZINTER_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZINTER argument table */
 struct redisCommandArg ZINTER_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZINTER_aggregate_Subargs},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZINTER_aggregate_Subargs},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5599,9 +5599,9 @@ struct redisCommandArg ZINTER_Args[] = {
 
 /* ZINTERCARD argument table */
 struct redisCommandArg ZINTERCARD_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5615,19 +5615,19 @@ struct redisCommandArg ZINTERCARD_Args[] = {
 
 /* ZINTERSTORE aggregate argument table */
 struct redisCommandArg ZINTERSTORE_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZINTERSTORE argument table */
 struct redisCommandArg ZINTERSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZINTERSTORE_aggregate_Subargs},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZINTERSTORE_aggregate_Subargs},
 {0}
 };
 
@@ -5641,9 +5641,9 @@ struct redisCommandArg ZINTERSTORE_Args[] = {
 
 /* ZLEXCOUNT argument table */
 struct redisCommandArg ZLEXCOUNT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5657,17 +5657,17 @@ struct redisCommandArg ZLEXCOUNT_Args[] = {
 
 /* ZMPOP where argument table */
 struct redisCommandArg ZMPOP_where_Subargs[] = {
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZMPOP argument table */
 struct redisCommandArg ZMPOP_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=ZMPOP_where_Subargs},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=ZMPOP_where_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5681,8 +5681,8 @@ struct redisCommandArg ZMPOP_Args[] = {
 
 /* ZMSCORE argument table */
 struct redisCommandArg ZMSCORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5696,8 +5696,8 @@ struct redisCommandArg ZMSCORE_Args[] = {
 
 /* ZPOPMAX argument table */
 struct redisCommandArg ZPOPMAX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5711,8 +5711,8 @@ struct redisCommandArg ZPOPMAX_Args[] = {
 
 /* ZPOPMIN argument table */
 struct redisCommandArg ZPOPMIN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5729,15 +5729,15 @@ NULL
 
 /* ZRANDMEMBER options argument table */
 struct redisCommandArg ZRANDMEMBER_options_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* ZRANDMEMBER argument table */
 struct redisCommandArg ZRANDMEMBER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANDMEMBER_options_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANDMEMBER_options_Subargs},
 {0}
 };
 
@@ -5754,27 +5754,27 @@ commandHistory ZRANGE_History[] = {
 
 /* ZRANGE sortby argument table */
 struct redisCommandArg ZRANGE_sortby_Subargs[] = {
-{"byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE},
-{"bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE},
+{"byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGE offset_count argument table */
 struct redisCommandArg ZRANGE_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGE argument table */
 struct redisCommandArg ZRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=ZRANGE_sortby_Subargs},
-{"rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,.subargs=ZRANGE_offset_count_Subargs},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGE_sortby_Subargs},
+{"rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGE_offset_count_Subargs},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5788,17 +5788,17 @@ struct redisCommandArg ZRANGE_Args[] = {
 
 /* ZRANGEBYLEX offset_count argument table */
 struct redisCommandArg ZRANGEBYLEX_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGEBYLEX argument table */
 struct redisCommandArg ZRANGEBYLEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYLEX_offset_count_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYLEX_offset_count_Subargs},
 {0}
 };
 
@@ -5815,18 +5815,18 @@ commandHistory ZRANGEBYSCORE_History[] = {
 
 /* ZRANGEBYSCORE offset_count argument table */
 struct redisCommandArg ZRANGEBYSCORE_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGEBYSCORE argument table */
 struct redisCommandArg ZRANGEBYSCORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYSCORE_offset_count_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGEBYSCORE_offset_count_Subargs},
 {0}
 };
 
@@ -5840,27 +5840,27 @@ struct redisCommandArg ZRANGEBYSCORE_Args[] = {
 
 /* ZRANGESTORE sortby argument table */
 struct redisCommandArg ZRANGESTORE_sortby_Subargs[] = {
-{"byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE},
-{"bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE},
+{"byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,NULL,CMD_ARG_NONE},
+{"bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGESTORE offset_count argument table */
 struct redisCommandArg ZRANGESTORE_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZRANGESTORE argument table */
 struct redisCommandArg ZRANGESTORE_Args[] = {
-{"dst",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"src",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGESTORE_sortby_Subargs},
-{"rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGESTORE_offset_count_Subargs},
+{"dst",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"src",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGESTORE_sortby_Subargs},
+{"rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZRANGESTORE_offset_count_Subargs},
 {0}
 };
 
@@ -5874,8 +5874,8 @@ struct redisCommandArg ZRANGESTORE_Args[] = {
 
 /* ZRANK argument table */
 struct redisCommandArg ZRANK_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5892,8 +5892,8 @@ commandHistory ZREM_History[] = {
 
 /* ZREM argument table */
 struct redisCommandArg ZREM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -5907,9 +5907,9 @@ struct redisCommandArg ZREM_Args[] = {
 
 /* ZREMRANGEBYLEX argument table */
 struct redisCommandArg ZREMRANGEBYLEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5923,9 +5923,9 @@ struct redisCommandArg ZREMRANGEBYLEX_Args[] = {
 
 /* ZREMRANGEBYRANK argument table */
 struct redisCommandArg ZREMRANGEBYRANK_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5939,9 +5939,9 @@ struct redisCommandArg ZREMRANGEBYRANK_Args[] = {
 
 /* ZREMRANGEBYSCORE argument table */
 struct redisCommandArg ZREMRANGEBYSCORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -5955,10 +5955,10 @@ struct redisCommandArg ZREMRANGEBYSCORE_Args[] = {
 
 /* ZREVRANGE argument table */
 struct redisCommandArg ZREVRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -5972,17 +5972,17 @@ struct redisCommandArg ZREVRANGE_Args[] = {
 
 /* ZREVRANGEBYLEX offset_count argument table */
 struct redisCommandArg ZREVRANGEBYLEX_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZREVRANGEBYLEX argument table */
 struct redisCommandArg ZREVRANGEBYLEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
 {0}
 };
 
@@ -5999,18 +5999,18 @@ commandHistory ZREVRANGEBYSCORE_History[] = {
 
 /* ZREVRANGEBYSCORE offset_count argument table */
 struct redisCommandArg ZREVRANGEBYSCORE_offset_count_Subargs[] = {
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZREVRANGEBYSCORE argument table */
 struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
-{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
 {0}
 };
 
@@ -6024,8 +6024,8 @@ struct redisCommandArg ZREVRANGEBYSCORE_Args[] = {
 
 /* ZREVRANK argument table */
 struct redisCommandArg ZREVRANK_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6042,10 +6042,10 @@ NULL
 
 /* ZSCAN argument table */
 struct redisCommandArg ZSCAN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6059,8 +6059,8 @@ struct redisCommandArg ZSCAN_Args[] = {
 
 /* ZSCORE argument table */
 struct redisCommandArg ZSCORE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6074,19 +6074,19 @@ struct redisCommandArg ZSCORE_Args[] = {
 
 /* ZUNION aggregate argument table */
 struct redisCommandArg ZUNION_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZUNION argument table */
 struct redisCommandArg ZUNION_Args[] = {
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZUNION_aggregate_Subargs},
-{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZUNION_aggregate_Subargs},
+{"withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6100,19 +6100,19 @@ struct redisCommandArg ZUNION_Args[] = {
 
 /* ZUNIONSTORE aggregate argument table */
 struct redisCommandArg ZUNIONSTORE_aggregate_Subargs[] = {
-{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE},
-{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE},
-{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE},
+{"sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,NULL,CMD_ARG_NONE},
+{"min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* ZUNIONSTORE argument table */
 struct redisCommandArg ZUNIONSTORE_Args[] = {
-{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
-{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZUNIONSTORE_aggregate_Subargs},
+{"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
+{"aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=ZUNIONSTORE_aggregate_Subargs},
 {0}
 };
 
@@ -6126,9 +6126,9 @@ struct redisCommandArg ZUNIONSTORE_Args[] = {
 
 /* XACK argument table */
 struct redisCommandArg XACK_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -6149,48 +6149,48 @@ NULL
 
 /* XADD trim strategy argument table */
 struct redisCommandArg XADD_trim_strategy_Subargs[] = {
-{"maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE},
-{"minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE},
+{"maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XADD trim operator argument table */
 struct redisCommandArg XADD_trim_operator_Subargs[] = {
-{"equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE},
-{"approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE},
+{"equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,NULL,CMD_ARG_NONE},
+{"approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XADD trim argument table */
 struct redisCommandArg XADD_trim_Subargs[] = {
-{"strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XADD_trim_strategy_Subargs},
-{"operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XADD_trim_operator_Subargs},
-{"threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XADD_trim_strategy_Subargs},
+{"operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XADD_trim_operator_Subargs},
+{"threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* XADD id_or_auto argument table */
 struct redisCommandArg XADD_id_or_auto_Subargs[] = {
-{"auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XADD field_value argument table */
 struct redisCommandArg XADD_field_value_Subargs[] = {
-{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XADD argument table */
 struct redisCommandArg XADD_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XADD_trim_Subargs},
-{"id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XADD_id_or_auto_Subargs},
-{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=XADD_field_value_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XADD_trim_Subargs},
+{"id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XADD_id_or_auto_Subargs},
+{"field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=XADD_field_value_Subargs},
 {0}
 };
 
@@ -6210,13 +6210,13 @@ NULL
 
 /* XAUTOCLAIM argument table */
 struct redisCommandArg XAUTOCLAIM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6233,16 +6233,16 @@ NULL
 
 /* XCLAIM argument table */
 struct redisCommandArg XCLAIM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"ms",ARG_TYPE_INTEGER,-1,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"TIME",NULL,NULL,CMD_ARG_OPTIONAL},
-{"count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL},
-{"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"ms",ARG_TYPE_INTEGER,-1,"IDLE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"TIME",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6256,8 +6256,8 @@ struct redisCommandArg XCLAIM_Args[] = {
 
 /* XDEL argument table */
 struct redisCommandArg XDEL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -6274,18 +6274,18 @@ commandHistory XGROUP_CREATE_History[] = {
 
 /* XGROUP CREATE id argument table */
 struct redisCommandArg XGROUP_CREATE_id_Subargs[] = {
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XGROUP CREATE argument table */
 struct redisCommandArg XGROUP_CREATE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_CREATE_id_Subargs},
-{"mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL},
-{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_CREATE_id_Subargs},
+{"mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6299,9 +6299,9 @@ struct redisCommandArg XGROUP_CREATE_Args[] = {
 
 /* XGROUP CREATECONSUMER argument table */
 struct redisCommandArg XGROUP_CREATECONSUMER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6315,9 +6315,9 @@ struct redisCommandArg XGROUP_CREATECONSUMER_Args[] = {
 
 /* XGROUP DELCONSUMER argument table */
 struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6331,8 +6331,8 @@ struct redisCommandArg XGROUP_DELCONSUMER_Args[] = {
 
 /* XGROUP DESTROY argument table */
 struct redisCommandArg XGROUP_DESTROY_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6357,17 +6357,17 @@ commandHistory XGROUP_SETID_History[] = {
 
 /* XGROUP SETID id argument table */
 struct redisCommandArg XGROUP_SETID_id_Subargs[] = {
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XGROUP SETID argument table */
 struct redisCommandArg XGROUP_SETID_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_Subargs},
-{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XGROUP_SETID_id_Subargs},
+{"entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6403,8 +6403,8 @@ NULL
 
 /* XINFO CONSUMERS argument table */
 struct redisCommandArg XINFO_CONSUMERS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6421,7 +6421,7 @@ commandHistory XINFO_GROUPS_History[] = {
 
 /* XINFO GROUPS argument table */
 struct redisCommandArg XINFO_GROUPS_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6446,14 +6446,14 @@ commandHistory XINFO_STREAM_History[] = {
 
 /* XINFO STREAM full argument table */
 struct redisCommandArg XINFO_STREAM_full_Subargs[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* XINFO STREAM argument table */
 struct redisCommandArg XINFO_STREAM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XINFO_STREAM_full_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XINFO_STREAM_full_Subargs},
 {0}
 };
 
@@ -6484,7 +6484,7 @@ struct redisCommand XINFO_Subcommands[] = {
 
 /* XLEN argument table */
 struct redisCommandArg XLEN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6504,19 +6504,19 @@ NULL
 
 /* XPENDING filters argument table */
 struct redisCommandArg XPENDING_filters_Subargs[] = {
-{"min-idle-time",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"min-idle-time",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* XPENDING argument table */
 struct redisCommandArg XPENDING_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XPENDING_filters_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XPENDING_filters_Subargs},
 {0}
 };
 
@@ -6533,10 +6533,10 @@ commandHistory XRANGE_History[] = {
 
 /* XRANGE argument table */
 struct redisCommandArg XRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6550,16 +6550,16 @@ struct redisCommandArg XRANGE_Args[] = {
 
 /* XREAD streams argument table */
 struct redisCommandArg XREAD_streams_Subargs[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
 /* XREAD argument table */
 struct redisCommandArg XREAD_Args[] = {
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL},
-{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,.subargs=XREAD_streams_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XREAD_streams_Subargs},
 {0}
 };
 
@@ -6573,25 +6573,25 @@ struct redisCommandArg XREAD_Args[] = {
 
 /* XREADGROUP group_consumer argument table */
 struct redisCommandArg XREADGROUP_group_consumer_Subargs[] = {
-{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XREADGROUP streams argument table */
 struct redisCommandArg XREADGROUP_streams_Subargs[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
-{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
 /* XREADGROUP argument table */
 struct redisCommandArg XREADGROUP_Args[] = {
-{"group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,.subargs=XREADGROUP_group_consumer_Subargs},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
-{"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL},
-{"noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL},
-{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,.subargs=XREADGROUP_streams_Subargs},
+{"group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XREADGROUP_group_consumer_Subargs},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XREADGROUP_streams_Subargs},
 {0}
 };
 
@@ -6608,10 +6608,10 @@ commandHistory XREVRANGE_History[] = {
 
 /* XREVRANGE argument table */
 struct redisCommandArg XREVRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6628,10 +6628,10 @@ commandHistory XSETID_History[] = {
 
 /* XSETID argument table */
 struct redisCommandArg XSETID_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL},
-{"max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6651,31 +6651,31 @@ NULL
 
 /* XTRIM trim strategy argument table */
 struct redisCommandArg XTRIM_trim_strategy_Subargs[] = {
-{"maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE},
-{"minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE},
+{"maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,NULL,CMD_ARG_NONE},
+{"minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XTRIM trim operator argument table */
 struct redisCommandArg XTRIM_trim_operator_Subargs[] = {
-{"equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE},
-{"approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE},
+{"equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,NULL,CMD_ARG_NONE},
+{"approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* XTRIM trim argument table */
 struct redisCommandArg XTRIM_trim_Subargs[] = {
-{"strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XTRIM_trim_strategy_Subargs},
-{"operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XTRIM_trim_operator_Subargs},
-{"threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XTRIM_trim_strategy_Subargs},
+{"operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=XTRIM_trim_operator_Subargs},
+{"threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
 /* XTRIM argument table */
 struct redisCommandArg XTRIM_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XTRIM_trim_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=XTRIM_trim_Subargs},
 {0}
 };
 
@@ -6689,8 +6689,8 @@ struct redisCommandArg XTRIM_Args[] = {
 
 /* APPEND argument table */
 struct redisCommandArg APPEND_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6704,7 +6704,7 @@ struct redisCommandArg APPEND_Args[] = {
 
 /* DECR argument table */
 struct redisCommandArg DECR_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6718,8 +6718,8 @@ struct redisCommandArg DECR_Args[] = {
 
 /* DECRBY argument table */
 struct redisCommandArg DECRBY_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6733,7 +6733,7 @@ struct redisCommandArg DECRBY_Args[] = {
 
 /* GET argument table */
 struct redisCommandArg GET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6747,7 +6747,7 @@ struct redisCommandArg GET_Args[] = {
 
 /* GETDEL argument table */
 struct redisCommandArg GETDEL_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6761,18 +6761,18 @@ struct redisCommandArg GETDEL_Args[] = {
 
 /* GETEX expiration argument table */
 struct redisCommandArg GETEX_expiration_Subargs[] = {
-{"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE},
-{"milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE},
-{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE},
-{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE},
-{"persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE},
+{"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,NULL,CMD_ARG_NONE},
+{"persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* GETEX argument table */
 struct redisCommandArg GETEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GETEX_expiration_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GETEX_expiration_Subargs},
 {0}
 };
 
@@ -6786,9 +6786,9 @@ struct redisCommandArg GETEX_Args[] = {
 
 /* GETRANGE argument table */
 struct redisCommandArg GETRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6802,8 +6802,8 @@ struct redisCommandArg GETRANGE_Args[] = {
 
 /* GETSET argument table */
 struct redisCommandArg GETSET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6817,7 +6817,7 @@ struct redisCommandArg GETSET_Args[] = {
 
 /* INCR argument table */
 struct redisCommandArg INCR_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6831,8 +6831,8 @@ struct redisCommandArg INCR_Args[] = {
 
 /* INCRBY argument table */
 struct redisCommandArg INCRBY_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6846,8 +6846,8 @@ struct redisCommandArg INCRBY_Args[] = {
 
 /* INCRBYFLOAT argument table */
 struct redisCommandArg INCRBYFLOAT_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6861,12 +6861,12 @@ struct redisCommandArg INCRBYFLOAT_Args[] = {
 
 /* LCS argument table */
 struct redisCommandArg LCS_Args[] = {
-{"key1",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"key2",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"len",ARG_TYPE_PURE_TOKEN,-1,"LEN",NULL,NULL,CMD_ARG_OPTIONAL},
-{"idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,CMD_ARG_OPTIONAL},
-{"len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL},
-{"withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL},
+{"key1",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key2",ARG_TYPE_KEY,1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"len",ARG_TYPE_PURE_TOKEN,-1,"LEN",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+{"withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
 
@@ -6883,7 +6883,7 @@ NULL
 
 /* MGET argument table */
 struct redisCommandArg MGET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
@@ -6901,14 +6901,14 @@ NULL
 
 /* MSET key_value argument table */
 struct redisCommandArg MSET_key_value_Subargs[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MSET argument table */
 struct redisCommandArg MSET_Args[] = {
-{"key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSET_key_value_Subargs},
+{"key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSET_key_value_Subargs},
 {0}
 };
 
@@ -6926,14 +6926,14 @@ NULL
 
 /* MSETNX key_value argument table */
 struct redisCommandArg MSETNX_key_value_Subargs[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* MSETNX argument table */
 struct redisCommandArg MSETNX_Args[] = {
-{"key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSETNX_key_value_Subargs},
+{"key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=MSETNX_key_value_Subargs},
 {0}
 };
 
@@ -6947,9 +6947,9 @@ struct redisCommandArg MSETNX_Args[] = {
 
 /* PSETEX argument table */
 struct redisCommandArg PSETEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -6969,28 +6969,28 @@ commandHistory SET_History[] = {
 
 /* SET condition argument table */
 struct redisCommandArg SET_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SET expiration argument table */
 struct redisCommandArg SET_expiration_Subargs[] = {
-{"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"2.6.12",CMD_ARG_NONE},
-{"milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"2.6.12",CMD_ARG_NONE},
-{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"6.2.0",CMD_ARG_NONE},
-{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"6.2.0",CMD_ARG_NONE},
-{"keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE},
+{"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"2.6.12",NULL,CMD_ARG_NONE},
+{"milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"2.6.12",NULL,CMD_ARG_NONE},
+{"unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"6.2.0",NULL,CMD_ARG_NONE},
+{"unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"6.2.0",NULL,CMD_ARG_NONE},
+{"keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",NULL,CMD_ARG_NONE},
 {0}
 };
 
 /* SET argument table */
 struct redisCommandArg SET_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,.subargs=SET_condition_Subargs},
-{"get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL},
-{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SET_expiration_Subargs},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",NULL,CMD_ARG_OPTIONAL,.subargs=SET_condition_Subargs},
+{"get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",NULL,CMD_ARG_OPTIONAL},
+{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SET_expiration_Subargs},
 {0}
 };
 
@@ -7004,9 +7004,9 @@ struct redisCommandArg SET_Args[] = {
 
 /* SETEX argument table */
 struct redisCommandArg SETEX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -7020,8 +7020,8 @@ struct redisCommandArg SETEX_Args[] = {
 
 /* SETNX argument table */
 struct redisCommandArg SETNX_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -7035,9 +7035,9 @@ struct redisCommandArg SETNX_Args[] = {
 
 /* SETRANGE argument table */
 struct redisCommandArg SETRANGE_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -7051,7 +7051,7 @@ struct redisCommandArg SETRANGE_Args[] = {
 
 /* STRLEN argument table */
 struct redisCommandArg STRLEN_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -7065,9 +7065,9 @@ struct redisCommandArg STRLEN_Args[] = {
 
 /* SUBSTR argument table */
 struct redisCommandArg SUBSTR_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
+{"end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
@@ -7113,7 +7113,7 @@ struct redisCommandArg SUBSTR_Args[] = {
 
 /* WATCH argument table */
 struct redisCommandArg WATCH_Args[] = {
-{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
 
