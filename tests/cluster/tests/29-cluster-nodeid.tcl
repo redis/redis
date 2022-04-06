@@ -49,7 +49,7 @@ test "CLUSTER replicate node can only replicate master" {
     set slave_id [dict get [get_myself 2] id]
     catch {[$cluster CLUSTER replicate $slave_id]} e
     if {![string match "*I can only replicate a master, not a replica*" $e]} {
-        fail "Should contain i can only replica master error"
+        fail "Should contain i can only replicate master error"
     }
 }
 
