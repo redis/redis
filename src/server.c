@@ -4562,6 +4562,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     long maplen = 1;
     if (cmd->summary) maplen++;
     if (cmd->since) maplen++;
+    if (cmd->flags & CMD_MODULE) maplen++;
     if (cmd->complexity) maplen++;
     if (cmd->doc_flags) maplen++;
     if (cmd->deprecated_since) maplen++;
@@ -4587,6 +4588,10 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->complexity) {
         addReplyBulkCString(c, "complexity");
         addReplyBulkCString(c, cmd->complexity);
+    }
+    if (cmd->flags & CMD_MODULE) {
+        addReplyBulkCString(c, "module");
+        addReplyBulkCString(c, moduleNameFromCommand(cmd));
     }
     if (cmd->doc_flags) {
         addReplyBulkCString(c, "doc_flags");
