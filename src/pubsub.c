@@ -578,6 +578,19 @@ void punsubscribeCommand(client *c) {
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
+int pubsubPublishMessageByType(robj *channel, robj *message, int sharded) {
+    int receivers = sharded ?
+                    pubsubPublishMessageShard(channel, message) :
+                    pubsubPublishMessage(channel, message);
+    if (server.cluster_enabled) {
+        if (sharded) {
+            clusterPropagatePublishShard(channel, message);
+        } else {
+            clusterPropagatePublish(channel, message);
+        }
+    }
+}
+
 /* PUBLISH <channel> <message> */
 void publishCommand(client *c) {
     if (server.sentinel_mode) {
@@ -585,10 +598,8 @@ void publishCommand(client *c) {
         return;
     }
 
-    int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
-    if (server.cluster_enabled)
-        clusterPropagatePublish(c->argv[1],c->argv[2]);
-    else
+    int receivers = pubsubPublishMessageByType(c->argv[1],c->argv[2],0);
+    if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
 }
@@ -677,12 +688,9 @@ void channelList(client *c, sds pat, dict *pubsub_channels) {
 
 /* SPUBLISH <channel> <message> */
 void spublishCommand(client *c) {
-    int receivers = pubsubPublishMessageInternal(c->argv[1], c->argv[2], pubSubShardType);
-    if (server.cluster_enabled) {
-        clusterPropagatePublishShard(c->argv[1], c->argv[2]);
-    } else {
+    int receivers = pubsubPublishMessageByType(c->argv[1],c->argv[2],1);
+    if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
-    }
     addReplyLongLong(c,receivers);
 }
 
