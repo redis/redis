@@ -170,8 +170,8 @@ int clusterLoadConfig(char *filename) {
     maxline = 1024+CLUSTER_SLOTS*128;
     line = zmalloc(maxline);
     while(fgets(line,maxline,fp) != NULL) {
-        int argc;
-        sds *argv;
+        int argc, ep_argc;
+        sds *argv, *ep_argv;
         clusterNode *n, *master;
         char *p, *s;
 
@@ -218,36 +218,37 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Format for the node address information: 
-         * ip:port[@cport][,hostname] */
+         * ip:port[@cport],shard_id[,hostname] */
 
-        /* Hostname is an optional argument that defines the endpoint
-         * that can be reported to clients instead of IP. */
-        char *hostname = strchr(argv[1], ',');
-        if (hostname) {
-            *hostname = '\0';
-            hostname++;
-            n->hostname = sdscpy(n->hostname, hostname);
-        } else if (sdslen(n->hostname) != 0) {
-            sdsclear(n->hostname);
+        ep_argv = sdssplitargs(sdsmapchars(argv[1], ",", " ", 1), &ep_argc);
+        if (ep_argv == NULL) {
+            sdsfreesplitres(argv,argc);
+            goto fmterr;
         }
 
         /* shard_id is the name of the shard this node belongs to.
          * It is mandatory on 7.0 and above but can be absent right
          * after the upgrade to 7.0+ */
-        char *shard_id = strchr(argv[1], ',');
-        if (shard_id) {
-            *shard_id = '\0';
-            shard_id++;
-            memcpy(n->shard_id, shard_id, min(strlen(shard_id), CLUSTER_NAMELEN));
+        if (ep_argc > 1) {
+            memcpy(n->shard_id, ep_argv[1], min(strlen(ep_argv[1]), CLUSTER_NAMELEN));
+        }
+
+        /* Hostname is an optional argument that defines the endpoint
+         * that can be reported to clients instead of IP. */
+        if (ep_argc > 2) {
+            n->hostname = sdscpy(n->hostname, ep_argv[2]);
+        } else if (sdslen(n->hostname) != 0) {
+            sdsclear(n->hostname);
         }
 
         /* Address and port */
-        if ((p = strrchr(argv[1],':')) == NULL) {
+        if ((p = strrchr(ep_argv[0],':')) == NULL) {
+            sdsfreesplitres(ep_argv, ep_argc);
             sdsfreesplitres(argv,argc);
             goto fmterr;
         }
         *p = '\0';
-        memcpy(n->ip,argv[1],strlen(argv[1])+1);
+        memcpy(n->ip,ep_argv[0],strlen(ep_argv[0])+1);
         char *port = p+1;
         char *busp = strchr(port,'@');
         if (busp) {
@@ -262,6 +263,8 @@ int clusterLoadConfig(char *filename) {
 
         /* The plaintext port for client in a TLS cluster (n->pport) is not
          * stored in nodes.conf. It is received later over the bus protocol. */
+
+        sdsfreesplitres(ep_argv, ep_argc);
 
         /* Parse flags */
         p = s = argv[2];
@@ -2829,7 +2832,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 /* Build the message header. hdr must point to a buffer at least
  * sizeof(clusterMsg) in bytes. */
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
-    int totlen = 0;
+    uint32_t totlen = 0;
     uint64_t offset;
     clusterNode *master;
 
@@ -3055,7 +3058,7 @@ void clusterSendPing(clusterLink *link, int type) {
     hdr->count = htons(gossipcount);
 
     /* Compute the actual total length and send! */
-    int totlen = 0;
+    uint32_t totlen = 0;
     totlen += writePingExt(hdr);
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
@@ -4674,10 +4677,10 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
             node->ip,
             port,
             node->cport,
-            node->hostname,
-            node->shard_id);
+            node->shard_id,
+            node->hostname);
     } else {
-        ci = sdscatfmt(ci," %s:%i@%i,,%s ",
+        ci = sdscatfmt(ci," %s:%i@%i,%s ",
             node->ip,
             port,
             node->cport,
@@ -5255,6 +5258,8 @@ void clusterCommand(client *c) {
 "    Connect nodes into a working cluster.",
 "MYID",
 "    Return the node id.",
+"MYSHARDID",
+"    Return the node shard id.",
 "NODES",
 "    Return cluster configuration seen by node. Output format:",
 "    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
@@ -5321,6 +5326,9 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
         /* CLUSTER MYID */
         addReplyBulkCBuffer(c,myself->name, CLUSTER_NAMELEN);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myshardid") && c->argc == 2) {
+        /* CLUSTER MYSHARDID */
+        addReplyBulkCBuffer(c,myself->shard_id, CLUSTER_NAMELEN);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);

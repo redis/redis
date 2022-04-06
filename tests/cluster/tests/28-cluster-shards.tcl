@@ -22,6 +22,7 @@ proc cluster_create_with_split_slots {masters replicas} {
 proc get_node_info_from_shard {id reference {type node}} {
     set shards_response [R $reference CLUSTER SHARDS]
     foreach shard_response $shards_response {
+        set shard_id [dict get $shard_response shard-id]
         set nodes [dict get $shard_response nodes]
         foreach node $nodes {
             if {[dict get $node id] eq $id} {
@@ -29,6 +30,8 @@ proc get_node_info_from_shard {id reference {type node}} {
                     return $node
                 } elseif {$type eq "shard"} {
                     return $shard_response
+                } elseif {$type eq "shard-id"} {
+                    return $shard_id
                 } else {
                     return {}
                 }
@@ -182,4 +185,102 @@ test "Test the replica reports a loading state while it's loading" {
 
     # Final sanity, the replica agrees it is online. 
     assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
+}
+
+test "Veriify no shard id conflicts" {
+    set shard_ids {}
+    for {set i 0} {$i < 4} {incr i} {
+        set shard_id [R $i cluster myshardid]
+        assert_equal [dict exists $shard_ids $shard_id] 0
+        dict set shard_ids $shard_id 1
+    }
+}
+
+test "Verify CLUSTER MYSHARDID reports same id for primary and replica" {
+    for {set i 0} {$i < 4} {incr i} {
+        assert_equal [R $i cluster myshardid] [R [expr $i+4] cluster myshardid]
+        assert_equal [string length [R $i cluster myshardid]] 40
+    }
+}
+
+test "Verify CLUSTER SHARDS reports correct shard id" {
+    for {set i 0} {$i < 8} {incr i} {
+        set node_id [R $i CLUSTER MYID]
+        assert_equal [get_node_info_from_shard $node_id $i "shard-id"] [R $i cluster myshardid]
+    }
+} 
+
+test "Verify CLUSTER NODES reports correct shard id" {
+    for {set i 0} {$i < 8} {incr i} {
+        set nodes [get_cluster_nodes $i]
+        set node_id_to_shardid_mapping []
+        foreach n $nodes {
+            set node_shard_id [dict get $n shard-id]
+            set node_id [dict get $n id]
+            assert_equal [string length $node_shard_id] 40
+            if {[dict exists $node_id_to_shardid_mapping $node_id]} {
+                assert_equal [dict get $node_id_to_shardid_mapping $node_id] $node_shard_id
+            } else {
+                dict set node_id_to_shardid_mapping $node_id $node_shard_id
+            }
+            if {[lindex [dict get $n flags] 0] eq "myself"} {
+                assert_equal [R $i cluster myshardid] [dict get $n shard-id]
+            }
+        }
+    }
+} 
+
+test "Verify new replica receives primary's shard id" {
+    #find a primary
+    set id 0
+    for {} {$id < 8} {incr id} {
+        if {[regexp "master" [R $id role]]} {
+            break
+        }
+    }
+    assert_not_equal [R 8 cluster myshardid] [R $id cluster myshardid]
+    assert_equal {OK} [R 8 cluster replicate [R $id cluster myid]]    
+    assert_equal [R 8 cluster myshardid] [R $id cluster myshardid]
+}
+
+test "Verify mode retains its shard id after shard restart" {
+    set node_ids {}
+    for {set i 0} {$i < 8} {incr i 4} {
+        dict set node_ids $i [R $i cluster myshardid]
+        kill_instance redis $i
+        wait_for_condition 50 100 {
+            [instance_is_killed redis $i]
+        } else {
+            fail "instance $i is not killed"
+        }
+    }   
+    for {set i 0} {$i < 8} {incr i 4} {
+        restart_instance redis $i
+    }   
+    assert_cluster_state ok
+    for {set i 0} {$i < 8} {incr i 4} {
+        assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
+    }   
+}
+
+test "Verify mode retains its shard id after cluster restart" {
+    set node_ids {}
+    for {set i 0} {$i < 8} {incr i} {
+        dict set node_ids $i [R $i cluster myshardid]
+    }   
+    for {set i 0} {$i < 8} {incr i} {
+        kill_instance redis $i
+        wait_for_condition 50 100 {
+            [instance_is_killed redis $i]
+        } else {
+            fail "instance $i is not killed"
+        }
+    }   
+    for {set i 0} {$i < 8} {incr i} {
+        restart_instance redis $i
+    }   
+    assert_cluster_state ok
+    for {set i 0} {$i < 8} {incr i} {
+        assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
+    }   
 }
