@@ -2092,10 +2092,11 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             server.busy_module_yield_reply = busy_reply;
             /* start the blocking operation if not already started. */
             if (!server.busy_module_yield_flags) {
-                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
-                    BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
+                server.busy_module_yield_flags = BUSY_MODULE_YIELD_EVENTS;
                 blockingOperationStarts();
             }
+            if (flags & REDISMODULE_YIELD_FLAG_CLIENTS)
+                server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
             processEventsWhileBlocked();
