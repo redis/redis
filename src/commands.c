@@ -47,44 +47,62 @@ struct redisCommandArg BITCOUNT_Args[] = {
 /* BITFIELD tips */
 #define BITFIELD_tips NULL
 
-/* BITFIELD encoding_offset argument table */
-struct redisCommandArg BITFIELD_encoding_offset_Subargs[] = {
+/* BITFIELD operation encoding_offset argument table */
+struct redisCommandArg BITFIELD_operation_encoding_offset_Subargs[] = {
 {"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* BITFIELD encoding_offset_value argument table */
-struct redisCommandArg BITFIELD_encoding_offset_value_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
-/* BITFIELD encoding_offset_increment argument table */
-struct redisCommandArg BITFIELD_encoding_offset_increment_Subargs[] = {
-{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
-/* BITFIELD wrap_sat_fail argument table */
-struct redisCommandArg BITFIELD_wrap_sat_fail_Subargs[] = {
+/* BITFIELD operation write wrap_sat_fail argument table */
+struct redisCommandArg BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
 {"wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE},
 {"sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE},
 {"fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
+/* BITFIELD operation write write_operation encoding_offset_value argument table */
+struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* BITFIELD operation write write_operation encoding_offset_increment argument table */
+struct redisCommandArg BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs[] = {
+{"encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* BITFIELD operation write write_operation argument table */
+struct redisCommandArg BITFIELD_operation_write_write_operation_Subargs[] = {
+{"encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
+{"encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
+{0}
+};
+
+/* BITFIELD operation write argument table */
+struct redisCommandArg BITFIELD_operation_write_Subargs[] = {
+{"wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
+{"write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_write_operation_Subargs},
+{0}
+};
+
+/* BITFIELD operation argument table */
+struct redisCommandArg BITFIELD_operation_Subargs[] = {
+{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_encoding_offset_Subargs},
+{"write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_operation_write_Subargs},
+{0}
+};
+
 /* BITFIELD argument table */
 struct redisCommandArg BITFIELD_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_encoding_offset_Subargs},
-{"encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_encoding_offset_value_Subargs},
-{"encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_encoding_offset_increment_Subargs},
-{"wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=BITFIELD_wrap_sat_fail_Subargs},
+{"operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_operation_Subargs},
 {0}
 };
 
@@ -106,7 +124,7 @@ struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
 /* BITFIELD_RO argument table */
 struct redisCommandArg BITFIELD_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_RO_encoding_offset_Subargs},
 {0}
 };
 
@@ -1313,10 +1331,17 @@ struct redisCommandArg MIGRATE_key_or_empty_string_Subargs[] = {
 {0}
 };
 
-/* MIGRATE username_password argument table */
-struct redisCommandArg MIGRATE_username_password_Subargs[] = {
+/* MIGRATE authentication username_password argument table */
+struct redisCommandArg MIGRATE_authentication_username_password_Subargs[] = {
 {"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* MIGRATE authentication argument table */
+struct redisCommandArg MIGRATE_authentication_Subargs[] = {
+{"password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL},
+{"username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_username_password_Subargs},
 {0}
 };
 
@@ -1329,8 +1354,7 @@ struct redisCommandArg MIGRATE_Args[] = {
 {"timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL},
 {"replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL},
-{"password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL},
-{"username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,.subargs=MIGRATE_username_password_Subargs},
+{"authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=MIGRATE_authentication_Subargs},
 {"key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE},
 {0}
 };
@@ -2089,15 +2113,22 @@ struct redisCommandArg GEORADIUS_RO_Args[] = {
 /* GEOSEARCH tips */
 #define GEOSEARCH_tips NULL
 
-/* GEOSEARCH longitude_latitude argument table */
-struct redisCommandArg GEOSEARCH_longitude_latitude_Subargs[] = {
+/* GEOSEARCH from longitude_latitude argument table */
+struct redisCommandArg GEOSEARCH_from_longitude_latitude_Subargs[] = {
 {"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* GEOSEARCH circle unit argument table */
-struct redisCommandArg GEOSEARCH_circle_unit_Subargs[] = {
+/* GEOSEARCH from argument table */
+struct redisCommandArg GEOSEARCH_from_Subargs[] = {
+{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE},
+{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
+{0}
+};
+
+/* GEOSEARCH by circle unit argument table */
+struct redisCommandArg GEOSEARCH_by_circle_unit_Subargs[] = {
 {"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
 {"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
 {"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
@@ -2105,15 +2136,15 @@ struct redisCommandArg GEOSEARCH_circle_unit_Subargs[] = {
 {0}
 };
 
-/* GEOSEARCH circle argument table */
-struct redisCommandArg GEOSEARCH_circle_Subargs[] = {
+/* GEOSEARCH by circle argument table */
+struct redisCommandArg GEOSEARCH_by_circle_Subargs[] = {
 {"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_circle_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_unit_Subargs},
 {0}
 };
 
-/* GEOSEARCH box unit argument table */
-struct redisCommandArg GEOSEARCH_box_unit_Subargs[] = {
+/* GEOSEARCH by box unit argument table */
+struct redisCommandArg GEOSEARCH_by_box_unit_Subargs[] = {
 {"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
 {"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
 {"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
@@ -2121,11 +2152,18 @@ struct redisCommandArg GEOSEARCH_box_unit_Subargs[] = {
 {0}
 };
 
-/* GEOSEARCH box argument table */
-struct redisCommandArg GEOSEARCH_box_Subargs[] = {
+/* GEOSEARCH by box argument table */
+struct redisCommandArg GEOSEARCH_by_box_Subargs[] = {
 {"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE},
 {"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_box_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_unit_Subargs},
+{0}
+};
+
+/* GEOSEARCH by argument table */
+struct redisCommandArg GEOSEARCH_by_Subargs[] = {
+{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_box_Subargs},
 {0}
 };
 
@@ -2146,10 +2184,8 @@ struct redisCommandArg GEOSEARCH_count_Subargs[] = {
 /* GEOSEARCH argument table */
 struct redisCommandArg GEOSEARCH_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_longitude_latitude_Subargs},
-{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_circle_Subargs},
-{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_box_Subargs},
+{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_from_Subargs},
+{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCH_by_Subargs},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_order_Subargs},
 {"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCH_count_Subargs},
 {"withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -2166,15 +2202,22 @@ struct redisCommandArg GEOSEARCH_Args[] = {
 /* GEOSEARCHSTORE tips */
 #define GEOSEARCHSTORE_tips NULL
 
-/* GEOSEARCHSTORE longitude_latitude argument table */
-struct redisCommandArg GEOSEARCHSTORE_longitude_latitude_Subargs[] = {
+/* GEOSEARCHSTORE from longitude_latitude argument table */
+struct redisCommandArg GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
 {"longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
 
-/* GEOSEARCHSTORE circle unit argument table */
-struct redisCommandArg GEOSEARCHSTORE_circle_unit_Subargs[] = {
+/* GEOSEARCHSTORE from argument table */
+struct redisCommandArg GEOSEARCHSTORE_from_Subargs[] = {
+{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE},
+{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
+{0}
+};
+
+/* GEOSEARCHSTORE by circle unit argument table */
+struct redisCommandArg GEOSEARCHSTORE_by_circle_unit_Subargs[] = {
 {"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
 {"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
 {"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
@@ -2182,15 +2225,15 @@ struct redisCommandArg GEOSEARCHSTORE_circle_unit_Subargs[] = {
 {0}
 };
 
-/* GEOSEARCHSTORE circle argument table */
-struct redisCommandArg GEOSEARCHSTORE_circle_Subargs[] = {
+/* GEOSEARCHSTORE by circle argument table */
+struct redisCommandArg GEOSEARCHSTORE_by_circle_Subargs[] = {
 {"radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_circle_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
 {0}
 };
 
-/* GEOSEARCHSTORE box unit argument table */
-struct redisCommandArg GEOSEARCHSTORE_box_unit_Subargs[] = {
+/* GEOSEARCHSTORE by box unit argument table */
+struct redisCommandArg GEOSEARCHSTORE_by_box_unit_Subargs[] = {
 {"m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE},
 {"km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE},
 {"ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE},
@@ -2198,11 +2241,18 @@ struct redisCommandArg GEOSEARCHSTORE_box_unit_Subargs[] = {
 {0}
 };
 
-/* GEOSEARCHSTORE box argument table */
-struct redisCommandArg GEOSEARCHSTORE_box_Subargs[] = {
+/* GEOSEARCHSTORE by box argument table */
+struct redisCommandArg GEOSEARCHSTORE_by_box_Subargs[] = {
 {"width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE},
 {"height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_box_unit_Subargs},
+{"unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
+{0}
+};
+
+/* GEOSEARCHSTORE by argument table */
+struct redisCommandArg GEOSEARCHSTORE_by_Subargs[] = {
+{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_circle_Subargs},
+{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_box_Subargs},
 {0}
 };
 
@@ -2224,10 +2274,8 @@ struct redisCommandArg GEOSEARCHSTORE_count_Subargs[] = {
 struct redisCommandArg GEOSEARCHSTORE_Args[] = {
 {"destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"source",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_OPTIONAL},
-{"longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_longitude_latitude_Subargs},
-{"circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_circle_Subargs},
-{"box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_box_Subargs},
+{"from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_from_Subargs},
+{"by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=GEOSEARCHSTORE_by_Subargs},
 {"order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_order_Subargs},
 {"count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=GEOSEARCHSTORE_count_Subargs},
 {"storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL},
@@ -4790,7 +4838,7 @@ struct redisCommandArg MODULE_LOADEX_args_Subargs[] = {
 /* MODULE LOADEX argument table */
 struct redisCommandArg MODULE_LOADEX_Args[] = {
 {"path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_configs_Subargs},
+{"configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=MODULE_LOADEX_configs_Subargs},
 {"args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
@@ -6919,6 +6967,13 @@ commandHistory SET_History[] = {
 /* SET tips */
 #define SET_tips NULL
 
+/* SET condition argument table */
+struct redisCommandArg SET_condition_Subargs[] = {
+{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
+{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /* SET expiration argument table */
 struct redisCommandArg SET_expiration_Subargs[] = {
 {"seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"2.6.12",CMD_ARG_NONE},
@@ -6929,20 +6984,13 @@ struct redisCommandArg SET_expiration_Subargs[] = {
 {0}
 };
 
-/* SET condition argument table */
-struct redisCommandArg SET_condition_Subargs[] = {
-{"nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE},
-{"xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE},
-{0}
-};
-
 /* SET argument table */
 struct redisCommandArg SET_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
 {"value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
-{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SET_expiration_Subargs},
 {"condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,.subargs=SET_condition_Subargs},
 {"get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL},
+{"expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.subargs=SET_expiration_Subargs},
 {0}
 };
 
