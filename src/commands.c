@@ -205,6 +205,13 @@ struct redisCommandArg SETBIT_Args[] = {
 /* ASKING tips */
 #define ASKING_tips NULL
 
+/* ASKING_ReplySchema reply schema */
+struct commandReplySchemaElement ASKING_ReplySchema_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema ASKING_ReplySchema = {ASKING_ReplySchema_elements,.length=1};
+
 /********** CLUSTER ADDSLOTS ********************/
 
 /* CLUSTER ADDSLOTS history */
@@ -706,6 +713,13 @@ struct redisCommandArg AUTH_Args[] = {
 {"password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
+
+/* AUTH_ReplySchema reply schema */
+struct commandReplySchemaElement AUTH_ReplySchema_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema AUTH_ReplySchema = {AUTH_ReplySchema_elements,.length=1};
 
 /********** CLIENT CACHING ********************/
 
@@ -3823,6 +3837,51 @@ struct redisCommandArg ACL_CAT_Args[] = {
 {0}
 };
 
+/* ACL_CAT_ReplySchema_anyOf_0_items reply schema */
+struct commandReplySchemaElement ACL_CAT_ReplySchema_anyOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_CAT_ReplySchema_anyOf_0_items = {ACL_CAT_ReplySchema_anyOf_0_items_elements,.length=1};
+
+/* ACL_CAT_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement ACL_CAT_ReplySchema_anyOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="In case `categoryname` was not given, a list of existing ACL categories"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_CAT_ReplySchema_anyOf_0_items},
+};
+
+struct commandReplySchema ACL_CAT_ReplySchema_anyOf_0 = {ACL_CAT_ReplySchema_anyOf_0_elements,.length=3};
+
+/* ACL_CAT_ReplySchema_anyOf_1_items reply schema */
+struct commandReplySchemaElement ACL_CAT_ReplySchema_anyOf_1_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_CAT_ReplySchema_anyOf_1_items = {ACL_CAT_ReplySchema_anyOf_1_items_elements,.length=1};
+
+/* ACL_CAT_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement ACL_CAT_ReplySchema_anyOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="In case `categoryname` was given, list of commands that fall under the provided ACL category"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_CAT_ReplySchema_anyOf_1_items},
+};
+
+struct commandReplySchema ACL_CAT_ReplySchema_anyOf_1 = {ACL_CAT_ReplySchema_anyOf_1_elements,.length=3};
+
+/* ACL_CAT_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *ACL_CAT_ReplySchema_anyOf[] = {
+&ACL_CAT_ReplySchema_anyOf_0,
+&ACL_CAT_ReplySchema_anyOf_1,
+};
+
+/* ACL_CAT_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_CAT_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ACL_CAT_ReplySchema_anyOf,.length=2}},
+};
+
+struct commandReplySchema ACL_CAT_ReplySchema = {ACL_CAT_ReplySchema_elements,.length=1};
+
 /********** ACL DELUSER ********************/
 
 /* ACL DELUSER history */
@@ -3836,6 +3895,14 @@ struct redisCommandArg ACL_DELUSER_Args[] = {
 {"username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
 {0}
 };
+
+/* ACL_DELUSER_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_DELUSER_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The number of users that were deleted"},
+};
+
+struct commandReplySchema ACL_DELUSER_ReplySchema = {ACL_DELUSER_ReplySchema_elements,.length=2};
 
 /********** ACL DRYRUN ********************/
 
@@ -3853,6 +3920,35 @@ struct redisCommandArg ACL_DRYRUN_Args[] = {
 {0}
 };
 
+/* ACL_DRYRUN_ReplySchema_anyOf_0 reply schema */
+struct commandReplySchemaElement ACL_DRYRUN_ReplySchema_anyOf_0_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The given user may successfully execute the given command."},
+};
+
+struct commandReplySchema ACL_DRYRUN_ReplySchema_anyOf_0 = {ACL_DRYRUN_ReplySchema_anyOf_0_elements,.length=2};
+
+/* ACL_DRYRUN_ReplySchema_anyOf_1 reply schema */
+struct commandReplySchemaElement ACL_DRYRUN_ReplySchema_anyOf_1_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The description of the problem, in case the user is not allowed to run the given command."},
+};
+
+struct commandReplySchema ACL_DRYRUN_ReplySchema_anyOf_1 = {ACL_DRYRUN_ReplySchema_anyOf_1_elements,.length=2};
+
+/* ACL_DRYRUN_ReplySchema_anyOf array reply schema */
+struct commandReplySchema *ACL_DRYRUN_ReplySchema_anyOf[] = {
+&ACL_DRYRUN_ReplySchema_anyOf_0,
+&ACL_DRYRUN_ReplySchema_anyOf_1,
+};
+
+/* ACL_DRYRUN_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_DRYRUN_ReplySchema_elements[] = {
+{"anyOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ACL_DRYRUN_ReplySchema_anyOf,.length=2}},
+};
+
+struct commandReplySchema ACL_DRYRUN_ReplySchema = {ACL_DRYRUN_ReplySchema_elements,.length=1};
+
 /********** ACL GENPASS ********************/
 
 /* ACL GENPASS history */
@@ -3866,6 +3962,14 @@ struct redisCommandArg ACL_GENPASS_Args[] = {
 {"bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
+
+/* ACL_GENPASS_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_GENPASS_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="Pseudorandom data. By default it contains 64 bytes, representing 256 bits of data. If `bits` was given, the output string length is the number of specified bits (rounded to the next multiple of 4) divided by 4."},
+};
+
+struct commandReplySchema ACL_GENPASS_ReplySchema = {ACL_GENPASS_ReplySchema_elements,.length=2};
 
 /********** ACL GETUSER ********************/
 
@@ -3893,6 +3997,22 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 /* ACL HELP tips */
 #define ACL_HELP_tips NULL
 
+/* ACL_HELP_ReplySchema_items reply schema */
+struct commandReplySchemaElement ACL_HELP_ReplySchema_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_HELP_ReplySchema_items = {ACL_HELP_ReplySchema_items_elements,.length=1};
+
+/* ACL_HELP_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_HELP_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of subcommands and their description"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_HELP_ReplySchema_items},
+};
+
+struct commandReplySchema ACL_HELP_ReplySchema = {ACL_HELP_ReplySchema_elements,.length=3};
+
 /********** ACL LIST ********************/
 
 /* ACL LIST history */
@@ -3901,6 +4021,22 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 /* ACL LIST tips */
 #define ACL_LIST_tips NULL
 
+/* ACL_LIST_ReplySchema_items reply schema */
+struct commandReplySchemaElement ACL_LIST_ReplySchema_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_LIST_ReplySchema_items = {ACL_LIST_ReplySchema_items_elements,.length=1};
+
+/* ACL_LIST_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_LIST_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="A list of currently active ACL rules"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_LIST_ReplySchema_items},
+};
+
+struct commandReplySchema ACL_LIST_ReplySchema = {ACL_LIST_ReplySchema_elements,.length=3};
+
 /********** ACL LOAD ********************/
 
 /* ACL LOAD history */
@@ -3908,6 +4044,13 @@ struct redisCommandArg ACL_GETUSER_Args[] = {
 
 /* ACL LOAD tips */
 #define ACL_LOAD_tips NULL
+
+/* ACL_LOAD_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_LOAD_ReplySchema_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema ACL_LOAD_ReplySchema = {ACL_LOAD_ReplySchema_elements,.length=1};
 
 /********** ACL LOG ********************/
 
@@ -3930,6 +4073,43 @@ struct redisCommandArg ACL_LOG_Args[] = {
 {0}
 };
 
+/* ACL_LOG_ReplySchema_oneOf_0_items reply schema */
+struct commandReplySchemaElement ACL_LOG_ReplySchema_oneOf_0_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_LOG_ReplySchema_oneOf_0_items = {ACL_LOG_ReplySchema_oneOf_0_items_elements,.length=1};
+
+/* ACL_LOG_ReplySchema_oneOf_0 reply schema */
+struct commandReplySchemaElement ACL_LOG_ReplySchema_oneOf_0_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="In case `RESET` was not given, a list of recent ACL security events."},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_LOG_ReplySchema_oneOf_0_items},
+};
+
+struct commandReplySchema ACL_LOG_ReplySchema_oneOf_0 = {ACL_LOG_ReplySchema_oneOf_0_elements,.length=3};
+
+/* ACL_LOG_ReplySchema_oneOf_1 reply schema */
+struct commandReplySchemaElement ACL_LOG_ReplySchema_oneOf_1_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="In case `RESET` was given, OK indicates ACL log was cleared."},
+};
+
+struct commandReplySchema ACL_LOG_ReplySchema_oneOf_1 = {ACL_LOG_ReplySchema_oneOf_1_elements,.length=2};
+
+/* ACL_LOG_ReplySchema_oneOf array reply schema */
+struct commandReplySchema *ACL_LOG_ReplySchema_oneOf[] = {
+&ACL_LOG_ReplySchema_oneOf_0,
+&ACL_LOG_ReplySchema_oneOf_1,
+};
+
+/* ACL_LOG_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_LOG_ReplySchema_elements[] = {
+{"oneOf",SCHEMA_VAL_TYPE_SCHEMA_ARRAY,.value.array={.schemas=ACL_LOG_ReplySchema_oneOf,.length=2}},
+};
+
+struct commandReplySchema ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1};
+
 /********** ACL SAVE ********************/
 
 /* ACL SAVE history */
@@ -3937,6 +4117,13 @@ struct redisCommandArg ACL_LOG_Args[] = {
 
 /* ACL SAVE tips */
 #define ACL_SAVE_tips NULL
+
+/* ACL_SAVE_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_SAVE_ReplySchema_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema ACL_SAVE_ReplySchema = {ACL_SAVE_ReplySchema_elements,.length=1};
 
 /********** ACL SETUSER ********************/
 
@@ -3957,6 +4144,13 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 {0}
 };
 
+/* ACL_SETUSER_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_SETUSER_ReplySchema_elements[] = {
+{"const",SCHEMA_VAL_TYPE_STRING,.value.string="OK"},
+};
+
+struct commandReplySchema ACL_SETUSER_ReplySchema = {ACL_SETUSER_ReplySchema_elements,.length=1};
+
 /********** ACL USERS ********************/
 
 /* ACL USERS history */
@@ -3964,6 +4158,22 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 
 /* ACL USERS tips */
 #define ACL_USERS_tips NULL
+
+/* ACL_USERS_ReplySchema_items reply schema */
+struct commandReplySchemaElement ACL_USERS_ReplySchema_items_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+};
+
+struct commandReplySchema ACL_USERS_ReplySchema_items = {ACL_USERS_ReplySchema_items_elements,.length=1};
+
+/* ACL_USERS_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_USERS_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="array"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="List of existing ACL users"},
+{"items",SCHEMA_VAL_TYPE_SCHEMA,.value.schema=&ACL_USERS_ReplySchema_items},
+};
+
+struct commandReplySchema ACL_USERS_ReplySchema = {ACL_USERS_ReplySchema_elements,.length=3};
 
 /********** ACL WHOAMI ********************/
 
@@ -3973,21 +4183,29 @@ struct redisCommandArg ACL_SETUSER_Args[] = {
 /* ACL WHOAMI tips */
 #define ACL_WHOAMI_tips NULL
 
+/* ACL_WHOAMI_ReplySchema reply schema */
+struct commandReplySchemaElement ACL_WHOAMI_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="string"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The username of the current connection."},
+};
+
+struct commandReplySchema ACL_WHOAMI_ReplySchema = {ACL_WHOAMI_ReplySchema_elements,.length=2};
+
 /* ACL command table */
 struct redisCommand ACL_Subcommands[] = {
-{"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_CAT_History,ACL_CAT_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_CAT_Args},
-{"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DELUSER_History,ACL_DELUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DELUSER_Args},
-{"dryrun","Returns whether the user can execute the given command without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DRYRUN_History,ACL_DRYRUN_tips,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DRYRUN_Args},
-{"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GENPASS_History,ACL_GENPASS_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GENPASS_Args},
+{"cat","List the ACL categories or the commands inside a category","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_CAT_History,ACL_CAT_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_CAT_Args,.reply_schema=&ACL_CAT_ReplySchema},
+{"deluser","Remove the specified ACL users and the associated rules","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DELUSER_History,ACL_DELUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DELUSER_Args,.reply_schema=&ACL_DELUSER_ReplySchema},
+{"dryrun","Returns whether the user can execute the given command without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_DRYRUN_History,ACL_DRYRUN_tips,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_DRYRUN_Args,.reply_schema=&ACL_DRYRUN_ReplySchema},
+{"genpass","Generate a pseudorandom secure password to use for ACL users","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GENPASS_History,ACL_GENPASS_tips,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GENPASS_Args,.reply_schema=&ACL_GENPASS_ReplySchema},
 {"getuser","Get the rules for a specific ACL user","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_GETUSER_History,ACL_GETUSER_tips,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_GETUSER_Args},
-{"help","Show helpful text about the different subcommands","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_HELP_History,ACL_HELP_tips,aclCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
-{"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LIST_History,ACL_LIST_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
-{"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LOAD_History,ACL_LOAD_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
-{"log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LOG_History,ACL_LOG_tips,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_LOG_Args},
-{"save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_SAVE_History,ACL_SAVE_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
-{"setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_SETUSER_History,ACL_SETUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_SETUSER_Args},
-{"users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_USERS_History,ACL_USERS_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
-{"whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_WHOAMI_History,ACL_WHOAMI_tips,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0},
+{"help","Show helpful text about the different subcommands","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_HELP_History,ACL_HELP_tips,aclCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_HELP_ReplySchema},
+{"list","List the current ACL rules in ACL config file format","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LIST_History,ACL_LIST_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_LIST_ReplySchema},
+{"load","Reload the ACLs from the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LOAD_History,ACL_LOAD_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_LOAD_ReplySchema},
+{"log","List latest events denied because of ACLs in place","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_LOG_History,ACL_LOG_tips,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_LOG_Args,.reply_schema=&ACL_LOG_ReplySchema},
+{"save","Save the current ACL rules in the configured ACL file","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_SAVE_History,ACL_SAVE_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_SAVE_ReplySchema},
+{"setuser","Modify or create the rules for a specific ACL user","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_SETUSER_History,ACL_SETUSER_tips,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.args=ACL_SETUSER_Args,.reply_schema=&ACL_SETUSER_ReplySchema},
+{"users","List the username of all the configured ACL rules","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_USERS_History,ACL_USERS_tips,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_USERS_ReplySchema},
+{"whoami","Return the name of the user associated to the current connection","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,ACL_WHOAMI_History,ACL_WHOAMI_tips,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,.reply_schema=&ACL_WHOAMI_ReplySchema},
 {0}
 };
 
@@ -7768,6 +7986,14 @@ struct redisCommandArg APPEND_Args[] = {
 {0}
 };
 
+/* APPEND_ReplySchema reply schema */
+struct commandReplySchemaElement APPEND_ReplySchema_elements[] = {
+{"type",SCHEMA_VAL_TYPE_STRING,.value.string="integer"},
+{"description",SCHEMA_VAL_TYPE_STRING,.value.string="The the length of the string after the append operation."},
+};
+
+struct commandReplySchema APPEND_ReplySchema = {APPEND_ReplySchema_elements,.length=2};
+
 /********** DECR ********************/
 
 /* DECR history */
@@ -8245,12 +8471,12 @@ struct redisCommand redisCommandTable[] = {
 {"getbit","Returns the bit value at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,GETBIT_History,GETBIT_tips,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GETBIT_Args},
 {"setbit","Sets or clears the bit at offset in the string value stored at key","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_BITMAP,SETBIT_History,SETBIT_tips,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SETBIT_Args},
 /* cluster */
-{"asking","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,ASKING_History,ASKING_tips,askingCommand,1,CMD_FAST,ACL_CATEGORY_CONNECTION},
+{"asking","Sent by cluster clients after an -ASK redirect","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,ASKING_History,ASKING_tips,askingCommand,1,CMD_FAST,ACL_CATEGORY_CONNECTION,.reply_schema=&ASKING_ReplySchema},
 {"cluster","A container for cluster commands","Depends on subcommand.","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,CLUSTER_History,CLUSTER_tips,NULL,-2,0,0,.subcommands=CLUSTER_Subcommands},
 {"readonly","Enables read queries for a connection to a cluster replica node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,READONLY_History,READONLY_tips,readonlyCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"readwrite","Disables read queries for a connection to a cluster replica node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CLUSTER,READWRITE_History,READWRITE_tips,readwriteCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 /* connection */
-{"auth","Authenticate to the server","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,AUTH_History,AUTH_tips,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=AUTH_Args},
+{"auth","Authenticate to the server","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,AUTH_History,AUTH_tips,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=AUTH_Args,.reply_schema=&AUTH_ReplySchema},
 {"client","A container for client connection commands","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_History,CLIENT_tips,NULL,-2,CMD_SENTINEL,0,.subcommands=CLIENT_Subcommands},
 {"echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_tips,echoCommand,2,CMD_FAST,ACL_CATEGORY_CONNECTION,.args=ECHO_Args},
 {"hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,.args=HELLO_Args},
@@ -8466,7 +8692,7 @@ struct redisCommand redisCommandTable[] = {
 {"xsetid","An internal command for replicating stream values","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XSETID_History,XSETID_tips,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XSETID_Args},
 {"xtrim","Trims the stream to (approximately if '~' is passed) a certain size","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STREAM,XTRIM_History,XTRIM_tips,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=XTRIM_Args},
 /* string */
-{"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,APPEND_History,APPEND_tips,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args},
+{"append","Append a value to a key","O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,APPEND_History,APPEND_tips,appendCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=APPEND_Args,.reply_schema=&APPEND_ReplySchema},
 {"decr","Decrement the integer value of a key by one","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECR_History,DECR_tips,decrCommand,2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECR_Args},
 {"decrby","Decrement the integer value of a key by the given number","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,DECRBY_History,DECRBY_tips,decrbyCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=DECRBY_Args},
 {"get","Get the value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,GET_History,GET_tips,getCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=GET_Args},

@@ -14,6 +14,21 @@
             "STALE",
             "SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "description": "In case `RESET` was not given, a list of recent ACL security events.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "const": "OK",
+                    "description": "In case `RESET` was given, OK indicates ACL log was cleared."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "operation",
