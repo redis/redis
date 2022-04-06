@@ -187,7 +187,7 @@ test "Test the replica reports a loading state while it's loading" {
     assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
 
-test "Veriify no shard id conflicts" {
+test "Verify no shard id conflicts" {
     set shard_ids {}
     for {set i 0} {$i < 4} {incr i} {
         set shard_id [R $i cluster myshardid]
@@ -243,7 +243,7 @@ test "Verify new replica receives primary's shard id" {
     assert_equal [R 8 cluster myshardid] [R $id cluster myshardid]
 }
 
-test "Verify mode retains its shard id after shard restart" {
+test "Verify node retains its shard id after shard restart" {
     set node_ids {}
     for {set i 0} {$i < 8} {incr i 4} {
         dict set node_ids $i [R $i cluster myshardid]
@@ -263,7 +263,7 @@ test "Verify mode retains its shard id after shard restart" {
     }   
 }
 
-test "Verify mode retains its shard id after cluster restart" {
+test "Verify node retains its shard id after cluster restart" {
     set node_ids {}
     for {set i 0} {$i < 8} {incr i} {
         dict set node_ids $i [R $i cluster myshardid]
