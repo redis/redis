@@ -3234,7 +3234,7 @@ void call(client *c, int flags) {
     dirty = server.dirty;
     incrCommandStatsOnError(NULL, 0);
 
-    const long long call_timer = ustime();
+    const monotime call_timer = getMonotonicUs();
 
     /* Update cache time, in case we have nested calls we want to
      * update only on the first call*/
@@ -3244,7 +3244,7 @@ void call(client *c, int flags) {
     server.in_nested_call++;
 
     c->cmd->proc(c);
-    const long duration = ustime() - call_timer;
+    const long duration = getMonotonicUs() - call_timer;
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
