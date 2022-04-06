@@ -3244,7 +3244,7 @@ void call(client *c, int flags) {
     server.in_nested_call++;
 
     c->cmd->proc(c);
-    const long duration = call_timer - ustime();
+    const long duration = ustime() - call_timer;
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
