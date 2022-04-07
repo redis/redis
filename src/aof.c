@@ -1659,7 +1659,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     server.aof_current_size = total_size;
-    server.aof_rewrite_base_size = server.aof_current_size;
+    server.aof_rewrite_base_size = getAppendOnlyFileSize(am->base_aof_info->file_name, NULL);
     server.aof_fsync_offset = server.aof_current_size;
 
 cleanup:
@@ -2531,8 +2531,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         if (server.aof_fd != -1) {
             /* AOF enabled. */
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
-            server.aof_rewrite_base_size = server.aof_current_size;
+            server.aof_rewrite_base_size = getAppendOnlyFileSize(new_base_filename, NULL);
+            server.aof_current_size = server.aof_rewrite_base_size + server.aof_last_incr_size;
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
         }
