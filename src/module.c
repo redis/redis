@@ -6074,10 +6074,9 @@ const char *moduleTypeModuleName(moduleType *mt) {
     return mt->module->name;
 }
 
-/* Return the module name from command, NULL if the command is not a module command */
+/* Return the module name from a module command */
 const char *moduleNameFromCommand(struct redisCommand *cmd) {
-    if (cmd->proc != RedisModuleCommandDispatcher)
-        return NULL;
+    serverAssert(cmd->proc == RedisModuleCommandDispatcher);
 
     RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
     return cp->module->name;
