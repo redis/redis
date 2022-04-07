@@ -2079,6 +2079,12 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
  * the -LOADING error)
  */
 void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+    static int yield_nesting = 0;
+    /* Avoid nested calls to RM_Yield */
+    if (yield_nesting)
+        return;
+    yield_nesting++;
+
     long long now = getMonotonicUs();
     if (now >= ctx->next_yield_time) {
         /* In loading mode, there's no need to handle busy_module_yield_reply,
@@ -2092,10 +2098,11 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             server.busy_module_yield_reply = busy_reply;
             /* start the blocking operation if not already started. */
             if (!server.busy_module_yield_flags) {
-                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
-                    BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
+                server.busy_module_yield_flags = BUSY_MODULE_YIELD_EVENTS;
                 blockingOperationStarts();
             }
+            if (flags & REDISMODULE_YIELD_FLAG_CLIENTS)
+                server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
             processEventsWhileBlocked();
@@ -2110,6 +2117,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
+    yield_nesting --;
 }
 
 /* Set flags defining capabilities or behavior bit flags.
