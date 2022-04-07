@@ -258,9 +258,8 @@ unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);
     if (size < lp_malloc_size(lp)) {
         return lp_realloc(lp, size);
-    } else {
-        return lp;
     }
+    return lp;
 }
 
 /* Stores the integer encoded representation of 'v' in the 'intenc' buffer. */
