@@ -457,14 +457,12 @@ int zipStorePrevEntryLengthLarge(unsigned char *p, unsigned int len) {
 unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if (p == NULL) {
         return (len < ZIP_BIG_PREVLEN) ? 1 : sizeof(uint32_t) + 1;
-    } else {
-        if (len < ZIP_BIG_PREVLEN) {
-            p[0] = len;
-            return 1;
-        } else {
-            return zipStorePrevEntryLengthLarge(p,len);
-        }
     }
+    if (len < ZIP_BIG_PREVLEN) {
+        p[0] = len;
+        return 1;
+    }
+    return zipStorePrevEntryLengthLarge(p, len);
 }
 
 /* Return the number of bytes used to encode the length of the previous
