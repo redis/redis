@@ -499,15 +499,9 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
 }
 
 /* Publish a message to all the subscribers. */
-int pubsubPublishMessage(robj *channel, robj *message) {
-    return pubsubPublishMessageInternal(channel,message,pubSubType);
+int pubsubPublishMessage(robj *channel, robj *message, int sharded) {
+    return pubsubPublishMessageInternal(channel, message, sharded? pubSubShardType : pubSubType);
 }
-
-/* Publish a shard message to all the subscribers. */
-int pubsubPublishMessageShard(robj *channel, robj *message) {
-    return pubsubPublishMessageInternal(channel, message, pubSubShardType);
-}
-
 
 /*-----------------------------------------------------------------------------
  * Pubsub commands implementation
@@ -578,21 +572,12 @@ void punsubscribeCommand(client *c) {
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
-/* This function wraps pubsubPublishMessage/pubsubPublishMessageShard and
- * also propagates the message to cluster.
+/* This function wraps pubsubPublishMessage and also propagates the message to cluster.
  * Used by the commands PUBLISH/SPUBLISH and their respective module APIs.*/
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded) {
-    int receivers = sharded ?
-                    pubsubPublishMessageShard(channel, message) :
-                    pubsubPublishMessage(channel, message);
-    if (server.cluster_enabled) {
-        if (sharded) {
-            clusterPropagatePublishShard(channel, message);
-        } else {
-            clusterPropagatePublish(channel, message);
-        }
-    }
-
+    int receivers = pubsubPublishMessage(channel, message, sharded);
+    if (server.cluster_enabled)
+        clusterPropagatePublish(channel, message, sharded);
     return receivers;
 }
 
