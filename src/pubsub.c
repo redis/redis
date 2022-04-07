@@ -578,7 +578,10 @@ void punsubscribeCommand(client *c) {
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
-int pubsubPublishMessageByType(robj *channel, robj *message, int sharded) {
+/* This function wraps pubsubPublishMessage/pubsubPublishMessageShard and
+ * also propagates the message to cluster.
+ * Used by the commands PUBLISH/SPUBLISH and their respective module APIs.*/
+int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded) {
     int receivers = sharded ?
                     pubsubPublishMessageShard(channel, message) :
                     pubsubPublishMessage(channel, message);
@@ -600,7 +603,7 @@ void publishCommand(client *c) {
         return;
     }
 
-    int receivers = pubsubPublishMessageByType(c->argv[1],c->argv[2],0);
+    int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],0);
     if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
@@ -690,7 +693,7 @@ void channelList(client *c, sds pat, dict *pubsub_channels) {
 
 /* SPUBLISH <channel> <message> */
 void spublishCommand(client *c) {
-    int receivers = pubsubPublishMessageByType(c->argv[1],c->argv[2],1);
+    int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],1);
     if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);

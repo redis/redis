@@ -3365,13 +3365,13 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
-    return pubsubPublishMessageByType(channel, message, 0);
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 0);
 }
 
 /* Publish a message to shard-subscribers (see SPUBLISH command). */
 int RM_PublishMessageShard(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
-    return pubsubPublishMessageByType(channel, message, 1);
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 1);
 }
 
 /* Return the currently selected DB. */

@@ -2964,7 +2964,7 @@ void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message);
 int pubsubPublishMessageShard(robj *channel, robj *message);
-int pubsubPublishMessageByType(robj *channel, robj *message, int sharded);
+int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 int serverPubsubSubscriptionCount();
 int serverPubsubShardSubscriptionCount();
