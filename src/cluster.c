@@ -3204,23 +3204,24 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
-    if (sharded) {
-        list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
-        if (listLength(nodes_for_slot) != 0) {
-            listIter li;
-            listNode *ln;
-            listRewind(nodes_for_slot, &li);
-            while((ln = listNext(&li))) {
-                clusterNode *node = listNodeValue(ln);
-                if (node != myself) {
-                    clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
-                }
+    if (!sharded) {
+        clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
+        return;
+    }
+
+    list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
+    if (listLength(nodes_for_slot) != 0) {
+        listIter li;
+        listNode *ln;
+        listRewind(nodes_for_slot, &li);
+        while((ln = listNext(&li))) {
+            clusterNode *node = listNodeValue(ln);
+            if (node != myself) {
+                clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
             }
         }
-        listRelease(nodes_for_slot);
-    } else {
-        clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
     }
+    listRelease(nodes_for_slot);
 }
 
 /* -----------------------------------------------------------------------------
