@@ -1660,9 +1660,15 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     server.aof_current_size = total_size;
-    /* Since we do not persist `aof_rewrite_base_size` information, so we initialize 
-     * it to the size of BASE AOF here. This might cause the first AOFRW to be executed
-     * early, but that shouldn't be a problem since everything will be fine after the first AOFRW.*/
+    /* Ideally, the aof_rewrite_base_size variable should hold the size of the
+     * AOF when the last rewrite ended, this should include the size of the
+     * incremental file that was created during the rewrite since otherwise we
+     * risk the next automatic rewrite to happen too soon (or immediately if
+     * auto-aof-rewrite-percentage is low). However, since we do not persist
+     * aof_rewrite_base_size information anywhere, we initialize it on restart
+     * to the size of BASE AOF file. This might cause the first AOFRW to be
+     * executed early, but that shouldn't be a problem since everything will be
+     * fine after the first AOFRW. */
     server.aof_rewrite_base_size = base_size;
     server.aof_fsync_offset = server.aof_current_size;
 
