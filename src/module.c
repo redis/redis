@@ -470,7 +470,7 @@ void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
 }
 
-/* Same as RM_Alloc, only it returns NULL in case of failure, instead
+/* Similar to RM_Alloc, but returns NULL in case of allocation failure, instead
  * of panicking. */
 void *RM_TryAlloc(size_t bytes) {
     return ztrymalloc(bytes);
