@@ -1660,6 +1660,9 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     server.aof_current_size = total_size;
+    /* Since we do not persist `aof_rewrite_base_size` information, so we initialize 
+     * it to the size of BASE AOF here. This might cause the first AOFRW to be executed
+     * early, but that shouldn't be a problem since everything will be fine after the first AOFRW.*/
     server.aof_rewrite_base_size = base_size;
     server.aof_fsync_offset = server.aof_current_size;
 
@@ -2531,10 +2534,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         if (server.aof_fd != -1) {
             /* AOF enabled. */
-            off_t base_size = getAppendOnlyFileSize(new_base_filename, NULL);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            server.aof_current_size = base_size + server.aof_last_incr_size;
-            server.aof_rewrite_base_size = base_size;
+            server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
+            server.aof_rewrite_base_size = server.aof_current_size;
             server.aof_fsync_offset = server.aof_current_size;
             server.aof_last_fsync = server.unixtime;
         }
