@@ -321,8 +321,8 @@ typedef struct RedisModuleCommandArg {
     const char *token;        /* If type is PURE_TOKEN, this is the token. */
     const char *summary;
     const char *since;
-    const char *deprecated_since;
     int flags;                /* The REDISMODULE_CMD_ARG_* macros. */
+    const char *deprecated_since;
     struct RedisModuleCommandArg *subargs;
 } RedisModuleCommandArg;
 

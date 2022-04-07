@@ -10909,6 +10909,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
     }
     zfree((char *)cmd->summary);
     zfree((char *)cmd->since);
+    zfree((char *)cmd->deprecated_since);
     zfree((char *)cmd->complexity);
     if (cmd->latency_histogram) {
         hdr_close(cmd->latency_histogram);
