@@ -957,12 +957,12 @@ char *strEncoding(int encoding) {
  * Actually the number of nodes and keys may be different depending
  * on the insertion speed and thus the ability of the radix tree
  * to compress prefixes. */
-size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
-    size = rax->numele * sizeof(streamID);
-    size += rax->numnodes * sizeof(raxNode);
+size_t streamRadixTreeMemoryUsage(rax *r) {
+    size_t size = sizeof(r);
+    size = r->numele * sizeof(streamID);
+    size += r->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
-    size += rax->numnodes * sizeof(long)*30;
+    size += r->numnodes * sizeof(long)*30;
     return size;
 }
 
