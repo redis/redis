@@ -9738,7 +9738,7 @@ size_t RM_MallocSize(void* ptr) {
  */
 size_t RM_MallocSizeString(RedisModuleString* str) {
     serverAssert(str->type == OBJ_STRING);
-    return objectComputeSize(NULL, str, 0, 0);
+    return sizeof(*str) + getStringObjectSdsUsedMemory(str);
 }
 
 /* Same as RM_MallocSize, except it works on RedisModuleDict pointers.
@@ -9746,10 +9746,9 @@ size_t RM_MallocSizeString(RedisModuleString* str) {
  * it does not include the allocation size of the keys and values.
  */
 size_t RM_MallocSizeDict(RedisModuleDict* dict) {
-    /* See streamRadixTreeMemoryUsage */
-    size_t size = sizeof(RedisModuleDict);
+    size_t size = sizeof(RedisModuleDict) + sizeof(rax);
     size += dict->rax->numnodes * sizeof(raxNode);
-    /* Add a fixed overhead due to the aux data pointer, children, ... */
+    /* For more info about this weird line, see streamRadixTreeMemoryUsage */
     size += dict->rax->numnodes * sizeof(long)*30;
     return size;
 }
