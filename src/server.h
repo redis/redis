@@ -1324,7 +1324,7 @@ struct redisMemOverhead {
 };
 
 /* Replication error behavior determines the replica behavior
- * when it recieves an error over the replication stream. In
+ * when it receives an error over the replication stream. In
  * either case the error is logged. */
 enum {
     REPLICATION_ERR_BEHAVIOR_IGNORE = 0,
@@ -1778,7 +1778,7 @@ struct redisServer {
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
     int repl_error_behavior;        /* Configures the behavior of the replica
-                                     * when it recieves an error on the replication stream */
+                                     * when it receives an error on the replication stream */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
