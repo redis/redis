@@ -523,8 +523,8 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         server.stat_unexpected_error_replies++;
 
         /* If this command was from our master, we are not a writable replica,
-         * and replication resync on error is enabled, disconnect and try to 
-         * get a fresh copy of data. */
+         * check to see if we should panic based off the replication error
+         * behavior config. */
         if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro &&
             server.repl_error_behavior == REPLICATION_ERR_BEHAVIOR_PANIC)
         {
@@ -1556,9 +1556,7 @@ void freeClient(client *c) {
     }
 
     /* If it is our master that's being disconnected we should make sure
-     * to cache the state to try a partial resynchronization later. The
-     * exception to this is if the master has sent us some commands we
-     * couldn't process, so we have to discard it to retry a full sync.
+     * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
