@@ -1324,7 +1324,8 @@ struct redisMemOverhead {
 };
 
 /* Replication error behavior determines the replica behavior
- * when it recieves an error over the replication stream */
+ * when it recieves an error over the replication stream. In
+ * either case the error is logged. */
 enum {
     REPLICATION_ERR_BEHAVIOR_IGNORE = 0,
     REPLICATION_ERR_BEHAVIOR_PANIC
