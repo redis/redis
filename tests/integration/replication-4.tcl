@@ -213,7 +213,8 @@ start_server {tags {"repl external:skip"}} {
             wait_for_sync $replica
         }
 
-        test {Data divergence can happen under default conditions} {            
+        test {Data divergence can happen under default conditions} {       
+            $replica config set repl-error-behavior ignore     
             $master debug replicate fake-command-1
 
             # Wait for replication to normalize
@@ -221,45 +222,6 @@ start_server {tags {"repl external:skip"}} {
             $master wait 1 2000
 
             assert_equal [count_log_message 0 "fake-command-1"] 1
-        }
-
-        test {Data corruption of replication forces full sync with flag} {
-            $replica config set repl-resync-on-error yes      
-            set initial_psyncs [s -1 sync_partial_ok]
-            set initial_syncs [s -1 sync_full]
-            $master set foo bar
-            
-            # Test a multi-exec with invalid commands. Note these won't
-            # be replicated as a multi-exec, they'll just be put into
-            # the replication output buffer together.
-            $master multi
-            $master debug replicate fake-command-2
-            $master debug replicate fake-command-3
-            # Send a valid command here just to make sure it doesn't
-            # stick around
-            $master debug replicate set foo baz
-            $master exec
-
-            # Wait for replication to normalize
-            $master set foo bar2
-            wait_for_condition 100 100 {
-                [$master debug digest] == [$replica debug digest]
-            } else {
-                fail "Replica never synced with its master"
-            }
-
-            # Check for error messages
-            assert_equal [count_log_message 0 "Forcing full sync with master to prevent data divergence."] 1
-            assert_equal [count_log_message 0 "fake-command-2"] 1
-            assert_equal [count_log_message 0 "fake-command-3"] 0
-            assert_equal [count_log_message 0 "baz"] 0
-
-            # Check for data corruption
-            assert_equal [$replica get foo] "bar2"
-
-            # Make sure we did a full sync
-            assert_equal [expr [s -1 sync_partial_ok] - $initial_psyncs] 0
-            assert_equal [expr [s -1 sync_full] - $initial_syncs] 1
         }
 
         test {Data divergence is allowed on writable replicas} {            
@@ -273,6 +235,5 @@ start_server {tags {"repl external:skip"}} {
 
             assert_equal [count_log_message 0 "incrby"] 1
         }
-
     }
 }

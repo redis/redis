@@ -526,11 +526,9 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
          * and replication resync on error is enabled, disconnect and try to 
          * get a fresh copy of data. */
         if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro &&
-            server.repl_resync_on_error)
+            server.repl_error_behavior == REPLICATION_ERR_BEHAVIOR_PANIC)
         {
-            serverLog(LL_WARNING, "Forcing full sync with master to "
-                                  "prevent data divergence.");
-            forceFullSyncWithMaster(); 
+            serverPanic("Error detected on replication stream.");
         }
     }
 }
@@ -1565,15 +1563,11 @@ void freeClient(client *c) {
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
-        if (c->flags & CLIENT_DISCARD_MASTER) {
-            serverLog(LL_WARNING,"Discarding master state to prevent data corruption.");
-        } else {
-            serverLog(LL_WARNING,"Connection with master lost.");
-            if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
-                c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
-                replicationCacheMaster(c);
-                return;
-            }
+        serverLog(LL_WARNING,"Connection with master lost.");
+        if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
+            c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
+            replicationCacheMaster(c);
+            return;
         }
     }
 

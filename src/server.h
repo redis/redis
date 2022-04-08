@@ -359,7 +359,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                           RDB without replication buffer. */
 #define CLIENT_NO_EVICT (1ULL<<43) /* This client is protected against client
                                       memory eviction. */
-#define CLIENT_DISCARD_MASTER (1ULL<<44)  /* Discard cached master on disconnect */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1324,6 +1323,13 @@ struct redisMemOverhead {
     } *db;
 };
 
+/* Replication error behavior determines the replica behavior
+ * when it recieves an error over the replication stream */
+enum {
+    REPLICATION_ERR_BEHAVIOR_IGNORE = 0,
+    REPLICATION_ERR_BEHAVIOR_PANIC
+} replicationErrorBehavior;
+
 /* This structure can be optionally passed to RDB save/load functions in
  * order to implement additional functionalities, by storing and loading
  * metadata to the RDB file.
@@ -1770,8 +1776,8 @@ struct redisServer {
     int replica_announced;          /* If true, replica is announced by Sentinel */
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
-    int repl_resync_on_error;       /* Configures the replica to resync if an
-                                     * error is received on the replication link */
+    int repl_error_behavior;        /* Configures the behavior of the replica
+                                     * when it recieves an error on the replication stream */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
@@ -2650,7 +2656,6 @@ void replicationCacheMaster(client *c);
 void resizeReplicationBacklog();
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
-void forceFullSyncWithMaster(void);
 void refreshGoodSlavesCount(void);
 int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
