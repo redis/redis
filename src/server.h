@@ -3312,6 +3312,7 @@ void flushallCommand(client *c);
 void sortCommand(client *c);
 void sortroCommand(client *c);
 void lremCommand(client *c);
+void lrematCommand(client *c);
 void lposCommand(client *c);
 void rpoplpushCommand(client *c);
 void lmoveCommand(client *c);

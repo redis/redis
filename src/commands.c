@@ -2973,6 +2973,22 @@ struct redisCommandArg LREM_Args[] = {
 {0}
 };
 
+/********** LREMAT ********************/
+
+/* LREMAT history */
+#define LREMAT_History NULL
+
+/* LREMAT tips */
+#define LREMAT_tips NULL
+
+/* LREMAT argument table */
+struct redisCommandArg LREMAT_Args[] = {
+{"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
+{"count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** LSET ********************/
 
 /* LSET history */
@@ -7246,6 +7262,7 @@ struct redisCommand redisCommandTable[] = {
 {"lpushx","Prepend an element to a list, only if the list exists","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPUSHX_History,LPUSHX_tips,lpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPUSHX_Args},
 {"lrange","Get a range of elements from a list","O(S+N) where S is the distance of start offset from HEAD for small lists, from nearest end (HEAD or TAIL) for large lists; and N is the number of elements in the specified range.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LRANGE_History,LRANGE_tips,lrangeCommand,4,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LRANGE_Args},
 {"lrem","Remove elements from a list","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LREM_History,LREM_tips,lremCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LREM_Args},
+{"lremat","Remove elements from a list starting at specified index","O(N+M) where N is the length of the list and M is the number of elements removed.","6.2.6",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LREMAT_History,LREMAT_tips,lrematCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LREMAT_Args},
 {"lset","Set the value of an element in a list by its index","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LSET_History,LSET_tips,lsetCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LSET_Args},
 {"ltrim","Trim a list to the specified range","O(N) where N is the number of elements to be removed by the operation.","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LTRIM_History,LTRIM_tips,ltrimCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LTRIM_Args},
 {"rpop","Remove and get the last elements in a list","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,RPOP_History,RPOP_tips,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=RPOP_Args},
