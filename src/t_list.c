@@ -363,8 +363,8 @@ void linsertatCommand(client *c) {
     listTypeReleaseIterator(iter);
 
     if (inserted) {
-        signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,"liinsert",
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,"linsertat",
                             c->argv[1],c->db->id);
         server.dirty++;
     } else {
