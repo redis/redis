@@ -1,0 +1,25 @@
+{
+    "SUBSCRIBE": {
+        "summary": "Listen for messages published to the given channels",
+        "complexity": "O(N) where N is the number of channels to subscribe to.",
+        "group": "pubsub",
+        "since": "2.0.0",
+        "arity": -2,
+        "function": "subscribeCommand",
+        "history": [],
+        "command_flags": [
+            "PUBSUB",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "channel",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "INFO": {
+        "summary": "Returns information about the current client connection.",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ]
+    }
+}

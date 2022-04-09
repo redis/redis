@@ -1,0 +1,52 @@
+{
+    "LSET": {
+        "summary": "Set the value of an element in a list by its index",
+        "complexity": "O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": 4,
+        "function": "lsetCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "index",
+                "type": "integer"
+            },
+            {
+                "name": "element",
+                "type": "string"
+            }
+        ]
+    }
+}

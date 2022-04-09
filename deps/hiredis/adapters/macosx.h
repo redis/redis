@@ -27,7 +27,7 @@ static int freeRedisRunLoop(RedisRunLoop* redisRunLoop) {
             CFSocketInvalidate(redisRunLoop->socketRef);
             CFRelease(redisRunLoop->socketRef);
         }
-        free(redisRunLoop);
+        hi_free(redisRunLoop);
     }
     return REDIS_ERR;
 }
@@ -80,8 +80,9 @@ static int redisMacOSAttach(redisAsyncContext *redisAsyncCtx, CFRunLoopRef runLo
     /* Nothing should be attached when something is already attached */
     if( redisAsyncCtx->ev.data != NULL ) return REDIS_ERR;
 
-    RedisRunLoop* redisRunLoop = (RedisRunLoop*) calloc(1, sizeof(RedisRunLoop));
-    if( !redisRunLoop ) return REDIS_ERR;
+    RedisRunLoop* redisRunLoop = (RedisRunLoop*) hi_calloc(1, sizeof(RedisRunLoop));
+    if (redisRunLoop == NULL)
+        return REDIS_ERR;
 
     /* Setup redis stuff */
     redisRunLoop->context = redisAsyncCtx;

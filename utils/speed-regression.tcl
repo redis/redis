@@ -101,7 +101,7 @@ if {![file exists speed-regression.tcl]} {
     exit 1
 }
 
-# Make sure there is not already a server runnign on port 12123
+# Make sure there is not already a server running on port 12123
 set is_not_running [catch {set r [redis 127.0.0.1 $::port]}]
 if {!$is_not_running} {
     puts "Sorry, you have a running server on port $::port"

@@ -3,6 +3,14 @@
 # Simple Redis init.d script conceived to work on Linux systems
 # as it does use of the /proc filesystem.
 
+### BEGIN INIT INFO
+# Provides:     redis_6379
+# Default-Start:        2 3 4 5
+# Default-Stop:         0 1 6
+# Short-Description:    Redis data structure server
+# Description:          Redis data structure server. See https://redis.io
+### END INIT INFO
+
 REDISPORT=6379
 EXEC=/usr/local/bin/redis-server
 CLIEXEC=/usr/local/bin/redis-cli

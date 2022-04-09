@@ -1,0 +1,24 @@
+{
+    "CAT": {
+        "summary": "List the ACL categories or the commands inside a category",
+        "complexity": "O(1) since the categories and commands are a fixed set.",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -2,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "categoryname",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    }
+}

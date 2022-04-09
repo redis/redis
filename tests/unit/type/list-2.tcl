@@ -29,11 +29,11 @@ start_server {
                     set max [expr {$min+int(rand()*$startlen)}]
                     set before_len [llength $mylist]
                     set before_len_r [r llen mylist]
+                    assert_equal $before_len $before_len_r
                     set mylist [lrange $mylist $min $max]
                     r ltrim mylist $min $max
                     assert_equal $mylist [r lrange mylist 0 -1] "failed trim"
 
-                    set starting [r llen mylist]
                     for {set j [r llen mylist]} {$j < $startlen} {incr j} {
                         set str [randomInt 9223372036854775807]
                         r rpush mylist $str

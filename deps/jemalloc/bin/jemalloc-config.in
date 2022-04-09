@@ -18,6 +18,7 @@ Options:
   --cc         : Print compiler used to build jemalloc.
   --cflags     : Print compiler flags used to build jemalloc.
   --cppflags   : Print preprocessor flags used to build jemalloc.
+  --cxxflags   : Print C++ compiler flags used to build jemalloc.
   --ldflags    : Print library flags used to build jemalloc.
   --libs       : Print libraries jemalloc was linked against.
 EOF
@@ -66,6 +67,9 @@ case "$1" in
 	;;
 --cppflags)
 	echo "@CPPFLAGS@"
+	;;
+--cxxflags)
+	echo "@CXXFLAGS@"
 	;;
 --ldflags)
 	echo "@LDFLAGS@ @EXTRA_LDFLAGS@"

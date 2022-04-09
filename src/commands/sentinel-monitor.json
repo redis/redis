@@ -1,0 +1,34 @@
+{
+    "MONITOR": {
+        "summary": "Start monitoring",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 6,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "name",
+                "type": "string"
+            },
+            {
+                "name": "ip",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "quorum",
+                "type": "integer"
+            }
+        ]
+    }
+}

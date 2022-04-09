@@ -1,0 +1,29 @@
+{
+    "SLAVES": {
+        "summary": "List replica nodes of the specified master node",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`CLUSTER REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "ADMIN",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "node-id",
+                "type": "string"
+            }
+        ]
+    }
+}

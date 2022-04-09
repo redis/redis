@@ -1,0 +1,34 @@
+{
+    "IS-MASTER-DOWN-BY-ADDR": {
+        "summary": "Check if a master is down",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 6,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "ip",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            },
+            {
+                "name": "current-epoch",
+                "type": "integer"
+            },
+            {
+                "name": "runid",
+                "type": "string"
+            }
+        ]
+    }
+}

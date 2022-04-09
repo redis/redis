@@ -1,0 +1,27 @@
+{
+    "GETKEYSINSLOT": {
+        "summary": "Return local key names in the specified hash slot",
+        "complexity": "O(log(N)) where N is the number of requested keys",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 4,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer"
+            },
+            {
+                "name": "count",
+                "type": "integer"
+            }
+        ]
+    }
+}
