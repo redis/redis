@@ -369,7 +369,7 @@ void linsertatCommand(client *c) {
         server.dirty++;
     } else {
         /* Notify client of a failed insert */
-        addReply(c,shared.cnegone);
+        addReplyLongLong(c,-1);
         return;
     }
 
