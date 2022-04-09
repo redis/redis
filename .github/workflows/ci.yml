@@ -1,0 +1,76 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+
+  test-ubuntu-latest:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+    - name: test
+      run: |
+        sudo apt-get install tcl8.6 tclx
+        ./runtest --verbose --tags -slow --dump-logs
+    - name: module api test
+      run: ./runtest-moduleapi --verbose --dump-logs
+
+  test-sanitizer-address:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: make
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror'
+      - name: testprep
+        run: sudo apt-get install tcl8.6 tclx -y
+      - name: test
+        run: ./runtest --verbose --tags -slow --dump-logs
+      - name: module api test
+        run: ./runtest-moduleapi --verbose --dump-logs
+
+  build-debian-old:
+    runs-on: ubuntu-latest
+    container: debian:oldoldstable
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: |
+        apt-get update && apt-get install -y build-essential
+        make REDIS_CFLAGS='-Werror'
+
+  build-macos-latest:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: make REDIS_CFLAGS='-Werror'
+
+  build-32bit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: |
+        sudo apt-get update && sudo apt-get install libc6-dev-i386
+        make REDIS_CFLAGS='-Werror' 32bit
+
+  build-libc-malloc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: make REDIS_CFLAGS='-Werror' MALLOC=libc
+
+  build-centos7-jemalloc:
+    runs-on: ubuntu-latest
+    container: centos:7
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: |
+        yum -y install gcc make
+        make REDIS_CFLAGS='-Werror'

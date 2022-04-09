@@ -91,7 +91,7 @@ int HelloPushCall_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
 }
 
 /* HELLO.PUSH.CALL2
- * This is exaxctly as HELLO.PUSH.CALL, but shows how we can reply to the
+ * This is exactly as HELLO.PUSH.CALL, but shows how we can reply to the
  * client using directly a reply object that Call() returned. */
 int HelloPushCall2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -241,7 +241,6 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    RedisModuleCallReply *reply;
     RedisModule_AutoMemory(ctx);
 
     /* This will be replicated *after* the two INCR statements, since
@@ -258,8 +257,8 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     /* Using the "!" modifier we replicate the command if it
      * modified the dataset in some way. */
-    reply = RedisModule_Call(ctx,"INCR","c!","foo");
-    reply = RedisModule_Call(ctx,"INCR","c!","bar");
+    RedisModule_Call(ctx,"INCR","c!","foo");
+    RedisModule_Call(ctx,"INCR","c!","bar");
 
     RedisModule_ReplyWithLongLong(ctx,0);
 
@@ -346,7 +345,7 @@ int HelloToggleCase_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 /* HELLO.MORE.EXPIRE key milliseconds.
  *
- * If they key has already an associated TTL, extends it by "milliseconds"
+ * If the key has already an associated TTL, extends it by "milliseconds"
  * milliseconds. Otherwise no operation is performed. */
 int HelloMoreExpire_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
@@ -444,7 +443,7 @@ int HelloLexRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     }
 
     int arraylen = 0;
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     while(!RedisModule_ZsetRangeEndReached(key)) {
         double score;
         RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key,&score);

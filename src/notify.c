@@ -29,8 +29,8 @@
 
 #include "server.h"
 
-/* This file implements keyspace events notification via Pub/Sub ad
- * described at http://redis.io/topics/keyspace-events. */
+/* This file implements keyspace events notification via Pub/Sub and
+ * described at https://redis.io/topics/notifications. */
 
 /* Turn a string representing notification classes into an integer
  * representing notification classes flags xored.
@@ -54,13 +54,16 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'e': flags |= NOTIFY_EVICTED; break;
         case 'K': flags |= NOTIFY_KEYSPACE; break;
         case 'E': flags |= NOTIFY_KEYEVENT; break;
+        case 't': flags |= NOTIFY_STREAM; break;
+        case 'm': flags |= NOTIFY_KEY_MISS; break;
+        case 'd': flags |= NOTIFY_MODULE; break;
         default: return -1;
         }
     }
     return flags;
 }
 
-/* This function does exactly the revese of the function above: it gets
+/* This function does exactly the reverse of the function above: it gets
  * as input an integer with the xored flags and returns a string representing
  * the selected classes. The string returned is an sds string that needs to
  * be released with sdsfree(). */
@@ -79,16 +82,20 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_ZSET) res = sdscatlen(res,"z",1);
         if (flags & NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
+        if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
+        if (flags & NOTIFY_MODULE) res = sdscatlen(res,"d",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
+    if (flags & NOTIFY_KEY_MISS) res = sdscatlen(res,"m",1);
     return res;
 }
 
 /* The API provided to the rest of the Redis core is a simple function:
  *
- * notifyKeyspaceEvent(char *event, robj *key, int dbid);
+ * notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
  *
+ * 'type' is the notification class we define in `server.h`.
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.  */
@@ -97,6 +104,12 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     robj *chanobj, *eventobj;
     int len = -1;
     char buf[24];
+
+    /* If any modules are interested in events, notify the module system now.
+     * This bypasses the notifications configuration, but the module engine
+     * will only call event subscribers if the event type matches the types
+     * they are interested in. */
+     moduleNotifyKeyspaceEvent(type, event, key, dbid);
 
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
@@ -115,7 +128,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         decrRefCount(chanobj);
     }
 
-    /* __keyevente@<db>__:<event> <key> notifications. */
+    /* __keyevent@<db>__:<event> <key> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
         if (len == -1) len = ll2string(buf,sizeof(buf),dbid);

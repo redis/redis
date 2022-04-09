@@ -1,0 +1,15 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": 2,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ]
+    }
+}

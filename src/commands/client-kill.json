@@ -1,0 +1,117 @@
+{
+    "KILL": {
+        "summary": "Kill the connection of a client",
+        "complexity": "O(N) where N is the number of client connections",
+        "group": "connection",
+        "since": "2.4.0",
+        "arity": -3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "history": [
+            [
+                "2.8.12",
+                "Added new filter format."
+            ],
+            [
+                "2.8.12",
+                "`ID` option."
+            ],
+            [
+                "3.2.0",
+                "Added `master` type in for `TYPE` option."
+            ],
+            [
+                "5.0.0",
+                "Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."
+            ],
+            [
+                "6.2.0",
+                "`LADDR` option."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "ip:port",
+                "type": "string",
+                "optional": true
+            },
+            {
+                "token": "ID",
+                "name": "client-id",
+                "type": "integer",
+                "optional": true,
+                "since": "2.8.12"
+            },
+            {
+                "token": "TYPE",
+                "name": "normal_master_slave_pubsub",
+                "type": "oneof",
+                "optional": true,
+                "since": "2.8.12",
+                "arguments": [
+                    {
+                        "name": "normal",
+                        "type": "pure-token",
+                        "token": "normal"
+                    },
+                    {
+                        "name": "master",
+                        "type": "pure-token",
+                        "token": "master",
+                        "since": "3.2.0"
+                    },
+                    {
+                        "name": "slave",
+                        "type": "pure-token",
+                        "token": "slave"
+                    },
+                    {
+                        "name": "replica",
+                        "type": "pure-token",
+                        "token": "replica",
+                        "since": "5.0.0"
+                    },
+                    {
+                        "name": "pubsub",
+                        "type": "pure-token",
+                        "token": "pubsub"
+                    }
+                ]
+            },
+            {
+                "token": "USER",
+                "name": "username",
+                "type": "string",
+                "optional": true
+            },
+            {
+                "token": "ADDR",
+                "name": "ip:port",
+                "type": "string",
+                "optional": true
+            },
+            {
+                "token": "LADDR",
+                "name": "ip:port",
+                "type": "string",
+                "optional": true,
+                "since": "6.2.0"
+            },
+            {
+                "token": "SKIPME",
+                "name": "yes/no",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    }
+}

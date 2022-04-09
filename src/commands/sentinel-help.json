@@ -1,0 +1,17 @@
+{
+    "HELP": {
+        "summary": "Show helpful text about the different subcommands",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "6.2.0",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ]
+    }
+}

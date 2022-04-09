@@ -1,0 +1,67 @@
+{
+    "XSETID": {
+        "summary": "An internal command for replicating stream values",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -3,
+        "function": "xsetidCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries_added` and `max_deleted_entry_id` arguments."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "last-id",
+                "type": "string"
+            },
+            {
+                "name": "entries_added",
+                "token": "ENTRIESADDED",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "max_deleted_entry_id",
+                "token": "MAXDELETEDID",
+                "type": "string",
+                "optional": true
+            }
+        ]
+    }
+}

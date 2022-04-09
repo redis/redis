@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef __SLOWLOG_H__
+#define __SLOWLOG_H__
+
 #define SLOWLOG_ENTRY_MAX_ARGC 32
 #define SLOWLOG_ENTRY_MAX_STRING 128
 
@@ -35,13 +38,14 @@ typedef struct slowlogEntry {
     robj **argv;
     int argc;
     long long id;       /* Unique entry identifier. */
-    long long duration; /* Time spent by the query, in nanoseconds. */
+    long long duration; /* Time spent by the query, in microseconds. */
     time_t time;        /* Unix time at which the query was executed. */
+    sds cname;          /* Client name. */
+    sds peerid;         /* Client network address. */
 } slowlogEntry;
 
 /* Exported API */
 void slowlogInit(void);
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration);
+void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
 
-/* Exported commands */
-void slowlogCommand(client *c);
+#endif /* __SLOWLOG_H__ */

@@ -1,0 +1,52 @@
+{
+    "FLUSHALL": {
+        "summary": "Remove all keys from all databases",
+        "complexity": "O(N) where N is the total number of keys in all databases",
+        "group": "server",
+        "since": "1.0.0",
+        "arity": -1,
+        "function": "flushallCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Added the `ASYNC` flushing mode modifier."
+            ],
+            [
+                "6.2.0",
+                "Added the `SYNC` flushing mode modifier."
+            ]
+        ],
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "arguments": [
+            {
+                "name": "async",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "async",
+                        "type": "pure-token",
+                        "token": "ASYNC",
+                        "since": "4.0.0"
+                    },
+                    {
+                        "name": "sync",
+                        "type": "pure-token",
+                        "token": "SYNC",
+                        "since": "6.2.0"
+                    }
+                ]
+            }
+        ]
+    }
+}

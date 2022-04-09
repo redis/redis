@@ -1,0 +1,26 @@
+{
+    "REPLICAOF": {
+        "summary": "Make the server a replica of another instance, or promote it as master.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "5.0.0",
+        "arity": 3,
+        "function": "replicaofCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "NOSCRIPT",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "host",
+                "type": "string"
+            },
+            {
+                "name": "port",
+                "type": "integer"
+            }
+        ]
+    }
+}

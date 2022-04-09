@@ -1,0 +1,38 @@
+{
+    "RESET": {
+        "summary": "Reset a Redis Cluster node",
+        "complexity": "O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "ADMIN",
+            "STALE",
+            "NOSCRIPT"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "hard_soft",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "hard",
+                        "type": "pure-token",
+                        "token": "HARD"
+                    },
+                    {
+                        "name": "soft",
+                        "type": "pure-token",
+                        "token": "SOFT"
+                    }
+                ]
+            }
+        ]
+    }
+}

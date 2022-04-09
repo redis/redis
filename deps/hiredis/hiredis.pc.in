@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+install_libdir=@CMAKE_INSTALL_LIBDIR@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/${install_libdir}
+includedir=${prefix}/include
+pkgincludedir=${includedir}/hiredis
+
+Name: hiredis
+Description: Minimalistic C client library for Redis.
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lhiredis
+Cflags: -I${pkgincludedir} -D_FILE_OFFSET_BITS=64

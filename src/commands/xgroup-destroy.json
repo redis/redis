@@ -1,0 +1,48 @@
+{
+    "DESTROY": {
+        "summary": "Destroy a consumer group.",
+        "complexity": "O(N) where N is the number of entries in the group's pending entries list (PEL).",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": 4,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "groupname",
+                "type": "string"
+            }
+        ]
+    }
+}

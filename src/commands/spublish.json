@@ -1,0 +1,46 @@
+{
+    "SPUBLISH": {
+        "summary": "Post a message to a shard channel",
+        "complexity": "O(N) where N is the number of clients subscribed to the receiving shard channel.",
+        "group": "pubsub",
+        "since": "7.0.0",
+        "arity": 3,
+        "function": "spublishCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "MAY_REPLICATE"
+        ],
+        "arguments": [
+            {
+                "name": "channel",
+                "type": "string"
+            },
+            {
+                "name": "message",
+                "type": "string"
+            }
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "NOT_KEY"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
