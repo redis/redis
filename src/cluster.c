@@ -4689,9 +4689,10 @@ void clusterGenNodesSlotsInfo(int filter) {
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
             if (!(n->flags & filter)) {
-                if(!n->slot_info_pairs) {
-                    n->slot_info_pairs = zrealloc(n->slot_info_pairs, 2 * n->numslots * sizeof(uint16_t));
+                if (!n->slot_info_pairs) {
+                    n->slot_info_pairs = zmalloc(2 * n->numslots * sizeof(uint16_t));
                 }
+                serverAssert((n->slot_info_pairs_count + 1) < (2 * n->numslots));
                 n->slot_info_pairs[n->slot_info_pairs_count++] = start;
                 n->slot_info_pairs[n->slot_info_pairs_count++] = i-1;
             }
