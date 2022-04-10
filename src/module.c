@@ -6082,6 +6082,14 @@ const char *moduleTypeModuleName(moduleType *mt) {
     return mt->module->name;
 }
 
+/* Return the module name from a module command */
+const char *moduleNameFromCommand(struct redisCommand *cmd) {
+    serverAssert(cmd->proc == RedisModuleCommandDispatcher);
+
+    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    return cp->module->name;
+}
+
 /* Create a copy of a module type value using the copy callback. If failed
  * or not supported, produce an error reply and return NULL.
  */

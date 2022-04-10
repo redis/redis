@@ -15,8 +15,8 @@ start_server {tags {"modules"}} {
         set docs_reply [r command docs subcommands.bitarray]
         set docs [dict create {*}[lindex $docs_reply 1]]
         set subcmds_in_cmd_docs [dict create {*}[dict get $docs subcommands]]
-        assert_equal [dict get $subcmds_in_cmd_docs "subcommands.bitarray|get"] {group module}
-        assert_equal [dict get $subcmds_in_cmd_docs "subcommands.bitarray|set"] {group module}
+        assert_equal [dict get $subcmds_in_cmd_docs "subcommands.bitarray|get"] {group module module subcommands}
+        assert_equal [dict get $subcmds_in_cmd_docs "subcommands.bitarray|set"] {group module module subcommands}
     }
 
     test "Module pure-container command fails on arity error" {
