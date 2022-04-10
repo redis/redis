@@ -12302,6 +12302,23 @@ void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
     eventLoopHandleOneShotEvents();
 }
 
+/* Helper for addReplyLoadedModules(): given a list of modules, return
+ * an SDS string in the form "[datatype|datatype2|...]" */
+sds getModulesDataTypesList(list *l) {
+    listIter li;
+    listNode *ln;
+    listRewind(l, &li);
+    sds output = sdsnew("[");
+    while((ln = listNext(&li))) {
+        moduleType *mt = ln->value;
+        output = sdscat(output,mt->name);
+        if (ln != listLast(l))
+            output = sdscat(output,"|");
+    }
+    output = sdscat(output,"]");
+    return output;
+}
+
 /* Helper function for the MODULE and HELLO command: send the list of the
  * loaded modules to the client. */
 void addReplyLoadedModules(client *c) {
@@ -12313,11 +12330,14 @@ void addReplyLoadedModules(client *c) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
         sds path = module->loadmod->path;
+        sds dataTypes = getModulesDataTypesList(module->types);
         addReplyMapLen(c,4);
         addReplyBulkCString(c,"name");
         addReplyBulkCBuffer(c,name,sdslen(name));
         addReplyBulkCString(c,"ver");
         addReplyLongLong(c,module->ver);
+        addReplyBulkCString(c, "data types");
+        addReplyBulkCBuffer(c, dataTypes, sdslen(dataTypes));
         addReplyBulkCString(c,"path");
         addReplyBulkCBuffer(c,path,sdslen(path));
         addReplyBulkCString(c,"args");
