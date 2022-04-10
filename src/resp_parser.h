@@ -71,7 +71,7 @@ typedef struct ReplyParserCallbacks {
     /* Called when the parser reaches a big number ('('), which is passed as 'str' along with its length 'len' */
     void (*big_number_callback)(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
 
-    /* Called when the parser reaches a string ('#'), which is passed as 'str' along with its 'format' and length 'len' */
+    /* Called when the parser reaches a string ('='), which is passed as 'str' along with its 'format' and length 'len' */
     void (*verbatim_string_callback)(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
 
     /* Called when the parser reaches an attribute ('|'). The attribute length is passed as an argument 'len' */
