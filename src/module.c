@@ -464,9 +464,16 @@ static int moduleConvertArgFlags(int flags);
 /* Use like malloc(). Memory allocated with this function is reported in
  * Redis INFO memory, used for keys eviction according to maxmemory settings
  * and in general is taken into account as memory allocated by Redis.
- * You should avoid using malloc(). */
+ * You should avoid using malloc().
+ * This function panics if unable to allocate enough memory. */
 void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
+}
+
+/* Similar to RM_Alloc, but returns NULL in case of allocation failure, instead
+ * of panicking. */
+void *RM_TryAlloc(size_t bytes) {
+    return ztrymalloc(bytes);
 }
 
 /* Use like calloc(). Memory allocated with this function is reported in
@@ -12241,6 +12248,7 @@ void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType);
     server.sharedapi = dictCreate(&moduleAPIDictType);
     REGISTER_API(Alloc);
+    REGISTER_API(TryAlloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
     REGISTER_API(Free);
