@@ -515,7 +515,6 @@ int pubsubPublishMessageShard(robj *channel, robj *message) {
 
 /* SUBSCRIBE channel [channel ...] */
 void subscribeCommand(client *c) {
-    int j;
     if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
@@ -527,7 +526,7 @@ void subscribeCommand(client *c) {
         addReplyError(c, "SUBSCRIBE isn't allowed for a DENY BLOCKING client");
         return;
     }
-    for (j = 1; j < c->argc; j++)
+    for (int j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j],pubSubType);
     c->flags |= CLIENT_PUBSUB;
 }
@@ -537,9 +536,7 @@ void unsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
     } else {
-        int j;
-
-        for (j = 1; j < c->argc; j++)
+        for (int j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubType);
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
@@ -547,7 +544,6 @@ void unsubscribeCommand(client *c) {
 
 /* PSUBSCRIBE pattern [pattern ...] */
 void psubscribeCommand(client *c) {
-    int j;
     if ((c->flags & CLIENT_DENY_BLOCKING) && !(c->flags & CLIENT_MULTI)) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
@@ -560,7 +556,7 @@ void psubscribeCommand(client *c) {
         return;
     }
 
-    for (j = 1; j < c->argc; j++)
+    for (int j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
 }
@@ -570,9 +566,7 @@ void punsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
     } else {
-        int j;
-
-        for (j = 1; j < c->argc; j++)
+        for (int j = 1; j < c->argc; j++)
             pubsubUnsubscribePattern(c,c->argv[j],1);
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
@@ -619,10 +613,8 @@ NULL
         channelList(c, pat, server.pubsub_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
-        int j;
-
         addReplyArrayLen(c,(c->argc-2)*2);
-        for (j = 2; j < c->argc; j++) {
+        for (int j = 2; j < c->argc; j++) {
             list *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
@@ -639,10 +631,8 @@ NULL
         channelList(c,pat,server.pubsubshard_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
         /* PUBSUB SHARDNUMSUB [Channel_1 ... Channel_N] */
-        int j;
-
         addReplyArrayLen(c, (c->argc-2)*2);
-        for (j = 2; j < c->argc; j++) {
+        for (int j = 2; j < c->argc; j++) {
             list *l = dictFetchValue(server.pubsubshard_channels, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
