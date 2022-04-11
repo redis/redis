@@ -710,8 +710,6 @@ void hincrbyfloatCommand(client *c) {
 }
 
 static void addHashFieldToReply(client *c, robj *o, sds field) {
-    int ret;
-
     if (o == NULL) {
         addReplyNull(c);
         return;
