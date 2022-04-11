@@ -3630,7 +3630,7 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * key does not exist, NULL is returned. However it is still safe to
  * call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
  * value. */
-void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
+RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
     int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
@@ -3648,7 +3648,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp = zmalloc(sizeof(*kp));
     moduleInitKey(kp, ctx, keyname, value, mode);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
-    return (void*)kp;
+    return kp;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
