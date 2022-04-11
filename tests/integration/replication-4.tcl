@@ -65,26 +65,37 @@ start_server {tags {"repl"}} {
         test {With min-slaves-to-write (1,3): master should be writable} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 1
-            $master set foo bar
-        } {OK}
+            assert_equal OK [$master set foo 123]
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
+        }
 
         test {With min-slaves-to-write (2,3): master should not be writable} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 2
-            catch {$master set foo bar} e
-            set e
-        } {NOREPLICAS*}
+            assert_error "*NOREPLICAS*" {$master set foo bar}
+            assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 0}
+        }
+
+        test {With not enough good slaves, read in Lua script is still accepted} {
+            $master config set min-slaves-max-lag 3
+            $master config set min-slaves-to-write 1
+            $master eval "redis.call('set','foo','bar')" 0
+
+            $master config set min-slaves-to-write 2
+            $master eval "return redis.call('get','foo')" 0
+        } {bar}
 
         test {With min-slaves-to-write: master not writable with lagged slave} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
-            assert {[$master set foo bar] eq {OK}}
+            assert_equal OK [$master set foo 123]
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
             $slave deferred 1
             $slave debug sleep 6
             after 4000
-            catch {$master set foo bar} e
-            set e
-        } {NOREPLICAS*}
+            assert_error "*NOREPLICAS*" {$master set foo 123}
+            assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
+        }
     }
 }
 
