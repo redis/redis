@@ -3241,10 +3241,18 @@ void call(client *c, int flags) {
     if (server.fixed_time_expire++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
+    #if defined(USE_PROCESSOR_CLOCK)
+    const monotime command_start = getMonotonicUs();
+    #endif
     server.in_nested_call++;
 
     c->cmd->proc(c);
+    #if defined(USE_PROCESSOR_CLOCK)
+    const long duration = getMonotonicUs() - command_start;
+    #else
     const long duration = ustime() - call_timer;
+    #endif
+
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
