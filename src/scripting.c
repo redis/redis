@@ -686,6 +686,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                 sdsfree(aof_write_err);
             }
             goto cleanup;
+        } else if (server.masterhost == NULL &&
+                   server.repl_min_slaves_max_lag &&
+                   server.repl_min_slaves_to_write &&
+                   server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+        {
+            luaPushError(lua, shared.noreplicaserr->ptr);
+            goto cleanup;
         }
     }
 
