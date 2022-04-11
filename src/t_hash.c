@@ -146,39 +146,24 @@ robj *hashTypeGetValueObject(robj *o, sds field) {
  * exist. */
 size_t hashTypeGetValueLength(robj *o, sds field) {
     size_t len = 0;
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0)
-            len = vstr ? vlen : sdigits10(vll);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds aux;
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK)
+        len = vstr ? vlen : sdigits10(vll);
 
-        if ((aux = hashTypeGetFromHashTable(o, field)) != NULL)
-            len = sdslen(aux);
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
     return len;
 }
 
 /* Test if the specified field exists in the given hash. Returns 1 if the field
  * exists, and 0 when it doesn't. */
 int hashTypeExists(robj *o, sds field) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0) return 1;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (hashTypeGetFromHashTable(o, field) != NULL) return 1;
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-    return 0;
+    return hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK;
 }
 
 /* Add a new field, overwrite the old with the new value if it already exists.
@@ -725,37 +710,23 @@ void hincrbyfloatCommand(client *c) {
 }
 
 static void addHashFieldToReply(client *c, robj *o, sds field) {
-    int ret;
-
     if (o == NULL) {
         addReplyNull(c);
         return;
     }
 
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        ret = hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll);
-        if (ret < 0) {
-            addReplyNull(c);
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK) {
+        if (vstr) {
+            addReplyBulkCBuffer(c, vstr, vlen);
         } else {
-            if (vstr) {
-                addReplyBulkCBuffer(c, vstr, vlen);
-            } else {
-                addReplyBulkLongLong(c, vll);
-            }
+            addReplyBulkLongLong(c, vll);
         }
-
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeGetFromHashTable(o, field);
-        if (value == NULL)
-            addReplyNull(c);
-        else
-            addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
-        serverPanic("Unknown hash encoding");
+        addReplyNull(c);
     }
 }
 
