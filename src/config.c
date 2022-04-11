@@ -257,6 +257,16 @@ dictType optionSetDictType = {
     NULL                        /* allow to expand */
 };
 
+dictType sdsKeyValueDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructor,          /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 typedef struct standardConfig standardConfig;
 
 typedef int (*apply_fn)(const char **err);
@@ -763,15 +773,6 @@ static void restoreBackupConfig(dict *set_configs_dict, dict *old_values, int co
 /*-----------------------------------------------------------------------------
  * CONFIG SET implementation
  *----------------------------------------------------------------------------*/
-dictType sdsKeyValueDictType = {
-    dictSdsCaseHash,            /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
-};
 
 void configSetCommand(client *c) {
     const char *errstr = NULL;
@@ -839,12 +840,14 @@ void configSetCommand(client *c) {
         }
 
         /* If this config appears twice then fail */
-        if (dictFind(set_configs_dict, sdsnew(config->name))) {
+        sds config_name = sdsnew(config->name);
+        if (dictFind(set_configs_dict, config_name)) {
             /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
             errstr = "duplicate parameter";
             err_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
         }
+        sdsfree(config_name);
         dictAdd(set_configs_dict, sdsnew(config->name), config);
         config_names[i] = config->name;
         dictAdd(new_values_dict, sdsnew(config->name), c->argv[2+i*2+1]->ptr);
@@ -863,8 +866,10 @@ void configSetCommand(client *c) {
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
-        standardConfig *config = dictGetVal(dictFind(set_configs_dict, sdsnew(config_names[i])));
-        sds new_value = dictGetVal(dictFind(new_values_dict, sdsnew(config_names[i])));
+        sds config_name = sdsnew(config_names[i]);
+        standardConfig *config = dictGetVal(dictFind(set_configs_dict, config_name));
+        sds new_value = dictGetVal(dictFind(new_values_dict, config_name));
+        sdsfree(config_name);
         int res = performInterfaceSet(config, new_value, &errstr);
         if (!res) {
             restoreBackupConfig(set_configs_dict, old_values_dict, i+1, NULL, NULL);
