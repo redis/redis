@@ -1,3 +1,10 @@
+Debug
+*.tar.gz
+.cproject
+.project
+tmp
+.settings
+
 .*.swp
 *.o
 *.xo
@@ -27,14 +34,9 @@ src/nodes.conf
 deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a
-tests/tls/*
 .make-*
 .prerequisites
 *.dSYM
 Makefile.dep
 .vscode/*
 .idea/*
-.ccls
-.ccls-cache/*
-compile_commands.json
-redis.code-workspace

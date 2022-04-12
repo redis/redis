@@ -148,8 +148,11 @@ void resizeReplicationBacklog(long long newsize) {
 
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
-    zfree(server.repl_backlog);
-    server.repl_backlog = NULL;
+    if(server.repl_backlog != NULL) {
+        serverLog(LL_NOTICE, "free replication log");
+        zfree(server.repl_backlog);
+        server.repl_backlog = NULL;
+    }
 }
 
 /* Add data to the replication backlog.
@@ -224,7 +227,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
      * propagate *identical* replication stream. In this way this slave can
      * advertise the same replication ID as the master (since it shares the
      * master replication history and has the same backlog and offsets). */
-    if (server.masterhost != NULL) return;
+    if (server.masterhost != NULL && !server.repl_slave_repl_all) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
@@ -573,7 +576,7 @@ int masterTryPartialResynchronization(client *c) {
             "Unable to partial resync with replica %s for lack of backlog (Replica request was: %lld).", replicationGetSlaveName(c), psync_offset);
         if (psync_offset > server.master_repl_offset) {
             serverLog(LL_WARNING,
-                "Warning: replica %s tried to PSYNC with an offset that is greater than the master replication offset.", replicationGetSlaveName(c));
+                "Warning: replica %s tried to PSYNC with an offset that is greater than the master replication offset(%lld).", replicationGetSlaveName(c), server.master_repl_offset);
         }
         goto need_full_resync;
     }
@@ -1613,6 +1616,12 @@ void readSyncBulkPayload(connection *conn) {
         return;
     }
 
+    /**
+     * sync command success free ReplicationBacklog
+     * sync command fail, keep ReplicationBacklog
+     */
+    freeReplicationBacklog();
+    
     if (!use_diskless_load) {
         /* Read the data from the socket, store it to a file and search
          * for the EOF. */
@@ -2219,7 +2228,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             "error state (reply: %s)", reply);
     }
     sdsfree(reply);
-    replicationDiscardCachedMaster();
     return PSYNC_NOT_SUPPORTED;
 }
 
@@ -2466,7 +2474,9 @@ void syncWithMaster(connection *conn) {
      * entirely different data set and we have no way to incrementally feed
      * our slaves after that. */
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
-    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+    if (psync_result == PSYNC_FULLRESYNC) {
+		freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+	}
 
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.master_replid and master_initial_offset are
@@ -2671,6 +2681,7 @@ void replicationUnsetMaster(void) {
      * replicationHandleMasterDisconnection which can attempt to re-connect. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
+	server.repl_no_slaves_since = server.unixtime;
     if (server.master) freeClient(server.master);
     replicationDiscardCachedMaster();
     cancelReplicationHandshake(0);
@@ -2695,6 +2706,7 @@ void replicationUnsetMaster(void) {
      * with PSYNC version 2, there is no need for full resync after a
      * master switch. */
     server.slaveseldb = -1;
+    server.repl_slave_repl_all = CONFIG_DEFAULT_SLAVE_REPLICATE_ALL;
 
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);

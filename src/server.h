@@ -1468,6 +1468,7 @@ struct redisServer {
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
+    int repl_slave_repl_all;          /* Slave is replicate all commands to its slave? */
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
@@ -2050,6 +2051,7 @@ void feedReplicationBacklog(void *ptr, size_t len);
 void showLatestBacklog(void);
 void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
+void freeReplicationBacklog(void);
 void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
@@ -2755,5 +2757,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
 int iAmMaster(void);
+
+#include "ctrip.h"
 
 #endif

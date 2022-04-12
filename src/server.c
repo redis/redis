@@ -728,6 +728,10 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
 
+    {"refullsync",refullsyncCommand,1,
+     "admin read-only",
+     0,NULL,0,0,0,0,0,0},
+
     {"bgrewriteaof",bgrewriteaofCommand,1,
      "admin no-script",
      0,NULL,0,0,0,0,0,0},
@@ -805,6 +809,10 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"slaveof",replicaofCommand,3,
+     "admin no-script ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"xslaveof",xslaveofCommand,3,
      "admin no-script ok-stale",
      0,NULL,0,0,0,0,0,0},
 
@@ -2704,6 +2712,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.repl_slave_repl_all = CONFIG_DEFAULT_SLAVE_REPLICATE_ALL;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -4668,6 +4677,7 @@ sds genRedisInfoString(const char *section) {
         info = sdscatfmt(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
+            "xredis_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
             "redis_git_dirty:%i\r\n"
             "redis_build_id:%s\r\n"
@@ -4691,6 +4701,7 @@ sds genRedisInfoString(const char *section) {
             "config_file:%s\r\n"
             "io_threads_active:%i\r\n",
             REDIS_VERSION,
+            XREDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             redisBuildIdString(),

@@ -2017,8 +2017,10 @@ void commandProcessed(client *c) {
     if (c->flags & CLIENT_MASTER) {
         long long applied = c->reploff - prev_offset;
         if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
+            if (!server.repl_slave_repl_all) {
+                replicationFeedSlavesFromMasterStream(server.slaves,
+                        c->pending_querybuf, applied);
+            }
             sdsrange(c->pending_querybuf,applied,-1);
         }
     }
