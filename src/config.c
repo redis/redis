@@ -741,11 +741,10 @@ int performModuleConfigSetDefaultFromName(sds name, const char **err) {
     return 0;
 }
 
-static void restoreBackupConfig(dict *set_configs_dict, dict *old_values, int count, apply_fn *apply_fns, list *module_configs) {
-    int i;
+static void restoreBackupConfig(dict *set_configs, dict *old_values, dict *apply_fns, list *module_configs) {
     const char *errstr = "unknown error";
     /* Set all backup values */
-    dictIterator *di = dictGetIterator(set_configs_dict);
+    dictIterator *di = dictGetIterator(set_configs);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         sds name = dictGetKey(de);
@@ -758,12 +757,16 @@ static void restoreBackupConfig(dict *set_configs_dict, dict *old_values, int co
     dictReleaseIterator(di);
 
     /* Apply backup */
-    if (apply_fns) {
-        for (i = 0; i < count && apply_fns[i] != NULL; i++) {
-            if (!apply_fns[i](&errstr))
-                serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
+    if (apply_fns){
+        di = dictGetIterator(apply_fns);
+        while ((de = dictNext(di)) != NULL) {
+            typeInterface *apply_fn_interface = dictGetVal(de);
+            if (!(apply_fn_interface->apply(&errstr)))
+                    serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
         }
+        dictReleaseIterator(di);
     }
+
     if (module_configs) {
         if (!moduleConfigApplyConfig(module_configs, &errstr, NULL))
             serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
@@ -778,15 +781,14 @@ void configSetCommand(client *c) {
     const char *errstr = NULL;
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
-    dict *set_configs_dict = dictCreate(&externalStringType);
+    dict *set_configs = dictCreate(&externalStringType);
     list *module_configs_apply;
     const char **config_names;
-    dict *new_values_dict = dictCreate(&optionSetDictType);
-    dict *old_values_dict = dictCreate(&sdsKeyValueDictType);
-    apply_fn *apply_fns; /* TODO: make this a set for better performance */
-    int config_count, i, j;
+    dict *new_values = dictCreate(&optionSetDictType);
+    dict *old_values = dictCreate(&sdsKeyValueDictType);
+    dict *apply_fns = dictCreate(&optionSetDictType);
+    int config_count, i;
     int invalid_args = 0, deny_loading_error = 0;
-    int *config_map_fns;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc & 1) {
@@ -797,8 +799,6 @@ void configSetCommand(client *c) {
 
     module_configs_apply = listCreate();
     config_names = zcalloc(sizeof(char*)*config_count);
-    apply_fns = zcalloc(sizeof(apply_fn)*config_count);
-    config_map_fns = zmalloc(sizeof(int)*config_count);
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
@@ -841,38 +841,38 @@ void configSetCommand(client *c) {
 
         /* If this config appears twice then fail */
         sds config_name = sdsnew(config->name);
-        if (dictFind(set_configs_dict, config_name)) {
+        if (dictFind(set_configs, config_name)) {
             /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
             errstr = "duplicate parameter";
             err_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
         }
         sdsfree(config_name);
-        dictAdd(set_configs_dict, sdsnew(config->name), config);
+        dictAdd(set_configs, sdsnew(config->name), config);
         config_names[i] = config->name;
-        dictAdd(new_values_dict, sdsnew(config->name), c->argv[2+i*2+1]->ptr);
+        dictAdd(new_values, sdsnew(config->name), c->argv[2+i*2+1]->ptr);
     }
     
     if (invalid_args) goto err;
 
     /* Backup old values before setting new ones */
-    dictIterator *di = dictGetIterator(set_configs_dict);
+    dictIterator *di = dictGetIterator(set_configs);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         standardConfig *config = dictGetVal(de);
-        dictAdd(old_values_dict, sdsnew(config->name), config->interface.get(config));
+        dictAdd(old_values, sdsnew(config->name), config->interface.get(config));
     }
     dictReleaseIterator(di);
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
         sds config_name = sdsnew(config_names[i]);
-        standardConfig *config = dictGetVal(dictFind(set_configs_dict, config_name));
-        sds new_value = dictGetVal(dictFind(new_values_dict, config_name));
+        standardConfig *config = dictGetVal(dictFind(set_configs, config_name));
+        sds new_value = dictGetVal(dictFind(new_values, config_name));
         sdsfree(config_name);
         int res = performInterfaceSet(config, new_value, &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs_dict, old_values_dict, i+1, NULL, NULL);
+            restoreBackupConfig(set_configs, old_values, NULL, NULL);
             err_arg_name = config_names[i];
             goto err;
         } else if (res == 1) {
@@ -881,35 +881,33 @@ void configSetCommand(client *c) {
                 addModuleConfigApply(module_configs_apply, config->privdata);
             } else if (config->interface.apply) {
                 /* Check if this apply function is already stored */
-                int exists = 0;
-                for (j = 0; apply_fns[j] != NULL && j <= i; j++) {
-                    if (apply_fns[j] == config->interface.apply) {
-                        exists = 1;
-                        break;
-                    }
+                config_name = sdsnew(config->name);
+                if (!(dictFind(apply_fns, config_name))) {
+                    dictAdd(apply_fns, sdsnew(config->name), &config->interface);
                 }
-                /* Apply function not stored, store it */
-                if (!exists) {
-                    apply_fns[j] = config->interface.apply;
-                    config_map_fns[j] = i;
-                }
+                sdsfree(config_name);
             }
         }
     }
 
     /* Apply all configs after being set */
-    for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
-        if (!apply_fns[i](&errstr)) {
-            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", config_names[config_map_fns[i]]);
-            restoreBackupConfig(set_configs_dict, old_values_dict, config_count, apply_fns, NULL);
-            err_arg_name = config_names[config_map_fns[i]];
+    di = dictGetIterator(apply_fns);
+    while ((de = dictNext(di)) != NULL) {
+        sds config_name = dictGetKey(de);
+        typeInterface *apply_fn_interface = dictGetVal(de);
+        if (!apply_fn_interface->apply(&errstr)) {
+            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", config_name);
+            restoreBackupConfig(set_configs, old_values, apply_fns, NULL);
+            err_arg_name = config_name;
             goto err;
         }
     }
+    dictReleaseIterator(di);
+
     /* Apply all module configs that were set. */
     if (!moduleConfigApplyConfig(module_configs_apply, &errstr, &err_arg_name)) {
         serverLogRaw(LL_WARNING, "Failed applying new module configuration. Restoring previous settings.");
-        restoreBackupConfig(set_configs_dict, old_values_dict, config_count, apply_fns, module_configs_apply);
+        restoreBackupConfig(set_configs, old_values, apply_fns, module_configs_apply);
         goto err;
     }
 
@@ -931,11 +929,10 @@ err:
     }
 end:
     zfree(config_names);
-    dictRelease(old_values_dict);
-    dictRelease(set_configs_dict);
-    dictRelease(new_values_dict);
-    zfree(apply_fns);
-    zfree(config_map_fns);
+    dictRelease(old_values);
+    dictRelease(set_configs);
+    dictRelease(new_values);
+    dictRelease(apply_fns);
     listRelease(module_configs_apply);
 }
 
