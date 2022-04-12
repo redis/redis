@@ -899,6 +899,7 @@ void configSetCommand(client *c) {
             serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", config_name);
             restoreBackupConfig(set_configs, old_values, apply_fns, NULL);
             err_arg_name = config_name;
+            dictReleaseIterator(di);
             goto err;
         }
     }
