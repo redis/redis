@@ -522,13 +522,17 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         }
         server.stat_unexpected_error_replies++;
 
-        /* If this command was from our master, we are not a writable replica,
-         * check to see if we should panic based off the replication error
-         * behavior config. */
-        if (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro &&
-            server.repl_error_behavior == REPLICATION_ERR_BEHAVIOR_PANIC)
+        /* Based off the propagation error behavior, check if we need to panic here. There
+         * are currently two checked cases:
+         * * If this command was from our master and we are not a writable replica.
+         * * We are reading from an AOF file. */
+        if (((ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro)
+            || c->id == CLIENT_ID_AOF)
+            && server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC)
         {
-            serverPanic("Error detected on replication stream.");
+            serverPanic("This %s panicked sending an error to its %s"
+                " after processing the command '%s'",
+                from, to, cmdname ? cmdname : "<unknown>");
         }
     }
 }

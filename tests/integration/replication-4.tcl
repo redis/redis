@@ -221,7 +221,10 @@ start_server {tags {"repl external:skip"}} {
             $master set foo bar2
             $master wait 1 2000
 
+            # Make sure we triggered the error, by finding the critical
+            # message and the fake command.
             assert_equal [count_log_message 0 "fake-command-1"] 1
+            assert_equal [count_log_message 0 "== CRITICAL =="] 1
         }
 
         test {Data divergence is allowed on writable replicas} {            
