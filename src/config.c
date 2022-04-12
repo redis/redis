@@ -146,6 +146,7 @@ configEnum cluster_preferred_endpoint_type_enum[] = {
 configEnum propagation_error_behavior_enum[] = {
     {"ignore", PROPAGATION_ERR_BEHAVIOR_IGNORE},
     {"panic", PROPAGATION_ERR_BEHAVIOR_PANIC},
+    {"panic-on-replicas", PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS},
     {NULL, 0}
 };
 

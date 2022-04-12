@@ -1328,7 +1328,8 @@ struct redisMemOverhead {
  * either case the error is logged. */
 enum {
     PROPAGATION_ERR_BEHAVIOR_IGNORE = 0,
-    PROPAGATION_ERR_BEHAVIOR_PANIC
+    PROPAGATION_ERR_BEHAVIOR_PANIC,
+    PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS
 } replicationErrorBehavior;
 
 /* This structure can be optionally passed to RDB save/load functions in
@@ -1777,7 +1778,7 @@ struct redisServer {
     int replica_announced;          /* If true, replica is announced by Sentinel */
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
-    int propagation_error_behavior;        /* Configures the behavior of the replica
+    int propagation_error_behavior; /* Configures the behavior of the replica
                                      * when it receives an error on the replication stream */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
