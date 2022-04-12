@@ -214,7 +214,7 @@ start_server {tags {"repl external:skip"}} {
         }
 
         test {Data divergence can happen under default conditions} {       
-            $replica config set repl-error-behavior ignore     
+            $replica config set propagation-error-behavior ignore     
             $master debug replicate fake-command-1
 
             # Wait for replication to normalize
