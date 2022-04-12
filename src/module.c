@@ -8699,8 +8699,18 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
  *
  * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
-void RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) {
-    addACLLogEntry(ctx->client, 0, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason;
+    switch (reason) {
+        case REDISMODULE_ACL_LOG_AUTH: acl_reason = ACL_DENIED_AUTH; break;
+        case REDISMODULE_ACL_LOG_KEY: acl_reason = ACL_DENIED_KEY; break;
+        case REDISMODULE_ACL_LOG_CHANNEL: acl_reason = ACL_DENIED_CHANNEL; break;
+        case REDISMODULE_ACL_LOG_CMD: acl_reason = ACL_DENIED_CMD; break;
+        default: return REDISMODULE_ERR;
+    }
+
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+    return REDISMODULE_OK;
 }
 
 /* Authenticate the client associated with the context with

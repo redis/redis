@@ -735,6 +735,13 @@ typedef struct RedisModuleSwapDbInfo {
 
 #define RedisModuleSwapDbInfo RedisModuleSwapDbInfoV1
 
+typedef enum {
+    REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
+    REDISMODULE_ACL_LOG_CMD, /* Command authorization failure */
+    REDISMODULE_ACL_LOG_KEY, /* Key authorization failure */
+    REDISMODULE_ACL_LOG_CHANNEL /* Channel authorization failure */
+} RedisModuleACLLogEntryReason;
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -1158,7 +1165,7 @@ REDISMODULE_API RedisModuleUser * (*RedisModule_GetModuleUserFromUserName)(Redis
 REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissions)(RedisModuleUser *user, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckChannelPermissions)(RedisModuleUser *user, RedisModuleString *ch, int literal) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithACLUser)(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AuthenticateClientWithUser)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleUserChangedFunc callback, void *privdata, uint64_t *client_id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeauthenticateAndCloseClient)(RedisModuleCtx *ctx, uint64_t client_id) REDISMODULE_ATTR;
