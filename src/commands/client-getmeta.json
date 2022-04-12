@@ -1,10 +1,10 @@
 {
   "GETMETA": {
       "summary": "Get the current connection meta info",
-      "complexity": "O(1)",
+      "complexity": "O(N) where N is the number of fields being requested.",
       "group": "connection",
       "since": "6.2.8",
-      "arity": 2,
+      "arity": -2,
       "container": "CLIENT",
       "function": "clientCommand",
       "command_flags": [
@@ -14,6 +14,12 @@
       ],
       "acl_categories": [
           "CONNECTION"
+      ],
+      "arguments": [
+        {
+            "name": "connection-meta",
+            "type": "string"
+        }
       ]
   }
 }

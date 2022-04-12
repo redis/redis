@@ -117,6 +117,56 @@ int authRequired(client *c) {
     return auth_required;
 }
 
+sds addReplyMeta(client *c, dict *meta) {
+    dictIterator *di = dictGetIterator(meta);
+    dictEntry *de;
+    sds result = sdsempty();
+
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+        sds value = dictGetVal(de);
+
+        result = sdscatfmt(result,
+            "%s=%s ",
+            key,
+            value
+        );
+    }
+
+    return result;
+}
+
+sds addReplyMetaPerFields(client *c) {
+    int i;
+    sds result = sdsempty();            
+
+    for (i = 2; i < c->argc; i++) {
+        dictEntry *de;
+        de = dictFind(c->meta, c->argv[i]->ptr);
+        if (de == NULL) {
+            result = sdscatfmt(result,
+                "%s= ",
+                c->argv[i]->ptr
+            );
+            continue;
+        };
+        sds value = dictGetVal(de);
+        if (value == NULL) {
+            result = sdscatfmt(result,
+                "%s= ",
+                c->argv[i]->ptr
+            );
+        } else {
+            result = sdscatfmt(result,
+                "%s=%s ",
+                c->argv[i]->ptr,
+                value
+            );
+        }
+    }
+    return result;
+}
+
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -139,7 +189,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->meta = NULL;
+    c->meta = dictCreate(&hashDictType);
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1584,6 +1634,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
+    dictRelease(c->meta);
     listRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
 
@@ -2754,7 +2805,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%i",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2782,7 +2833,7 @@ sds catClientInfoString(sds s, client *client) {
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
-        client->meta ? (char*)client->meta->ptr : "");
+        (int) dictSize(client->meta));
     return ret;
 }
 
@@ -2847,38 +2898,32 @@ int clientSetNameOrReply(client *c, robj *name) {
  *
  * Setting an empty string as meta has the effect of unsetting the
  * currently set meta: the client will remain without meta.*/
-int clientSetMetaOrReply(client *c, robj *meta)
+int clientSetMetaOrReply(client *c)
 {
-    int len = sdslen(meta->ptr);
-    char *p = meta->ptr;
+    int len = c->argc;
 
-    /* Setting the client meta to an empty string actually removes
+    /* Setting the client meta do not have params actually removes
      * the current meta. */
-    if (len == 0)
+    if (len == 2)
     {
-        if (c->meta)
-            decrRefCount(c->meta);
-        c->meta = NULL;
+        dictRelease(c->meta);
+        c->meta = dictCreate(&hashDictType);
+    
         return C_OK;
     }
+    
+    int i;
+    for (i = 0; i < (len - 2)/2; i++) {
+        robj *o1 = c->argv[2+i*2];
+        sds key = sdsdup(o1->ptr);
+        robj *o2 = c->argv[3+i*2];
+        sds val = sdsdup(o2->ptr);
 
-    /* Otherwise check if the charset is ok. We need to do this otherwise
-     * CLIENT LIST format will break. You should always be able to
-     * split by space to get the different fields. */
-    for (int j = 0; j < len; j++)
-    {
-        if (p[j] < '!' || p[j] > '~')
-        { /* ASCII is assumed. */
-            addReplyError(c,
-                          "Client meta cannot contain spaces, "
-                          "newlines or special characters.");
-            return C_ERR;
+        if (!dictReplace(c->meta, key, val)){
+          sdsfree(key);
         }
     }
-    if (c->meta)
-        decrRefCount(c->meta);
-    c->meta = meta;
-    incrRefCount(meta);
+
     return C_OK;
 }
 
@@ -3177,9 +3222,9 @@ NULL
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setmeta") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setmeta") && ((c->argc % 2) == 0)) {
         /* CLIENT SETMETA */
-        if (clientSetMetaOrReply(c,c->argv[2]) == C_OK)
+        if (clientSetMetaOrReply(c) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         /* CLIENT GETNAME */
@@ -3187,12 +3232,18 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getmeta") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getmeta")) {
         /* CLIENT GETMETA */
-        if (c->meta)
-            addReplyBulk(c,c->meta);
-        else
-            addReplyNull(c);
+        sds meta = NULL;
+        if (c->argc == 2) {
+            meta = addReplyMeta(c, c->meta);
+            addReplyVerbatim(c,meta,sdslen(meta),"txt");
+            sdsfree(meta);
+        } else {
+            meta =addReplyMetaPerFields(c);
+            addReplyVerbatim(c,meta,sdslen(meta),"txt");
+            sdsfree(meta);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
         unpauseClients(PAUSE_BY_CLIENT_COMMAND);
@@ -3690,6 +3741,9 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     mem += listLength(c->pubsub_patterns) * sizeof(listNode);
     mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
            dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+
+    mem += dictSize(c->meta) * sizeof(dictEntry) +
+           dictSlots(c->meta) * sizeof(dictEntry*);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
     if (c->client_tracking_prefixes)
@@ -4449,4 +4503,7 @@ void evictClients(void) {
         }
     }
 }
+
+
+
 

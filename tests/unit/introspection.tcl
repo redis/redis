@@ -127,14 +127,36 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
-    test {CLIENT GETMETA should return NIL if meta is not assigned} {
-        r client getmeta
-    } {}
+    test {CLIENT SETMETA does not accept odd params} {
+        catch {r client setmeta foo} e
+        set e
+    } {ERR*}
 
-    test {CLIENT GETMETA should return assigned meta info} {
-        assert_equal [r client setmeta "{\"meta\":\"foo\"}"] {OK}
+    test {CLIENT SETMETA can clean meta info to this connection} {
+        assert_equal [r client setmeta meta foo] {OK}
+        assert_equal [r client setmeta] {OK}
+        r client list
+    } {*meta=0*}
+
+    test {CLIENT SETMETA can assign a meta to this connection} {
+        assert_equal [r client setmeta meta foo] {OK}
+        r client list
+    } {*meta=1*}
+
+    test {CLIENT GETMETA should return empty info for non-existing meta attributes} {
+        assert_equal [r client setmeta meta foo] {OK}
+        r client getmeta meta2 meta3
+    } {meta2= meta3= }
+
+    test {CLIENT GETMETA should return specific meta attributes} {
+        assert_equal [r client setmeta meta foo meta2 bar] {OK}
+        r client getmeta meta
+    } {meta=foo }
+
+    test {CLIENT GETMETA should return all meta attributes} {
+        assert_equal [r client setmeta meta foo meta2 bar] {OK}
         r client getmeta
-    } {*{"meta":"foo"}*}
+    } {meta=foo meta2=bar }
 
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
@@ -168,16 +190,6 @@ start_server {tags {"introspection"}} {
             fail "Client still listed in CLIENT LIST after SETNAME."
         }
     }
-
-    test {CLIENT SETMETA does not accept spaces} {
-        catch {r client setmeta "foo bar"} e
-        set e
-    } {ERR*}
-
-    test {CLIENT SETMETA can assign a meta to this connection} {
-        assert_equal [r client setmeta "{\"meta\":\"foo\"}"] {OK}
-        r client list
-    } {*meta={"meta":"foo"}*}
 
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply

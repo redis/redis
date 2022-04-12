@@ -740,14 +740,6 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 {0}
 };
 
-/********** CLIENT GETNAME ********************/
-
-/* CLIENT GETNAME history */
-#define CLIENT_GETNAME_History NULL
-
-/* CLIENT GETNAME tips */
-#define CLIENT_GETNAME_tips NULL
-
 /********** CLIENT GETMETA ********************/
 
 /* CLIENT GETMETA history */
@@ -755,6 +747,20 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 
 /* CLIENT GETMETA tips */
 #define CLIENT_GETMETA_tips NULL
+
+/* CLIENT GETMETA argument table */
+struct redisCommandArg CLIENT_GETMETA_Args[] = {
+{"connection-meta",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/********** CLIENT GETNAME ********************/
+
+/* CLIENT GETNAME history */
+#define CLIENT_GETNAME_History NULL
+
+/* CLIENT GETNAME tips */
+#define CLIENT_GETNAME_tips NULL
 
 /********** CLIENT GETREDIR ********************/
 
@@ -935,6 +941,20 @@ struct redisCommandArg CLIENT_REPLY_Args[] = {
 {0}
 };
 
+/********** CLIENT SETMETA ********************/
+
+/* CLIENT SETMETA history */
+#define CLIENT_SETMETA_History NULL
+
+/* CLIENT SETMETA tips */
+#define CLIENT_SETMETA_tips NULL
+
+/* CLIENT SETMETA argument table */
+struct redisCommandArg CLIENT_SETMETA_Args[] = {
+{"connection-meta",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** CLIENT SETNAME ********************/
 
 /* CLIENT SETNAME history */
@@ -948,21 +968,6 @@ struct redisCommandArg CLIENT_SETNAME_Args[] = {
 {"connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {0}
 };
-
-/********** CLIENT SETMETA ********************/
-
-/* CLIENT SETMETA history */
-#define CLIENT_SETMETA_History NULL
-
-/* CLIENT SETMETA tips */
-#define CLIENT_SETMETA_tips NULL
-
-/* CLIENT SETMETA argument table */
-struct redisCommandArg CLIENT_SETMETA_Args[] = {
-{"connection-meta", ARG_TYPE_STRING, -1, NULL, NULL, NULL, CMD_ARG_NONE},
-{0}
-};
-
 
 /********** CLIENT TRACKING ********************/
 
@@ -1032,8 +1037,8 @@ struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
 {"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,CLIENT_CACHING_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_CACHING_Args},
+{"getmeta","Get the current connection meta info","O(N) where N is the number of fields being requested.","6.2.8",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETMETA_History,CLIENT_GETMETA_tips,clientCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_GETMETA_Args},
 {"getname","Get the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_History,CLIENT_GETNAME_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
-{"getmeta","Get the current connection meta","O(1)","6.2.8",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETMETA_History,CLIENT_GETMETA_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,CLIENT_GETREDIR_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_tips,clientCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"id","Returns the client ID for the current connection","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_ID_History,CLIENT_ID_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
@@ -1043,8 +1048,8 @@ struct redisCommand CLIENT_Subcommands[] = {
 {"no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_NO_EVICT_Args},
 {"pause","Stop processing commands from clients for some time","O(1)","2.9.50",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_PAUSE_Args},
 {"reply","Instruct the server whether to reply to commands","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,CLIENT_REPLY_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_REPLY_Args},
+{"setmeta","Set the current connection meta info","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","6.2.8",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETMETA_History,CLIENT_SETMETA_tips,clientCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETMETA_Args},
 {"setname","Set the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,CLIENT_SETNAME_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETNAME_Args},
-{"setmeta","Set the current connection meta","O(1)","6.2.8",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_SETMETA_History,CLIENT_SETMETA_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_SETMETA_Args},
 {"tracking","Enable or disable server assisted client side caching support","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,CLIENT_TRACKING_tips,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_TRACKING_Args},
 {"trackinginfo","Return information about server assisted client side caching for the current connection","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,CLIENT_TRACKINGINFO_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"unblock","Unblock a client blocked in a blocking command from a different connection","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,CLIENT_UNBLOCK_tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_UNBLOCK_Args},
