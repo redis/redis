@@ -4503,7 +4503,3 @@ void evictClients(void) {
         }
     }
 }
-
-
-
-
