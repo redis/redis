@@ -781,7 +781,7 @@ void configSetCommand(client *c) {
     const char *errstr = NULL;
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
-    dict *set_configs = dictCreate(&externalStringType);
+    dict *set_configs = dictCreate(&optionSetDictType);
     list *module_configs_apply;
     const char **config_names;
     dict *new_values = dictCreate(&optionSetDictType);
