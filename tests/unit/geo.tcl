@@ -148,7 +148,7 @@ start_server {tags {"geo"}} {
         r del src{t}
         r geoadd src{t} 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
 
-        verify_geo_edge_response_bymember "ERR*" "ERR*"
+        verify_geo_edge_response_bymember "ERR *" "ERR *"
     }
 
     test {GEOADD create} {

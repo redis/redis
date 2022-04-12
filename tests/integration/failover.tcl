@@ -23,7 +23,7 @@ start_server {} {
 
     test {failover command fails without connected replica} {
         catch { $node_0 failover to $node_1_host $node_1_port } err
-        if {! [string match "ERR*" $err]} {
+        if {! [string match "ERR *" $err]} {
             fail "failover command succeeded when replica not connected"
         }
     }
@@ -37,27 +37,27 @@ start_server {} {
 
     test {failover command fails with invalid host} {
         catch { $node_0 failover to invalidhost $node_1_port } err
-        assert_match "ERR*" $err
+        assert_match "ERR *" $err
     }
 
     test {failover command fails with invalid port} {
         catch { $node_0 failover to $node_1_host invalidport } err
-        assert_match "ERR*" $err
+        assert_match "ERR *" $err
     }
 
     test {failover command fails with just force and timeout} {
         catch { $node_0 FAILOVER FORCE TIMEOUT 100} err
-        assert_match "ERR*" $err
+        assert_match "ERR *" $err
     }
 
     test {failover command fails when sent to a replica} {
         catch { $node_1 failover to $node_1_host $node_1_port } err
-        assert_match "ERR*" $err
+        assert_match "ERR *" $err
     }
 
     test {failover command fails with force without timeout} {
         catch { $node_0 failover to $node_1_host $node_1_port FORCE } err
-        assert_match "ERR*" $err
+        assert_match "ERR *" $err
     }
 
     test {failover command to specific replica works} {

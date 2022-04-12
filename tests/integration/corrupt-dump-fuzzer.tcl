@@ -121,7 +121,7 @@ foreach sanitize_dump {no yes} {
                 if { [catch { r restore "_$k" 0 $dump REPLACE } err] } {
                     set restore_failed true
                     # skip if return failed with an error response.
-                    if {[string match "ERR*" $err]} {
+                    if {[string match "ERR *" $err]} {
                         incr stat_rejected_restore
                     } else {
                         set report_and_restart true

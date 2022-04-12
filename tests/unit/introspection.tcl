@@ -23,9 +23,9 @@ start_server {tags {"introspection"}} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
         assert_error "ERR syntax error*" {r client kill id 10 wrong_arg}
 
-        assert_error "ERR*greater than 0*" {r client kill id str}
-        assert_error "ERR*greater than 0*" {r client kill id -1}
-        assert_error "ERR*greater than 0*" {r client kill id 0}
+        assert_error "ERR *greater than 0*" {r client kill id str}
+        assert_error "ERR *greater than 0*" {r client kill id -1}
+        assert_error "ERR *greater than 0*" {r client kill id 0}
 
         assert_error "ERR Unknown client type*" {r client kill type wrong_type}
 
@@ -409,11 +409,11 @@ start_server {tags {"introspection"}} {
     }
 
     test {CONFIG SET duplicate configs} {
-        assert_error "ERR*duplicate*" {r config set maxmemory 10000001 maxmemory 10000002}
+        assert_error "ERR *duplicate*" {r config set maxmemory 10000001 maxmemory 10000002}
     }
 
     test {CONFIG SET set immutable} {
-        assert_error "ERR*immutable*" {r config set daemonize yes}
+        assert_error "ERR *immutable*" {r config set daemonize yes}
     }
 
     test {CONFIG GET hidden configs} {
@@ -448,8 +448,8 @@ start_server {tags {"introspection"}} {
 
 start_server {tags {"introspection external:skip"} overrides {enable-protected-configs {no} enable-debug-command {no}}} {
     test {cannot modify protected configuration - no} {
-        assert_error "ERR*protected*" {r config set dir somedir}
-        assert_error "ERR*DEBUG command not allowed*" {r DEBUG HELP}
+        assert_error "ERR *protected*" {r config set dir somedir}
+        assert_error "ERR *DEBUG command not allowed*" {r DEBUG HELP}
     } {} {needs:debug}
 }
 
@@ -464,8 +464,8 @@ start_server {config "minimal.conf" tags {"introspection external:skip"} overrid
         if {$myaddr != "" && ![string match {127.*} $myaddr]} {
             # Non-loopback client should fail
             set r2 [get_nonloopback_client]
-            assert_error "ERR*protected*" {$r2 config set dir somedir}
-            assert_error "ERR*DEBUG command not allowed*" {$r2 DEBUG HELP}
+            assert_error "ERR *protected*" {$r2 config set dir somedir}
+            assert_error "ERR *DEBUG command not allowed*" {$r2 DEBUG HELP}
         }
     } {} {needs:debug}
 }

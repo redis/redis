@@ -507,8 +507,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY fails against hash value with spaces (right)} {
@@ -517,8 +517,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY can detect overflows} {
@@ -579,8 +579,8 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value with spaces (right)} {
@@ -589,15 +589,15 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
         r hset h f "1\x002"
         catch {r hincrbyfloat h f 1} err
         set rv {}
-        lappend rv [string match "ERR*not*float*" $err]
+        lappend rv [string match "ERR *not*float*" $err]
     } {1}
 
     test {HSTRLEN against the small hash} {
