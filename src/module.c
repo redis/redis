@@ -717,6 +717,8 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+                if (server.current_client)
+                    unprotectClient(server.current_client);
                 unblockPostponedClients();
             }
         }
@@ -2107,6 +2109,8 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             if (!server.busy_module_yield_flags) {
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_EVENTS;
                 blockingOperationStarts();
+                if (server.current_client)
+                    protectClient(server.current_client);
             }
             if (flags & REDISMODULE_YIELD_FLAG_CLIENTS)
                 server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
@@ -2124,7 +2128,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
-    yield_nesting --;
+    yield_nesting--;
 }
 
 /* Set flags defining capabilities or behavior bit flags.
@@ -5906,10 +5910,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     /* Set server.current_client */
-    client *old_client = server.current_client;
-    server.current_client = c;
     call(c,call_flags);
-    server.current_client = old_client;
     server.replication_allowed = prev_replication_allowed;
 
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
@@ -7646,6 +7647,8 @@ void moduleGILBeforeUnlock() {
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
         server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
         unblockPostponedClients();
     }
 }
