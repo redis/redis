@@ -2025,7 +2025,11 @@ void xaddCommand(client *c) {
             addReplyError(c,"Elements are too large to be stored");
         return;
     }
-    addReplyStreamID(c,&id);
+    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id.ms,id.seq);
+    const size_t replyid_len = sdslen(replyid);
+    addReplyLongLongWithPrefix(c,replyid_len,'$');
+    addReplyProto(c,replyid,replyid_len);
+    addReply(c,shared.crlf);
 
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
@@ -2050,9 +2054,11 @@ void xaddCommand(client *c) {
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     if (!parsed_args.id_given || !parsed_args.seq_given) {
-        robj *idarg = createObjectFromStreamID(&id);
+        robj *idarg = createObject(OBJ_STRING, replyid);
         rewriteClientCommandArgument(c, idpos, idarg);
         decrRefCount(idarg);
+    } else {
+        sdsfree(replyid);
     }
 
     /* We need to signal to blocked clients that there is new data on this
