@@ -19,12 +19,15 @@ jobs:
     - name: module api test
       run: ./runtest-moduleapi --verbose
 
-  build-ubuntu-old:
-    runs-on: ubuntu-16.04
+  build-debian-old:
+    runs-on: ubuntu-latest
+    container: debian:oldoldstable
     steps:
     - uses: actions/checkout@v2
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      run: |
+        apt-get update && apt-get install -y build-essential
+        make REDIS_CFLAGS='-Werror'
 
   build-macos-latest:
     runs-on: macos-latest
