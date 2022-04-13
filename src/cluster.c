@@ -84,6 +84,9 @@ void removeChannelsInSlot(unsigned int slot);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
+void clusterAddNodeToShard(const char *shard_id, clusterNode *node);
+list *clusterLookupNodeListByShardId(const char *shard_id);
+void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -117,6 +120,17 @@ dictType clusterNodesBlackListDictType = {
         dictSdsKeyCaseCompare,      /* key compare */
         dictSdsDestructor,          /* key destructor */
         NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
+};
+
+/* Cluster shards hash table, mapping shard id to list of nodes */
+dictType clusterShardsDictType = {
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        dictListDestructor,         /* val destructor */
         NULL                        /* allow to expand */
 };
 
@@ -231,6 +245,7 @@ int clusterLoadConfig(char *filename) {
          * after the upgrade to 7.0+ */
         if (ep_argc > 1) {
             memcpy(n->shard_id, ep_argv[1], min(strlen(ep_argv[1]), CLUSTER_NAMELEN));
+            clusterAddNodeToShard(ep_argv[1], n);
         }
 
         /* Hostname is an optional argument that defines the endpoint
@@ -308,8 +323,8 @@ int clusterLoadConfig(char *filename) {
             }
             n->slaveof = master;
             clusterNodeAddSlave(master,n);
-        }
-
+        } 
+        
         /* Set ping sent / pong received timestamps */
         if (atoi(argv[4])) n->ping_sent = mstime();
         if (atoi(argv[5])) n->pong_received = mstime();
@@ -599,14 +614,18 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
 
 static void updateShardId(clusterNode *node, char shard_id[CLUSTER_NAMELEN]) {
     if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+        clusterRemoveNodeFromShard(node->shard_id, node);
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
+        clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
     }
     if (myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade 
              * from pre-7.0 releases */
+            clusterRemoveNodeFromShard(myself->shard_id, myself);
             memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
+            clusterAddNodeToShard(shard_id, myself);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
@@ -628,6 +647,7 @@ void clusterInit(void) {
     server.cluster->size = 1;
     server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
+    server.cluster->shards = dictCreate(&clusterShardsDictType);
     server.cluster->nodes_black_list =
         dictCreate(&clusterNodesBlackListDictType);
     server.cluster->failover_auth_time = 0;
@@ -663,6 +683,7 @@ void clusterInit(void) {
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
         clusterAddNode(myself);
+        clusterAddNodeToShard(myself->shard_id, myself);
         saveconf = 1;
     }
     if (saveconf) clusterSaveConfigOrDie(1);
@@ -742,6 +763,10 @@ void clusterReset(int hard) {
     /* Unassign all the slots. */
     for (j = 0; j < CLUSTER_SLOTS; j++) clusterDelSlot(j);
 
+    /* Recreate shards dict */
+    dictRelease(server.cluster->shards);
+    server.cluster->shards = dictCreate(&clusterShardsDictType);
+
     /* Forget all the nodes, but myself. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -771,6 +796,9 @@ void clusterReset(int hard) {
         clusterAddNode(myself);
         serverLog(LL_NOTICE,"Node hard reset, now I'm %.40s", myself->name);
     }
+
+    /* Re-populate shards */
+    clusterAddNodeToShard(myself->shard_id, myself);
 
     /* Make sure to persist the new config and update the state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -1147,7 +1175,7 @@ void freeClusterNode(clusterNode *n) {
      * all the slaves->slaveof fields to NULL (unknown). */
     for (j = 0; j < n->numslaves; j++)
         n->slaves[j]->slaveof = NULL;
-
+    
     /* Remove this node from the list of slaves of its master. */
     if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
 
@@ -1190,6 +1218,8 @@ void clusterDelNode(clusterNode *delnode) {
     dictIterator *di;
     dictEntry *de;
 
+    clusterRemoveNodeFromShard(delnode->shard_id, delnode);
+
     /* 1) Mark slots as unassigned. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->importing_slots_from[j] == delnode)
@@ -1227,13 +1257,11 @@ clusterNode *clusterLookupNode(const char *name) {
 
 /* Get all the nodes serving the same slots as myself. */
 list *clusterGetNodesServingMySlots(clusterNode *node) {
-    list *nodes_for_slot = listCreate();
-    clusterNode *my_primary = nodeIsMaster(node) ? node : node->slaveof;
-    listAddNodeTail(nodes_for_slot, my_primary);
-    for (int i=0; i < my_primary->numslaves; i++) {
-        listAddNodeTail(nodes_for_slot, my_primary->slaves[i]);
-    }
-    return nodes_for_slot;
+    sds s = sdsnewlen(node->shard_id, CLUSTER_NAMELEN);
+    dictEntry *de = dictFind(server.cluster->shards,s);
+    serverAssert(de != NULL);
+    sdsfree(s);
+    return dictGetVal(de);
 }
 
 /* This is only used after the handshake. When we connect a given IP/PORT
@@ -1251,6 +1279,46 @@ void clusterRenameNode(clusterNode *node, char *newname) {
     serverAssert(retval == DICT_OK);
     memcpy(node->name, newname, CLUSTER_NAMELEN);
     clusterAddNode(node);
+}
+
+list *clusterLookupMasterNodeByShardId(const char *shard_id) {
+    sds s = sdsnewlen(shard_id, CLUSTER_NAMELEN);
+    dictEntry *de = dictFind(server.cluster->shards, s);
+    sdsfree(s);
+    if (de == NULL) return NULL;
+    return dictGetVal(de);
+}
+
+void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
+    sds s = sdsnewlen(shard_id, CLUSTER_NAMELEN);
+    dictEntry *de = dictFind(server.cluster->shards,s);
+    if (de == NULL) {
+        list *l = listCreate();
+        serverAssert(listAddNodeTail(l, node) == l);
+        serverAssert(dictAdd(server.cluster->shards, s, l) == DICT_OK);
+    } else {
+        list *l = dictGetVal(de);
+        if (listSearchKey(l, node) == NULL) {
+            serverAssert(listAddNodeTail(l, node) == l);
+        }
+        sdsfree(s);
+    } 
+}
+
+void clusterRemoveNodeFromShard(const char *shard_id, clusterNode *node) {
+    sds s = sdsnewlen(shard_id, CLUSTER_NAMELEN);
+    dictEntry *de = dictFind(server.cluster->shards,s);
+    if (de != NULL) {
+        list *l = dictGetVal(de);
+        listNode *ln = listSearchKey(l, node);
+        if (ln != NULL) {
+            listDelNode(l, ln);
+        }
+        if (listLength(l) == 0) {
+            dictDelete(server.cluster->shards,s);
+        }
+    }
+    sdsfree(s);
 }
 
 /* -----------------------------------------------------------------------------
@@ -3257,19 +3325,17 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublishShard(robj *channel, robj *message) {
+    listIter li;
+    listNode *ln;
     list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
-    if (listLength(nodes_for_slot) != 0) {
-        listIter li;
-        listNode *ln;
-        listRewind(nodes_for_slot, &li);
-        while((ln = listNext(&li))) {
-            clusterNode *node = listNodeValue(ln);
-            if (node != myself) {
-                clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
-            }
+    serverAssert(nodes_for_slot != NULL);
+    listRewind(nodes_for_slot, &li);
+    while((ln = listNext(&li))) {
+        clusterNode *node = listNodeValue(ln);
+        if (node != myself) {
+            clusterSendPublish(node->link, channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
         }
     }
-    listRelease(nodes_for_slot);
 }
 
 /* -----------------------------------------------------------------------------
@@ -4373,11 +4439,11 @@ int clusterDelSlot(int slot) {
 
     /* Cleanup the channels in master/replica as part of slot deletion. */
     list *nodes_for_slot = clusterGetNodesServingMySlots(n);
+    serverAssert(nodes_for_slot != NULL);
     listNode *ln = listSearchKey(nodes_for_slot, myself);
     if (ln != NULL) {
         removeChannelsInSlot(slot);
     }
-    listRelease(nodes_for_slot);
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return C_OK;
@@ -4790,10 +4856,12 @@ void clusterGenNodesSlotsInfo(int filter) {
 }
 
 void clusterFreeNodesSlotsInfo(clusterNode *n) {
-    zfree(n->slot_info_pairs);
-    n->slot_info_pairs = NULL;
-    n->slot_info_pairs_count = 0;
-    n->slot_info_pairs_alloc = 0;
+    if (n->slot_info_pairs != NULL) {
+        zfree(n->slot_info_pairs);
+        n->slot_info_pairs = NULL;
+        n->slot_info_pairs_count = 0;
+        n->slot_info_pairs_alloc = 0;
+    }
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
@@ -5148,7 +5216,6 @@ void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_
             clusterNode *node = listNodeValue(ln);
             addNodeDetailsToShardReply(c, node);
         }
-        listRelease(nodes_for_slot);
     }
 }
 
@@ -5168,6 +5235,12 @@ void clusterReplyShards(client *c) {
      * information and an empty slots array. */
     while((de = dictNext(di)) != NULL) {
         clusterNode *n = dictGetVal(de);
+        /* Failed primary nodes will lose their slots after automatic
+         * failover. They will be picked up by the new primary later
+         * so it is OK to skip them */
+        if (nodeFailed(n) && n->slot_info_pairs_count == 0) {
+            continue;
+        }
         if (nodeIsSlave(n)) {
             /* You can force a replica to own slots, even though it'll get reverted,
              * so freeing the slot pair here just in case. */
