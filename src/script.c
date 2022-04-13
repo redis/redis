@@ -36,6 +36,7 @@ scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
     {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
     {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = SCRIPT_FLAG_ALLOW_CROSS_SLOT, .str = "allow-cross-slot-keys"},
     {.flag = 0, .str = NULL}, /* flags array end */
 };
 
@@ -218,6 +219,10 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 
+    if ((script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) || (script_flags & SCRIPT_FLAG_ALLOW_CROSS_SLOT)) {
+        run_ctx->flags |= SCRIPT_ALLOW_CROSS_SLOT;
+    }
+
     /* set the curr_run_ctx so we can use it to kill the script if needed */
     curr_run_ctx = run_ctx;
 
@@ -391,7 +396,7 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
     return C_OK;
 }
 
-static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
+static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *original_c, sds *err) {
     if (!server.cluster_enabled || mustObeyClient(original_c)) {
         return C_OK;
     }
@@ -402,7 +407,8 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
     /* Duplicate relevant flags in the script client. */
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, NULL, &error_code) != server.cluster->myself) {
+    int hashslot = -1;
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -415,6 +421,19 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
                     "cluster node");
         }
         return C_ERR;
+    }
+
+    /* If the script declared keys in advanced, the cross slot error would have
+     * already been thrown. This is only checking for cross slot keys being accessed
+     * that weren't pre-declared. */
+    if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
+        if (original_c->slot == -1) {
+            original_c->slot = hashslot;
+        } else if (original_c->slot != hashslot) {
+            *err = sdsnew("Script attempted to access keys that do not hash to "
+                    "the same slot");
+            return C_ERR;
+        }
     }
     return C_OK;
 }
@@ -520,7 +539,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         run_ctx->flags |= SCRIPT_WRITE_DIRTY;
     }
 
-    if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
+    if (scriptVerifyClusterState(run_ctx, c, run_ctx->original_client, err) != C_OK) {
         goto error;
     }
 

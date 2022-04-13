@@ -274,6 +274,22 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
+proc cluster_info {r field} {
+    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
+        set _ $value
+    }
+}
+
+# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
+proc csi {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    cluster_info [srv $level "client"] [lindex $args 0]
+}
+
 # Test wrapped into run_solo are sent back from the client to the
 # test server, so that the test server will send them again to
 # clients once the clients are idle.
