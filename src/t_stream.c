@@ -1370,7 +1370,7 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIteratorStop(&si);
 }
 
-/* Maximum size for a stream ID string. In theory 20*2+1 shuld be enough,
+/* Maximum size for a stream ID string. In theory 20*2+1 should be enough,
  * But to avoid chance for off by one issues and null-term, in case this will
  * be used as parsing buffer, we use a slightly larger buffer. On the other
  * hand considering sds header is gonna add 4 bytes, we wanna keep below the
