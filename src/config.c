@@ -846,11 +846,12 @@ void configSetCommand(client *c) {
             errstr = "duplicate parameter";
             err_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
+        } else {
+            dictAdd(set_configs, sdsnew(config->name), config);
+            dictAdd(new_values, sdsnew(config->name), c->argv[2+i*2+1]->ptr);
         }
         sdsfree(config_name);
-        dictAdd(set_configs, sdsnew(config->name), config);
         config_names[i] = config->name;
-        dictAdd(new_values, sdsnew(config->name), c->argv[2+i*2+1]->ptr);
     }
     
     if (invalid_args) goto err;
