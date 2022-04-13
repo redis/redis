@@ -1370,24 +1370,29 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIteratorStop(&si);
 }
 
+#define STREAM_ID_STR_LEN 44 /* At least 20 * 2 + 1 */
+
+sds createStreamIDString(streamID *id) {
+    sds str = sdsnewlen(SDS_NOINIT, STREAM_ID_STR_LEN);
+    sdssetlen(str, 0);
+    return sdscatfmt(str,"%U-%U", id->ms,id->seq);
+}
+
 /* Emit a reply in the client output buffer by formatting a Stream ID
  * in the standard <ms>-<seq> format, using the simple string protocol
  * of REPL. */
 void addReplyStreamID(client *c, streamID *id) {
-    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    addReplyBulkSds(c,replyid);
+    addReplyBulkSds(c,createStreamIDString(id));
 }
 
 void setDeferredReplyStreamID(client *c, void *dr, streamID *id) {
-    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    setDeferredReplyBulkSds(c, dr, replyid);
+    setDeferredReplyBulkSds(c, dr, createStreamIDString(id));
 }
 
 /* Similar to the above function, but just creates an object, usually useful
  * for replication purposes to create arguments. */
 robj *createObjectFromStreamID(streamID *id) {
-    return createObject(OBJ_STRING, sdscatfmt(sdsempty(),"%U-%U",
-                        id->ms,id->seq));
+    return createObject(OBJ_STRING, createStreamIDString(id));
 }
 
 /* Returns non-zero if the ID is 0-0. */
@@ -2025,11 +2030,8 @@ void xaddCommand(client *c) {
             addReplyError(c,"Elements are too large to be stored");
         return;
     }
-    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id.ms,id.seq);
-    const size_t replyid_len = sdslen(replyid);
-    addReplyLongLongWithPrefix(c,replyid_len,'$');
-    addReplyProto(c,replyid,replyid_len);
-    addReply(c,shared.crlf);
+    sds replyid = createStreamIDString(&id);
+    addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
