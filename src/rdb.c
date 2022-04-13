@@ -2433,6 +2433,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             return NULL;
         }
 
+        if (s->length && !raxSize(s->rax)) {
+            rdbReportCorruptRDB("Stream length inconsistent with rax entries");
+            decrRefCount(o);
+            return NULL;
+        }
+
         /* Consumer groups loading */
         uint64_t cgroups_count = rdbLoadLen(rdb,NULL);
         if (cgroups_count == RDB_LENERR) {
