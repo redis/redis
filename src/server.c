@@ -97,6 +97,17 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+/* Close the currently open logfile and re-open it based on server.logfile */
+int serverLogOpen(void) {
+    if (server.log_fd != -1 && server.log_fd != STDOUT_FILENO) close(server.log_fd);
+    if (server.logfile[0] == '\0') {
+        server.log_fd = STDOUT_FILENO;
+    } else {
+        server.log_fd = open(server.logfile, O_APPEND|O_CREAT|O_WRONLY|O_CLOEXEC, 0644);
+    }
+    return server.log_fd == -1 ? C_ERR : C_OK;
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -110,7 +121,7 @@ void serverLogRaw(int level, const char *msg) {
     if (level < server.verbosity) return;
 
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
-    if (server.log_fd == -1) return;
+    if (server.log_fd == -1 && serverLogOpen() != C_OK) return;
     if (rawmode) {
         ignored = write(server.log_fd,msg,strlen(msg));
         return;
@@ -180,17 +191,6 @@ void serverLogFromHandler(int level, const char *msg) {
     if (write(server.log_fd,") ",2) == -1) return;
     if (write(server.log_fd,msg,strlen(msg)) == -1) return;
     if (write(server.log_fd,"\n",1) == -1) return;
-}
-
-/* Close the currently open logfile and re-open it based on server.logfile */
-int serverLogOpen(void) {
-    if (server.log_fd != -1 && server.log_fd != STDOUT_FILENO) close(server.log_fd);
-    if (server.logfile[0] == '\0') {
-        server.log_fd = STDOUT_FILENO;
-    } else {
-        server.log_fd = open(server.logfile, O_APPEND|O_CREAT|O_WRONLY|O_CLOEXEC, 0644);
-    }
-    return server.log_fd == -1 ? C_ERR : C_OK;
 }
 
 /* Re-open log file on SIGHUP */
