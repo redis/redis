@@ -1370,9 +1370,15 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIteratorStop(&si);
 }
 
-#define STREAM_ID_STR_LEN 44 /* At least 20 * 2 + 1 */
+/* Maximum size for a stream ID string. In theory 20*2+1 shuld be enough,
+ * But to avoid chance for off by one issues and null-term, in case this will
+ * be used as parsing buffer, we use a slightly larger buffer. On the other
+ * hand considering sds header is gonna add 4 bytes, we wanna keep below the
+ * allocator's 48 bytes bin. */
+#define STREAM_ID_STR_LEN 44
 
 sds createStreamIDString(streamID *id) {
+    /* Optimization: pre-allocate a big enough buffer to avoid reallocs. */
     sds str = sdsnewlen(SDS_NOINIT, STREAM_ID_STR_LEN);
     sdssetlen(str, 0);
     return sdscatfmt(str,"%U-%U", id->ms,id->seq);
