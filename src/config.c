@@ -762,7 +762,7 @@ static void restoreBackupConfig(dict *set_configs, dict *old_values, dict *apply
         while ((de = dictNext(di)) != NULL) {
             typeInterface *apply_fn_interface = dictGetVal(de);
             if (!(apply_fn_interface->apply(&errstr)))
-                    serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
+                serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
         }
         dictReleaseIterator(di);
     }
