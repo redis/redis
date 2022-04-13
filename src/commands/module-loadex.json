@@ -23,6 +23,7 @@
                 "token": "CONFIG",
                 "type": "block",
                 "multiple": true,
+                "multiple_token": true,
                 "optional": true,
                 "arguments": [
                     {

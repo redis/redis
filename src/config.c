@@ -2691,7 +2691,7 @@ static int setConfigNotifyKeyspaceEventsOption(standardConfig *config, sds *argv
     }
     int flags = keyspaceEventsStringToFlags(argv[0]);
     if (flags == -1) {
-        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmd'.";
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdn'.";
         return 0;
     }
     server.notify_keyspace_events = flags;

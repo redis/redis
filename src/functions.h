@@ -106,12 +106,10 @@ struct functionLibInfo {
     dict *functions; /* Functions dictionary */
     engineInfo *ei;  /* Pointer to the function engine */
     sds code;        /* Library code */
-    sds desc;        /* Library description */
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
-int functionsCreateWithLibraryCtx(sds lib_name, sds engine_name, sds desc, sds code,
-                                  int replace, sds* err, functionsLibCtx *lib_ctx);
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
 unsigned long functionsMemory();
 unsigned long functionsMemoryOverhead();
 unsigned long functionsNum();

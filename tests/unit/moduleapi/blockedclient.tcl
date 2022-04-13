@@ -90,7 +90,8 @@ start_server {tags {"modules"}} {
         }
     }
 
-    test {Busy module command} {
+foreach call_type {nested normal} {
+    test "Busy module command - $call_type" {
         set busy_time_limit 50
         set old_time_limit [lindex [r config get busy-reply-threshold] 1]
         r config set busy-reply-threshold $busy_time_limit
@@ -98,7 +99,11 @@ start_server {tags {"modules"}} {
 
         # run command that blocks until released
         set start [clock clicks -milliseconds]
-        $rd slow_fg_command 0
+        if {$call_type == "nested"} {
+            $rd do_rm_call slow_fg_command 0
+        } else {
+            $rd slow_fg_command 0
+        }
         $rd flush
 
         # make sure we get BUSY error, and that we didn't get it too early
@@ -114,9 +119,13 @@ start_server {tags {"modules"}} {
         }
         $rd read
 
-        #run command that blocks for 200ms
+        # run command that blocks for 200ms
         set start [clock clicks -milliseconds]
-        $rd slow_fg_command 200000
+        if {$call_type == "nested"} {
+            $rd do_rm_call slow_fg_command 200000
+        } else {
+            $rd slow_fg_command 200000
+        }
         $rd flush
         after 10 ;# try to make sure redis started running the command before we proceed
 
@@ -128,6 +137,7 @@ start_server {tags {"modules"}} {
         $rd close
         r config set busy-reply-threshold $old_time_limit
     }
+}
 
     test {RM_Call from blocked client} {
         set busy_time_limit 50
