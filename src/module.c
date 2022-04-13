@@ -5909,7 +5909,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
-    /* Set server.current_client */
     call(c,call_flags);
     server.replication_allowed = prev_replication_allowed;
 
