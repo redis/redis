@@ -49,6 +49,7 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    mallocsize.so \
     aclcheck.so \
     list.so \
     subcommands.so \
