@@ -134,7 +134,7 @@ start_server {tags {"introspection"}} {
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
         set e
-    } {ERR*}
+    } {ERR *}
 
     test {CLIENT SETNAME can assign a name to this connection} {
         assert_equal [r client setname myname] {OK}
