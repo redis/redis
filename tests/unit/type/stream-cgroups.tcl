@@ -13,7 +13,7 @@ start_server {
         r DEL mystream
         catch {r XGROUP CREATE mystream mygroup $} err
         set err
-    } {ERR*}
+    } {ERR *}
 
     test {XGROUP CREATE: automatic stream creation works with MKSTREAM} {
         r DEL mystream

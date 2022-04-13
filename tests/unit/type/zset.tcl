@@ -139,7 +139,7 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp xx 10 x 20} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD XX option without key - $encoding" {
             r del ztmp
@@ -214,7 +214,7 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp xx nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD NX with non existing key - $encoding" {
             r del ztmp
@@ -236,19 +236,19 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp gt nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD LT and NX are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD LT and GT are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt gt 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD INCR LT/GT replies with nill if score not updated - $encoding" {
             r del ztmp
@@ -294,7 +294,7 @@ start_server {tags {"zset"}} {
             r zadd ztmp 10 x 20 y 30 z
             catch {r zadd ztmp INCR 15 x 10 y} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD CH option changes return value to all changed elements - $encoding" {
             r del ztmp
