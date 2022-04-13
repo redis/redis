@@ -28,25 +28,25 @@ start_server {tags {"incr"}} {
         r set novar "    11"
         catch {r incr novar} err
         format $err
-    } {ERR *}
+    } {ERR*}
 
     test {INCR fails against key with spaces (right)} {
         r set novar "11    "
         catch {r incr novar} err
         format $err
-    } {ERR *}
+    } {ERR*}
 
     test {INCR fails against key with spaces (both)} {
         r set novar "    11    "
         catch {r incr novar} err
         format $err
-    } {ERR *}
+    } {ERR*}
 
     test {DECRBY negation overflow} {
         r set x 0
         catch {r decrby x -9223372036854775808} err
         format $err
-    } {ERR *}
+    } {ERR*}
 
     test {INCR fails against a key holding a list} {
         r rpush mylist 1
