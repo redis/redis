@@ -4317,6 +4317,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         if (args[j].token) maplen++;
         if (args[j].summary) maplen++;
         if (args[j].since) maplen++;
+        if (args[j].deprecated_since) maplen++;
         if (args[j].flags) maplen++;
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK)
             maplen++;
@@ -4343,6 +4344,10 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         if (args[j].since) {
             addReplyBulkCString(c, "since");
             addReplyBulkCString(c, args[j].since);
+        }
+        if (args[j].deprecated_since) {
+            addReplyBulkCString(c, "deprecated_since");
+            addReplyBulkCString(c, args[j].deprecated_since);
         }
         if (args[j].flags) {
             addReplyBulkCString(c, "flags");

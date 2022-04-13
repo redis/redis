@@ -1931,6 +1931,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
         if (arg->token) realargs[j].token = zstrdup(arg->token);
         if (arg->summary) realargs[j].summary = zstrdup(arg->summary);
         if (arg->since) realargs[j].since = zstrdup(arg->since);
+        if (arg->deprecated_since) realargs[j].deprecated_since = zstrdup(arg->deprecated_since);
         realargs[j].flags = moduleConvertArgFlags(arg->flags);
         if (arg->subargs) realargs[j].subargs = moduleCopyCommandArgs(arg->subargs, version);
     }
@@ -10941,6 +10942,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
     }
     zfree((char *)cmd->summary);
     zfree((char *)cmd->since);
+    zfree((char *)cmd->deprecated_since);
     zfree((char *)cmd->complexity);
     if (cmd->latency_histogram) {
         hdr_close(cmd->latency_histogram);

@@ -322,6 +322,7 @@ typedef struct RedisModuleCommandArg {
     const char *summary;
     const char *since;
     int flags;                /* The REDISMODULE_CMD_ARG_* macros. */
+    const char *deprecated_since;
     struct RedisModuleCommandArg *subargs;
 } RedisModuleCommandArg;
 
