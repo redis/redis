@@ -683,18 +683,17 @@ error:
     return -1;
 }
 
-int anetSockId(char *err, int fd, uint32_t id)
-{
+int anetSockId(char *err, int fd, uint32_t id) {
 #ifdef HAVE_SOCKOPTID
-        if (setsockopt(fd, SOL_SOCKET, SO_USER_COOKIE, (void *)&id, sizeof(id)) == -1) {
-            anetSetError(err, "setsockopt: %s", strerror(errno));
-	    return ANET_ERR;
-        }
-	return ANET_OK;
+    if (setsockopt(fd, SOL_SOCKET, SOCKOPTID, (void *)&id, sizeof(id)) == -1) {
+        anetSetError(err, "setsockopt: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
 #else
-        UNUSED(fd);
-        if (id > 0)
-            anetSetError(err,"anetSockid unsupported on this platform");
-        return ANET_OK;
+    UNUSED(fd);
+    if (id > 0)
+        anetSetError(err,"anetSockid unsupported on this platform");
+    return ANET_OK;
 #endif
 }

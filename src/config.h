@@ -80,6 +80,10 @@
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTID 1
+#define SOCKOPTID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
@@ -114,7 +118,17 @@
 #endif
 
 #if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
 #define HAVE_SOCKOPTID 1
+#define SOCKOPTID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTID 1
+#define SOCKOPTID SO_RTABLE
+#endif
 #endif
 
 #if __GNUC__ >= 4
