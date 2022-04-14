@@ -74,11 +74,11 @@ struct bin_s {
 	 * memory.
 	 */
 	extent_heap_t		slabs_nonfull;
-    extent_heap_t		slabs_nonfull_temp;
-    extent_t highest_slab_to_retain; /*just used for addr/sn comparison, not a real extent */
-    bool highest_slab_to_retain_inited;
-    bool initing_defrag;
-    size_t defrag_slabs_to_retain;
+	extent_heap_t		slabs_nonfull_temp;
+	extent_t highest_slab_to_retain; /*just used for addr/sn comparison, not a real extent */
+	bool highest_slab_to_retain_inited;
+	bool initing_defrag;
+	size_t defrag_slabs_to_retain;
 
 	/* List used to track full slabs. */
 	extent_list_t		slabs_full;

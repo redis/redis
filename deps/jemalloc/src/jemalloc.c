@@ -3967,7 +3967,6 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
     for (;bin->defrag_slabs_to_retain > 0; bin->defrag_slabs_to_retain--) {
         extent_t *slab = extent_heap_remove_first(&bin->slabs_nonfull);
         if (slab == NULL) {
-            fprintf(stderr, "Ran out of non-full slabs to retain: %zu missing\n", bin->defrag_slabs_to_retain);
             bin->defrag_slabs_to_retain = 0;
             break;
         }
@@ -3977,10 +3976,8 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
             bin->highest_slab_to_retain = *slab;
             bin->highest_slab_to_retain_inited = true;
         }
-        if (ustime() - start_time >= max_time) {
-            fprintf(stderr, "out of time handling initing bin\n");
+        if (ustime() - start_time >= max_time)
             break;
-        }
     }
 
     if (bin->defrag_slabs_to_retain == 0) {
@@ -4000,9 +3997,6 @@ init_defrag(void) {
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    fprintf(stderr, "Initing defrag hints (%lld)\n", SC_NSIZES);
-
-    // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
         unsigned binshard;
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
@@ -4018,8 +4012,6 @@ init_defrag(void) {
         if (used_slabs != needed_slabs) {
             int64_t nonfull_to_retain = needed_slabs - full_slabs;
             if (bin->slabcur) nonfull_to_retain--;
-            fprintf(stderr, "%zu: Need %lu slabs but have %lu, non full to retain %ld (out of %ld)\n", bin_info->reg_size,
-                   needed_slabs, used_slabs, nonfull_to_retain, used_slabs - full_slabs - (bin->slabcur ? 1 : 0));
             bin->defrag_slabs_to_retain = nonfull_to_retain;
             bin->initing_defrag = true;
         } else {
@@ -4038,13 +4030,11 @@ init_defrag_step(long long max_time) {
 
     long long t;
     bool need_more = false;
-    bool work_done = false;
     t = ustime();
 
     for (i = 0; i < SC_NBINS; i++) {
         unsigned binshard;
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        work_done |= bin->initing_defrag;
         init_defrag_bin_step(bin, t, max_time);
         need_more |= bin->initing_defrag;
         malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
@@ -4052,9 +4042,6 @@ init_defrag_step(long long max_time) {
             fprintf(stderr, "Stopping defrag init step: timed out\n");
             break;
         }
-    }
-    if (!need_more && work_done) {
-        fprintf(stderr, "Done initing defrag\n");
     }
     return need_more ? 1 : 0;
 }
@@ -4065,15 +4052,11 @@ finish_defrag(void) {
     tsd_t *tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
 
-    fprintf(stderr, "Cleaning up defrag hints\n");
-
-    // TODO: Consider locking: arena->mtx
     for (i = 0; i < SC_NBINS; i++) {
         unsigned binshard;
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
 
         if (bin->initing_defrag) {
-            fprintf(stderr, "%llu: finish defrag but bin defrag didn't complete initing\n", i);
             extent_t *r0 = extent_heap_first(&bin->slabs_nonfull);
             extent_t *r1 = extent_heap_first(&bin->slabs_nonfull_temp);
             phn_merge(extent_t, ph_link, r0, r1, extent_snad_comp, bin->slabs_nonfull.ph_root);
