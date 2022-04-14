@@ -815,38 +815,43 @@ int openNewIncrAofForAppend(void) {
 #define AOF_REWRITE_LIMITE_THRESHOLD    3
 #define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
-    int limit = 0;
-    static int limit_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
-    if (incr_aof_num >= AOF_REWRITE_LIMITE_THRESHOLD) {
+    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD) {
+        /* the incr aof number possible change to be normal, such as a successful BGREWRITEAOF.
+         * so we need to reset the next_rewrite_time before return 'no limit' */
+        next_rewrite_time  = 0;
+        return 0;
+    }
+    
+    /* if it is in the limiting state, then check if the next_rewrite_time is reached */
+    if (next_rewrite_time != 0) {
         if (server.unixtime < next_rewrite_time) {
-            limit = 1;
+            return 1;
         } else {
-            if (limit_delay_minutes == 0) {
-                limit = 1;
-                limit_delay_minutes = 1;
-            } else {
-                limit_delay_minutes *= 2;
-            }
-
-            if (limit_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
-                limit_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
-            }
-
-            next_rewrite_time = server.unixtime + limit_delay_minutes * 60;
-
-            serverLog(LL_WARNING,
-                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
-                incr_aof_num, limit_delay_minutes);
+            next_rewrite_time = 0;
+            return 0;
         }
-    } else {
-        limit_delay_minutes = 0;
-        next_rewrite_time = 0;
     }
 
-    return limit;
+    int limit_delay_minutes = 1;
+    int delay_count = incr_aof_num - AOF_REWRITE_LIMITE_THRESHOLD;
+    while (delay_count) {
+        limit_delay_minutes *= 2;
+        delay_count--;
+        if (limit_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
+            limit_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
+            break;
+        }
+    }
+    next_rewrite_time = server.unixtime + limit_delay_minutes * 60;
+
+    /* only one incr file in normal state, so the failed times should be 'incr_aof_num-1' */
+    serverLog(LL_WARNING,
+        "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
+        incr_aof_num - 1, limit_delay_minutes);
+    return 1;
 }
 
 /* ----------------------------------------------------------------------------
