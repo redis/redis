@@ -447,12 +447,12 @@ start_server {tags {"scripting"}} {
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e
-    } {ERR*attempted to access * global*}
+    } {ERR *attempted to access * global*}
 
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {ERR*attempted to create global*}
+    } {ERR *attempted to create global*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {

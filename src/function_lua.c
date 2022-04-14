@@ -479,7 +479,7 @@ int luaEngineInitEngine() {
                             "    i = dbg.getinfo(3,'nSl')\n"
                             "  end\n"
                             "  if type(err) ~= 'table' then\n"
-                            "    err = {err='ERR' .. tostring(err)}"
+                            "    err = {err='ERR ' .. tostring(err)}"
                             "  end"
                             "  if i then\n"
                             "    err['source'] = i.source\n"
