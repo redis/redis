@@ -156,6 +156,9 @@
 #define CC_FORCE (1<<0)         /* Re-connect if already connected. */
 #define CC_QUIET (1<<1)         /* Don't log connecting errors. */
 
+/* DNS lookup */
+#define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -2755,7 +2758,7 @@ static int noninteractive(int argc, char **argv) {
 
     retval = issueCommand(argc, sds_args);
     sdsfreesplitres(sds_args, argc);
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -2842,7 +2845,7 @@ static int evalMode(int argc, char **argv) {
             break; /* Return to the caller. */
         }
     }
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -6306,16 +6309,26 @@ assign_replicas:
         clusterManagerLogInfo(">>> Sending CLUSTER MEET messages to join "
                               "the cluster\n");
         clusterManagerNode *first = NULL;
+        char first_ip[NET_IP_STR_LEN]; /* first->ip may be a hostname */
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *node = ln->value;
             if (first == NULL) {
                 first = node;
+                /* Although hiredis supports connecting to a hostname, CLUSTER
+                 * MEET requires an IP address, so we do a DNS lookup here. */
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
+                    == ANET_ERR)
+                {
+                    fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+                    success = 0;
+                    goto cleanup;
+                }
                 continue;
             }
             redisReply *reply = NULL;
             reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
-                                            first->ip, first->port);
+                                            first_ip, first->port);
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
@@ -6487,8 +6500,15 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
                           "join the cluster.\n", ip, port);
+    /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
+    char first_ip[NET_IP_STR_LEN];
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
+        fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+        success = 0;
+        goto cleanup;
+    }
     reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d",
-                                    first->ip, first->port);
+                                    first_ip, first->port);
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
         goto cleanup;
 
@@ -9044,11 +9064,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
-        int connected = (cliConnect(CC_QUIET) == REDIS_OK);
-        /* Try to serve command even we are not connected. e.g. help command */
-        int retval = noninteractive(argc,argv);
-        /* If failed to connect, exit with "1" for backward compatibility */
-        if (retval != REDIS_OK && !connected) exit(1);
-        return retval;
+        cliConnect(CC_QUIET);
+        return noninteractive(argc,argv);
     }
 }

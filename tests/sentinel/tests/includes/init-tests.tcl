@@ -1,27 +1,5 @@
 # Initialization tests -- most units will start including this.
-
-proc restart_killed_instances {} {
-    foreach type {redis sentinel} {
-        foreach_${type}_id id {
-            if {[get_instance_attrib $type $id pid] == -1} {
-                puts -nonewline "$type/$id "
-                flush stdout
-                restart_instance $type $id
-            }
-        }
-    }
-}
-
-proc verify_sentinel_auto_discovery {} {
-    set sentinels [llength $::sentinel_instances]
-    foreach_sentinel_id id {
-        wait_for_condition 1000 50 {
-            [dict get [S $id SENTINEL MASTER mymaster] num-other-sentinels] == ($sentinels-1)
-        } else {
-            fail "At least some sentinel can't detect some other sentinel"
-        }
-    }
-}
+source "../tests/includes/utils.tcl"
 
 test "(init) Restart killed instances" {
     restart_killed_instances
@@ -50,7 +28,8 @@ test "(init) Sentinels can start monitoring a master" {
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
         S $id SENTINEL SET mymaster down-after-milliseconds 2000
-        S $id SENTINEL SET mymaster failover-timeout 20000
+        S $id SENTINEL SET mymaster failover-timeout 10000
+        S $id SENTINEL debug tilt-period 5000
         S $id SENTINEL SET mymaster parallel-syncs 10
         if {$::leaked_fds_file != "" && [exec uname] == "Linux"} {
             S $id SENTINEL SET mymaster notification-script ../../tests/helpers/check_leaked_fds.tcl

@@ -20,6 +20,9 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
         "arguments": [
             {
                 "name": "command-name",

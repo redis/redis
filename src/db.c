@@ -182,6 +182,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
+    notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
 
 /* This is a special version of dbAdd() that is used only when loading

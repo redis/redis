@@ -1285,7 +1285,7 @@ void replicaStartCommandStream(client *slave) {
         return;
     }
 
-    clientInstallWriteHandler(slave);
+    putClientInPendingWriteQueue(slave);
 }
 
 /* We call this function periodically to remove an RDB file that was

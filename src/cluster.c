@@ -56,7 +56,6 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter, int use_pport);
-clusterNode *clusterLookupNode(const char *name);
 list *clusterGetNodesServingMySlots(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -74,7 +73,8 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 sds representClusterNodeFlags(sds ci, uint16_t flags);
-sds representSlotInfo(sds ci, list *slot_info_pairs);
+sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_count);
+void clusterFreeNodesSlotsInfo(clusterNode *n);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
@@ -211,7 +211,11 @@ int clusterLoadConfig(char *filename) {
         }
 
         /* Create this node if it does not exist */
-        n = clusterLookupNode(argv[0]);
+        if (verifyClusterNodeId(argv[0], sdslen(argv[0])) == C_ERR) {
+            sdsfreesplitres(argv, argc);
+            goto fmterr;
+        }
+        n = clusterLookupNode(argv[0], sdslen(argv[0]));
         if (!n) {
             n = createClusterNode(argv[0],0);
             clusterAddNode(n);
@@ -287,7 +291,11 @@ int clusterLoadConfig(char *filename) {
         /* Get master if any. Set the master and populate master's
          * slave list. */
         if (argv[3][0] != '-') {
-            master = clusterLookupNode(argv[3]);
+            if (verifyClusterNodeId(argv[3], sdslen(argv[3])) == C_ERR) {
+                sdsfreesplitres(argv, argc);
+                goto fmterr;
+            }
+            master = clusterLookupNode(argv[3], sdslen(argv[3]));
             if (!master) {
                 master = createClusterNode(argv[3],0);
                 clusterAddNode(master);
@@ -323,7 +331,14 @@ int clusterLoadConfig(char *filename) {
                     goto fmterr;
                 }
                 p += 3;
-                cn = clusterLookupNode(p);
+
+                char *pr = strchr(p, ']');
+                size_t node_len = pr - p;
+                if (pr == NULL || verifyClusterNodeId(p, node_len) == C_ERR) {
+                    sdsfreesplitres(argv, argc);
+                    goto fmterr;
+                }
+                cn = clusterLookupNode(p, CLUSTER_NAMELEN);
                 if (!cn) {
                     cn = createClusterNode(p,0);
                     clusterAddNode(cn);
@@ -944,6 +959,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->slot_info_pairs = NULL;
+    node->slot_info_pairs_count = 0;
     node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
@@ -1179,12 +1195,23 @@ void clusterDelNode(clusterNode *delnode) {
     freeClusterNode(delnode);
 }
 
-/* Node lookup by name */
-clusterNode *clusterLookupNode(const char *name) {
-    sds s = sdsnewlen(name, CLUSTER_NAMELEN);
-    dictEntry *de;
+/* Cluster node sanity check. Returns C_OK if the node id
+ * is valid an C_ERR otherwise. */
+int verifyClusterNodeId(const char *name, int length) {
+    if (length != CLUSTER_NAMELEN) return C_ERR;
+    for (int i = 0; i < length; i++) {
+        if (name[i] >= 'a' && name[i] <= 'z') continue;
+        if (name[i] >= '0' && name[i] <= '9') continue;
+        return C_ERR;
+    }
+    return C_OK;
+}
 
-    de = dictFind(server.cluster->nodes,s);
+/* Node lookup by name */
+clusterNode *clusterLookupNode(const char *name, int length) {
+    if (verifyClusterNodeId(name, length) != C_OK) return NULL;
+    sds s = sdsnewlen(name, length);
+    dictEntry *de = dictFind(server.cluster->nodes, s);
     sdsfree(s);
     if (de == NULL) return NULL;
     return dictGetVal(de);
@@ -1600,7 +1627,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     uint16_t count = ntohs(hdr->count);
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
+    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
 
     while(count--) {
         uint16_t flags = ntohs(g->flags);
@@ -1619,7 +1646,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         }
 
         /* Update our state accordingly to the gossip sections */
-        node = clusterLookupNode(g->nodename);
+        node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
         if (node) {
             /* We already know this node.
                Handle failure reports, only when the sender is a master. */
@@ -1896,6 +1923,17 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
+    } else if (myself->slaveof && myself->slaveof->slaveof) {
+        /* Safeguard against sub-replicas. A replica's master can turn itself
+         * into a replica if its last slot is removed. If no other node takes
+         * over the slot, there is nothing else to trigger replica migration. */
+        serverLog(LL_WARNING,
+                  "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
+                  myself->slaveof->slaveof->name);
+        clusterSetMaster(myself->slaveof->slaveof);
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_UPDATE_STATE|
+                             CLUSTER_TODO_FSYNC_CONFIG);
     } else if (dirty_slots_count) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
@@ -1971,7 +2009,7 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
 /* We previously validated the extensions, so this function just needs to
  * handle the extensions. */
 void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
+    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
     char *ext_hostname = NULL;
     uint16_t extensions = ntohs(hdr->extensions);
     /* Loop through all the extensions and process them */
@@ -2004,7 +2042,7 @@ static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
         sender = link->node;
     } else {
         /* Otherwise, fetch sender based on the message */
-        sender = clusterLookupNode(hdr->sender);
+        sender = clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
         /* We know the sender node but haven't associate it with the link. This must
          * be an inbound link because only for inbound links we didn't know which node
          * to associate when they were created. */
@@ -2315,7 +2353,7 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterSetNodeAsMaster(sender);
             } else {
                 /* Node is a slave. */
-                clusterNode *master = clusterLookupNode(hdr->slaveof);
+                clusterNode *master = clusterLookupNode(hdr->slaveof, CLUSTER_NAMELEN);
 
                 if (nodeIsMaster(sender)) {
                     /* Master turned into a slave! Reconfigure the node. */
@@ -2430,7 +2468,7 @@ int clusterProcessPacket(clusterLink *link) {
         clusterNode *failing;
 
         if (sender) {
-            failing = clusterLookupNode(hdr->data.fail.about.nodename);
+            failing = clusterLookupNode(hdr->data.fail.about.nodename, CLUSTER_NAMELEN);
             if (failing &&
                 !(failing->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_MYSELF)))
             {
@@ -2518,7 +2556,7 @@ int clusterProcessPacket(clusterLink *link) {
                     ntohu64(hdr->data.update.nodecfg.configEpoch);
 
         if (!sender) return 1;  /* We don't know the sender. */
-        n = clusterLookupNode(hdr->data.update.nodecfg.nodename);
+        n = clusterLookupNode(hdr->data.update.nodecfg.nodename, CLUSTER_NAMELEN);
         if (!n) return 1;   /* We don't know the reported node. */
         if (n->configEpoch >= reportedConfigEpoch) return 1; /* Nothing new. */
 
@@ -3149,7 +3187,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     clusterNode *node = NULL;
 
     if (target != NULL) {
-        node = clusterLookupNode(target);
+        node = clusterLookupNode(target, strlen(target));
         if (node == NULL || node->link == NULL) return C_ERR;
     }
 
@@ -4565,16 +4603,10 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 /* Concatenate the slot ownership information to the given SDS string 'ci'.
  * If the slot ownership is in a contiguous block, it's represented as start-end pair,
  * else each slot is added separately. */
-sds representSlotInfo(sds ci, list *slot_info_pairs) {
-    listIter li;
-    listNode *ln;
-    listRewind(slot_info_pairs, &li);
-    while((ln = listNext(&li))) {
-        unsigned long start = (unsigned long)ln->value;
-        ln = listNext(&li);
-        /* List should have even number of elements */
-        serverAssert(ln != NULL);
-        unsigned long end = (unsigned long)ln->value;
+sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_count) {
+    for (int i = 0; i< slot_info_pairs_count; i+=2) {
+        unsigned long start = slot_info_pairs[i];
+        unsigned long end = slot_info_pairs[i+1];
         if (start == end) {
             ci = sdscatfmt(ci, " %i", start);
         } else {
@@ -4633,7 +4665,7 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     /* Slots served by this instance. If we already have slots info,
      * append it directly, otherwise, generate slots only if it has. */
     if (node->slot_info_pairs) {
-        ci = representSlotInfo(ci, node->slot_info_pairs);
+        ci = representSlotInfo(ci, node->slot_info_pairs, node->slot_info_pairs_count);
     } else if (node->numslots > 0) {
         start = -1;
         for (j = 0; j < CLUSTER_SLOTS; j++) {
@@ -4693,17 +4725,24 @@ void clusterGenNodesSlotsInfo(int filter) {
          * or end of slot. */
         if (i == CLUSTER_SLOTS || n != server.cluster->slots[i]) {
             if (!(n->flags & filter)) {
-                if (n->slot_info_pairs == NULL) {
-                    n->slot_info_pairs = listCreate();
+                if (!n->slot_info_pairs) {
+                    n->slot_info_pairs = zmalloc(2 * n->numslots * sizeof(uint16_t));
                 }
-                listAddNodeTail(n->slot_info_pairs, (void *)(unsigned long)start);
-                listAddNodeTail(n->slot_info_pairs, (void *)(unsigned long)(i-1));
+                serverAssert((n->slot_info_pairs_count + 1) < (2 * n->numslots));
+                n->slot_info_pairs[n->slot_info_pairs_count++] = start;
+                n->slot_info_pairs[n->slot_info_pairs_count++] = i-1;
             }
             if (i == CLUSTER_SLOTS) break;
             n = server.cluster->slots[i];
             start = i;
         }
     }
+}
+
+void clusterFreeNodesSlotsInfo(clusterNode *n) {
+    zfree(n->slot_info_pairs);
+    n->slot_info_pairs = NULL;
+    n->slot_info_pairs_count = 0;
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
@@ -4740,10 +4779,7 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
         ci = sdscatlen(ci,"\n",1);
 
         /* Release slots info. */
-        if (node->slot_info_pairs != NULL) {
-            listRelease(node->slot_info_pairs);
-            node->slot_info_pairs = NULL;
-        }
+        clusterFreeNodesSlotsInfo(node);
     }
     dictReleaseIterator(di);
     return ci;
@@ -5033,22 +5069,14 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 }
 
 /* Add the shard reply of a single shard based off the given primary node. */
-void addShardReplyForClusterShards(client *c, clusterNode *node, list *slot_info_pairs) {
+void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_info_pairs, int slot_pairs_count) {
     addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
-    uint16_t slot_pair_count = 0;
     if (slot_info_pairs) {
-        slot_pair_count = listLength(slot_info_pairs);
-        serverAssert((slot_pair_count % 2) == 0);
-        addReplyArrayLen(c, slot_pair_count);
-        listIter li;
-        listRewind(slot_info_pairs, &li);
-        listNode *ln;
-        while((ln = listNext(&li))) {
-            addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
-            ln = listNext(&li);
-            addReplyBulkLongLong(c, (unsigned long)listNodeValue(ln));
-        }
+        serverAssert((slot_pairs_count % 2) == 0);
+        addReplyArrayLen(c, slot_pairs_count);
+        for (int i = 0; i < slot_pairs_count; i++)
+            addReplyBulkLongLong(c, (unsigned long)slot_info_pairs[i]);
     } else {
         /* If no slot info pair is provided, the node owns no slots */
         addReplyArrayLen(c, 0);
@@ -5090,17 +5118,13 @@ void clusterReplyShards(client *c) {
         if (nodeIsSlave(n)) {
             /* You can force a replica to own slots, even though it'll get reverted,
              * so freeing the slot pair here just in case. */
-            if (n->slot_info_pairs) listRelease(n->slot_info_pairs);
-            n->slot_info_pairs = NULL;
+            clusterFreeNodesSlotsInfo(n);
             continue;
         }
         shard_count++;
         /* n->slot_info_pairs is set to NULL when the the node owns no slots. */
-        addShardReplyForClusterShards(c, n, n->slot_info_pairs);
-        if (n->slot_info_pairs) {
-            listRelease(n->slot_info_pairs);
-            n->slot_info_pairs = NULL;
-        }
+        addShardReplyForClusterShards(c, n, n->slot_info_pairs, n->slot_info_pairs_count);
+        clusterFreeNodesSlotsInfo(n);
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c, shard_replylen, shard_count);
@@ -5350,7 +5374,8 @@ NULL
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
                 return;
             }
-            if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
+            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+            if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
                 return;
@@ -5366,7 +5391,8 @@ NULL
                     "I'm already the owner of hash slot %u",slot);
                 return;
             }
-            if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
+            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+            if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
                 return;
@@ -5382,8 +5408,7 @@ NULL
             server.cluster->migrating_slots_to[slot] = NULL;
         } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
-            clusterNode *n = clusterLookupNode(c->argv[4]->ptr);
-
+            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
                     (char*)c->argv[4]->ptr);
@@ -5410,8 +5435,25 @@ NULL
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
 
+            int slot_was_mine = server.cluster->slots[slot] == myself;
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
+
+            /* If we are a master left without slots, we should turn into a
+             * replica of the new master. */
+            if (slot_was_mine &&
+                n != myself &&
+                myself->numslots == 0 &&
+                server.cluster_allow_replica_migration)
+            {
+                serverLog(LL_WARNING,
+                          "Configuration change detected. Reconfiguring myself "
+                          "as a replica of %.40s", n->name);
+                clusterSetMaster(n);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
+                                     CLUSTER_TODO_UPDATE_STATE |
+                                     CLUSTER_TODO_FSYNC_CONFIG);
+            }
 
             /* If this node was importing this slot, assigning the slot to
              * itself also clears the importing status. */
@@ -5578,8 +5620,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
-
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
             return;
@@ -5597,9 +5638,8 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
         /* CLUSTER REPLICATE <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
-
         /* Lookup the specified node in our table. */
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
             return;
@@ -5635,7 +5675,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         int j;
 
         /* Lookup the specified node in our table. */
@@ -5662,7 +5702,7 @@ NULL
                c->argc == 3)
     {
         /* CLUSTER COUNT-FAILURE-REPORTS <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
 
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);

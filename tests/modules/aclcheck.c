@@ -92,7 +92,7 @@ int rm_call_aclcheck_cmd(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModule
     if (ret != 0) {
         RedisModule_ReplyWithError(ctx, "DENIED CMD");
         /* Add entry to ACL log */
-        RedisModule_ACLAddLogEntry(ctx, user, argv[1]);
+        RedisModule_ACLAddLogEntry(ctx, user, argv[1], REDISMODULE_ACL_LOG_CMD);
         return REDISMODULE_OK;
     }
 

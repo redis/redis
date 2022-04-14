@@ -15,7 +15,7 @@
         "arguments": [
             {
                 "name": "pattern",
-                "type": "string",
+                "type": "pattern",
                 "optional": true
             }
         ]

@@ -1509,6 +1509,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         uint64_t processed = 0;
         processed += handleClientsWithPendingReadsUsingThreads();
         processed += tlsProcessPendingData();
+        if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
+            flushAppendOnlyFile(0);
         processed += handleClientsWithPendingWrites();
         processed += freeClientsInAsyncFreeQueue();
         server.events_processed_while_blocked += processed;
@@ -1584,14 +1586,20 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
 
-    /* Write the AOF buffer on disk */
+    /* Try to process blocked clients every once in while.
+     *
+     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
+     * (So we don't visit processCommand() at all).
+     *
+     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
+     * since the unblocked clients may write data. */
+    handleClientsBlockedOnKeys();
+
+    /* Write the AOF buffer on disk,
+     * must be done before handleClientsWithPendingWritesUsingThreads,
+     * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
-
-    /* Try to process blocked clients every once in while. Example: A module
-     * calls RM_SignalKeyAsReady from within a timer callback (So we don't
-     * visit processCommand() at all). */
-    handleClientsBlockedOnKeys();
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
@@ -4309,6 +4317,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         if (args[j].token) maplen++;
         if (args[j].summary) maplen++;
         if (args[j].since) maplen++;
+        if (args[j].deprecated_since) maplen++;
         if (args[j].flags) maplen++;
         if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK)
             maplen++;
@@ -4335,6 +4344,10 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         if (args[j].since) {
             addReplyBulkCString(c, "since");
             addReplyBulkCString(c, args[j].since);
+        }
+        if (args[j].deprecated_since) {
+            addReplyBulkCString(c, "deprecated_since");
+            addReplyBulkCString(c, args[j].deprecated_since);
         }
         if (args[j].flags) {
             addReplyBulkCString(c, "flags");
@@ -4562,6 +4575,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     long maplen = 1;
     if (cmd->summary) maplen++;
     if (cmd->since) maplen++;
+    if (cmd->flags & CMD_MODULE) maplen++;
     if (cmd->complexity) maplen++;
     if (cmd->doc_flags) maplen++;
     if (cmd->deprecated_since) maplen++;
@@ -4587,6 +4601,10 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
     if (cmd->complexity) {
         addReplyBulkCString(c, "complexity");
         addReplyBulkCString(c, cmd->complexity);
+    }
+    if (cmd->flags & CMD_MODULE) {
+        addReplyBulkCString(c, "module");
+        addReplyBulkCString(c, moduleNameFromCommand(cmd));
     }
     if (cmd->doc_flags) {
         addReplyBulkCString(c, "doc_flags");

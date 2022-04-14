@@ -390,7 +390,7 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
         case '\t': s = sdscatlen(s,"\\t",2); break;
         case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
-            s = sdscatprintf(s,(*p >= 0 && *p <= 0x1f) ? "\\u%04x" : "%c",*p);
+            s = sdscatprintf(s,*(unsigned char *)p <= 0x1f ? "\\u%04x" : "%c",*p);
         }
         p++;
     }
