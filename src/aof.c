@@ -812,7 +812,7 @@ int openNewIncrAofForAppend(void) {
  * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR
  * AOFs has not reached the limit threshold.
  * */
-#define AOF_REWRITE_LIMITE_THRESHOLD    3
+#define AOF_REWRITE_LIMITE_THRESHOLD    2
 #define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     static int next_delay_minutes = 0;
