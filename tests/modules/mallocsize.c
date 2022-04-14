@@ -58,7 +58,9 @@ void rsd_rdb_save(RedisModuleIO *rdb, void *value) {
     while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
         RedisModule_SaveString(rdb, dk);
         RedisModule_SaveString(rdb, dv);
+        RedisModule_FreeString(dk);
     }
+    RedisModule_DictIteratorStop(iter);
 }
 
 size_t rsd_mem_usage(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size) {
@@ -75,6 +77,7 @@ size_t rsd_mem_usage(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample
     while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
         size += RedisModule_MallocSizeString(dk);
         size += RedisModule_MallocSizeString(dv);
+        RedisModule_FreeString(dk);
     }
     RedisModule_DictIteratorStop(iter);
     
@@ -110,7 +113,6 @@ int cmd_mallocsize_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         RedisModule_DictSet(rsd->d, argv[i], argv[i+1]);
         RedisModule_RetainString(ctx, argv[i]);
         RedisModule_RetainString(ctx, argv[i+1]);
-        
     }
         
     RedisModule_ModuleTypeSetValue(key, mallocsize_type, rsd);
