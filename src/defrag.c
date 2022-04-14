@@ -1171,7 +1171,7 @@ void activeDefragCycle(void) {
                 size_t frag_bytes;
                 float frag_pct = getAllocatorFragmentation(&frag_bytes);
                 serverLog(LL_NOTICE,
-                    "Active defrag done in %dms, reallocated=%d, frag=%.0f%%, frag_bytes=%zu",
+                    "Active defrag done in %dms, reallocated=%d, frag=%.3f%%, frag_bytes=%zu",
                     (int)((now - start_scan)/1000), (int)(server.stat_active_defrag_hits - start_stat), frag_pct, frag_bytes);
 
                 start_scan = now;
@@ -1207,8 +1207,8 @@ void activeDefragCycle(void) {
             }
 
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
-            if (!cursor)
-                serverLog(LL_WARNING, "Finished defrag scanning of db %d", db->id);
+            /*if (!cursor)
+                serverLog(LL_WARNING, "Finished defrag scanning of db %d", db->id);*/
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
