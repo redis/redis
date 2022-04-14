@@ -1,0 +1,84 @@
+{
+  "ZMOVE": {
+    "summary": "Pop an element from a sorted set, add it to another sorted set and return it",
+    "complexity": "O(log(N))",
+    "group": "sorted_set",
+    "since": "7.0.0",
+    "arity": 4,
+    "function": "zmoveCommand",
+    "command_flags": [
+      "WRITE",
+      "DENYOOM"
+    ],
+    "acl_categories": [
+      "SORTEDSET"
+    ],
+    "key_specs": [
+      {
+        "flags": [
+          "RW",
+          "ACCESS",
+          "DELETE"
+        ],
+        "begin_search": {
+          "index": {
+            "pos": 1
+          }
+        },
+        "find_keys": {
+          "range": {
+            "lastkey": 0,
+            "step": 1,
+            "limit": 0
+          }
+        }
+      },
+      {
+        "flags": [
+          "RW",
+          "UPDATE"
+        ],
+        "begin_search": {
+          "index": {
+            "pos": 2
+          }
+        },
+        "find_keys": {
+          "range": {
+            "lastkey": 0,
+            "step": 1,
+            "limit": 0
+          }
+        }
+      }
+    ],
+    "arguments": [
+      {
+        "name": "source",
+        "type": "key",
+        "key_spec_index": 0
+      },
+      {
+        "name": "destination",
+        "type": "key",
+        "key_spec_index": 1
+      },
+      {
+        "name": "wherefrom",
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "min",
+            "type": "pure-token",
+            "token": "MIN"
+          },
+          {
+            "name": "max",
+            "type": "pure-token",
+            "token": "MAX"
+          }
+        ]
+      }
+    ]
+  }
+}

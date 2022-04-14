@@ -1,0 +1,73 @@
+{
+  "ZMOVEMEMBER": {
+    "summary": "Move a member from one sorted set to another",
+    "complexity": "O(log(N))",
+    "group": "sorted_set",
+    "since": "7.0.0",
+    "arity": 4,
+    "function": "zmovememberCommand",
+    "command_flags": [
+      "WRITE",
+      "DENYOOM"
+    ],
+    "acl_categories": [
+      "SORTEDSET"
+    ],
+    "key_specs": [
+      {
+        "flags": [
+          "RW",
+          "ACCESS",
+          "DELETE"
+        ],
+        "begin_search": {
+          "index": {
+            "pos": 1
+          }
+        },
+        "find_keys": {
+          "range": {
+            "lastkey": 0,
+            "step": 1,
+            "limit": 0
+          }
+        }
+      },
+      {
+        "flags": [
+          "RW",
+          "UPDATE"
+        ],
+        "begin_search": {
+          "index": {
+            "pos": 2
+          }
+        },
+        "find_keys": {
+          "range": {
+            "lastkey": 0,
+            "step": 1,
+            "limit": 0
+          }
+        }
+      }
+    ],
+    "arguments": [
+      {
+        "name": "source",
+        "type": "key",
+        "key_spec_index": 0
+      },
+      {
+        "name": "destination",
+        "type": "key",
+        "key_spec_index": 1
+      },
+      {
+        "name": "member",
+        "type": "key",
+        "key_spec_index": 2
+      }
+    ]
+  }
+}

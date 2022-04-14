@@ -1755,6 +1755,7 @@ void createSharedObjects(void) {
     shared.blmove = createStringObject("BLMOVE",6);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.zmove = createStringObject("ZMOVE",5);
     shared.multi = createStringObject("MULTI",5);
     shared.exec = createStringObject("EXEC",4);
     shared.hset = createStringObject("HSET",4);
@@ -1772,6 +1773,8 @@ void createSharedObjects(void) {
     /* Shared command argument */
     shared.left = createStringObject("left",4);
     shared.right = createStringObject("right",5);
+    shared.min = createStringObject("min",3);
+    shared.max = createStringObject("max",3);
     shared.pxat = createStringObject("PXAT", 4);
     shared.time = createStringObject("TIME",4);
     shared.retrycount = createStringObject("RETRYCOUNT",10);
