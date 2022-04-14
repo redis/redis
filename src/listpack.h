@@ -61,17 +61,12 @@ unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen
                               unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval,
                                unsigned char *p, int where, unsigned char **newp);
-unsigned char *lpInsertDouble(unsigned char *lp, double dval,
-                               unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPrependInteger(unsigned char *lp, long long lval);
-unsigned char *lpPrependDouble(unsigned char *lp, double dval);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpAppendInteger(unsigned char *lp, long long lval);
-unsigned char *lpAppendDouble(unsigned char *lp, double dval);
 unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen);
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval);
-unsigned char *lpReplaceDouble(unsigned char *lp, unsigned char **p, double dval);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);

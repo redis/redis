@@ -321,9 +321,6 @@ static inline void lpEncodeIntegerGetType(int64_t v, unsigned char *intenc, uint
  * LP_ENCODING_INT if so. Otherwise returns LP_ENCODING_STR if no integer
  * encoding is possible.
  *
- * If the caller already knows the string cannot be an integer, setting intenc
- * to NULL can skip that conversion attempt.
- *
  * If the LP_ENCODING_INT is returned, the function stores the integer encoded
  * representation of the element in the 'intenc' buffer.
  *
@@ -332,7 +329,7 @@ static inline void lpEncodeIntegerGetType(int64_t v, unsigned char *intenc, uint
  * in order to be represented. */
 static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
     int64_t v;
-    if (intenc && lpStringToInt64((const char*)ele, size, &v)) {
+    if (lpStringToInt64((const char*)ele, size, &v)) {
         lpEncodeIntegerGetType(v, intenc, enclen);
         return LP_ENCODING_INT;
     } else {
@@ -755,10 +752,6 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return NULL;
 }
 
-/* Caller to lpInsert who knows the string in elestr cannot be an integer, can
- * use this as the value of eleint to skip the integer conversion check. */
-static unsigned char NOT_INT[] = {0};
-
 /* Insert, delete or replace the specified string element 'elestr' of length
  * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
  * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),
@@ -825,7 +818,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
         *
         * Whatever the returned encoding is, 'enclen' is populated with the
         * length of the encoded element. */
-        enctype = lpEncodeGetType(elestr, size, eleint == NOT_INT ? NULL : intenc, &enclen);
+        enctype = lpEncodeGetType(elestr,size,intenc,&enclen);
         if (enctype == LP_ENCODING_INT) eleint = intenc;
     } else if (eleint) {
         enctype = LP_ENCODING_INT;
@@ -952,25 +945,6 @@ unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char 
     return lpInsert(lp, NULL, intenc, enclen, p, where, newp);
 }
 
-/* This is just a wrapper for lpInsert() to directly take a double.
- * If the double happens have a value representable by long long, it'll be inserted as an integer,
- * if not, it'll be converted to string.
- * The advantage of exposing such an interface is that the caller doesn't convert doubles to strings,
- * and then the listpack code tries to see if they happen to be integers (inefficient). */
-unsigned char *lpInsertDouble(unsigned char *lp, double dval, unsigned char *p, int where, unsigned char **newp) {
-    long long lval;
-    if (double2ll(dval, &lval)) {
-        uint64_t enclen; /* The length of the encoded element. */
-        unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-        lpEncodeIntegerGetType(lval, intenc, &enclen);
-        return lpInsert(lp, NULL, intenc, enclen, p, where, newp);
-    } else {
-        char sval[MAX_D2STRING_CHARS];
-        int slen = d2string(sval,sizeof(sval),dval);
-        return lpInsert(lp, (unsigned char *)sval, NOT_INT, slen, p, where, newp);
-    }
-}
-
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
@@ -983,12 +957,6 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
     unsigned char *p = lpFirst(lp);
     if (!p) return lpAppendInteger(lp, lval);
     return lpInsertInteger(lp, lval, p, LP_BEFORE, NULL);
-}
-
-unsigned char *lpPrependDouble(unsigned char *lp, double dval) {
-    unsigned char *p = lpFirst(lp);
-    if (!p) return lpAppendDouble(lp, dval);
-    return lpInsertDouble(lp, dval, p, LP_BEFORE, NULL);
 }
 
 /* Append the specified element 'ele' of length 'size' at the end of the
@@ -1007,12 +975,6 @@ unsigned char *lpAppendInteger(unsigned char *lp, long long lval) {
     return lpInsertInteger(lp, lval, eofptr, LP_BEFORE, NULL);
 }
 
-unsigned char *lpAppendDouble(unsigned char *lp, double dval) {
-    uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsertDouble(lp, dval, eofptr, LP_BEFORE, NULL);
-}
-
 /* This is just a wrapper for lpInsert() to directly use a string to replace
  * the current element. The function returns the new listpack as return
  * value, and also updates the current cursor by updating '*p'. */
@@ -1026,10 +988,6 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s,
  * by updating '*p'. */
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval) {
     return lpInsertInteger(lp, lval, *p, LP_REPLACE, p);
-}
-
-unsigned char *lpReplaceDouble(unsigned char *lp, unsigned char **p, double dval) {
-    return lpInsertDouble(lp, dval, *p, LP_REPLACE, p);
 }
 
 /* Remove the element pointed by 'p', and return the resulting listpack.
