@@ -5,43 +5,117 @@
 
 #define UNUSED(V) ((void) V)
 
-int cmd_raw(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    if (argc != 2)
-        return RedisModule_WrongArity(ctx);
-        
-    long long len;
-    RedisModule_StringToLongLong(argv[1], &len);
-    void *p = RedisModule_Alloc(len);
-    long long size = RedisModule_MallocSize(p);
-    RedisModule_Free(p);
-    RedisModule_ReplyWithLongLong(ctx, size);
-    return REDISMODULE_OK;
+/* Registered type */
+RedisModuleType *mallocsize_type = NULL;
+
+typedef struct {
+    void *raw;
+    size_t raw_len;
+    RedisModuleString *str;
+    RedisModuleDict *d;
+} rsd_t;
+
+void rsd_free(void *value) {
+    rsd_t *rsd = value;
+    RedisModule_Free(rsd->raw);
+    RedisModule_FreeString(NULL, rsd->str);
+    RedisModuleString *dk, *dv;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
+    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
+        RedisModule_FreeString(NULL, dk);
+        RedisModule_FreeString(NULL, dv);
+    }
+    RedisModule_DictIteratorStop(iter);
+    RedisModule_FreeDict(NULL, rsd->d);
+    RedisModule_Free(rsd);
 }
 
-int cmd_string(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    if (argc != 2)
-        return RedisModule_WrongArity(ctx);
+void *rsd_rdb_load(RedisModuleIO *rdb, int encver) {
+    if (encver != 0)
+        return NULL;
+    rsd_t *rsd = RedisModule_Alloc(sizeof(*rsd));
+    rsd->raw = RedisModule_LoadStringBuffer(rdb, &rsd->raw_len);
+    rsd->str = RedisModule_LoadString(rdb);
+    long long dict_len = RedisModule_LoadUnsigned(rdb);
+    rsd->d = RedisModule_CreateDict(NULL);
+    for (int i = 0; i < dict_len; i += 2) {
+        RedisModuleString *key  = RedisModule_LoadString(rdb);
+        RedisModuleString *val  = RedisModule_LoadString(rdb);
+        RedisModule_DictSet(rsd->d, key, val);
         
-    void *s = RedisModule_CreateStringFromString(ctx, argv[1]);
-    long long size = RedisModule_MallocSizeString(s);
-    RedisModule_FreeString(ctx, s);
-    RedisModule_ReplyWithLongLong(ctx, size);
-    return REDISMODULE_OK;
+    }
+
+    return rsd;
 }
 
-int cmd_dict(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    if (!(argc % 2))
+void rsd_rdb_save(RedisModuleIO *rdb, void *value) {
+    rsd_t *rsd = value;
+    RedisModule_SaveStringBuffer(rdb, rsd->raw, rsd->raw_len);
+    RedisModule_SaveString(rdb, rsd->str);
+    RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(rsd->d));
+    RedisModuleString *dk, *dv;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
+    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
+        RedisModule_SaveString(rdb, dk);
+        RedisModule_SaveString(rdb, dv);
+    }
+}
+
+size_t rsd_mem_usage(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size) {
+    UNUSED(ctx);
+    UNUSED(sample_size);
+    
+    size_t size = 0;
+    
+    const rsd_t *rsd = value;
+    size += RedisModule_MallocSize(rsd->raw);
+    size += RedisModule_MallocSizeString(rsd->str);
+    RedisModuleString *dk, *dv;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
+    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
+        size += RedisModule_MallocSizeString(dk);
+        size += RedisModule_MallocSizeString(dv);
+    }
+    RedisModule_DictIteratorStop(iter);
+    
+    return size;
+}
+
+
+int cmd_mallocsize_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc % 2)
         return RedisModule_WrongArity(ctx);
         
-    RedisModuleDict *d = RedisModule_CreateDict(ctx);
-    for (int i = 1; i < argc; i += 2)
-        RedisModule_DictSet(d, argv[i], argv[i+1]);
-    long long size = RedisModule_MallocSizeDict(d);
-    RedisModule_FreeDict(ctx, d);
-    RedisModule_ReplyWithLongLong(ctx, size);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    rsd_t *rsd = RedisModule_ModuleTypeGetValue(key);
+    if (rsd) {
+        rsd_free(rsd);
+        rsd = NULL;
+    }
+    rsd = RedisModule_Alloc(sizeof(*rsd));
+    
+    /* raw */
+    long long raw_len;
+    RedisModule_StringToLongLong(argv[2], &raw_len);
+    rsd->raw = RedisModule_Alloc(raw_len);
+    rsd->raw_len = raw_len;
+
+    /* string */
+    rsd->str = argv[3];
+    RedisModule_RetainString(ctx, argv[3]);
+    
+    /* dict */
+    rsd->d = RedisModule_CreateDict(ctx);
+    for (int i = 4; i < argc; i += 2) {
+        RedisModule_DictSet(rsd->d, argv[i], argv[i+1]);
+        RedisModule_RetainString(ctx, argv[i]);
+        RedisModule_RetainString(ctx, argv[i+1]);
+        
+    }
+        
+    RedisModule_ModuleTypeSetValue(key, mallocsize_type, rsd);
+    RedisModule_CloseKey(key);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
@@ -50,16 +124,21 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     UNUSED(argc);
     if (RedisModule_Init(ctx,"mallocsize",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx,"mallocsize.raw",cmd_raw,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
         
-    if (RedisModule_CreateCommand(ctx,"mallocsize.string",cmd_string,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-        
-    if (RedisModule_CreateCommand(ctx,"mallocsize.dict",cmd_dict,"",0,0,0) == REDISMODULE_ERR)
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = rsd_rdb_load,
+        .rdb_save = rsd_rdb_save,
+        .free = rsd_free,
+        .mem_usage2 = rsd_mem_usage,
+    };
+
+    mallocsize_type = RedisModule_CreateDataType(ctx, "allocsize", 1, &tm);
+    if (mallocsize_type == NULL)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx,"mallocsize.set",cmd_mallocsize_set,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
