@@ -456,6 +456,33 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,1);
 }
 
+/* Add a element back to table again, but without duplicating key, vlue
+ * and dictionary entry.
+ *
+ * This function more efficient when moving element between dicts, cause
+ * key, value and entry are not copied or freed.
+ */
+int dictLink(dict *d, dictEntry *entry) {
+    long index;
+    dictht *ht; 
+    void *key = entry->key;
+
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of new element, or -1 if the element already exitsts. */
+    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), NULL)) == -1)
+        return DICT_ERR;
+
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+
+    /* link entry back without allocating a new one. */
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+
+    return DICT_OK;
+}
+
 /* You need to call this function to really free the entry after a call
  * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {

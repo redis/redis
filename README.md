@@ -57,9 +57,23 @@ When slave becomes master, we hope that redis will restart the timer. Actually o
 
 - Whatever fail message master returns, slave will always try partial sync.
 
+## Build with swap feature
 
+redis-server with swap feature depends on rocksdb (>=5.17).
 
+1. ubuntu
 
+```
+apt install librocksdb-dev libsnappy-dev zlib1g-dev libgflags-dev libstdc++6
+cd /path/to/redis && make
+```
 
+2. centos
 
+```
+yum install snappy zlib gflags libstdc++
+cd /path/to/rocksdb
+make shared_lib
+cd /path/to/redis && CFLAGS=-I/path/to/rocksdb/include LDFLAGS=-L/path/to/rocksdb/lib make
+```
 

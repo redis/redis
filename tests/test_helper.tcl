@@ -31,52 +31,55 @@ set ::all_tests {
     unit/type/stream-cgroups
     unit/sort
     unit/expire
-    unit/other
     unit/multi
     unit/quit
-    unit/aofrw
     unit/acl
     unit/latency-monitor
     integration/block-repl
-    integration/replication
     integration/replication-2
     integration/replication-3
     integration/replication-4
-    integration/replication-psync
     integration/aof
     integration/rdb
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
     integration/logging
-    integration/psync2
-    integration/psync2-reg
-    integration/psync2-pingoff
-    integration/failover
-    integration/redis-cli
     integration/redis-benchmark
-    unit/pubsub
     unit/slowlog
-    unit/scripting
-    unit/maxmemory
-    unit/introspection
     unit/introspection-2
     unit/limits
     unit/obuf-limits
     unit/bitops
-    unit/bitfield
     unit/geo
-    unit/memefficiency
     unit/hyperloglog
     unit/lazyfree
     unit/wait
     unit/pendingquerybuf
     unit/tls
-    unit/tracking
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/other
+    unit/pubsub
+    unit/introspection
+    unit/bitfield
+    integration/replication
+    integration/replication-psync
+    integration/psync2
+    integration/psync2-reg
+    integration/psync2-pingoff
+    integration/failover
+    integration/redis-cli
+    unit/memefficiency
+    unit/tracking
 }
+set failed_tests {
+    unit/aofrw
+    unit/scripting
+    unit/maxmemory
+}
+
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
 
@@ -114,6 +117,9 @@ set ::stop_on_failure 0
 set ::dump_logs 0
 set ::loop 0
 set ::tlsdir "tests/tls"
+set ::swap 0
+set ::target_db 9
+set ::debug_evict_keys 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -192,7 +198,7 @@ proc reconnect {args} {
 
     # select the right db when we don't have to authenticate
     if {![dict exists $config "requirepass"]} {
-        $client select 9
+        $client select $::target_db
     }
 
     # re-set $srv in the servers list
@@ -210,7 +216,7 @@ proc redis_deferring_client {args} {
     set client [redis [srv $level "host"] [srv $level "port"] 1 $::tls]
 
     # select the right db and read the response (OK)
-    $client select 9
+    $client select $::target_db
     $client read
     return $client
 }
@@ -226,7 +232,7 @@ proc redis_client {args} {
     set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
 
     # select the right db and read the response (OK)
-    $client select 9
+    $client select $::target_db
     return $client
 }
 
@@ -668,6 +674,12 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::loop 1
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
+        incr j
+    } elseif {$opt eq {--swap}} {
+        set ::swap 1
+        set ::target_db 0
+    } elseif {$opt eq {--debug-evict-keys}} {
+        set ::debug_evict_keys $arg
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen

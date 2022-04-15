@@ -320,7 +320,7 @@ proc start_server {options {code undefined}} {
             dict set srv "port" $::port
             set client [redis $::host $::port 0 $::tls]
             dict set srv "client" $client
-            $client select 9
+            if {!$::swap} {$client select 9}
 
             set config {}
             dict set config "port" $::port
@@ -393,6 +393,10 @@ proc start_server {options {code undefined}} {
     # remove directives that are marked to be omitted
     foreach directive $omit {
         dict unset config $directive
+    }
+
+    if {$::swap && $::debug_evict_keys != 0} {
+        dict set config "debug-evict-keys" $::debug_evict_keys
     }
 
     # write new configuration to temporary file

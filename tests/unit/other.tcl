@@ -235,15 +235,17 @@ start_server {overrides {save ""} tags {"other"}} {
     } {}
 
     # Leave the user with a clean DB before to exit
-    test {FLUSHDB} {
-        set aux {}
-        r select 9
-        r flushdb
-        lappend aux [r dbsize]
-        r select 10
-        r flushdb
-        lappend aux [r dbsize]
-    } {0 0}
+    if {!$::swap} {
+        test {FLUSHDB} {
+            set aux {}
+            r select 9
+            r flushdb
+            lappend aux [r dbsize]
+            r select 10
+            r flushdb
+            lappend aux [r dbsize]
+        } {0 0}
+    }
 
     test {Perform a final SAVE to leave a clean DB on disk} {
         waitForBgsave r
@@ -314,14 +316,14 @@ start_server {tags {"other"}} {
 
         r mset k1 v1 k2 v2
         # Hash table should not rehash
-        assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
+        assert_no_match "*table size: 8192*" [r debug HTSTATS $::target_db]
         exec kill -9 [get_child_pid 0]
         after 200
 
         # Hash table should rehash since there is no child process,
         # size is power of two and over 4098, so it is 8192
         r set k3 v3
-        assert_match "*table size: 8192*" [r debug HTSTATS 9]
+        assert_match "*table size: 8192*" [r debug HTSTATS $::target_db]
     }
 }
 

@@ -84,15 +84,15 @@ start_server {tags {"cli"}} {
     }
 
     proc run_cli {args} {
-        _run_cli [srv host] [srv port] 9 {} {*}$args
+        _run_cli [srv host] [srv port] $::target_db {} {*}$args
     }
 
     proc run_cli_with_input_pipe {cmd args} {
-        _run_cli [srv host] [srv port] 9 [list pipe $cmd] -x {*}$args
+        _run_cli [srv host] [srv port] $::target_db [list pipe $cmd] -x {*}$args
     }
 
     proc run_cli_with_input_file {path args} {
-        _run_cli [srv host] [srv port] 9 [list path $path] -x {*}$args
+        _run_cli [srv host] [srv port] $::target_db [list path $path] -x {*}$args
     }
 
     proc run_cli_host_port_db {host port db args} {
@@ -349,7 +349,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         set cmds [tmpfile "cli_cmds"]
         set cmds_fd [open $cmds "w"]
 
-        puts $cmds_fd [formatCommand select 9]
+        puts $cmds_fd [formatCommand select $::target_db]
         puts $cmds_fd [formatCommand del test-counter]
 
         for {set i 0} {$i < 1000} {incr i} {

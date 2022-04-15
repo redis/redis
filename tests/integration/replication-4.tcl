@@ -6,9 +6,13 @@ start_server {tags {"repl network"}} {
         set master_port [srv -1 port]
         set slave [srv 0 client]
 
-        set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
-        set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000]
-        set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000]
+        if {$::swap} {
+            set load_handle0 [start_bg_complex_data $master_host $master_port 0 100000]
+        } else {
+            set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
+            set load_handle1 [start_bg_complex_data $master_host $master_port 9 100000]
+            set load_handle2 [start_bg_complex_data $master_host $master_port 9 100000]
+        }
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
@@ -18,9 +22,13 @@ start_server {tags {"repl network"}} {
 
         test {Test replication with parallel clients writing in different DBs} {
             after 5000
-            stop_bg_complex_data $load_handle0
-            stop_bg_complex_data $load_handle1
-            stop_bg_complex_data $load_handle2
+            if {$::swap} {
+                stop_bg_complex_data $load_handle0
+            } else {
+                stop_bg_complex_data $load_handle0
+                stop_bg_complex_data $load_handle1
+                stop_bg_complex_data $load_handle2
+            }
             wait_for_condition 100 100 {
                 [$master debug digest] == [$slave debug digest]
             } else {

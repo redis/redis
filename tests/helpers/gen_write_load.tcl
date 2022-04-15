@@ -2,11 +2,11 @@ source tests/support/redis.tcl
 
 set ::tlsdir "tests/tls"
 
-proc gen_write_load {host port seconds tls} {
+proc gen_write_load {host port seconds tls db} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
     $r client setname LOAD_HANDLER
-    $r select 9
+    $r select $db
     while 1 {
         $r set [expr rand()] [expr rand()]
         if {[clock seconds]-$start_time > $seconds} {
@@ -15,4 +15,4 @@ proc gen_write_load {host port seconds tls} {
     }
 }
 
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3]
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4]

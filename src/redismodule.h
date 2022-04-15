@@ -14,6 +14,23 @@
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
+/* Swap Actions */
+#define REDISMODULE_SWAP_NOP 0
+#define REDISMODULE_SWAP_GET 1
+#define REDISMODULE_SWAP_PUT 2
+#define REDISMODULE_SWAP_DEL 3
+
+/* Complement Swap */
+#define REDISMODULE_COMP_MODE_RDB           0
+#define REDISMODULE_COMP_TYPE_OBJ           0
+#define REDISMODULE_COMP_TYPE_RAW           1
+
+/* API flags and constants */
+#define REDISMODULE_READ (1<<0)
+#define REDISMODULE_WRITE (1<<1)
+#define REDISMODULE_TOMBSTONE (1<<2)
+#define REDISMODULE_EVICT (1<<3)
+
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 3
@@ -25,6 +42,7 @@
 /* RedisModule_OpenKey extra flags for the 'mode' argument.
  * Avoid touching the LRU/LFU of the key when opened. */
 #define REDISMODULE_OPEN_KEY_NOTOUCH (1<<16)
+#define REDISMODULE_OPEN_KEY_NOEXPIRE (1<<17)
 
 #define REDISMODULE_LIST_HEAD 0
 #define REDISMODULE_LIST_TAIL 1
@@ -520,7 +538,10 @@ typedef struct RedisModuleServerInfoData RedisModuleServerInfoData;
 typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
 typedef struct RedisModuleUser RedisModuleUser;
+typedef struct RedisModuleGetSwapsResult RedisModuleGetSwapsResult;
+typedef struct RedisModuleCommand RedisModuleCommand;
 
+typedef void (*RedisModuleGetSwapsFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleGetSwapsResult *result);
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
@@ -545,6 +566,14 @@ typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keynam
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 typedef int (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
+typedef void* (*RedisModuleLookupSwappingClients)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey);
+typedef void (*RedisModuleSetupSwappingClients)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey, void *scs);
+typedef void (*RedisModuleGetDataSwaps)(RedisModuleCtx *ctx, RedisModuleString *key, int mode, RedisModuleGetSwapsResult *result);
+typedef void (*RedisModuleSwapFinishedCallback)(RedisModuleCtx *ctx, int action, char* rawkey, char* rawval, void *pd);
+typedef int (*RedisModuleSwapAnaFunc)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey, int *action, char **rawkey, char **rawval, RedisModuleSwapFinishedCallback *cb, void **pd);
+typedef int (*RedisModuleComplementObjectFunc)(void **pdupptr, char *rawkey, char *rawval, void *pd);
+typedef void *(*RedisModuleGetComplementSwaps)(RedisModuleCtx *ctx, RedisModuleString *key, int mode, int *type, RedisModuleGetSwapsResult *result, RedisModuleComplementObjectFunc *comp, void **pd);
+
 
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
@@ -561,6 +590,11 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeUnlinkFunc unlink;
     RedisModuleTypeCopyFunc copy;
     RedisModuleTypeDefragFunc defrag;
+    RedisModuleLookupSwappingClients lookup_swapping_clients;
+    RedisModuleSetupSwappingClients setup_swapping_clients;
+    RedisModuleGetDataSwaps get_data_swaps;
+    RedisModuleGetComplementSwaps get_complement_swaps;
+    RedisModuleSwapAnaFunc swap_ana;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
@@ -582,13 +616,15 @@ REDISMODULE_API void (*RedisModule_Free)(void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMODULE_ATTR;
 REDISMODULE_API char * (*RedisModule_Strdup)(const char *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, RedisModuleGetSwapsFunc getswapsfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsModuleNameBusy)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_WrongArity)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithLongLong)(RedisModuleCtx *ctx, long long ll) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetSelectedDb)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SelectDb)(RedisModuleCtx *ctx, int newid) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetSwapsAppendResult)(RedisModuleGetSwapsResult *result, RedisModuleString *key, RedisModuleString *subkey, RedisModuleString *val) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetSwapAction)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_CloseKey)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KeyType)(RedisModuleKey *kp) REDISMODULE_ATTR;
@@ -685,8 +721,24 @@ REDISMODULE_API int (*RedisModule_ModuleTypeSetValue)(RedisModuleKey *key, Redis
 REDISMODULE_API int (*RedisModule_ModuleTypeReplaceValue)(RedisModuleKey *key, RedisModuleType *mt, void *new_value, void **old_value) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleType * (*RedisModule_ModuleTypeGetType)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_ModuleTypeGetValue)(RedisModuleKey *key) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_IsIOError)(RedisModuleIO *io) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_SetModuleOptions)(RedisModuleCtx *ctx, int options) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeGetDirty)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_DbSetDirty)(RedisModuleCtx *ctx, RedisModuleString *name) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ModuleTypeFreeValue)(RedisModuleType *mt, void *value) REDISMODULE_ATTR;
+REDISMODULE_API char *(*RedisModule_ModuleTypeGetName)(RedisModuleType *mt) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_DeleteEvict)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_ModuleTypeAddEvict)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeEvictEvicted)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeEvictExists)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeReplaceEvict)(RedisModuleKey *key, RedisModuleType *mt, void *new_evict, void **old_evict) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeSwapIn)(RedisModuleKey *key, void *new_value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeSwapOut)(RedisModuleKey *key, void **old_value) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ModuleTypeEvictSetSCS)(RedisModuleKey *key, void *scs) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_ModuleTypeEvictGetSCS)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RocksDelete)(RedisModuleCtx *ctx,RedisModuleString *name) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_RdbEncode)(RedisModuleType *mt, void *value) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_RdbDecode)(RedisModuleType *mt, void *raw) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_IsIOError)(RedisModuleIO *io) REDISMODULE_ATTR REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SetModuleOptions)(RedisModuleCtx *ctx, int options) REDISMODULE_ATTR REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SignalModifiedKey)(RedisModuleCtx *ctx, RedisModuleString *keyname) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t value) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_LoadUnsigned)(RedisModuleIO *io) REDISMODULE_ATTR;
@@ -879,6 +931,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithLongDouble);
     REDISMODULE_GET_API(GetSelectedDb);
     REDISMODULE_GET_API(SelectDb);
+    REDISMODULE_GET_API(GetSwapsAppendResult);
+    REDISMODULE_GET_API(GetSwapAction);
     REDISMODULE_GET_API(OpenKey);
     REDISMODULE_GET_API(CloseKey);
     REDISMODULE_GET_API(KeyType);
@@ -958,6 +1012,23 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeReplaceValue);
     REDISMODULE_GET_API(ModuleTypeGetType);
     REDISMODULE_GET_API(ModuleTypeGetValue);
+    REDISMODULE_GET_API(ModuleTypeGetDirty);
+    REDISMODULE_GET_API(DbSetDirty);
+    REDISMODULE_GET_API(ModuleTypeSwapIn);
+    REDISMODULE_GET_API(ModuleTypeSwapOut);
+    REDISMODULE_GET_API(ModuleTypeFreeValue);
+    REDISMODULE_GET_API(ModuleTypeGetName);
+    REDISMODULE_GET_API(ModuleTypeReplaceValue);
+    REDISMODULE_GET_API(DeleteEvict);
+    REDISMODULE_GET_API(ModuleTypeAddEvict);
+    REDISMODULE_GET_API(ModuleTypeEvictEvicted);
+    REDISMODULE_GET_API(ModuleTypeEvictExists);
+    REDISMODULE_GET_API(ModuleTypeReplaceEvict);
+    REDISMODULE_GET_API(ModuleTypeEvictSetSCS);
+    REDISMODULE_GET_API(ModuleTypeEvictGetSCS);
+    REDISMODULE_GET_API(RocksDelete);
+    REDISMODULE_GET_API(RdbEncode);
+    REDISMODULE_GET_API(RdbDecode);
     REDISMODULE_GET_API(IsIOError);
     REDISMODULE_GET_API(SetModuleOptions);
     REDISMODULE_GET_API(SignalModifiedKey);
@@ -1132,6 +1203,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 /* Things only defined for the modules core, not exported to modules
  * including this file. */
 #define RedisModuleString robj
+#define RedisModuleGetSwapsResult getSwapsResult
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */

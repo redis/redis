@@ -196,6 +196,17 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
+    c->swapping_count = 0;
+    c->swap_result = 0;
+    c->hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
+    c->cmd_reploff = -1;
+    c->repl_client = NULL;
+    c->swapping_count = 0;
+    c->client_hold_mode = CLIENT_HOLD_MODE_CMD;
+    c->CLIENT_DEFERED_CLOSING = 0;
+    c->CLIENT_REPL_SWAPPING = 0;
+    c->CLIENT_REPL_CMD_DISCARDED = 0;
+    c->swap_rl_until = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1302,8 +1313,48 @@ void unlinkClient(client *c) {
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
+static void deferFreeClient(client *c) {
+    sds client_desc;
+    serverAssert(c->swapping_count);
+
+    client_desc = catClientInfoString(sdsempty(), c);
+    serverLog(LL_NOTICE, "Defer client close: %s", client_desc);
+    sdsfree(client_desc);
+
+    c->CLIENT_DEFERED_CLOSING = 1;
+    /* unlink so that client would read no more query */
+    unlinkClient(c);
+    /* client to be freed in server cron */
+    listAddNodeTail(server.clients_to_free, c);
+}
+
+void freeClientsInDeferedQueue(void) {
+    sds client_desc;
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.clients_to_free, &li);
+    while ((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        if (!c->swapping_count) {
+            client_desc = catClientInfoString(sdsempty(), c);
+            c->CLIENT_DEFERED_CLOSING = 0;
+            freeClient(c);
+            serverLog(LL_NOTICE, "Defered client closed: %s", client_desc);
+            sdsfree(client_desc);
+            listDelNode(server.clients_to_free,ln);
+        }
+    }
+}
+
 void freeClient(client *c) {
     listNode *ln;
+
+    /* Discard dispatched commands if client is (or was) a repl client. */ 
+    replClientDiscardDispatchedCommands(c);
+
+    /* Unlinked repl client from server.repl_swapping_clients. */
+    replClientDiscardSwappingState(c);
 
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
@@ -1344,6 +1395,11 @@ void freeClient(client *c) {
             replicationCacheMaster(c);
             return;
         }
+    }
+
+    if (c->swapping_count) {
+        deferFreeClient(c);
+        return;
     }
 
     /* Log link disconnection with slave */
@@ -1432,6 +1488,7 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
+    dictRelease(c->hold_keys);
     zfree(c->argv);
     c->argv_len_sum = 0;
     freeClientMultiState(c);
@@ -1998,32 +2055,18 @@ void commandProcessed(client *c) {
      *    The client will be reset in unblockClient().
      * 2. Don't update replication offset or propagate commands to replicas,
      *    since we have not applied the command. */
-    if (c->flags & CLIENT_BLOCKED) return;
+    if (c->flags & CLIENT_BLOCKED || c->flags & CLIENT_SWAPPING) return;
+
+    serverLog(LL_DEBUG, "> commandProcessed client(id=%ld,cmd=%s,key=%s)",
+        c->id,c->cmd ? c->cmd->name: "",c->argc <= 1 ? "": (sds)c->argv[1]->ptr);
 
     resetClient(c);
 
-    long long prev_offset = c->reploff;
-    if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
-        /* Update the applied replication offset of our master. */
-        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-    }
+    /* To reuse test cases with extensive swap actions, we try to evict
+     * configured num of key after executing command. */
+    if (server.debug_evict_keys) debugEvictKeys();
 
-    /* If the client is a master we need to compute the difference
-     * between the applied offset before and after processing the buffer,
-     * to understand how much of the replication stream was actually
-     * applied to the master state: this quantity, and its corresponding
-     * part of the replication stream, will be propagated to the
-     * sub-replicas and to the replication backlog. */
-    if (c->flags & CLIENT_MASTER) {
-        long long applied = c->reploff - prev_offset;
-        if (applied) {
-            if (!server.repl_slave_repl_all) {
-                replicationFeedSlavesFromMasterStream(server.slaves,
-                        c->pending_querybuf, applied);
-            }
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
-    }
+    serverLog(LL_DEBUG, "< commandProcessed");
 }
 
 /* This function calls processCommand(), but also performs a few sub tasks
@@ -2079,6 +2122,9 @@ void processInputBuffer(client *c) {
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
+
+        /* Also abort if the client is swapping. */
+        if (swapRateLimited(c) || (c->flags & CLIENT_SWAPPING)) break;
 
         /* Don't process more buffers from clients that have already pending
          * commands to execute in c->argv. */
@@ -2164,6 +2210,8 @@ void readQueryFromClient(connection *conn) {
      * the event loop. This is the case if threaded I/O is enabled. */
     if (postponeClientRead(c)) return;
 
+    if (swapRateLimited(c) || (c->flags&CLIENT_SWAPPING)) return;
+
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
 
@@ -2210,7 +2258,10 @@ void readQueryFromClient(connection *conn) {
 
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
+    if (c->flags & CLIENT_MASTER) {
+        serverLog(LL_WARNING, "[xxx] read_reploff %lld-> %lld", c->read_reploff, c->read_reploff+nread);
+        c->read_reploff += nread;
+    }
     atomicIncr(server.stat_net_input_bytes, nread);
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();

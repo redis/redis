@@ -40,3 +40,8 @@ deps/lua/src/liblua.a
 Makefile.dep
 .vscode/*
 .idea/*
+
+!tests/assets/linux/crdt.so
+tags
+.cache/*
+compile_commands.json

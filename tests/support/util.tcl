@@ -353,7 +353,8 @@ proc formatCommand {args} {
 
 proc csvdump r {
     set o {}
-    for {set db 0} {$db < 16} {incr db} {
+    if {!$::swap} {set dbnum 16} else {set dbnum 1}
+    for {set db 0} {$db < $dbnum} {incr db} {
         {*}$r select $db
         foreach k [lsort [{*}$r keys *]] {
             set type [{*}$r type $k]
@@ -396,7 +397,7 @@ proc csvdump r {
             }
         }
     }
-    {*}$r select 9
+    {*}$r select $::target_db
     return $o
 }
 
@@ -496,7 +497,7 @@ proc find_valgrind_errors {stderr on_termination} {
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $::target_db &
 }
 
 # Stop a process generating write load executed with start_write_load.

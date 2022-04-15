@@ -2508,6 +2508,9 @@ standardConfig configs[] = {
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
+    createIntConfig("debug-evict-keys", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("ps-parallism-rdb", NULL, MODIFIABLE_CONFIG, 4, 16384, server.ps_parallism_rdb, 32, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2528,6 +2531,9 @@ standardConfig configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
+    createULongLongConfig("maxdisk", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.maxdisk, 0, MEMORY_CONFIG, NULL, NULL), /* Default: 80gb */
+    createULongLongConfig("swap-memory-slowdown", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_slowdown, 64*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 64mb */
+    createULongLongConfig("swap-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

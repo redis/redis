@@ -21,10 +21,12 @@ void lazyfreeFreeObject(void *args[]) {
 void lazyfreeFreeDatabase(void *args[]) {
     dict *ht1 = (dict *) args[0];
     dict *ht2 = (dict *) args[1];
+    dict *ht4 = (dict *) args[2];
 
-    size_t numkeys = dictSize(ht1);
+    size_t numkeys = dictSize(ht1)+dictSize(ht4);
     dictRelease(ht1);
     dictRelease(ht2);
+    dictRelease(ht4);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
 }
@@ -201,11 +203,12 @@ void freeObjAsync(robj *key, robj *obj) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dict *oldht1 = db->dict, *oldht2 = db->expires;
+    dict *oldht1 = db->dict, *oldht2 = db->expires, *oldht4 = db->evict;
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
-    atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
+    db->evict = dictCreate(&evictDictType,NULL);
+    atomicIncr(lazyfree_objects,dictSize(oldht1)+dictSize(oldht4));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase,3,oldht1,oldht2,oldht4);
 }
 
 /* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */

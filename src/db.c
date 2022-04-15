@@ -197,6 +197,8 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAdd(key->ptr);
+    /* Newly added key are scheduled to evict asap to reduce cow. */
+    if (hasActiveChildProcess()) dbEvictAsapLater(db, key);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -278,14 +280,23 @@ void setKey(client *c, redisDb *db, robj *key, robj *val) {
  * The function makes sure to return keys not already expired. */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
+    dict *d1, *d2;
     int maxtries = 100;
     int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
     while(1) {
         sds key;
         robj *keyobj;
+        size_t slots = dictSlots(db->dict)+dictSlots(db->evict);
 
-        de = dictGetFairRandomKey(db->dict);
+        if (slots == 0) return NULL;
+		if (random()%slots < dictSlots(db->dict)) {
+			d1 = db->dict, d2 = db->evict;
+		} else {
+			d1 = db->evict, d2 = db->dict;
+		}
+        de = dictGetFairRandomKey(d1);
+		if (de == NULL) de = dictGetRandomKey(d2);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
@@ -334,6 +345,15 @@ int dbSyncDelete(redisDb *db, robj *key) {
 int dbDelete(redisDb *db, robj *key) {
     return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
                                              dbSyncDelete(db,key);
+}
+
+int dbDeleteEvict(redisDb *db, robj *key) {
+    if (dictDelete(db->evict,key->ptr) == DICT_OK) {
+        if (server.cluster_enabled) slotToKeyDel(key->ptr);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -400,6 +420,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         } else {
             dictEmpty(dbarray[j].dict,callback);
             dictEmpty(dbarray[j].expires,callback);
+			dictEmpty(dbarray[j].evict,callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -407,6 +428,18 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     }
 
     return removed;
+}
+
+void dbPauseRehash(redisDb *db) {
+    dictPauseRehashing(db->dict);
+    dictPauseRehashing(db->expires);
+    dictPauseRehashing(db->evict);
+}
+
+void dbResumeRehash(redisDb *db) {
+    dictResumeRehashing(db->dict);
+    dictResumeRehashing(db->expires);
+    dictResumeRehashing(db->evict);
 }
 
 /* Remove all keys from all the databases in a Redis server.
@@ -432,6 +465,9 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
         errno = EINVAL;
         return -1;
     }
+
+    if ((rocksFlushAll()))
+        serverLog(LL_WARNING, "[ROCKS] flushd all rocks db failed.");
 
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
@@ -565,6 +601,32 @@ long long dbTotalServerKeyCount() {
 }
 
 /*-----------------------------------------------------------------------------
+ * db.evict related API
+ *----------------------------------------------------------------------------*/
+robj *lookupEvictKeyFlags(redisDb *db, robj *key, int flags) {
+    robj *e;
+    dictEntry *de;
+    if ((de = dictFind(db->evict,key->ptr)) == NULL) return NULL;
+    e = dictGetVal(de);
+    if (flags & LOOKUP_EVICT_ALL) return e;
+    if ((flags & LOOKUP_EVICT_VAL) && e->evicted) return e;
+    if ((flags & LOOKUP_EVICT_SCS) && e->scs) return e;
+    return NULL;
+}
+
+robj *lookupEvictKey(redisDb *db, robj *key) {
+    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_VAL);
+}
+
+robj *lookupEvictSCS(redisDb *db, robj *key) {
+    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_SCS);
+}
+
+robj *lookupEvict(redisDb *db, robj *key) {
+    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_ALL);
+}
+
+/*-----------------------------------------------------------------------------
  * Hooks for key space changes.
  *
  * Every time a key in the database is modified the function
@@ -658,6 +720,7 @@ void flushdbCommand(client *c) {
 
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     server.dirty += emptyDb(c->db->id,flags,NULL);
+	server.dirty++;
     addReply(c,shared.ok);
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
@@ -711,8 +774,10 @@ void existsCommand(client *c) {
     long long count = 0;
     int j;
 
-    for (j = 1; j < c->argc; j++) {
-        if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH)) count++;
+	for (j = 1; j < c->argc; j++) {
+		if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH) ||
+				lookupEvictKey(c->db,c->argv[j]))
+			count++;
     }
     addReplyLongLong(c,count);
 }
@@ -727,6 +792,13 @@ void selectCommand(client *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
+
+    /* currently only db 0 are supported. */
+    if (id != 0) {
+        addReplyError(c,"DB index is out of range");
+        return;
+    }
+
     if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
@@ -751,23 +823,26 @@ void keysCommand(client *c) {
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
-    unsigned long numkeys = 0;
+    unsigned long numkeys = 0, i;
     void *replylen = addReplyDeferredLen(c);
+    dict *dicts[2] = {c->db->dict,c->db->evict};
 
-    di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
-    while((de = dictNext(di)) != NULL) {
-        sds key = dictGetKey(de);
-        robj *keyobj;
+    for (i = 0; i < sizeof(dicts)/sizeof(dict*); i++) {
+        di = dictGetSafeIterator(dicts[i]);
+		while((de = dictNext(di)) != NULL) {
+			sds key = dictGetKey(de);
+			robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (!keyIsExpired(c->db,keyobj)) {
-                addReplyBulk(c,keyobj);
-                numkeys++;
-            }
-            decrRefCount(keyobj);
-        }
+			if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+				keyobj = createStringObject(key,sdslen(key));
+				if (!keyIsExpired(c->db,keyobj)) {
+					addReplyBulk(c,keyobj);
+					numkeys++;
+				}
+				decrRefCount(keyobj);
+			}
+		}
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
@@ -834,6 +909,10 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
+#define IS_DICT(orig_cursor)    ((orig_cursor & 0x1UL) == 0)
+#define IS_EVICT(orig_cursor)   ((orig_cursor & 0x1UL) != 0)
+#define O2I(cursor)             (cursor >> 1)
+#define I2O(orig_cursor,cursor) (cursor << 1 | (orig_cursor & 0x1UL))
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
     list *keys = listCreate();
@@ -843,6 +922,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     sds typename = NULL;
     int patlen = 0, use_pattern = 0;
     dict *ht;
+    unsigned long orig_cursor = cursor;
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
@@ -898,7 +978,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        ht = c->db->dict;
+        if (IS_DICT(orig_cursor)) ht = c->db->dict;
+        else ht = c->db->evict;
+        cursor = O2I(orig_cursor);
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
@@ -1008,6 +1090,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     /* Step 4: Reply to the client. */
+    if (o == NULL) {
+        if (cursor == 0) {
+            if (IS_DICT(orig_cursor)){
+                orig_cursor = 1;
+            } else {
+                orig_cursor = 0;
+            }
+        }
+        cursor = I2O(orig_cursor, cursor);
+    }
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
@@ -1032,7 +1124,7 @@ void scanCommand(client *c) {
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,dictSize(c->db->dict));
+    addReplyLongLong(c,dictSize(c->db->dict)+dictSize(c->db->evict));
 }
 
 void lastsaveCommand(client *c) {
@@ -1064,6 +1156,7 @@ char* getObjectTypeName(robj *o) {
 void typeCommand(client *c) {
     robj *o;
     o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
+	if (o == NULL) o = lookupEvictKey(c->db,c->argv[1]);
     addReplyStatus(c, getObjectTypeName(o));
 }
 
@@ -1401,7 +1494,7 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr)||dictFind(db->evict,key->ptr));
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -1414,6 +1507,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
+	if (!kde) kde = dictFind(db->evict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
@@ -1434,7 +1528,7 @@ long long getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr)||dictFind(db->evict,key->ptr));
     return dictGetSignedIntegerVal(de);
 }
 
@@ -1558,7 +1652,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
-    deleteExpiredKeyAndPropagate(db,key);
+	dbExpire(db, key);
+    //deleteExpiredKeyAndPropagate(db,key);
     return 1;
 }
 

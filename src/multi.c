@@ -410,9 +410,10 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         listRewind(clients,&li);
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
-            if (dictFind(emptied->dict, key->ptr)) {
+            if (dictFind(emptied->dict, key->ptr)||dictFind(emptied->evict, key->ptr)) {
                 c->flags |= CLIENT_DIRTY_CAS;
-            } else if (replaced_with && dictFind(replaced_with->dict, key->ptr)) {
+            } else if (replaced_with && (dictFind(replaced_with->dict, key->ptr) ||
+                        dictFind(replaced_with->evict, key->ptr))) {
                 c->flags |= CLIENT_DIRTY_CAS;
             }
         }

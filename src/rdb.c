@@ -1075,6 +1075,18 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
     return len;
 }
 
+int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv,
+        long long expiretime)
+{
+    UNUSED(db);
+    switch (cv->type) {
+    case COMP_TYPE_OBJ:
+        return rdbSaveKeyValuePair(rdb,key,cv->value,expiretime);
+    default:
+        return -1;
+    }
+}
+
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned. */
@@ -1209,6 +1221,8 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
         return -1;
     return io.bytes;
 }
+
+int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db);
 
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
