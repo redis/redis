@@ -8,117 +8,211 @@
 /* Registered type */
 RedisModuleType *mallocsize_type = NULL;
 
-typedef struct {
-    void *raw;
-    size_t raw_len;
-    RedisModuleString *str;
-    RedisModuleDict *d;
-} rsd_t;
+typedef enum {
+    UDT_RAW,
+    UDT_STRING,
+    UDT_DICT
+} udt_type_t;
 
-void rsd_free(void *value) {
-    rsd_t *rsd = value;
-    RedisModule_Free(rsd->raw);
-    RedisModule_FreeString(NULL, rsd->str);
-    RedisModuleString *dk, *dv;
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
-    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
-        RedisModule_FreeString(NULL, dk);
-        RedisModule_FreeString(NULL, dv);
+typedef struct {
+    void *ptr;
+    size_t len;
+} raw_t;
+
+typedef struct {
+    udt_type_t type;
+    union {
+        raw_t raw;
+        RedisModuleString *str;
+        RedisModuleDict *dict;
+    } data;
+} udt_t;
+
+void udt_free(void *value) {
+    udt_t *udt = value;
+    switch (udt->type) {
+        case (UDT_RAW): {
+            RedisModule_Free(udt->data.raw.ptr);
+            break;
+        }
+        case (UDT_STRING): {
+            RedisModule_FreeString(NULL, udt->data.str);
+            break;
+        }
+        case (UDT_DICT): {
+            RedisModuleString *dk, *dv;
+            RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(udt->data.dict, "^", NULL, 0);
+            while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
+                RedisModule_FreeString(NULL, dk);
+                RedisModule_FreeString(NULL, dv);
+            }
+            RedisModule_DictIteratorStop(iter);
+            RedisModule_FreeDict(NULL, udt->data.dict);
+            break;
+        }
     }
-    RedisModule_DictIteratorStop(iter);
-    RedisModule_FreeDict(NULL, rsd->d);
-    RedisModule_Free(rsd);
+    RedisModule_Free(udt);
 }
 
-void *rsd_rdb_load(RedisModuleIO *rdb, int encver) {
+void udt_rdb_save(RedisModuleIO *rdb, void *value) {
+    udt_t *udt = value;
+    RedisModule_SaveUnsigned(rdb, udt->type);
+    switch (udt->type) {
+        case (UDT_RAW): {
+            RedisModule_SaveStringBuffer(rdb, udt->data.raw.ptr, udt->data.raw.len);
+            break;
+        }
+        case (UDT_STRING): {
+            RedisModule_SaveString(rdb, udt->data.str);
+            break;
+        }
+        case (UDT_DICT): {
+            RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(udt->data.dict));
+            RedisModuleString *dk, *dv;
+            RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(udt->data.dict, "^", NULL, 0);
+            while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
+                RedisModule_SaveString(rdb, dk);
+                RedisModule_SaveString(rdb, dv);
+                RedisModule_FreeString(NULL, dk); /* Allocated by RedisModule_DictNext */
+            }
+            RedisModule_DictIteratorStop(iter);
+            break;
+        }
+    }
+}
+
+void *udt_rdb_load(RedisModuleIO *rdb, int encver) {
     if (encver != 0)
         return NULL;
-    rsd_t *rsd = RedisModule_Alloc(sizeof(*rsd));
-    rsd->raw = RedisModule_LoadStringBuffer(rdb, &rsd->raw_len);
-    rsd->str = RedisModule_LoadString(rdb);
-    long long dict_len = RedisModule_LoadUnsigned(rdb);
-    rsd->d = RedisModule_CreateDict(NULL);
-    for (int i = 0; i < dict_len; i += 2) {
-        RedisModuleString *key  = RedisModule_LoadString(rdb);
-        RedisModuleString *val  = RedisModule_LoadString(rdb);
-        RedisModule_DictSet(rsd->d, key, val);
-        
+    udt_t *udt = RedisModule_Alloc(sizeof(*udt));
+    udt->type = RedisModule_LoadUnsigned(rdb);
+    switch (udt->type) {
+        case (UDT_RAW): {
+            udt->data.raw.ptr = RedisModule_LoadStringBuffer(rdb, &udt->data.raw.len);
+            break;
+        }
+        case (UDT_STRING): {
+            udt->data.str = RedisModule_LoadString(rdb);
+            break;
+        }
+        case (UDT_DICT): {
+            long long dict_len = RedisModule_LoadUnsigned(rdb);
+            udt->data.dict = RedisModule_CreateDict(NULL);
+            for (int i = 0; i < dict_len; i += 2) {
+                RedisModuleString *key = RedisModule_LoadString(rdb);
+                RedisModuleString *val = RedisModule_LoadString(rdb);
+                RedisModule_DictSet(udt->data.dict, key, val);
+            }
+            break;
+        }
     }
 
-    return rsd;
+    return udt;
 }
 
-void rsd_rdb_save(RedisModuleIO *rdb, void *value) {
-    rsd_t *rsd = value;
-    RedisModule_SaveStringBuffer(rdb, rsd->raw, rsd->raw_len);
-    RedisModule_SaveString(rdb, rsd->str);
-    RedisModule_SaveUnsigned(rdb, RedisModule_DictSize(rsd->d));
-    RedisModuleString *dk, *dv;
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
-    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
-        RedisModule_SaveString(rdb, dk);
-        RedisModule_SaveString(rdb, dv);
-        RedisModule_FreeString(NULL, dk);
-    }
-    RedisModule_DictIteratorStop(iter);
-}
-
-size_t rsd_mem_usage(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size) {
+size_t udt_mem_usage(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size) {
     UNUSED(ctx);
     UNUSED(sample_size);
     
-    size_t size = 0;
+    const udt_t *udt = value;
+    size_t size = sizeof(*udt);
     
-    const rsd_t *rsd = value;
-    size += RedisModule_MallocSize(rsd->raw);
-    size += RedisModule_MallocSizeString(rsd->str);
-    RedisModuleString *dk, *dv;
-    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(rsd->d, "^", NULL, 0);
-    while((dk = RedisModule_DictNext(NULL, iter, (void **)&dv)) != NULL) {
-        size += RedisModule_MallocSizeString(dk);
-        size += RedisModule_MallocSizeString(dv);
-        RedisModule_FreeString(NULL, dk);
+    switch (udt->type) {
+        case (UDT_RAW): {
+            size += RedisModule_MallocSize(udt->data.raw.ptr);
+            break;
+        }
+        case (UDT_STRING): {
+            size += RedisModule_MallocSizeString(udt->data.str);
+            break;
+        }
+        case (UDT_DICT): {
+            void *dk;
+            size_t keylen;
+            RedisModuleString *dv;
+            RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(udt->data.dict, "^", NULL, 0);
+            while((dk = RedisModule_DictNextC(iter, &keylen, (void **)&dv)) != NULL) {
+                size += keylen;
+                size += RedisModule_MallocSizeString(dv);
+            }
+            RedisModule_DictIteratorStop(iter);
+            break;
+        }
     }
-    RedisModule_DictIteratorStop(iter);
     
     return size;
 }
 
-
-int cmd_mallocsize_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc % 2)
+/* MALLOCSIZE.SETRAW key len */
+int cmd_setraw(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3)
         return RedisModule_WrongArity(ctx);
         
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
-    rsd_t *rsd = RedisModule_ModuleTypeGetValue(key);
-    if (rsd) {
-        rsd_free(rsd);
-        rsd = NULL;
+    udt_t *udt = RedisModule_ModuleTypeGetValue(key);
+    if (udt) {
+        udt_free(udt);
+        udt = NULL;
     }
-    rsd = RedisModule_Alloc(sizeof(*rsd));
+    udt = RedisModule_Alloc(sizeof(*udt));
     
-    /* raw */
     long long raw_len;
     RedisModule_StringToLongLong(argv[2], &raw_len);
-    rsd->raw = RedisModule_Alloc(raw_len);
-    rsd->raw_len = raw_len;
-
-    /* string */
-    rsd->str = argv[3];
-    RedisModule_RetainString(ctx, argv[3]);
+    udt->data.raw.ptr = RedisModule_Alloc(raw_len);
+    udt->data.raw.len = raw_len;
     
-    /* dict */
-    rsd->d = RedisModule_CreateDict(ctx);
-    for (int i = 4; i < argc; i += 2) {
-        RedisModule_DictSet(rsd->d, argv[i], argv[i+1]);
-        RedisModule_RetainString(ctx, argv[i]);
+    RedisModule_ModuleTypeSetValue(key, mallocsize_type, udt);
+    RedisModule_CloseKey(key);
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* MALLOCSIZE.SETSTR key string */
+int cmd_setstr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3)
+        return RedisModule_WrongArity(ctx);
+        
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    udt_t *udt = RedisModule_ModuleTypeGetValue(key);
+    if (udt) {
+        udt_free(udt);
+        udt = NULL;
+    }
+    udt = RedisModule_Alloc(sizeof(*udt));
+    
+    udt->data.str = argv[2];
+    RedisModule_RetainString(ctx, argv[2]);
+    
+    RedisModule_ModuleTypeSetValue(key, mallocsize_type, udt);
+    RedisModule_CloseKey(key);
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* MALLOCSIZE.SETDICT key field value [field value ...] */
+int cmd_setdict(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 4 || argc % 2)
+        return RedisModule_WrongArity(ctx);
+        
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
+    udt_t *udt = RedisModule_ModuleTypeGetValue(key);
+    if (udt) {
+        udt_free(udt);
+        udt = NULL;
+    }
+    udt = RedisModule_Alloc(sizeof(*udt));
+    
+    udt->data.dict = RedisModule_CreateDict(ctx);
+    for (int i = 2; i < argc; i += 2) {
+        RedisModule_DictSet(udt->data.dict, argv[i], argv[i+1]);
+        /* No need to retain argv[i], it is copied as the rax key */
         RedisModule_RetainString(ctx, argv[i+1]);   
     }
-        
-    RedisModule_ModuleTypeSetValue(key, mallocsize_type, rsd);
+    
+    RedisModule_ModuleTypeSetValue(key, mallocsize_type, udt);
     RedisModule_CloseKey(key);
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-    return REDISMODULE_OK;
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -129,17 +223,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         
     RedisModuleTypeMethods tm = {
         .version = REDISMODULE_TYPE_METHOD_VERSION,
-        .rdb_load = rsd_rdb_load,
-        .rdb_save = rsd_rdb_save,
-        .free = rsd_free,
-        .mem_usage2 = rsd_mem_usage,
+        .rdb_load = udt_rdb_load,
+        .rdb_save = udt_rdb_save,
+        .free = udt_free,
+        .mem_usage2 = udt_mem_usage,
     };
 
-    mallocsize_type = RedisModule_CreateDataType(ctx, "allocsize", 1, &tm);
+    mallocsize_type = RedisModule_CreateDataType(ctx, "allocsize", 0, &tm);
     if (mallocsize_type == NULL)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"mallocsize.set",cmd_mallocsize_set,"",0,0,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "mallocsize.setraw", cmd_setraw, "", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+        
+    if (RedisModule_CreateCommand(ctx, "mallocsize.setstr", cmd_setstr, "", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+        
+    if (RedisModule_CreateCommand(ctx, "mallocsize.setdict", cmd_setdict, "", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
