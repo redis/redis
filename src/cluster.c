@@ -1013,7 +1013,6 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     else
         getRandomHexChars(node->name, CLUSTER_NAMELEN);
     getRandomHexChars(node->shard_id, CLUSTER_NAMELEN);
-    node->shard_id[CLUSTER_NAMELEN] = 0;
     node->ctime = mstime();
     node->configEpoch = 0;
     node->flags = flags;
@@ -4763,14 +4762,14 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
     if (sdslen(node->hostname) != 0) {
-        ci = sdscatfmt(ci," %s:%i@%i,%s,%s ",
+        ci = sdscatprintf(ci," %s:%i@%i,%.40s,%s ",
             node->ip,
             port,
             node->cport,
             node->shard_id,
             node->hostname);
     } else {
-        ci = sdscatfmt(ci," %s:%i@%i,%s ",
+        ci = sdscatprintf(ci," %s:%i@%i,%.40s ",
             node->ip,
             port,
             node->cport,
@@ -5211,7 +5210,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_info_pairs, int slot_pairs_count) {
     addReplyMapLen(c, 3);
     addReplyBulkCString(c, "shard-id");
-    addReplyBulkCString(c, node->shard_id);
+    addReplyBulkCBuffer(c, node->shard_id, CLUSTER_NAMELEN);
     addReplyBulkCString(c, "slots");
     if (slot_info_pairs) {
         serverAssert((slot_pairs_count % 2) == 0);
