@@ -6,16 +6,16 @@ start_server {tags {"modules"}} {
 
     test {MallocSize of raw bytes} {
         assert_equal [r mallocsize.setraw key 40] {OK}
-        assert_morethan [memory_usage key] 0
+        assert_morethan [memory_usage key] 40
     }
     
     test {MallocSize of string} {
         assert_equal [r mallocsize.setstr key abcdefg] {OK}
-        assert_morethan [memory_usage key] 0
+        assert_morethan [memory_usage key] 7 ;# Length of "abcdefg"
     }
     
     test {MallocSize of dict} {
         assert_equal [r mallocsize.setdict key f1 v1 f2 v2] {OK}
-        assert_morethan [memory_usage key] 0
+        assert_morethan [memory_usage key] 8 ;# Length of "f1v1f2v2"
     }
 }
