@@ -834,10 +834,12 @@ void addReplyDouble(client *c, double d) {
             slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
             addReplyProto(c,sbuf,slen);
         } else {
-            dlen = fpconv_dtoa(d, dbuf);
+            dbuf[0] = ',';
+            dlen = fpconv_dtoa(d, dbuf+1);
             dbuf[dlen] = '\r';
             dbuf[dlen+1] = '\n';
             dbuf[dlen+2] = '\0';
+            dbuf += 3;
             addReplyProto(c,dbuf,dlen);
         }
     }
