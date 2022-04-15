@@ -327,9 +327,6 @@ void feedReplicationBuffer(char *s, size_t len) {
     server.master_repl_offset += len;
     server.repl_backlog->histlen += len;
 
-    /* Install write handler for all replicas. */
-    prepareReplicasToWrite();
-
     size_t start_pos = 0; /* The position of referenced block to start sending. */
     listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
     int add_new_block = 0; /* Create new block if current block is total used. */
@@ -440,6 +437,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
+    /* Must install write handler for all replicas first before feeding
+     * replication stream. */
+    prepareReplicasToWrite();
+
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -539,7 +540,12 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
 
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
-    if (server.repl_backlog) feedReplicationBuffer(buf,buflen);
+    if (server.repl_backlog) {
+        /* Must install write handler for all replicas first before feeding
+         * replication stream. */
+        prepareReplicasToWrite();
+        feedReplicationBuffer(buf,buflen);
+    }
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
