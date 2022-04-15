@@ -149,9 +149,8 @@ int cmd_setraw(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_WrongArity(ctx);
         
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
-    udt_t *udt = RedisModule_ModuleTypeGetValue(key);
 
-    udt = RedisModule_Alloc(sizeof(*udt));
+    udt_t *udt = RedisModule_Alloc(sizeof(*udt));
     
     long long raw_len;
     RedisModule_StringToLongLong(argv[2], &raw_len);
@@ -171,7 +170,7 @@ int cmd_setstr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
 
-    udt = RedisModule_Alloc(sizeof(*udt));
+    udt_t *udt = RedisModule_Alloc(sizeof(*udt));
     
     udt->data.str = argv[2];
     RedisModule_RetainString(ctx, argv[2]);
@@ -188,9 +187,8 @@ int cmd_setdict(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_WrongArity(ctx);
         
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
-    udt_t *udt = RedisModule_ModuleTypeGetValue(key);
 
-    udt = RedisModule_Alloc(sizeof(*udt));
+    udt_t *udt = RedisModule_Alloc(sizeof(*udt));
     
     udt->data.dict = RedisModule_CreateDict(ctx);
     for (int i = 2; i < argc; i += 2) {
