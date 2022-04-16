@@ -40,6 +40,9 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <ifaddrs.h>
 
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
@@ -3027,6 +3030,84 @@ void replicationHandleMasterDisconnection(void) {
     }
 }
 
+dict *getLocalIPAddrs(void) {
+    struct ifaddrs *ifaddr = NULL;
+    if (getifaddrs(&ifaddr) != 0) return NULL;
+
+    dict *addrs = dictCreate(&sdsHashDictType);
+    for (struct ifaddrs *ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) continue;
+        int family = ifa->ifa_addr->sa_family;
+        if (family != AF_INET && family != AF_INET6) continue;
+
+        char ipbuf[NET_IP_STR_LEN];
+        if (family == AF_INET) {
+            struct sockaddr_in *sa = (struct sockaddr_in *)ifa->ifa_addr;
+            inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, sizeof(ipbuf));
+        }
+        if (family == AF_INET6) {
+            struct sockaddr_in6 *sa = (struct sockaddr_in6 *)ifa->ifa_addr;
+            inet_ntop(AF_INET6, &(sa->sin6_addr), ipbuf, sizeof(ipbuf));
+        }
+        dictAdd(addrs, sdsnew(ipbuf), NULL);
+    }
+    freeifaddrs(ifaddr);
+    return addrs;
+}
+
+dict *getRemoteIPAddrs(const char *addr) {
+    if (addr == NULL) return NULL;
+    struct addrinfo *info = NULL;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if (getaddrinfo(addr, NULL, &hints, &info) != 0) return NULL;
+    dict *addrs = dictCreate(&sdsHashDictType);
+    for (struct addrinfo *p = info; p != NULL; p = p->ai_next) {
+        int family = info->ai_family;
+        if (family != AF_INET && family != AF_INET6) continue;
+
+        char ipbuf[NET_IP_STR_LEN];
+        if (info->ai_family == AF_INET) {
+            struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
+            inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, sizeof(ipbuf));
+        }
+        if (info->ai_family == AF_INET6) {
+            struct sockaddr_in6 *sa = (struct sockaddr_in6 *)info->ai_addr;
+            inet_ntop(AF_INET6, &(sa->sin6_addr), ipbuf, sizeof(ipbuf));
+        }
+        dictReplace(addrs, sdsnew(ipbuf), NULL);
+    }
+    return addrs;
+}
+
+/* Check master is myself */
+int replicaofMyself(const char *addr, int port) {
+    int ret = 0;
+    dict *local = NULL, *remote = NULL;
+
+    if (addr == NULL || server.port != port) goto cleanup;
+    if ((local = getLocalIPAddrs()) == NULL) goto cleanup;
+    if ((remote = getRemoteIPAddrs(addr)) == NULL) goto cleanup;
+
+    dictEntry *de = NULL;
+    dictIterator *di = dictGetSafeIterator(remote);
+    while ((de = dictNext(di)) != NULL) {
+        if (dictFind(local, dictGetKey(de))) {
+            ret = 1;
+            break;
+        }
+    }
+    dictReleaseIterator(di);
+
+cleanup:
+    if (local) dictRelease(local);
+    if (remote) dictRelease(remote);
+    return ret;
+}
+
 void replicaofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */
@@ -3066,6 +3147,11 @@ void replicaofCommand(client *c) {
         if (getRangeLongFromObjectOrReply(c, c->argv[2], 0, 65535, &port,
                                           "Invalid master port") != C_OK)
             return;
+
+        if (replicaofMyself(c->argv[1]->ptr, (int)port)) {
+            addReplyError(c, "REPLICAOF myself is forbidden.");
+            return;
+        }
 
         /* Check if we are already attached to the specified master */
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
