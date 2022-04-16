@@ -812,16 +812,18 @@ int openNewIncrAofForAppend(void) {
  * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR
  * AOFs has not reached the limit threshold.
  * */
-#define AOF_REWRITE_LIMITE_THRESHOLD    2
+#define AOF_REWRITE_LIMITE_THRESHOLD    3
 #define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     static int next_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
+    /* If the number of incr AOFs exceeds the threshold but server.aof_lastbgrewrite_status is OK, it 
+     * means that redis may have just loaded a dataset containing many incr AOFs. At this time, we 
+     * will not limit the AOFRW. */
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
-    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD) {
-        /* the incr aof number possible change to be normal, such as a successful BGREWRITEAOF.
-         * so we need to reset the next_rewrite_time before return 'no limit' */
+    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD || server.aof_lastbgrewrite_status == C_OK) {
+         /* We may be recovering from limited state, so reset all states. */
         next_delay_minutes = 0;
         next_rewrite_time  = 0;
         return 0;
@@ -832,24 +834,20 @@ int aofRewriteLimited(void) {
         if (server.unixtime < next_rewrite_time) {
             return 1;
         } else {
-            /* If the next aofwrite succeeds, `limit_delay_minutes` 
-             * will be set to 0 at next aofRewriteLimited call */
             next_rewrite_time = 0;
             return 0;
         }
     }
 
-    if (next_delay_minutes == 0 ) {
-        next_delay_minutes = 1;
-        return 0;
+    next_delay_minutes = (next_delay_minutes == 0) ? 1:(next_delay_minutes * 2);
+    if (next_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
+        next_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
     }
 
     next_rewrite_time = server.unixtime + next_delay_minutes * 60;
     /* only one incr file in normal state, so the failed times should be 'incr_aof_num-1' */
     serverLog(LL_WARNING,
-        "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
-        incr_aof_num - 1, next_delay_minutes);
-    next_delay_minutes *= 2;
+        "Background AOF rewrite has repeatedly failed and triggered the limit, will retry in %d minutes", next_delay_minutes);
     return 1;
 }
 
