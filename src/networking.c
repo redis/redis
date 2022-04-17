@@ -839,7 +839,7 @@ void addReplyDouble(client *c, double d) {
             dbuf[dlen] = '\r';
             dbuf[dlen+1] = '\n';
             dbuf[dlen+2] = '\0';
-            dbuf += 3;
+            dlen += 3;
             addReplyProto(c,dbuf,dlen);
         }
     }
