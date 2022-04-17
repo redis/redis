@@ -735,6 +735,12 @@ start_server {tags {"scripting"}} {
             return redis.acl_check_cmd('invalid-cmd','arg')
         } 0}
     }
+
+    test "Binary code loading failed" {
+        assert_error {ERR *attempt to call a nil value*} {run_script {
+            return loadstring(string.dump(function() return 1 end))()
+        } 0}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
