@@ -9764,8 +9764,27 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
  * with the allocation calls, since sometimes the underlying allocator
  * will allocate more memory.
  */
-size_t RM_MallocSize(void* ptr){
+size_t RM_MallocSize(void* ptr) {
     return zmalloc_size(ptr);
+}
+
+/* Same as RM_MallocSize, except it works on RedisModuleString pointers.
+ */
+size_t RM_MallocSizeString(RedisModuleString* str) {
+    serverAssert(str->type == OBJ_STRING);
+    return sizeof(*str) + getStringObjectSdsUsedMemory(str);
+}
+
+/* Same as RM_MallocSize, except it works on RedisModuleDict pointers.
+ * Note that the returned value is only the overhead of the underlying structures,
+ * it does not include the allocation size of the keys and values.
+ */
+size_t RM_MallocSizeDict(RedisModuleDict* dict) {
+    size_t size = sizeof(RedisModuleDict) + sizeof(rax);
+    size += dict->rax->numnodes * sizeof(raxNode);
+    /* For more info about this weird line, see streamRadixTreeMemoryUsage */
+    size += dict->rax->numnodes * sizeof(long)*30;
+    return size;
 }
 
 /* Return the a number between 0 to 1 indicating the amount of memory
@@ -12536,6 +12555,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
     REGISTER_API(MallocSize);
+    REGISTER_API(MallocSizeString);
+    REGISTER_API(MallocSizeDict);
     REGISTER_API(ScanCursorCreate);
     REGISTER_API(ScanCursorDestroy);
     REGISTER_API(ScanCursorRestart);

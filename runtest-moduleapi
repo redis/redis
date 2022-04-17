@@ -40,6 +40,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/zset \
 --single unit/moduleapi/list \
 --single unit/moduleapi/stream \
+--single unit/moduleapi/mallocsize \
 --single unit/moduleapi/datatype2 \
 --single unit/moduleapi/cluster \
 --single unit/moduleapi/aclcheck \
