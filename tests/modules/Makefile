@@ -49,6 +49,7 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    mallocsize.so \
     aclcheck.so \
     list.so \
     subcommands.so \
@@ -56,7 +57,8 @@ TEST_MODULES = \
     cmdintrospection.so \
     eventloop.so \
     moduleconfigs.so \
-    moduleconfigstwo.so
+    moduleconfigstwo.so \
+    publish.so
 
 .PHONY: all
 
