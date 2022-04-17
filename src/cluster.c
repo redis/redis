@@ -2506,11 +2506,7 @@ int clusterProcessPacket(clusterLink *link) {
             message = createStringObject(
                         (char*)hdr->data.publish.msg.bulk_data+channel_len,
                         message_len);
-            if (type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
-                pubsubPublishMessageShard(channel, message);
-            } else {
-                pubsubPublishMessage(channel,message);
-            }
+            pubsubPublishMessage(channel, message, type == CLUSTERMSG_TYPE_PUBLISHSHARD);
             decrRefCount(channel);
             decrRefCount(message);
         }
@@ -3199,20 +3195,19 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
 /* -----------------------------------------------------------------------------
  * CLUSTER Pub/Sub support
  *
- * For now we do very little, just propagating PUBLISH messages across the whole
+ * If `sharded` is 0:
+ * For now we do very little, just propagating [S]PUBLISH messages across the whole
  * cluster. In the future we'll try to get smarter and avoiding propagating those
  * messages to hosts without receives for a given channel.
- * -------------------------------------------------------------------------- */
-void clusterPropagatePublish(robj *channel, robj *message) {
-    clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
-}
-
-/* -----------------------------------------------------------------------------
- * CLUSTER Pub/Sub shard support
- *
+ * Otherwise:
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
-void clusterPropagatePublishShard(robj *channel, robj *message) {
+void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
+    if (!sharded) {
+        clusterSendPublish(NULL, channel, message, CLUSTERMSG_TYPE_PUBLISH);
+        return;
+    }
+
     list *nodes_for_slot = clusterGetNodesServingMySlots(server.cluster->myself);
     if (listLength(nodes_for_slot) != 0) {
         listIter li;

@@ -3381,10 +3381,13 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
-    int receivers = pubsubPublishMessage(channel, message);
-    if (server.cluster_enabled)
-        clusterPropagatePublish(channel, message);
-    return receivers;
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 0);
+}
+
+/* Publish a message to shard-subscribers (see SPUBLISH command). */
+int RM_PublishMessageShard(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
+    UNUSED(ctx);
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 1);
 }
 
 /* Return the currently selected DB. */
@@ -12545,6 +12548,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(PublishMessage);
+    REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(SetLRU);
     REGISTER_API(GetLRU);

@@ -57,7 +57,8 @@ TEST_MODULES = \
     cmdintrospection.so \
     eventloop.so \
     moduleconfigs.so \
-    moduleconfigstwo.so
+    moduleconfigstwo.so \
+    publish.so
 
 .PHONY: all
 
