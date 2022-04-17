@@ -94,6 +94,15 @@ configEnum aof_fsync_enum[] = {
     {NULL, 0}
 };
 
+configEnum shutdown_on_sig_enum[] = {
+    {"default", 0},
+    {"save", SHUTDOWN_SAVE},
+    {"nosave", SHUTDOWN_NOSAVE},
+    {"now", SHUTDOWN_NOW},
+    {"force", SHUTDOWN_FORCE},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -282,6 +291,23 @@ int configEnumGetValue(configEnum *ce, char *name) {
         ce++;
     }
     return INT_MIN;
+}
+
+/* Get enum values from name arguments.
+ * If there is any name with no match INT_MIN is returned. */
+int configEnumGetValues(configEnum *ce, sds *argv, int argc) {
+    int values = 0;
+    for (int i = 0; i < argc; i++) {
+        int matched = 0;
+        for (configEnum *ceItem = ce; ceItem->name != NULL; ceItem++) {
+            if (!strcasecmp(argv[i],ceItem->name)) {
+                values |= ceItem->val;
+                matched = 1;
+            }
+        }
+        if (!matched) return INT_MIN;
+    }
+    return values;
 }
 
 /* Get enum name from value. If no match is found NULL is returned. */
@@ -1885,10 +1911,15 @@ static void enumConfigInit(standardConfig *config) {
 }
 
 static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    int enumval = configEnumGetValue(config->data.enumd.enum_value, argv[0]);
+    int enumval;
+    if (config->flags & MULTI_ARG_CONFIG) {
+        enumval = configEnumGetValues(config->data.enumd.enum_value, argv, argc);
+    } else {
+        enumval = configEnumGetValue(config->data.enumd.enum_value, argv[0]);
+    }
+
     if (enumval == INT_MIN) {
-        sds enumerr = sdsnew("argument must be one of the following: ");
+        sds enumerr = sdsnew("argument(s) must be one of the following: ");
         configEnum *enumNode = config->data.enumd.enum_value;
         while(enumNode->name != NULL) {
             enumerr = sdscatlen(enumerr, enumNode->name,
@@ -2281,6 +2312,18 @@ static int isValidAOFdirname(char *val, const char **err) {
         *err = "appenddirname can't be a path, just a dirname";
         return 0;
     }
+    return 1;
+}
+
+static int isValidShutdownOnSigFlags(int val, const char **err) {
+    /* Individual arguments are validated by createEnumConfig logic.
+     * We just need to ensure valid combinations here. */
+
+    if (val & SHUTDOWN_NOSAVE && val & SHUTDOWN_SAVE) {
+        *err = "shutdown options SAVE and NOSAVE can't be used simultaneously";
+        return 0;
+    }
+
     return 1;
 }
 
@@ -2928,6 +2971,8 @@ standardConfig static_configs[] = {
     createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
+    createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
