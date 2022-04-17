@@ -75,6 +75,7 @@ int string2d(const char *s, size_t slen, double *dp);
 int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
+int double2ll(double d, long long *out);
 int yesnotoi(char *s);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
