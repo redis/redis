@@ -823,9 +823,9 @@ int aofRewriteLimited(void) {
      * will not limit the AOFRW. */
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
     if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD || server.aof_lastbgrewrite_status == C_OK) {
-         /* We may be recovering from limited state, so reset all states. */
+        /* We may be recovering from limited state, so reset all states. */
         next_delay_minutes = 0;
-        next_rewrite_time  = 0;
+        next_rewrite_time = 0;
         return 0;
     }
     
@@ -839,7 +839,7 @@ int aofRewriteLimited(void) {
         }
     }
 
-    next_delay_minutes = (next_delay_minutes == 0) ? 1:(next_delay_minutes * 2);
+    next_delay_minutes = (next_delay_minutes == 0) ? 1 : (next_delay_minutes * 2);
     if (next_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
         next_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
     }
