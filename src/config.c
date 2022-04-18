@@ -1848,7 +1848,7 @@ static sds sdsConfigGet(standardConfig *config) {
 static void sdsConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     sds val = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     rewriteConfigSdsOption(state, name, val, config->data.sds.default_value);
-    if (val) sdsfree(val);
+    if ((val) && (config->flags & MODULE_CONFIG)) sdsfree(val);
 }
 
 
