@@ -845,7 +845,6 @@ int aofRewriteLimited(void) {
     }
 
     next_rewrite_time = server.unixtime + next_delay_minutes * 60;
-    /* only one incr file in normal state, so the failed times should be 'incr_aof_num-1' */
     serverLog(LL_WARNING,
         "Background AOF rewrite has repeatedly failed and triggered the limit, will retry in %d minutes", next_delay_minutes);
     return 1;
