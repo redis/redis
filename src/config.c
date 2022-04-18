@@ -237,6 +237,17 @@ typedef union typeData {
  * like "maxmemory" -> list of line numbers (first line is zero). */
 void dictListDestructor(dict *d, void *val);
 
+/* Dict case insensitive compare function for null terminated string */
+static int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return strcasecmp(key1, key2) == 0;
+}
+
+/* Dict hash function for null terminated string */
+static uint64_t distCStrCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
 dictType optionToLineDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
@@ -248,10 +259,10 @@ dictType optionToLineDictType = {
 };
 
 dictType optionSetDictType = {
-    dictSdsCaseHash,            /* hash function */
+    distCStrCaseHash,            /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    distCStrKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -847,8 +858,7 @@ void configSetCommand(client *c) {
         }
 
         /* If this config appears twice then fail */
-        sds config_name = sdsnew(config->name);
-        if (dictFind(set_config_values, config_name)) {
+        if (dictFind(set_config_values, config->name)) {
             /* Note: we don't abort the loop since we still want to handle redacting sensitive configs (above) */
             errstr = "duplicate parameter";
             err_arg_name = c->argv[2+i*2]->ptr;
@@ -859,7 +869,6 @@ void configSetCommand(client *c) {
             config_values[i].new_value = c->argv[2+i*2+1]->ptr;
             dictAdd(set_config_values, sdsnew(config->name), &config_values[i]);
         }
-        sdsfree(config_name);
         config_names[i] = config->name;
     }
     
@@ -867,11 +876,9 @@ void configSetCommand(client *c) {
 
     /* Set all new values (don't apply yet) */
     for (i = 0; i < config_count; i++) {
-        sds config_name = sdsnew(config_names[i]);
-        configSetValue *config_value = dictGetVal(dictFind(set_config_values, config_name));
+        configSetValue *config_value = dictGetVal(dictFind(set_config_values, config_names[i]));
         standardConfig *config = config_value->config;
         sds new_value = config_value->new_value;
-        sdsfree(config_name);
         int res = performInterfaceSet(config, new_value, &errstr);
         if (!res) {
             restoreBackupConfig(set_config_values, NULL, NULL);
@@ -883,11 +890,9 @@ void configSetCommand(client *c) {
                 addModuleConfigApply(module_configs_apply, config->privdata);
             } else if (config->interface.apply) {
                 /* Check if this apply function is already stored */
-                config_name = sdsnew(config->name);
-                if (!(dictFind(apply_fns, config_name))) {
+                if (!(dictFind(apply_fns, config->name))) {
                     dictAdd(apply_fns, sdsnew(config->name), &config->interface);
                 }
-                sdsfree(config_name);
             }
         }
     }
