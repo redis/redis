@@ -296,6 +296,7 @@ int configEnumGetValue(configEnum *ce, char *name) {
 /* Get enum values from name arguments.
  * If there is any name with no match INT_MIN is returned. */
 int configEnumGetValues(configEnum *ce, sds *argv, int argc) {
+    if (argc == 0) return INT_MIN;
     int values = 0;
     for (int i = 0; i < argc; i++) {
         int matched = 0;
@@ -324,6 +325,23 @@ const char *configEnumGetName(configEnum *ce, int val) {
 const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
     const char *name = configEnumGetName(ce,val);
     return name ? name : "unknown";
+}
+
+/* Get enum names from value. If no matches are found "unknown" is returned. */
+const char *configEnumGetNamesOrUnknown(configEnum *ce, int values) {
+    char *names = NULL;
+    int allPossibleValues = 0;
+    while(ce->name != NULL) {
+        if (values == ce->val) /* Fast path and covers case of values being 0 */
+            return ce->name;
+        if (values & ce->val)
+            names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
+        allPossibleValues |= ce->val;
+        ce++;
+    }
+    if (!names || values > allPossibleValues)
+        return "unknown";
+    return names;
 }
 
 /* Used for INFO generation. */
@@ -1325,10 +1343,10 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
  * option. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
     sds line;
-    const char *name = configEnumGetNameOrUnknown(ce,value);
+    const char *names = configEnumGetNamesOrUnknown(ce,value);
     int force = value != defval;
 
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
+    line = sdscatprintf(sdsempty(),"%s %s",option,names);
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
@@ -1950,7 +1968,10 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
+    if (config->flags & MULTI_ARG_CONFIG)
+        return sdsnew(configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val));
+    else
+        return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
 }
 
 static void enumConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
