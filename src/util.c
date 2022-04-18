@@ -571,7 +571,7 @@ int double2ll(double d, long long *out) {
      * i.e. all double values in that range are representable as a long without precision loss,
      * but not all long values in that range can be represented as a double.
      * we only care about the first part here. */
-    if (d < -LLONG_MAX/2 || d > LLONG_MAX/2)
+    if (d < (double)(-LLONG_MAX/2) || d > (double)(LLONG_MAX/2))
         return 0;
     long long ll = d;
     if (ll == d) {
