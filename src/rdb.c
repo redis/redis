@@ -1075,6 +1075,47 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
     return len;
 }
 
+/* Whole key encoding in rocksdb is the same as in rdb, so we skip encoding
+ * and decoding to reduce cpu usage. */ 
+int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw, 
+                        long long expiretime) {
+    int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
+    int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
+
+    /* save expire/type/key */
+    if (expiretime != -1) {
+        if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
+        if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
+    }    
+
+    /* Save the LRU info. */
+    if (savelru) {
+        uint64_t idletime = estimateObjectIdleTime(evict);
+        idletime /= 1000; /* Using seconds is enough and requires less space.*/
+        if (rdbSaveType(rdb,RDB_OPCODE_IDLE) == -1) return -1;
+        if (rdbSaveLen(rdb,idletime) == -1) return -1;
+    }
+
+    /* Save the LFU info. */
+    if (savelfu) {
+        uint8_t buf[1];
+        buf[0] = LFUDecrAndReturn(evict);
+        /* We can encode this in exactly two bytes: the opcode and an 8
+         * bit counter, since the frequency is logarithmic with a 0-255 range.
+         * Note that we do not store the halving time because to reset it
+         * a single time when loading does not affect the frequency much. */
+        if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
+        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+    }
+
+    /* Save type, key, value */
+    if (rdbSaveObjectType(rdb,evict) == -1) return -1;
+    if (rdbSaveStringObject(rdb,key) == -1) return -1;
+    if (rdbWriteRaw(rdb,raw,sdslen(raw)) == -1) return -1;
+
+    return 1;
+}
+
 int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv,
         long long expiretime)
 {
@@ -1082,6 +1123,8 @@ int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv,
     switch (cv->type) {
     case COMP_TYPE_OBJ:
         return rdbSaveKeyValuePair(rdb,key,cv->value,expiretime);
+    case COMP_TYPE_RAW:
+        return rdbSaveKeyRawPair(rdb,key,cv->evict,cv->value,expiretime);
     default:
         return -1;
     }
@@ -1253,7 +1296,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
+        if (dictSize(d) == 0 && dictSize(db->evict) == 0) continue;
         di = dictGetSafeIterator(d);
 
         /* Write the SELECT DB opcode */
@@ -1268,6 +1311,9 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
+        /* Pause rehash to reduce cow */
+        dbPauseRehash(db);
+
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
@@ -1276,6 +1322,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
+            /* Evicted key will be processed later. */
+            if (lookupEvictKey(db,&key)) continue;
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
@@ -1301,6 +1349,11 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         }
         dictReleaseIterator(di);
         di = NULL; /* So that we don't release it again on error. */
+
+        /* Iterate DB.evict writing every entry */
+        if (rdbSaveEvictDb(rdb, error, db)) return C_ERR;
+
+        dbResumeRehash(db);
     }
 
     /* If we are storing the replication information on disk, persist
@@ -1441,6 +1494,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
+    rocksCreateSnapshot(server.rocks);
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -1448,6 +1502,10 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
+
+        rocksUseSnapshot(server.rocks);
+        rocksInitThreads(server.rocks);
+
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
@@ -2351,6 +2409,12 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_rdb_used_mem = 0;
     blockingOperationStarts();
 
+    /* Drain rocks IO before Loading DB because: parallel sync RIO could
+     * be sumitted and processed. if there are async RIO in-flight(e.g.
+     * fullresync happend if we are slave and there are clients swapping-in
+     * evictted keys), server might crash. */
+    rocksIODrain(server.rocks, -1);
+
     /* Fire the loading modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
@@ -2415,6 +2479,20 @@ void stopSaving(int success) {
                           NULL);
 }
 
+/* If rdbLoad is rate limiting, we need to send newline to master and reply
+ * to PING/INFO so that sentinel wouldn't flag server down. */
+static void rdbLoadProgress(rio *r) {
+	/* The DB can take some non trivial amount of time to load. Update
+	 * our cached time since it is used to create and update the last
+	 * interaction time with clients and for other important things. */
+	updateCachedTime(0);
+	if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
+		replicationSendNewlineToMaster();
+	loadingProgress(r->processed_bytes);
+	processEventsWhileBlocked();
+	processModuleLoadingProgressEvent(0);
+}
+
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
@@ -2423,11 +2501,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
     {
-        if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
-            replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
-        processEventsWhileBlocked();
-        processModuleLoadingProgressEvent(0);
+		rdbLoadProgress(r);
     }
 }
 
@@ -2635,6 +2709,31 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
+        }
+
+        /* slowdown rdbLoad if evicting faster than ssd can handle. */
+        size_t swap_memory = server.swap_memory;
+        int delay = swapRateLimit(NULL);
+        if (!delay) {
+            /* perform eviction while loading to control memory peak. */
+            performEvictions();
+            if (server.swap_memory - swap_memory >
+                    (size_t)server.loading_process_events_interval_bytes) {
+                rdbLoadProgress(rdb);
+            }
+		} else {
+            /* rdb load paused for quite a while, we should progress a bit to
+             * avoid being flagged down by sentinel. */
+            usleep(delay*1000);
+            rdbLoadProgress(rdb);
+        }
+
+        swap_memory = server.swap_memory;
+        /* process completed rocks IO to avoid io requests accumulate. */
+        rocksProcessCompleteQueue(server.rocks);
+        if (swap_memory - server.swap_memory >
+                (size_t)server.loading_process_events_interval_bytes) {
+            rdbLoadProgress(rdb);
         }
 
         /* Read key */
@@ -2917,6 +3016,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         }
     }
 
+    rocksCreateSnapshot(server.rocks);
+
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
@@ -2927,6 +3028,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
 
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
+
+        rocksUseSnapshot(server.rocks);
+        rocksInitThreads(server.rocks);
 
         retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)

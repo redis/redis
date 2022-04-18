@@ -557,7 +557,7 @@ void setbitCommand(client *c) {
     byteval |= ((on & 0x1) << bit);
     ((uint8_t*)o->ptr)[byte] = byteval;
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"setbit",c->argv[1],c->db->id,o,NULL);
     server.dirty++;
     addReply(c, bitval ? shared.cone : shared.czero);
 }
@@ -1150,6 +1150,7 @@ void bitfieldGeneric(client *c, int flags) {
 
     if (changes) {
         signalModifiedKey(c,c->db,c->argv[1]);
+        dbSetDirty(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
     }

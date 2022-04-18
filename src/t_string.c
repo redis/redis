@@ -105,9 +105,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
+    genericSetKey(c,c->db,key,val,flags & OBJ_KEEPTTL,1);
     server.dirty++;
-    notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"set",key,c->db->id,val,NULL);
     if (expire) {
         setExpire(c,c->db,key,when);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -474,8 +474,8 @@ void setrangeCommand(client *c) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
         signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_STRING,
-            "setrange",c->argv[1],c->db->id);
+        notifyKeyspaceEventDirty(NOTIFY_STRING,
+            "setrange",c->argv[1],c->db->id,o,NULL);
         server.dirty++;
     }
     addReplyLongLong(c,sdslen(o->ptr));
@@ -607,7 +607,7 @@ void incrDecrCommand(client *c, long long incr) {
         }
     }
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"incrby",c->argv[1],c->db->id,new,NULL);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
@@ -657,7 +657,7 @@ void incrbyfloatCommand(client *c) {
     else
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id,new,NULL);
     server.dirty++;
     addReplyBulk(c,new);
 
@@ -697,7 +697,7 @@ void appendCommand(client *c) {
         totlen = sdslen(o->ptr);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"append",c->argv[1],c->db->id,o,NULL);
     server.dirty++;
     addReplyLongLong(c,totlen);
 }

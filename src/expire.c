@@ -56,7 +56,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-        deleteExpiredKeyAndPropagate(db,keyobj);
+        dbExpire(db, keyobj);
         decrRefCount(keyobj);
         return 1;
     } else {
@@ -558,7 +558,8 @@ void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
-    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
+    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL &&
+            lookupEvictKey(c->db,c->argv[1]) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }

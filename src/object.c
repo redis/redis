@@ -93,6 +93,11 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
+    o->scs = 0;
+    o->evicted = 0;
+    o->dirty = 1;
+    o->reserved = 0;
+
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -381,13 +386,13 @@ void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         o->refcount--;
         switch(o->type) {
-        case OBJ_STRING: freeStringObject(o); break;
-        case OBJ_LIST: freeListObject(o); break;
-        case OBJ_SET: freeSetObject(o); break;
-        case OBJ_ZSET: freeZsetObject(o); break;
-        case OBJ_HASH: freeHashObject(o); break;
-        case OBJ_MODULE: freeModuleObject(o); break;
-        case OBJ_STREAM: freeStreamObject(o); break;
+        case OBJ_STRING: if (o->ptr) freeStringObject(o); break;
+        case OBJ_LIST: if (o->ptr) freeListObject(o); break;
+        case OBJ_SET: if (o->ptr) freeSetObject(o); break;
+        case OBJ_ZSET: if (o->ptr) freeZsetObject(o); break;
+        case OBJ_HASH: if (o->ptr) freeHashObject(o); break;
+        case OBJ_MODULE: if (o->ptr) freeModuleObject(o); break;
+        case OBJ_STREAM: if (o->ptr) freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
@@ -402,6 +407,54 @@ void decrRefCount(robj *o) {
  * prototype for the free method. */
 void decrRefCountVoid(void *o) {
     decrRefCount(o);
+}
+
+int objectIsDirty(robj *o) {
+    return o->dirty;
+}
+
+int objectIsEvicted(robj *o) {
+    return o->evicted;
+}
+
+robj *createEvictObject(int type, moduleType *mt) {
+    if (type != OBJ_MODULE) {
+        return createObject(type, NULL);
+    } else {
+        return createModuleObject(mt, NULL);
+    }
+}
+
+void evictObjectSetSCS(robj *e, void *scs) {
+    if (e->type != OBJ_MODULE) {
+        if (scs == NULL) {
+            e->scs = 0;
+            e->ptr = NULL;
+        } else {
+            e->scs = 1;
+            e->ptr = scs;
+        }
+    } else {
+        moduleValue *mv = e->ptr;
+        if (scs == NULL) {
+            e->scs = 0;
+            mv->value = NULL;
+        } else {
+            e->scs = 1;
+            mv->value = scs;
+        }
+    }
+}
+
+void *evictObjectGetSCS(robj *e) {
+    if (e == NULL) return NULL;
+
+    if (e->type != OBJ_MODULE) {
+        return e->scs ? e->ptr: NULL;
+    }
+
+    moduleValue *mv = e->ptr;
+    return e->scs ? mv->value: NULL;
 }
 
 int checkType(client *c, robj *o, int type) {

@@ -27,8 +27,6 @@
  */
 #include "server.h"
 
-/* ------- swap related api for different object type(polymorphic)  ------- */
-
 /* look up on which scs client should block. client should block on uppper
  * level scs if it's not empty. */
 swappingClients *lookupSwappingClients(client *c, robj *key, robj *subkey) {
@@ -58,6 +56,7 @@ swappingClients *lookupSwappingClients(client *c, robj *key, robj *subkey) {
         return moduleLookupSwappingClients(mv, c, key, subkey);
     case OBJ_STRING:
     case OBJ_HASH:
+        return lookupSwappingClientsWk(c->db, key);
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
@@ -94,16 +93,14 @@ void setupSwappingClients(client *c, robj *key, robj *subkey, swappingClients *s
     e = dictGetVal(de);
 
     switch (e->type) {
-//    case OBJ_STRING:
-//        e->ptr = scs;
-//        e->scs = 1;
-//        break;
     case OBJ_MODULE:
         mv = e->ptr;
         moduleSetupSwappingClients(mv, c, key, subkey, scs);
         break;
     case OBJ_STRING:
     case OBJ_HASH:
+        setupSwappingClientsWk(c->db, key, scs);
+        break;
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
@@ -121,28 +118,20 @@ void getEvictionSwaps(client *c, robj *key, getSwapsResult *result) {
     dictEntry *de = dictFind(c->db->dict, key->ptr);
     robj *o = dictGetVal(de);
     moduleValue *mv = o->ptr;
-    swap *s;
 
     getSwapsPrepareResult(result, MAX_SWAPS_BUFFER);
-
     switch(o->type) {
-//    case OBJ_STRING:
-//        result->numswaps = 1;
-//        s = result->swaps;
-//        incrRefCount(key);
-//        s->key = key;
-//        s->subkey = NULL;
-//        break;
     case OBJ_MODULE:
-        moduleGetDataSwaps(mv, c, key, REDISMODULE_DATA_SWAPS_EVICTION, result);
+        moduleGetDataSwaps(mv, c, key, DATA_SWAPS_EVICTION, result);
         break;
     case OBJ_STRING:
     case OBJ_HASH:
+        getDataSwapsWk(key, DATA_SWAPS_EVICTION, result);
+        break;
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
     default:
-        /* list/set/zset not supported, forbid eviction for now. */ 
         break;
     }
 }
@@ -161,26 +150,19 @@ void getExpireSwaps(client *c, robj *key, getSwapsResult *result) {
 
     val = dictGetVal(de);
     moduleValue *mv = val->ptr;
-    swap *s;
 
     switch(val->type) {
-//    case OBJ_STRING:
-//        result->numswaps = 1;
-//        s = result->swaps;
-//        incrRefCount(key);
-//        s->key = key;
-//        s->subkey = NULL;
-//        break;
     case OBJ_MODULE:
-        moduleGetDataSwaps(mv, c, key, REDISMODULE_DATA_SWAPS_EXPIRE, result);
+        moduleGetDataSwaps(mv, c, key, DATA_SWAPS_EXPIRE, result);
         break;
     case OBJ_STRING:
     case OBJ_HASH:
+        getDataSwapsWk(key, DATA_SWAPS_EXPIRE, result);
+        break;
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
     case OBJ_STREAM:
-        /* list/set/zset not supported, forbid eviction for now. */ 
         result->numswaps = 0;
         break;
     default:
@@ -189,8 +171,11 @@ void getExpireSwaps(client *c, robj *key, getSwapsResult *result) {
     }
 }
 
+#define SWAPCB_TYPE_NATIVE 0
+#define SWAPCB_TYPE_MODULE 1
+
 int swapAna(client *c, robj *key, robj *subkey, int *action, char **rawkey,
-        char **rawval, moduleSwapFinishedCallback *cb, void **pd) {
+        char **rawval, int *cb_type, dataSwapFinishedCallback *cb, void **pd) {
     dictEntry *de;
     robj *val;
     moduleValue *mv;
@@ -213,13 +198,14 @@ int swapAna(client *c, robj *key, robj *subkey, int *action, char **rawkey,
     serverAssert(val != NULL);
 
     switch(val->type) {
-//    case OBJ_STRING:
-//        return stringSwapAna(c, key, subkey, action, rawkey, rawval, cb, pd);
     case OBJ_MODULE:
         mv = val->ptr;
+        *cb_type = SWAPCB_TYPE_MODULE;
         return moduleSwapAna(mv, c, key, subkey, action, rawkey, rawval, cb, pd);
     case OBJ_STRING:
     case OBJ_HASH:
+        *cb_type = SWAPCB_TYPE_NATIVE;
+        return swapAnaWk(c->cmd, c->db, key, action, rawkey, rawval, cb, pd);
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
@@ -233,6 +219,21 @@ int swapAna(client *c, robj *key, robj *subkey, int *action, char **rawkey,
     return 0;
 }
 
+void dataSwapFinished(client *c, int action, char *rawkey, char *rawval,
+        int cb_type, dataSwapFinishedCallback cb, void *pd) {
+    switch (cb_type) {
+    case SWAPCB_TYPE_NATIVE:
+        cb(c->db, action, rawkey, rawval, pd);
+        break;
+    case SWAPCB_TYPE_MODULE:
+        moduleSwapFinished(c, action, rawkey, rawval, cb, pd);
+        break;
+    default:
+        serverPanic("Unexpected swap cb type.");
+        break;
+    }
+}
+
 /* NOTE that result.{key,subkey} are ONLY REFS to client argv (since client
  * outlives getKeysResult if no swap action happend. key, subkey will be 
  * copied (using incrRefCount) when async swap acutally proceed. */
@@ -243,7 +244,7 @@ static void getSingleCmdSwaps(client *c, getSwapsResult *result) {
         int i, numkeys;
         getKeysResult keys = GETKEYS_RESULT_INIT;
         /* whole key swaping, swaps defined by command arity. */
-        numkeys = getKeysUsingCommandTable(cmd, c->argv, c->argc, &keys);
+        numkeys = getKeysFromCommand(cmd, c->argv, c->argc, &keys);
         getSwapsPrepareResult(result, result->numswaps+numkeys);
         for (i = 0; i < numkeys; i++) {
             robj *key = c->argv[keys.keys[i]];
@@ -344,8 +345,12 @@ compVal *getComplementSwaps(redisDb *db, robj *key, int mode, getSwapsResult *re
         cv = compValNew(comp_type, cvv, cve);
         break;
     case OBJ_STRING:
-    case OBJ_LIST:
     case OBJ_HASH:
+        comp_val = getComplementSwapsWk(db, key, mode, &comp_type, result, comp, pd);
+        serverAssert(comp_type == COMP_TYPE_RAW);
+        cv = compValNew(comp_type, comp_val, e);
+        break;
+    case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
     case OBJ_STREAM:

@@ -347,15 +347,6 @@ int dbDelete(redisDb *db, robj *key) {
                                              dbSyncDelete(db,key);
 }
 
-int dbDeleteEvict(redisDb *db, robj *key) {
-    if (dictDelete(db->evict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) slotToKeyDel(key->ptr);
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
 /* Prepare the string object stored at 'key' to be modified destructively
  * to implement commands like SETBIT or APPEND.
  *
@@ -624,6 +615,28 @@ robj *lookupEvictSCS(redisDb *db, robj *key) {
 
 robj *lookupEvict(redisDb *db, robj *key) {
     return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_ALL);
+}
+
+void dbAddEvict(redisDb *db, robj *key, robj *evict) {
+    sds copy = sdsdup(key->ptr);
+    int retval = dictAdd(db->evict, copy, evict);
+    serverAssertWithInfo(NULL,key,retval == DICT_OK);
+}
+
+/* Note: only evict object shell will be deleted. */
+int dbDeleteEvict(redisDb *db, robj *key) {
+    dictEntry *de;
+    robj *evict;
+    if ((de = dictUnlink(db->evict,key->ptr)) == NULL) return 0;
+    evict = dictGetVal(de);
+    evict->ptr = NULL;
+    dictFreeUnlinkedEntry(db->evict,de);
+    return 1;
+}
+
+void dbSetDirty(redisDb *db, robj *key) {
+    robj *o = lookupKey(db,key,LOOKUP_NOTOUCH);
+    if (o) setObjectDirty(o);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1653,7 +1666,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
 	dbExpire(db, key);
-    //deleteExpiredKeyAndPropagate(db,key);
+
     return 1;
 }
 

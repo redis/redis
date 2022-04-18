@@ -2048,6 +2048,9 @@ int processMultibulkBuffer(client *c) {
  * 2. In the case of master clients, the replication offset is updated.
  * 3. Propagate commands we got from our master to replicas down the line. */
 void commandProcessed(client *c) {
+    serverLog(LL_DEBUG, "> commandProcessed client(id=%ld,cmd=%s,key=%s)",
+        c->id,c->cmd ? c->cmd->name: "",c->argc <= 1 ? "": (sds)c->argv[1]->ptr);
+
     /* If client is blocked(including paused), just return avoid reset and replicate.
      *
      * 1. Don't reset the client structure for blocked clients, so that the reply
@@ -2055,16 +2058,12 @@ void commandProcessed(client *c) {
      *    The client will be reset in unblockClient().
      * 2. Don't update replication offset or propagate commands to replicas,
      *    since we have not applied the command. */
-    if (c->flags & CLIENT_BLOCKED || c->flags & CLIENT_SWAPPING) return;
-
-    serverLog(LL_DEBUG, "> commandProcessed client(id=%ld,cmd=%s,key=%s)",
-        c->id,c->cmd ? c->cmd->name: "",c->argc <= 1 ? "": (sds)c->argv[1]->ptr);
-
-    resetClient(c);
-
-    /* To reuse test cases with extensive swap actions, we try to evict
-     * configured num of key after executing command. */
-    if (server.debug_evict_keys) debugEvictKeys();
+    if (!(c->flags & CLIENT_BLOCKED) && !(c->flags & CLIENT_SWAPPING)) {
+        resetClient(c);
+        /* To reuse test cases with extensive swap actions, we try to evict
+         * configured num of key after executing command. */
+        if (server.debug_evict_keys) debugEvictKeys();
+    }
 
     serverLog(LL_DEBUG, "< commandProcessed");
 }

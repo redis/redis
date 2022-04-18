@@ -140,3 +140,14 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     }
     decrRefCount(eventobj);
 }
+
+void notifyKeyspaceEventDirty(int type, char *event, robj *key, int dbid, ...) {
+    robj *o;
+    va_list ap;
+
+    va_start(ap, dbid);
+    while ((o = va_arg(ap, robj*))) setObjectDirty(o);
+    va_end(ap);
+
+    notifyKeyspaceEvent(type,event,key,dbid);
+}

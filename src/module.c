@@ -806,7 +806,7 @@ void moduleGetCommandSwaps(struct redisCommand *cmd, robj **argv, int argc, getS
 }
 
 int moduleSwapAna(moduleValue *mv, client *c, robj *key, robj *subkey,
-        int *action, char **rawkey, char **rawval, moduleSwapFinishedCallback *cb, void **pd) {
+        int *action, char **rawkey, char **rawval, dataSwapFinishedCallback *cb, void **pd) {
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     
     if (!mv->type->swap_ana) return REDISMODULE_OK;
@@ -818,7 +818,7 @@ int moduleSwapAna(moduleValue *mv, client *c, robj *key, robj *subkey,
 }
 
 void moduleSwapFinished(client *c, int action, char *rawkey, char *rawval,
-        moduleSwapFinishedCallback cb, void *pd) {
+        dataSwapFinishedCallback cb, void *pd) {
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
     ctx.module = NULL;

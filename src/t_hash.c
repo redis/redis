@@ -651,7 +651,7 @@ void hsetnxCommand(client *c) {
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        notifyKeyspaceEventDirty(NOTIFY_HASH,"hset",c->argv[1],c->db->id,o,NULL);
         server.dirty++;
     }
 }
@@ -681,7 +681,7 @@ void hsetCommand(client *c) {
         addReply(c, shared.ok);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_HASH,"hset",c->argv[1],c->db->id,o,NULL);
     server.dirty += (c->argc - 2)/2;
 }
 
@@ -716,7 +716,7 @@ void hincrbyCommand(client *c) {
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyLongLong(c,value);
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id,o,NULL);
     server.dirty++;
 }
 
@@ -755,7 +755,7 @@ void hincrbyfloatCommand(client *c) {
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyBulkCBuffer(c,buf,len);
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id,o,NULL);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
@@ -846,7 +846,7 @@ void hdelCommand(client *c) {
     }
     if (deleted) {
         signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
+        notifyKeyspaceEventDirty(NOTIFY_HASH,"hdel",c->argv[1],c->db->id,o,NULL);
         if (keyremoved)
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);

@@ -34,7 +34,6 @@ typedef struct {
     robj *key;              /* key object */
     compVal *cv;            /* comp val */
     long long expire;       /* expire time */
-    long long now;          /* now */
     int totalswap;          /* # of needed swaps */
     int numswapped;         /* # of finished swaps */
     complementObjectFunc comp;  /* function to complent val with rocksdb swap result */
@@ -42,7 +41,7 @@ typedef struct {
 } keyValuePairCtx;
 
 keyValuePairCtx *keyValuePairCtxNew(rio *rdb, redisDb *db, robj *key,
-        compVal *cv, int totalswap, long long expire, long long now,
+        compVal *cv, int totalswap, long long expire,
         complementObjectFunc comp, void *pd) {
     keyValuePairCtx *ctx = zmalloc(sizeof(keyValuePairCtx));
     ctx->rdb = rdb;
@@ -50,7 +49,6 @@ keyValuePairCtx *keyValuePairCtxNew(rio *rdb, redisDb *db, robj *key,
     ctx->key = key;
     ctx->cv = cv;
     ctx->expire = expire;
-    ctx->now = now;
     ctx->totalswap = totalswap;
     ctx->numswapped = 0;
     ctx->comp = comp;
@@ -64,8 +62,7 @@ void keyValuePairCtxFree(keyValuePairCtx *kvp) {
     zfree(kvp);
 }
 
-//TODO remove now
-int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv, long long expiretime, long long now);
+int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv, long long expiretime);
 
 int rdbSaveSwapFinished(sds rawkey, sds rawval, void *_kvp) {
     keyValuePairCtx *kvp = _kvp;
@@ -86,7 +83,7 @@ int rdbSaveSwapFinished(sds rawkey, sds rawval, void *_kvp) {
     kvp->numswapped++;
     if (kvp->numswapped == kvp->totalswap) {
         if (rdbSaveKeyCompValPair(kvp->rdb, kvp->db, kvp->key, kvp->cv,
-                    kvp->expire, kvp->now) == -1) {
+                    kvp->expire) == -1) {
             keyValuePairCtxFree(kvp);
             goto err;
         }
@@ -107,7 +104,7 @@ int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db) {
     dictIterator *di = NULL;
     dictEntry *de;
     dict *d = db->evict;
-    long long now = mstime(), num = 0;
+    long long num = 0;
 
     parallelSwap *ps = parallelSwapNew(server.ps_parallism_rdb);
 
@@ -142,7 +139,7 @@ int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db) {
             continue;
         }
 
-        kvp = keyValuePairCtxNew(rdb, db, key, cv, result.numswaps, expire, now,
+        kvp = keyValuePairCtxNew(rdb, db, key, cv, result.numswaps, expire,
                 comp, pd);
 
         for (i = 0; i < result.numswaps; i++) {

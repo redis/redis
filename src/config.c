@@ -2508,7 +2508,7 @@ standardConfig configs[] = {
     createIntConfig("hz", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.config_hz, CONFIG_DEFAULT_HZ, INTEGER_CONFIG, NULL, updateHZ),
     createIntConfig("min-replicas-to-write", "min-slaves-to-write", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_to_write, 0, INTEGER_CONFIG, NULL, updateGoodSlaves),
     createIntConfig("min-replicas-max-lag", "min-slaves-max-lag", MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_min_slaves_max_lag, 10, INTEGER_CONFIG, NULL, updateGoodSlaves),
-    createIntConfig("debug-evict-keys", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("debug-evict-keys", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("ps-parallism-rdb", NULL, MODIFIABLE_CONFIG, 4, 16384, server.ps_parallism_rdb, 32, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
 

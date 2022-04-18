@@ -826,7 +826,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"debug",debugCommand,-2,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,debugGetKeys,NULL,SWAP_GET,0,0,0,0,0,0},
 
     {"config",configCommand,-2,
      "admin ok-loading ok-stale no-script",
@@ -898,11 +898,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"object",objectCommand,-2,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_GET,2,2,1,0,0,0}, //TODO
+     0,NULL,NULL,SWAP_GET,2,2,1,0,0,0},
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     0,memoryGetKeys,NULL,SWAP_GET,0,0,0,0,0,0}, //TODO
+     0,memoryGetKeys,NULL,SWAP_GET,0,0,0,0,0,0},
 
     {"client",clientCommand,-2,
      "admin no-script random ok-loading ok-stale @connection",
@@ -1118,6 +1118,8 @@ struct redisCommand redisCommandTable[] = {
      "admin no-script ok-stale",
      0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
 
+    /* evict/rksdel/rksget command used by shared fake to identify swap does
+     * not need any swap before command proc, but triggers swap in proc. */
 	{"evict",evictCommand,-2,
 	 "read-only fast",
      0,NULL,getSwapsNone,SWAP_PUT,1,-1,1,0,0,0},
@@ -1312,6 +1314,8 @@ void dictObjectShellDestructor(void *privdata, void *val)
         moduleValue *mv = o->ptr;
         /* reset value to NULL so that only shell would be freed. */
         mv->value = NULL;
+    } else {
+        o->ptr = NULL;
     }
 
     decrRefCount(val);

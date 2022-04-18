@@ -569,7 +569,7 @@ typedef int (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 typedef void* (*RedisModuleLookupSwappingClients)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey);
 typedef void (*RedisModuleSetupSwappingClients)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey, void *scs);
 typedef void (*RedisModuleGetDataSwaps)(RedisModuleCtx *ctx, RedisModuleString *key, int mode, RedisModuleGetSwapsResult *result);
-typedef void (*RedisModuleSwapFinishedCallback)(RedisModuleCtx *ctx, int action, char* rawkey, char* rawval, void *pd);
+typedef void (*RedisModuleSwapFinishedCallback)(void *ctx, int action, char* rawkey, char* rawval, void *pd);
 typedef int (*RedisModuleSwapAnaFunc)(RedisModuleCtx *ctx, RedisModuleString *key, RedisModuleString *subkey, int *action, char **rawkey, char **rawval, RedisModuleSwapFinishedCallback *cb, void **pd);
 typedef int (*RedisModuleComplementObjectFunc)(void **pdupptr, char *rawkey, char *rawval, void *pd);
 typedef void *(*RedisModuleGetComplementSwaps)(RedisModuleCtx *ctx, RedisModuleString *key, int mode, int *type, RedisModuleGetSwapsResult *result, RedisModuleComplementObjectFunc *comp, void **pd);

@@ -382,6 +382,19 @@ void mallctl_string(client *c, robj **argv, int argc) {
 }
 #endif
 
+int debugGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    int *keys = getKeysPrepareResult(result, 1);
+    UNUSED(cmd);
+    if (argc == 3 && !strcasecmp(argv[1]->ptr,"object")) {
+        keys[0] = 2;
+        result->numkeys = 1;
+    } else {
+        result->numkeys = 0;
+    }
+    return result->numkeys;
+}
+
+
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {

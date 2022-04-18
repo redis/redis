@@ -225,8 +225,9 @@ typedef struct {
     client *c;
     robj *key;
     robj *subkey;
-    moduleSwapFinishedCallback module_cb;
-    void *module_pd;
+    int cb_type;
+    dataSwapFinishedCallback data_cb;
+    void *data_pd;
     swappingClients *scs;
     size_t swap_memory;
 } rocksPrivData;
@@ -423,10 +424,10 @@ void rocksSwapFinished(int action, sds rawkey, sds rawval, void *privdata) {
     sc = swappingClientsPeek(scs);
     serverAssert(sc->c == rocks_pd->c);
 
-    /* Call module cb to swap in/out keyspace before client cb. */
-    if (rocks_pd->module_cb) {
-        moduleSwapFinished(c, action, rawkey, rawval, rocks_pd->module_cb,
-                rocks_pd->module_pd);
+    /* Call data cb to swap in/out keyspace before client cb. */
+    if (rocks_pd->data_cb) {
+        dataSwapFinished(c, action, rawkey, rawval, rocks_pd->cb_type,
+                rocks_pd->data_cb, rocks_pd->data_pd);
     }
 
     /* Note that client_cb might spawned new swap(typically by expire), those
@@ -529,13 +530,13 @@ static inline size_t estimateSwapMemory(sds rawkey, sds rawval, rocksPrivData *p
  * re-evaluated according to keyspace status to decide whether & which swap
  * action should be triggered. */
 int clientSwapProceed(client *c, swap *s, swappingClients **pscs) {
-    int action;
+    int action, cb_type;
     sds rawkey, rawval = NULL;
-    moduleSwapFinishedCallback module_cb;
-    void *module_pd;
+    dataSwapFinishedCallback data_cb;
+    void *data_pd;
 
-    if (swapAna(c, s->key, s->subkey, &action, &rawkey, &rawval, &module_cb,
-                &module_pd) || action == SWAP_NOP) {
+    if (swapAna(c, s->key, s->subkey, &action, &rawkey, &rawval,
+                &cb_type, &data_cb, &data_pd) || action == SWAP_NOP) {
         /* TODO: Something went wrong in swap ana, flag client to abort
          * process current command and reply with SWAP_FAILED_xx:
          * c->swap_result = SWAP_FAILED_xx. */ 
@@ -553,8 +554,9 @@ int clientSwapProceed(client *c, swap *s, swappingClients **pscs) {
     rocks_pd->key = s->key;
     if (s->subkey) incrRefCount(s->subkey);
     rocks_pd->subkey = s->subkey;
-    rocks_pd->module_cb = module_cb;
-    rocks_pd->module_pd = module_pd;
+    rocks_pd->cb_type = cb_type;
+    rocks_pd->data_cb = data_cb;
+    rocks_pd->data_pd = data_pd;
     rocks_pd->scs = *pscs;
 
     rocks_pd->swap_memory = estimateSwapMemory(rawkey, rawval, rocks_pd);
