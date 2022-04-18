@@ -1256,7 +1256,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
     if (!hasActiveChildProcess() &&
-        server.aof_rewrite_scheduled)
+        server.aof_rewrite_scheduled &&
+        !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();
     }
