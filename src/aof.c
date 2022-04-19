@@ -815,38 +815,39 @@ int openNewIncrAofForAppend(void) {
 #define AOF_REWRITE_LIMITE_THRESHOLD    3
 #define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
-    int limit = 0;
-    static int limit_delay_minutes = 0;
+    static int next_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
+    /* If the number of incr AOFs exceeds the threshold but server.aof_lastbgrewrite_status is OK, it 
+     * means that redis may have just loaded a dataset containing many incr AOFs. At this time, we 
+     * will not limit the AOFRW. */
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
-    if (incr_aof_num >= AOF_REWRITE_LIMITE_THRESHOLD) {
-        if (server.unixtime < next_rewrite_time) {
-            limit = 1;
-        } else {
-            if (limit_delay_minutes == 0) {
-                limit = 1;
-                limit_delay_minutes = 1;
-            } else {
-                limit_delay_minutes *= 2;
-            }
-
-            if (limit_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
-                limit_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
-            }
-
-            next_rewrite_time = server.unixtime + limit_delay_minutes * 60;
-
-            serverLog(LL_WARNING,
-                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
-                incr_aof_num, limit_delay_minutes);
-        }
-    } else {
-        limit_delay_minutes = 0;
+    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD || server.aof_lastbgrewrite_status == C_OK) {
+        /* We may be recovering from limited state, so reset all states. */
+        next_delay_minutes = 0;
         next_rewrite_time = 0;
+        return 0;
+    }
+    
+    /* if it is in the limiting state, then check if the next_rewrite_time is reached */
+    if (next_rewrite_time != 0) {
+        if (server.unixtime < next_rewrite_time) {
+            return 1;
+        } else {
+            next_rewrite_time = 0;
+            return 0;
+        }
     }
 
-    return limit;
+    next_delay_minutes = (next_delay_minutes == 0) ? 1 : (next_delay_minutes * 2);
+    if (next_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
+        next_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
+    }
+
+    next_rewrite_time = server.unixtime + next_delay_minutes * 60;
+    serverLog(LL_WARNING,
+        "Background AOF rewrite has repeatedly failed and triggered the limit, will retry in %d minutes", next_delay_minutes);
+    return 1;
 }
 
 /* ----------------------------------------------------------------------------

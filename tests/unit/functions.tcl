@@ -986,7 +986,7 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - verify allow-omm allows running any command} {
         r FUNCTION load replace {#!lua name=f1
@@ -1003,7 +1003,7 @@ start_server {tags {"scripting"}} {
         assert_match {1} [r get x]
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 }
 
 start_server {tags {"scripting"}} {
@@ -1074,7 +1074,7 @@ start_server {tags {"scripting"}} {
         assert_match {*can not run it when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - deny oom on no-writes function} {
         r FUNCTION load replace {#!lua name=test
@@ -1090,7 +1090,7 @@ start_server {tags {"scripting"}} {
         assert_match {*can not run it when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - allow stale} {
         r FUNCTION load replace {#!lua name=test
