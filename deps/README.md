@@ -101,7 +101,7 @@ Hdr_Histogram
 
 Updated source can be found here: https://github.com/HdrHistogram/HdrHistogram_c
 We use a customized version 0.11.5
-1. Compare all changes in under /hdr_histogram directory to version 0.11.5
+1. Compare all changes under /hdr_histogram directory to version 0.11.5
 2. Copy updated files from newer version onto files in /hdr_histogram.
 3. Apply the changes from 1 above to the updated files.
 
