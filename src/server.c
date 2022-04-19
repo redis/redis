@@ -3250,7 +3250,7 @@ void call(client *c, int flags) {
     c->cmd->proc(c);
     server.in_nested_call--;
 
-    /* In order to avoid perfomance implication due to querying the clock using a system call 3 times,
+    /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
     ustime_t duration;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
