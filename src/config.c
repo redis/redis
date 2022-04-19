@@ -2641,7 +2641,7 @@ static int setConfigOOMScoreAdjValuesOption(standardConfig *config, sds *argv, i
 
         if (*eptr != '\0' || val < -2000 || val > 2000) {
             if (err) *err = "Invalid oom-score-adj-values, elements must be between -2000 and 2000.";
-            return -1;
+            return 0;
         }
 
         values[i] = val;

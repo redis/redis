@@ -122,5 +122,10 @@ if {$system_name eq {linux}} {
             r config set oom-score-adj absolute
             assert_equal [get_oom_score_adj] $custom_oom
         }
+
+        test {CONFIG SET out-of-range oom score} {
+            assert_error {ERR *must be between -2000 and 2000*} {r config set oom-score-adj-values "-2001 -2001 -2001"} 
+            assert_error {ERR *must be between -2000 and 2000*} {r config set oom-score-adj-values "2001 2001 2001"} 
+        }
     }
 }
