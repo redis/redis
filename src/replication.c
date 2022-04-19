@@ -1975,6 +1975,22 @@ void readSyncBulkPayload(connection *conn) {
     /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
+    /* Also try to stop save RDB child before flushing and parsing thr RDB:
+     * 1. avoid RDB file race if load the RDB on disk.
+     * 2. avoid create a copy-on-write disaster, too. */
+    if (server.child_type == CHILD_TYPE_RDB &&
+        (!use_diskless_load || server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB))
+    {
+        if (!use_diskless_load) {
+            serverLog(LL_NOTICE,
+                "Replica is about to load the RDB file received from the "
+                "master, but there is a pending RDB child running. "
+                "Killing process %ld and removing its temp file to avoid "
+                "any race",
+                (long) server.child_pid);
+        }
+        killRDBChild();
+    }
 
     if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
         /* Initialize empty tempDb dictionaries. */
@@ -2106,16 +2122,6 @@ void readSyncBulkPayload(connection *conn) {
         connNonBlock(conn);
         connRecvTimeout(conn,0);
     } else {
-        /* Ensure background save doesn't overwrite synced data */
-        if (server.child_type == CHILD_TYPE_RDB) {
-            serverLog(LL_NOTICE,
-                "Replica is about to load the RDB file received from the "
-                "master, but there is a pending RDB child running. "
-                "Killing process %ld and removing its temp file to avoid "
-                "any race",
-                (long) server.child_pid);
-            killRDBChild();
-        }
 
         /* Make sure the new file (also used for persistence) is fully synced
          * (not covered by earlier calls to rdb_fsync_range). */
