@@ -2090,7 +2090,7 @@ uint32_t getShardIDPingExtSize() {
 }
 
 /* 1. If a NULL hdr is provided, compute the extension size;
- * 2. If a non-NULL hdr is provied, write the hostname ping
+ * 2. If a non-NULL hdr is provided, write the hostname ping
  *    extension at the start of the cursor. This function
  *    will update the cursor to point to the end of the
  *    written extension and will return the amount of bytes
