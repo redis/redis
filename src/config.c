@@ -1821,10 +1821,16 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
     UNUSED(argc);
     if (config->data.sds.is_valid_fn && !config->data.sds.is_valid_fn(argv[0], err))
         return 0;
+
     sds prev = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     sds new = (config->data.string.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : argv[0];
+
+    /* if prev and new configuration are not equal, set the new one */
     if (new != prev && (new == NULL || prev == NULL || sdscmp(prev, new))) {
+        /* If MODULE_CONFIG flag is set, then free temporary prev getModuleStringConfig returned.
+         * Otherwise, free the actual previous config value Redis held (Same action, different reasons) */
         sdsfree(prev);
+
         if (config->flags & MODULE_CONFIG) {
             return setModuleStringConfig(config->privdata, new, err);
         }
