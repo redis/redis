@@ -1830,7 +1830,7 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
         return 2;
     }
 
-    /* old and new config are not equal */
+    /* old and new config are not equals */
 
     /* If MODULE_CONFIG, then free temp 'old'. Else free old referenced config. Same action, different reasons. */
     sdsfree(old);
