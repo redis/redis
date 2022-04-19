@@ -3635,8 +3635,6 @@ int processCommand(client *c) {
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !mustObeyClient(c) &&
-        !(c->flags & CLIENT_SCRIPT &&
-          mustObeyClient(server.script_caller)) &&
         !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
