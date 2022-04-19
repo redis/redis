@@ -3241,23 +3241,26 @@ void call(client *c, int flags) {
     if (server.fixed_time_expire++ == 0) {
         updateCachedTimeWithUs(0,call_timer);
     }
-    #if defined(USE_PROCESSOR_CLOCK)
-    const monotime command_start = getMonotonicUs();
-    #endif
-    server.in_nested_call++;
 
+    monotime monotonic_start = 0;
+    if (monotonicGetType() == MONOTONIC_CLOCK_HW)
+        monotonic_start = getMonotonicUs();
+
+    server.in_nested_call++;
     c->cmd->proc(c);
-    #if defined(USE_PROCESSOR_CLOCK)
-    const long duration = getMonotonicUs() - command_start;
-    #else
-    const long duration = ustime() - call_timer;
-    #endif
+    server.in_nested_call--;
+
+    /* In order to avoid perfomance implication due to querying the clock using a system call 3 times,
+     * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
+    ustime_t duration;
+    if (monotonicGetType() == MONOTONIC_CLOCK_HW)
+        duration = getMonotonicUs() - monotonic_start;
+    else
+        duration = ustime() - call_timer;
 
     c->duration = duration;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
-
-    server.in_nested_call--;
 
     /* Update failed command calls if required. */
 
@@ -5136,6 +5139,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "redis_mode:%s\r\n"
             "os:%s %s %s\r\n"
             "arch_bits:%i\r\n"
+            "monotonic_clock:%s\r\n"
             "multiplexing_api:%s\r\n"
             "atomicvar_api:%s\r\n"
             "gcc_version:%i.%i.%i\r\n"
@@ -5159,6 +5163,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             mode,
             name.sysname, name.release, name.machine,
             server.arch_bits,
+            monotonicInfoString(),
             aeGetApiName(),
             REDIS_ATOMIC_API,
 #ifdef __GNUC__
