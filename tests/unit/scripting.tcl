@@ -52,7 +52,7 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
     } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
@@ -1330,7 +1330,7 @@ start_server {tags {"scripting"}} {
         ] 1
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test "no-writes shebang flag" {
         assert_error {ERR Write commands are not allowed from read-only scripts*} {
