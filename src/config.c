@@ -791,11 +791,9 @@ static void restoreBackupConfig(dict *set_config_values, dict *apply_fns, list *
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         configSetValue *config_value = dictGetVal(de);
-        standardConfig *config = config_value->config;
-        sds old_value = config_value->old_value;
-        if (!performInterfaceSet(config, old_value, &errstr))
+        if (!performInterfaceSet(config_value->config, config_value->old_value, &errstr))
             serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
-                      config->name, old_value, errstr);
+                      config_value->config->name, config_value->old_value, errstr);
     }
     dictReleaseIterator(di);
 
