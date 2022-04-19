@@ -1278,7 +1278,12 @@ clusterNode *clusterLookupNode(const char *name, int length) {
     return dictGetVal(de);
 }
 
-/* Get all the nodes serving the same slots as myself. */
+/* Get all the nodes serving the same slots as myself.
+ * Note that the list returned is not computed on the fly
+ * via slaveof; rather, it is maintained permanently to 
+ * track the shard membership and its life cycle is tied
+ * to this Redis process. Therefore, the caller must not
+ * release the list. */
 list *clusterGetNodesServingMySlots(clusterNode *node) {
     sds s = sdsnewlen(node->shard_id, CLUSTER_NAMELEN);
     dictEntry *de = dictFind(server.cluster->shards,s);
@@ -1302,14 +1307,6 @@ void clusterRenameNode(clusterNode *node, char *newname) {
     serverAssert(retval == DICT_OK);
     memcpy(node->name, newname, CLUSTER_NAMELEN);
     clusterAddNode(node);
-}
-
-list *clusterLookupMasterNodeByShardId(const char *shard_id) {
-    sds s = sdsnewlen(shard_id, CLUSTER_NAMELEN);
-    dictEntry *de = dictFind(server.cluster->shards, s);
-    sdsfree(s);
-    if (de == NULL) return NULL;
-    return dictGetVal(de);
 }
 
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
@@ -2092,9 +2089,12 @@ uint32_t getShardIDPingExtSize() {
     return getAlignedPingExtSize(CLUSTER_NAMELEN);
 }
 
-/* Write the hostname ping extension at the start of the cursor. This function
- * will update the cursor to point to the end of the written extension and
- * will return the amount of bytes written. */
+/* 1. If a NULL hdr is provided, compute the extension size;
+ * 2. If a non-NULL hdr is provied, write the hostname ping
+ *    extension at the start of the cursor. This function
+ *    will update the cursor to point to the end of the
+ *    written extension and will return the amount of bytes
+ *    written. */
 uint32_t writePingExt(clusterMsg *hdr)  {
     uint16_t extensions = 0;
     uint32_t totlen = 0;
