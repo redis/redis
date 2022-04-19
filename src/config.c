@@ -328,7 +328,10 @@ const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
 }
 
 /* Get enum names from value. If no matches are found "unknown" is returned. */
-static sds configEnumGetNamesOrUnknown(configEnum *ce, int values) {
+static sds configEnumGetNamesOrUnknown(configEnum *ce, int values, int multiarg) {
+    if (!multiarg)
+        return sdsnew(configEnumGetNameOrUnknown(ce, values));
+
     sds names = NULL;
     int allPossibleValues = 0;
     while(ce->name != NULL) {
@@ -1343,11 +1346,13 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
 /* Rewrite an enumeration option. It takes as usually state and option name,
  * and in addition the enumeration array and the default value for the
  * option. */
-void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
-    sds names = configEnumGetNamesOrUnknown(ce,value);
+void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, standardConfig *config) {
+    int multiarg = config->flags & MULTI_ARG_CONFIG;
+    sds names = configEnumGetNamesOrUnknown(config->data.enumd.enum_value,value,multiarg);
     sds line = sdscatfmt(sdsempty(),"%s %s",option,names);
     sdsfree(names);
-    int force = value != defval;
+    int force = value != config->data.enumd.default_value;
+
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
@@ -1975,15 +1980,13 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    if (config->flags & MULTI_ARG_CONFIG)
-        return configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val);
-    else
-        return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
+    int multiarg = config->flags & MULTI_ARG_CONFIG;
+    return configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val,multiarg);
 }
 
 static void enumConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    rewriteConfigEnumOption(state, name, val, config->data.enumd.enum_value, config->data.enumd.default_value);
+    rewriteConfigEnumOption(state, name, val, config);
 }
 
 #define createEnumConfig(name, alias, flags, enum, config_addr, default, is_valid, apply) { \
