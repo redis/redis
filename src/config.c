@@ -1821,18 +1821,25 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
     UNUSED(argc);
     if (config->data.sds.is_valid_fn && !config->data.sds.is_valid_fn(argv[0], err))
         return 0;
-    sds prev = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
+    sds old = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     sds new = (config->data.string.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : argv[0];
-    if (new != prev && (new == NULL || prev == NULL || sdscmp(prev, new))) {
-        sdsfree(prev);
-        if (config->flags & MODULE_CONFIG) {
-            return setModuleStringConfig(config->privdata, new, err);
-        }
-        *config->data.sds.config = new != NULL ? sdsdup(new) : NULL;
-        return 1;
+
+    /* Return if old and new config are equals */
+    if ((old == new) || (new != NULL && old != NULL && (sdscmp(old, new) == 0))) {
+        if (config->flags & MODULE_CONFIG) sdsfree(old);
+        return 2;
     }
-    if (config->flags & MODULE_CONFIG && prev) sdsfree(prev);
-    return 2;
+
+    /* old and new config are not equal */
+
+    /* If MODULE_CONFIG, then free temp 'old'. Else free old referenced config. Same action, different reasons. */
+    sdsfree(old);
+
+    if (config->flags & MODULE_CONFIG) {
+        return setModuleStringConfig(config->privdata, new, err);
+    }
+    *config->data.sds.config = new != NULL ? sdsdup(new) : NULL;
+    return 1;
 }
 
 static sds sdsConfigGet(standardConfig *config) {
