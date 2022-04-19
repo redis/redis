@@ -1,4 +1,4 @@
-STD=
+STD= -std=c99
 WARN= -Wall
 OPT= -Os
 
