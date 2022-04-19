@@ -328,19 +328,19 @@ const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
 }
 
 /* Get enum names from value. If no matches are found "unknown" is returned. */
-const char *configEnumGetNamesOrUnknown(configEnum *ce, int values) {
-    char *names = NULL;
+static sds configEnumGetNamesOrUnknown(configEnum *ce, int values) {
+    sds names = NULL;
     int allPossibleValues = 0;
     while(ce->name != NULL) {
-        if (values == ce->val) /* Fast path and covers case of values being 0 */
-            return ce->name;
+        if (values == ce->val) /* Short path and covers case of values being 0 */
+            return sdsnew(ce->name);
         if (values & ce->val)
             names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
         allPossibleValues |= ce->val;
         ce++;
     }
     if (!names || values > allPossibleValues)
-        return "unknown";
+        return sdsnew("unknown");
     return names;
 }
 
@@ -1342,11 +1342,10 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
  * and in addition the enumeration array and the default value for the
  * option. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
-    sds line;
-    const char *names = configEnumGetNamesOrUnknown(ce,value);
+    sds names = configEnumGetNamesOrUnknown(ce,value);
+    sds line = sdscatfmt(sdsempty(),"%s %s",option,names);
+    sdsfree(names);
     int force = value != defval;
-
-    line = sdscatprintf(sdsempty(),"%s %s",option,names);
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
@@ -1969,7 +1968,7 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
     if (config->flags & MULTI_ARG_CONFIG)
-        return sdsnew(configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val));
+        return configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val);
     else
         return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
 }
@@ -2339,12 +2338,10 @@ static int isValidAOFdirname(char *val, const char **err) {
 static int isValidShutdownOnSigFlags(int val, const char **err) {
     /* Individual arguments are validated by createEnumConfig logic.
      * We just need to ensure valid combinations here. */
-
     if (val & SHUTDOWN_NOSAVE && val & SHUTDOWN_SAVE) {
         *err = "shutdown options SAVE and NOSAVE can't be used simultaneously";
         return 0;
     }
-
     return 1;
 }
 
