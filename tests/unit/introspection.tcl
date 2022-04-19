@@ -215,7 +215,7 @@ start_server {tags {"introspection"}} {
             dbfilename
             logfile
             dir
-            socket-id
+            socket-mark-id
         }
 
         if {!$::tls} {
