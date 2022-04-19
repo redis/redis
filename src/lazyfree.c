@@ -17,7 +17,7 @@ static redisAtomic size_t lazyfreed_objects = 0;
 
 #define lazyfreeDict(d) lazyfreeGeneric(dictRelease, d, dictSize(d))
 #define lazyfreeList(l) lazyfreeGeneric(listRelease, l, listLength(l))
-#define lazyfreeRax(r)  lazyfreeGeneric(freeTrackingRadixTree, r, raxSize(r))
+#define lazyfreeRax(r)  lazyfreeGeneric(raxFree, r, raxSize(r))
 
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
@@ -35,7 +35,8 @@ void lazyfreeDatabase(void *args[]) {
 
 /* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
-    lazyfreeRax((rax *)args[0]);
+    rax *rt = args[0];
+    lazyfreeGeneric(freeTrackingRadixTree, rt, raxSize(rt));
 }
 
 /* Release the lua_scripts dict. */
