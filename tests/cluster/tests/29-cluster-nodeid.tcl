@@ -1,5 +1,3 @@
-# Manual takeover test
-
 source "../tests/includes/init-tests.tcl"
 
 test "Create a 2 nodes cluster" {
