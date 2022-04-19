@@ -2880,7 +2880,7 @@ int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);
 void afterCommand(client *c);
-int inNestedCall(void);
+int mustObeyClient(client *c);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));

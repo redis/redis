@@ -5821,8 +5821,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
 
             int deny_write_type = writeCommandsDeniedByDiskError();
+            int obey_client = mustObeyClient(server.current_client);
 
-            if (deny_write_type != DISK_ERROR_TYPE_NONE) {
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 errno = ENOSPC;
                 if (error_as_call_replies) {
                     sds msg = writeCommandsGetDiskErrorMessage(deny_write_type);
@@ -5864,7 +5865,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* If this is a Redis Cluster node, we need to make sure the module is not
      * trying to access non-local keys, with the exception of commands
      * received from our master. */
-    if (server.cluster_enabled && !(ctx->client->flags & CLIENT_MASTER)) {
+    if (server.cluster_enabled && !mustObeyClient(ctx->client)) {
         int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
