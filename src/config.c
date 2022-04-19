@@ -332,8 +332,10 @@ static sds configEnumGetNamesOrUnknown(configEnum *ce, int values) {
     sds names = NULL;
     int allPossibleValues = 0;
     while(ce->name != NULL) {
-        if (values == ce->val) /* Short path and covers case of values being 0 */
+        if (values == ce->val) { /* Short path and covers case of values being 0 */
+            sdsfree(names); /* When not a flagged enum we could have garbage here */
             return sdsnew(ce->name);
+        }
         if (values & ce->val)
             names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
         allPossibleValues |= ce->val;
