@@ -165,6 +165,16 @@ static int32_t count_leading_zeros_64(int64_t value)
 #endif
 }
 
+static int64_t get_count_at_index_given_bucket_base_idx(const struct hdr_histogram* h, int32_t bucket_base_idx, int32_t sub_bucket_idx)
+{
+    return h->counts[(bucket_base_idx + sub_bucket_idx) - h->sub_bucket_half_count];
+}
+
+static int32_t get_bucket_base_index(const struct hdr_histogram* h, int32_t bucket_index)
+{
+    return (bucket_index + 1) << h->sub_bucket_half_count_magnitude;
+}
+
 static int32_t get_bucket_index(const struct hdr_histogram* h, int64_t value)
 {
     int32_t pow2ceiling = 64 - count_leading_zeros_64(value | h->sub_bucket_mask); /* smallest power of 2 containing value */
@@ -666,29 +676,47 @@ int64_t hdr_min(const struct hdr_histogram* h)
     return non_zero_min(h);
 }
 
+static int64_t get_value_from_idx_up_to_count(const struct hdr_histogram* h, int64_t count_at_percentile)
+{
+    int64_t count_to_idx = 0;
+    int64_t value_from_idx = 0;
+    int32_t sub_bucket_idx = -1;
+    int32_t bucket_idx = 0;
+    int32_t bucket_base_idx = get_bucket_base_index(h, bucket_idx);
+
+    // Overflow check
+    if (count_at_percentile > h->total_count)
+    {
+        count_at_percentile = h->total_count;
+    }
+
+    while (count_to_idx < count_at_percentile)
+    {
+        // increment bucket
+        sub_bucket_idx++;
+        if (sub_bucket_idx >= h->sub_bucket_count)
+        {
+            sub_bucket_idx = h->sub_bucket_half_count;
+            bucket_idx++;
+            bucket_base_idx = get_bucket_base_index(h, bucket_idx);
+        }
+        count_to_idx += get_count_at_index_given_bucket_base_idx(h, bucket_base_idx, sub_bucket_idx);
+        value_from_idx = ((int64_t)(sub_bucket_idx)) << (((int64_t)(bucket_idx)) + h->unit_magnitude);
+    }
+    return value_from_idx;
+}
+
 int64_t hdr_value_at_percentile(const struct hdr_histogram* h, double percentile)
 {
-    struct hdr_iter iter;
-    int64_t total = 0;
     double requested_percentile = percentile < 100.0 ? percentile : 100.0;
     int64_t count_at_percentile =
         (int64_t) (((requested_percentile / 100) * h->total_count) + 0.5);
-    count_at_percentile = count_at_percentile > 1 ? count_at_percentile : 1;
-
-    hdr_iter_init(&iter, h);
-
-    while (hdr_iter_next(&iter))
+    int64_t value_from_idx = get_value_from_idx_up_to_count(h, count_at_percentile);
+    if (percentile == 0.0)
     {
-        total += iter.count;
-
-        if (total >= count_at_percentile)
-        {
-            int64_t value_from_index = iter.value;
-            return highest_equivalent_value(h, value_from_index);
-        }
+        return lowest_equivalent_value(h, value_from_idx);
     }
-
-    return 0;
+    return highest_equivalent_value(h, value_from_idx);
 }
 
 int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percentiles, int64_t *values, size_t length)
