@@ -770,7 +770,7 @@ start_server {tags {"stream xsetid"}} {
         catch {r XSETID mystream "1-1"} err
         r XADD mystream MAXLEN 0 * a b
         set err
-    } {ERR*smaller*}
+    } {ERR *smaller*}
 
     test {XSETID cannot SETID on non-existent key} {
         catch {r XSETID stream 1-1} err
@@ -790,7 +790,7 @@ start_server {tags {"stream xsetid"}} {
     test {XSETID errors on negstive offset} {
         catch {r XSETID stream 1-1 ENTRIESADDED -1 MAXDELETEDID 0-0} err
         set _ $err
-    } {ERR*must be positive}
+    } {ERR *must be positive}
 
     test {XSETID cannot set the maximal tombstone with larger ID} {
         r DEL x
@@ -799,7 +799,7 @@ start_server {tags {"stream xsetid"}} {
         catch {r XSETID x "1-0" ENTRIESADDED 1 MAXDELETEDID "2-0" } err
         r XADD mystream MAXLEN 0 * a b
         set err
-    } {ERR*smaller*}
+    } {ERR *smaller*}
 
     test {XSETID cannot set the offset to less than the length} {
         r DEL x
@@ -808,7 +808,7 @@ start_server {tags {"stream xsetid"}} {
         catch {r XSETID x "1-0" ENTRIESADDED 0 MAXDELETEDID "0-0" } err
         r XADD mystream MAXLEN 0 * a b
         set err
-    } {ERR*smaller*}
+    } {ERR *smaller*}
 }
 
 start_server {tags {"stream offset"}} {

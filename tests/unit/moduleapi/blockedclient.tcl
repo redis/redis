@@ -106,6 +106,10 @@ foreach call_type {nested normal} {
         }
         $rd flush
 
+        # send another command after the blocked one, to make sure we don't attempt to process it
+        $rd ping
+        $rd flush
+
         # make sure we get BUSY error, and that we didn't get it too early
         assert_error {*BUSY Slow module operation*} {r ping}
         assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
@@ -117,7 +121,8 @@ foreach call_type {nested normal} {
         } else {
             fail "Failed waiting for busy command to end"
         }
-        $rd read
+        assert_equal [$rd read] "1"
+        assert_equal [$rd read] "PONG"
 
         # run command that blocks for 200ms
         set start [clock clicks -milliseconds]
@@ -151,6 +156,10 @@ foreach call_type {nested normal} {
         set start [clock clicks -milliseconds]
         $rd do_bg_rm_call hgetall hash
 
+        # send another command after the blocked one, to make sure we don't attempt to process it
+        $rd ping
+        $rd flush
+
         # wait till we know we're blocked inside the module
         wait_for_condition 50 100 {
             [r is_in_slow_bg_operation] eq 1
@@ -172,10 +181,10 @@ foreach call_type {nested normal} {
         assert_equal [r ping] {PONG}
 
         r config set busy-reply-threshold $old_time_limit
-        set res [$rd read]
+        assert_equal [$rd read] {foo bar}
+        assert_equal [$rd read] {PONG}
         $rd close
-        set _ $res
-    } {foo bar}
+    }
 
     test {blocked client reaches client output buffer limit} {
         r hset hash big [string repeat x 50000]

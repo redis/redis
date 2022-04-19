@@ -958,7 +958,7 @@ char *strEncoding(int encoding) {
  * on the insertion speed and thus the ability of the radix tree
  * to compress prefixes. */
 size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
+    size_t size = sizeof(*rax);
     size = rax->numele * sizeof(streamID);
     size += rax->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
