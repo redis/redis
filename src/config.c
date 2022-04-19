@@ -238,14 +238,38 @@ typedef union typeData {
 void dictListDestructor(dict *d, void *val);
 
 /* Dict case insensitive compare function for null terminated string */
-static int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+static int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
     UNUSED(d);
     return strcasecmp(key1, key2) == 0;
+}
+
+/* Dict case insensitive compare function for null terminated string */
+static int dictPointerCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return key1 == key2;
 }
 
 /* Dict hash function for null terminated string */
 static uint64_t distCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+typedef struct configSetValue configSetValue;
+typedef struct standardConfig standardConfig;
+
+struct configSetValue {
+   standardConfig *config;
+   sds old_value;
+   sds new_value;
+};
+
+/* Dict destructor to free old value in the config */
+static void configValuesDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    configSetValue *config_value = val;
+    sdsfree(config_value->old_value);
+    zfree(val);
 }
 
 dictType optionToLineDictType = {
@@ -259,28 +283,34 @@ dictType optionToLineDictType = {
 };
 
 dictType optionSetDictType = {
-    distCStrCaseHash,            /* hash function */
+    distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    distCStrKeyCaseCompare,      /* key compare */
+    dictCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
 };
 
-dictType sdsKeyValueDictType = {
-    dictSdsCaseHash,            /* hash function */
+dictType configSetDictType = {
+    distCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor,          /* val destructor */
+    configValuesDestructor,     /* val destructor */
     NULL                        /* allow to expand */
 };
 
-typedef struct standardConfig standardConfig;
-
-typedef struct configSetValue configSetValue;
+dictType KeyValueDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictPointerCompare,         /* key compare */
+    NULL,                       /* key destructor */
+    dictSdsDestructor,          /* val destructor */
+    NULL                        /* allow to expand */
+};
 
 typedef int (*apply_fn)(const char **err);
 typedef struct typeInterface {
@@ -308,12 +338,6 @@ struct standardConfig {
     typeData data; /* The type specific data exposed used by the interface */
     configType type; /* The type of config this is. */
     void *privdata; /* privdata for this config, for module configs this is a ModuleConfig struct */
-};
-
-struct configSetValue{
-   standardConfig* config;
-   sds old_value;
-   sds new_value;
 };
 
 dict *configs = NULL; /* Runtime config values */
@@ -779,7 +803,7 @@ static void restoreBackupConfig(dict *set_config_values, dict *apply_fns, list *
     if (apply_fns){
         di = dictGetIterator(apply_fns);
         while ((de = dictNext(di)) != NULL) {
-            typeInterface *apply_fn_interface = dictGetVal(de);
+            typeInterface *apply_fn_interface = dictGetKey(de);
             if (!(apply_fn_interface->apply(&errstr)))
                 serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
         }
@@ -800,10 +824,10 @@ void configSetCommand(client *c) {
     const char *errstr = NULL;
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
-    dict *set_config_values = dictCreate(&optionSetDictType);
+    dict *set_config_values = dictCreate(&configSetDictType);
     list *module_configs_apply;
     const char **config_names;
-    dict *apply_fns = dictCreate(&optionSetDictType);
+    dict *apply_fns = dictCreate(&KeyValueDictType);
     int config_count, i;
     int invalid_args = 0, deny_loading_error = 0;
 
@@ -814,7 +838,7 @@ void configSetCommand(client *c) {
     }
     config_count = (c->argc - 2) / 2;
 
-    configSetValue config_values[config_count];
+    // configSetValue config_values[config_count];
     module_configs_apply = listCreate();
     config_names = zcalloc(sizeof(char*)*config_count);
 
@@ -864,10 +888,11 @@ void configSetCommand(client *c) {
             err_arg_name = c->argv[2+i*2]->ptr;
             invalid_args = 1;
         } else {
-            config_values[i].config = config;
-            config_values[i].old_value = config->interface.get(config);
-            config_values[i].new_value = c->argv[2+i*2+1]->ptr;
-            dictAdd(set_config_values, sdsnew(config->name), &config_values[i]);
+            configSetValue *configValue = zmalloc(sizeof(configSetValue));
+            configValue->config = config;
+            configValue->old_value = config->interface.get(config);
+            configValue->new_value = c->argv[2+i*2+1]->ptr;
+            dictAdd(set_config_values, sdsnew(config->name), configValue);
         }
         config_names[i] = config->name;
     }
@@ -878,8 +903,7 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count; i++) {
         configSetValue *config_value = dictGetVal(dictFind(set_config_values, config_names[i]));
         standardConfig *config = config_value->config;
-        sds new_value = config_value->new_value;
-        int res = performInterfaceSet(config, new_value, &errstr);
+        int res = performInterfaceSet(config, config_value->new_value, &errstr);
         if (!res) {
             restoreBackupConfig(set_config_values, NULL, NULL);
             err_arg_name = config_names[i];
@@ -890,19 +914,19 @@ void configSetCommand(client *c) {
                 addModuleConfigApply(module_configs_apply, config->privdata);
             } else if (config->interface.apply) {
                 /* Check if this apply function is already stored */
-                if (!(dictFind(apply_fns, config->name))) {
-                    dictAdd(apply_fns, sdsnew(config->name), &config->interface);
+                if (!(dictFind(apply_fns, &config->interface))) {
+                    dictAdd(apply_fns, &config->interface, sdsnew(config->name));
                 }
             }
         }
     }
 
     /* Apply all configs after being set */
-    dictIterator* di = dictGetIterator(apply_fns);
-    dictEntry * de;
+    dictIterator *di = dictGetIterator(apply_fns);
+    dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
-        sds config_name = dictGetKey(de);
-        typeInterface *apply_fn_interface = dictGetVal(de);
+        sds config_name = dictGetVal(de);
+        typeInterface *apply_fn_interface = dictGetKey(de);
         if (!apply_fn_interface->apply(&errstr)) {
             serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", config_name);
             restoreBackupConfig(set_config_values, apply_fns, NULL);
@@ -939,12 +963,6 @@ err:
 end:
     zfree(config_names);
     dictRelease(apply_fns);
-    di = dictGetIterator(set_config_values);
-    while ((de = dictNext(di)) != NULL) {
-        configSetValue *config_value = dictGetVal(de);
-        sdsfree(config_value->old_value);
-    }
-    dictReleaseIterator(di);
     dictRelease(set_config_values);
     listRelease(module_configs_apply);
 }
