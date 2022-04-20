@@ -54,6 +54,11 @@ set ::disk_tests {
     swap/unit/swap_error
     swap/unit/multi
     unit/shutdown
+    ctrip/gtid_merge
+    ctrip/gtid
+    ctrip/aof-gtid
+    ctrip/sync-gtid
+    ctrip/replication-psync-gtid
     unit/printver
     unit/dump
     unit/auth

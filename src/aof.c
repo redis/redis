@@ -659,6 +659,8 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         } else {
             buf = catAppendOnlyGenericCommand(buf,argc,argv);
         }
+    } else if(cmd == server.gtidCommand) {
+        buf = gtidCommandTranslate(buf, cmd, argv, argc);
     } else {
         /* All the other commands don't need translation or need the
          * same translation already operated in the command vector

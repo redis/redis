@@ -160,6 +160,7 @@ start_server {tags {"introspection"}} {
             rocksdb-compression
             jemalloc-max-bg-threads
             swap-threads
+            gtid-enabled 
         }
 
         if {!$::tls} {
