@@ -117,7 +117,7 @@ start_server {tags {"scripting"}} {
             r function bad_subcommand
         } e
         set _ $e
-    } {*Unknown subcommand*}
+    } {*unknown subcommand*}
 
     test {FUNCTION - test loading from rdb} {
         r debug reload
@@ -205,7 +205,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
         set _ $e
-    } {*Unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
+    } {*unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('set', 'x', '1')}]
@@ -298,7 +298,7 @@ start_server {tags {"scripting"}} {
         assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
-        assert_match {*Unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
+        assert_match {*unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
     }
 }
 

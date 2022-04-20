@@ -25,6 +25,10 @@ start_server {tags {"modules"}} {
 
         # Subcommands can be called
         assert_equal [r subcommands.bitarray get k1] {OK}
+
+        # Subcommand arity error
+        catch {r subcommands.bitarray get k1 8 90} e
+        assert_match {*wrong number of arguments for 'subcommands.bitarray|get' command} $e
     }
 
     test "Module get current command fullname" {
