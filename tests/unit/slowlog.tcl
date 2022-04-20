@@ -53,7 +53,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r config set masterauth ""
         r acl setuser slowlog-test-user +get +set
         r config set slowlog-log-slower-than 0
-        r config set slowlog-log-slower-than 10000
+        r config set slowlog-log-slower-than -1
         set slowlog_resp [r slowlog get]
 
         # Make sure normal configs work, but the two sensitive
@@ -73,7 +73,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH user
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH2 user password
 
-        r config set slowlog-log-slower-than 10000
+        r config set slowlog-log-slower-than -1
         # Make sure all 3 commands were logged, but the sensitive fields are omitted
         assert_equal 4 [llength [r slowlog get]]
         assert_match {* key 9 5000} [lindex [lindex [r slowlog get] 2] 3]
