@@ -2976,6 +2976,11 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
     return cmd;
 }
 
+/* Commands arriving from the master client or AOF client, should never be rejected. */
+int mustObeyClient(client *c) {
+    return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
+}
+
 static int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;
@@ -3567,6 +3572,7 @@ int processCommand(client *c) {
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
     int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
                                         (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
+    int obey_client = mustObeyClient(c);
 
     if (authRequired(c)) {
         /* AUTH and HELLO and no auth commands are valid even in
@@ -3618,9 +3624,7 @@ int processCommand(client *c) {
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
-        !(c->flags & CLIENT_MASTER) &&
-        !(c->flags & CLIENT_SCRIPT &&
-          server.script_caller->flags & CLIENT_MASTER) &&
+        !mustObeyClient(c) &&
         !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand))
     {
@@ -3704,10 +3708,10 @@ int processCommand(client *c) {
     if (server.tracking_clients) trackingLimitUsedSlots();
 
     /* Don't accept write commands if there are problems persisting on disk
-     * and if this is a master instance. */
+     * unless coming from our master. */
     int deny_write_type = writeCommandsDeniedByDiskError();
     if (deny_write_type != DISK_ERROR_TYPE_NONE &&
-        server.masterhost == NULL &&
+        !obey_client &&
         (is_write_command ||c->cmd->proc == pingCommand))
     {
         sds err = writeCommandsGetDiskErrorMessage(deny_write_type);
@@ -3725,7 +3729,7 @@ int processCommand(client *c) {
     /* Don't accept write commands if this is a read only slave. But
      * accept write commands if this is our master. */
     if (server.masterhost && server.repl_slave_ro &&
-        !(c->flags & CLIENT_MASTER) &&
+        !obey_client &&
         is_write_command)
     {
         rejectCommand(c, shared.roslaveerr);

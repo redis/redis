@@ -58,7 +58,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     if (server.maxidletime &&
         /* This handles the idle clients connection timeout if set. */
         !(c->flags & CLIENT_SLAVE) &&   /* No timeout for slaves and monitors */
-        !(c->flags & CLIENT_MASTER) &&  /* No timeout for masters */
+        !mustObeyClient(c) &&         /* No timeout for masters and AOF */
         !(c->flags & CLIENT_BLOCKED) && /* No timeout for BLPOP */
         !(c->flags & CLIENT_PUBSUB) &&  /* No timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))

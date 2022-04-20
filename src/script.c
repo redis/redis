@@ -114,6 +114,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
             server.repl_serve_stale_data == 0;
+    int obey_client = mustObeyClient(caller);
 
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
@@ -139,16 +140,14 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 1. we are not a readonly replica
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
-            if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
-                && !(caller->flags & CLIENT_MASTER))
-            {
+            if (server.masterhost && server.repl_slave_ro && !obey_client) {
                 addReplyError(caller, "Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
             /* Deny writes if we're unale to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
-            if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
                     addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
                                      "but it's currently unable to persist to disk. "
@@ -269,7 +268,7 @@ void scriptKill(client *c, int is_eval) {
         addReplyError(c, "-NOTBUSY No scripts in execution right now.");
         return;
     }
-    if (curr_run_ctx->original_client->flags & CLIENT_MASTER) {
+    if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
     }
@@ -334,8 +333,8 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * of this script. */
     int deny_write_type = writeCommandsDeniedByDiskError();
 
-    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->id != CLIENT_ID_AOF
-        && !(run_ctx->original_client->flags & CLIENT_MASTER))
+    if (server.masterhost && server.repl_slave_ro &&
+        !mustObeyClient(run_ctx->original_client))
     {
         *err = sdsdup(shared.roslaveerr->ptr);
         return C_ERR;
@@ -380,8 +379,7 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
      * in the middle. */
 
     if (server.maxmemory &&                            /* Maxmemory is actually enabled. */
-        run_ctx->original_client->id != CLIENT_ID_AOF && /* Don't care about mem if loading from AOF. */
-        !server.masterhost &&                          /* Slave must execute the script. */
+        !mustObeyClient(run_ctx->original_client) &&   /* Don't care about mem for replicas or AOF. */
         !(run_ctx->flags & SCRIPT_WRITE_DIRTY) &&        /* Script had no side effects so far. */
         server.script_oom &&                           /* Detected OOM when script start. */
         (run_ctx->c->cmd->flags & CMD_DENYOOM))
@@ -394,7 +392,7 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
 }
 
 static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
-    if (!server.cluster_enabled || original_c->id == CLIENT_ID_AOF || (original_c->flags & CLIENT_MASTER)) {
+    if (!server.cluster_enabled || mustObeyClient(original_c)) {
         return C_OK;
     }
     /* If this is a Redis Cluster node, we need to make sure the script is not
