@@ -1978,9 +1978,7 @@ void readSyncBulkPayload(connection *conn) {
     /* Also try to stop save RDB child before flushing and parsing thr RDB:
      * 1. avoid RDB file race if load the RDB on disk.
      * 2. avoid create a copy-on-write disaster, too. */
-    if (server.child_type == CHILD_TYPE_RDB &&
-        (!use_diskless_load || server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB))
-    {
+    if (server.child_type == CHILD_TYPE_RDB) {
         if (!use_diskless_load) {
             serverLog(LL_NOTICE,
                 "Replica is about to load the RDB file received from the "
