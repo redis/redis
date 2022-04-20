@@ -36,7 +36,6 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
-#include "hdr_alloc.h"
 
 #include <time.h>
 #include <signal.h>
@@ -1884,15 +1883,6 @@ void initServerConfig(void) {
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
-
-    /* Specify the allocation function for the hdr histogram */
-    hdrAllocFuncs hdrallocfn = {
-        .mallocFn = zmalloc,
-        .callocFn = zcalloc_num,
-        .reallocFn = zrealloc,
-        .freeFn = zfree,
-    };
-    hdrSetAllocators(&hdrallocfn);
 
     /* Replication related */
     server.masterhost = NULL;
