@@ -1140,6 +1140,33 @@ struct redisCommand redisCommandTable[] = {
     "admin no-script",
     0,NULL,getKeyRequestsNone,SWAP_NOP,0,0,0,0,0,0,0},
 
+    {"gtid", gtidCommand, -3,
+     "write use-memory ",
+     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+
+    {"gtid.lwm", gtidLwmCommand, 3,
+     "write use-memory ",
+     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+    
+    {"gtid.auto", gtidAutoCommand, -3,
+     "write use-memory ",
+     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+
+    {"ctrip.merge_start", ctripMergeStartCommand, -1,
+     "write use-memory",
+     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+    
+    {"ctrip.merge", ctripMergeCommand, -1,
+     "write use-memory ",
+     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+
+    {"ctrip.merge_end", ctripMergeEndCommand, -1,
+     "write use-memory ",
+     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+
+    {"ctrip.get_robj", gtidGetRobjCommand, 2, 
+     "read-only fast no-script", 
+     0, NULL,NULL,SWAP_IN,1,1,1,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -2713,6 +2740,7 @@ void createSharedObjects(void) {
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
 
+    shared.gtid = createStringObject("GTID",4);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -2865,7 +2893,9 @@ void initServerConfig(void) {
     server.xgroupCommand = lookupCommandByCString("xgroup");
     server.rpoplpushCommand = lookupCommandByCString("rpoplpush");
     server.lmoveCommand = lookupCommandByCString("lmove");
-
+    server.gtidCommand = lookupCommandByCString("gtid");
+    server.gtidLwmCommand = lookupCommandByCString("gtid.lwm");
+    server.gtidAutoCommand = lookupCommandByCString("gtid.auto");
     /* Debugging */
     server.watchdog_period = 0;
 
@@ -3294,6 +3324,11 @@ void initServer(void) {
     server.blocked_last_cron = 0;
     server.blocking_op_nesting = 0;
 
+    server.gtid_executed = gtidSetNew();
+    gtidSetAdd(server.gtid_executed, server.runid, strlen(server.runid), 0);
+    server.current_uuid = gtidSetFindUuidSet(server.gtid_executed, server.runid, strlen(server.runid));
+    
+    serverAssert(server.current_uuid != NULL);
     if ((server.tls_port || server.tls_replication || server.tls_cluster)
                 && tlsConfigure(&server.tls_ctx_config) == C_ERR) {
         serverLog(LL_WARNING, "Failed to configure TLS. Check logs for more info.");
@@ -3723,6 +3758,9 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
      * client pause, otherwise data may be lossed during a failover. */
     serverAssert(!(areClientsPaused() && !server.client_pause_in_transaction));
 
+    if(execCommandPropagateGtid(cmd, dbid, argv, argc, flags)) {
+        return;
+    }
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
@@ -4391,7 +4429,8 @@ int processCommand(client *c) {
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
-        c->cmd->proc != resetCommand)
+        c->cmd->proc != resetCommand
+        && !isGtidExecCommand(c) )
     {
         queueMultiCommand(c);
         addReply(c,shared.queued);
@@ -5540,6 +5579,18 @@ sds genRedisInfoString(const char *section) {
                                   everything || modules ? NULL: section,
                                   0, /* not a crash report */
                                   sections);
+    }
+    /**  gtid */
+    if (!strcasecmp(section,"gtid")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        char all_str[gtidSetEstimatedEncodeBufferSize(server.gtid_executed)];
+        size_t size = gtidSetEncode(server.gtid_executed, all_str);
+        sds all = sdsnewlen(all_str, size);
+        info = sdscatprintf(info,
+        "# Gtid\r\n"
+        "all:%s\r\n",
+        all);
+        sdsfree(all);
     }
     return info;
 }

@@ -1166,6 +1166,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
+    if (rdbSaveGtidInfoAuxFields(rdb) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
     return 1;
 }
@@ -2607,6 +2608,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 if (haspreamble) serverLog(LL_NOTICE,"RDB has an AOF tail");
             } else if (!strcasecmp(auxkey->ptr,"redis-bits")) {
                 /* Just ignored. */
+            } else if (LoadGtidInfoAuxFields(auxkey, auxval)) {
+                /* Load gtid info AUX field. */
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
