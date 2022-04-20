@@ -1975,9 +1975,9 @@ void readSyncBulkPayload(connection *conn) {
     /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
-    /* Also try to stop save RDB child before flushing and parsing thr RDB:
-     * 1. avoid RDB file race if load the RDB on disk.
-     * 2. avoid create a copy-on-write disaster, too. */
+    /* Also try to stop save RDB child before flushing and parsing the RDB:
+     * 1. Ensure background save doesn't overwrite synced data after being loaded.
+     * 2. Avoid copy-on-write disaster. */
     if (server.child_type == CHILD_TYPE_RDB) {
         if (!use_diskless_load) {
             serverLog(LL_NOTICE,
