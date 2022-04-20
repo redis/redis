@@ -324,7 +324,11 @@ static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
 
 /* Used for INFO generation. */
 const char *evictPolicyToString(void) {
-    return configEnumGetName(maxmemory_policy_enum,server.maxmemory_policy, 0);
+    for (configEnum *ce = maxmemory_policy_enum; ce->name != NULL; ce++) {
+        if (server.maxmemory_policy == ce->val)
+            return ce->name;
+    }
+    serverPanic("unknown eviction policy");
 }
 
 /*-----------------------------------------------------------------------------
