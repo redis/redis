@@ -38,6 +38,7 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
+	-(cd ctrip_gtid && [ -f Makefile ] && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -79,7 +80,7 @@ ARFLAGS=rc
 
 lua: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd lua/src && $(MAKE) all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" AR="$(AR) $(ARFLAGS)"
+	cd lua/src && $(MAKE) all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)"
 
 .PHONY: lua
 
@@ -92,3 +93,13 @@ jemalloc: .make-prerequisites
 	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
 
 .PHONY: jemalloc
+
+
+CTRIP_GTID_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
+CTRIP_GTID_LDFLAGS= $(LDFLAGS)
+
+ctrip_gtid: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd ctrip_gtid && $(MAKE) CFLAGS="$(CTRIP_GTID_CFLAGS)" LDFLAGS="$(CTRIP_GTID_LDFLAGS)" 
+
+.PHONY: ctrip_gtid

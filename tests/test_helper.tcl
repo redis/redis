@@ -10,8 +10,15 @@ source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
+source tests/support/ctrip_util.tcl
+
 
 set ::all_tests {
+    ctrip/gtid_merge
+    ctrip/gtid
+    ctrip/aof-gtid
+    ctrip/sync-gtid
+    ctrip/replication-psync-gtid
     unit/printver
     unit/dump
     unit/auth

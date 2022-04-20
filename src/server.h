@@ -83,6 +83,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
+#include "ctrip_gtid.h"
 
 /* Error codes */
 #define C_OK                    0
@@ -986,6 +987,7 @@ struct sharedObjectsStruct {
     *time, *pxat, *px, *retrycount, *force, *justid, 
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *gtid,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1154,6 +1156,11 @@ struct clusterState;
 #define CHILD_TYPE_LDB 3
 #define CHILD_TYPE_MODULE 4
 
+/** ctrip **/
+//ctrip mode
+#define CTRIP_MODE_NORMAL 0
+#define CTRIP_MODE_GTID 1
+
 typedef enum childInfoType {
     CHILD_INFO_TYPE_CURRENT_INFO,
     CHILD_INFO_TYPE_AOF_COW_SIZE,
@@ -1254,7 +1261,8 @@ struct redisServer {
                         *lpopCommand, *rpopCommand, *zpopminCommand,
                         *zpopmaxCommand, *sremCommand, *execCommand,
                         *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand, *rpoplpushCommand, *lmoveCommand;
+                        *xgroupCommand, *rpoplpushCommand, *lmoveCommand,
+                        *gtidCommand, *gtidLwmCommand, *gtidAutoCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1625,6 +1633,12 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
+
+    /* gtid executed */
+    int gtid_enabled;  /* Is gtid enabled? */
+    gtidSet *gtid_executed;
+    uuidSet* current_uuid;
+    int gtid_in_merge; /* gtid full sync*/
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2705,6 +2719,28 @@ void stralgoCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
 
+//ctrip commands
+void ctripMergeStartCommand(client* c);
+void ctripMergeCommand(client* c);
+void ctripMergeEndCommand(client* c);
+//ctrip gtid commands
+int isGtidEnabled();
+void gtidCommand(client *c);
+void gtidLwmCommand(client *c);
+void gtidAutoCommand(client *c);
+void rejectCommandFormat(client *c, const char *fmt, ...);
+int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+               int flags);
+int isGtidExecCommand(client *c);
+void propagateGtidExpire(redisDb *db, robj *key, int lazy);
+sds gtidCommandTranslate(sds buf, struct redisCommand *cmd, robj **argv, int argc);
+sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv);
+int rdbSaveGtidInfoAuxFields(rio* rdb);
+ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen);
+int LoadGtidInfoAuxFields(robj* key, robj* val);
+int verifyDumpPayload(unsigned char *p, size_t len);
+void createDumpPayload(rio *payload, robj *o, robj *key);
+void gtidGetRobjCommand(client* c);
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));

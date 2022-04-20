@@ -1463,8 +1463,12 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  * will be consistent even if we allow write operations against expiring
  * keys. */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
+    if(isGtidEnabled()) {
+        propagateGtidExpire(db, key, lazy);
+        return;
+    }
     robj *argv[2];
-
+    
     argv[0] = lazy ? shared.unlink : shared.del;
     argv[1] = key;
     incrRefCount(argv[0]);

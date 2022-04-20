@@ -126,6 +126,15 @@ configEnum sanitize_dump_payload_enum[] = {
     {NULL, 0}
 };
 
+/*-----------------------------------------------------------------------------
+ * Ctrip Config file name-value maps.
+ *----------------------------------------------------------------------------*/
+configEnum ctrip_mode_enum[] = {
+    {"normal", CTRIP_MODE_NORMAL},
+    {"gtid", CTRIP_MODE_GTID},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -2544,7 +2553,9 @@ standardConfig configs[] = {
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
-
+    
+    /* ctrip configs */
+    createBoolConfig("gtid-enabled", NULL, MODIFIABLE_CONFIG, server.gtid_enabled, 0, NULL, NULL),
 #ifdef USE_OPENSSL
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, updateTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, updateTlsCfgInt),
