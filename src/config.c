@@ -285,18 +285,8 @@ static standardConfig *lookupConfig(sds name) {
  *----------------------------------------------------------------------------*/
 
 /* Get enum value from name. If there is no match INT_MIN is returned. */
-int configEnumGetValue(configEnum *ce, char *name) {
-    while(ce->name != NULL) {
-        if (!strcasecmp(ce->name,name)) return ce->val;
-        ce++;
-    }
-    return INT_MIN;
-}
-
-/* Get enum values from name arguments.
- * If there is any name with no match INT_MIN is returned. */
-int configEnumGetValues(configEnum *ce, sds *argv, int argc) {
-    if (argc == 0) return INT_MIN;
+int configEnumGetValue(configEnum *ce, sds *argv, int argc, int bitflags) {
+    if (argc == 0 || (!bitflags && argc != 1)) return INT_MIN;
     int values = 0;
     for (int i = 0; i < argc; i++) {
         int matched = 0;
@@ -311,47 +301,30 @@ int configEnumGetValues(configEnum *ce, sds *argv, int argc) {
     return values;
 }
 
-/* Get enum name from value. If no match is found NULL is returned. */
-const char *configEnumGetName(configEnum *ce, int val) {
-    while(ce->name != NULL) {
-        if (ce->val == val) return ce->name;
-        ce++;
-    }
-    return NULL;
-}
-
-/* Wrapper for configEnumGetName() returning "unknown" instead of NULL if
- * there is no match. */
-const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
-    const char *name = configEnumGetName(ce,val);
-    return name ? name : "unknown";
-}
-
-/* Get enum names from value. If no matches are found "unknown" is returned. */
-static sds configEnumGetNamesOrUnknown(configEnum *ce, int values, int multiarg) {
-    if (!multiarg)
-        return sdsnew(configEnumGetNameOrUnknown(ce, values));
-
+/* Get enum name/s from value. If no matches are found "unknown" is returned. */
+static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
     sds names = NULL;
-    int allPossibleValues = 0;
-    while(ce->name != NULL) {
-        if (values == ce->val) { /* Short path and covers case of values being 0 */
-            sdsfree(names); /* When not a flagged enum we could have garbage here */
+    int matches = 0;
+    for( ; ce->name != NULL; ce++) {
+        if (values == ce->val) { /* Short path for perfect match */
+            sdsfree(names);
             return sdsnew(ce->name);
         }
-        if (values & ce->val)
+        if (bitflags && (values & ce->val)) {
             names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
-        allPossibleValues |= ce->val;
-        ce++;
+            matches |= ce->val;
+        }
     }
-    if (!names || values > allPossibleValues)
+    if (!names || values != matches) {
+        sdsfree(names);
         return sdsnew("unknown");
+    }
     return names;
 }
 
 /* Used for INFO generation. */
 const char *evictPolicyToString(void) {
-    return configEnumGetNameOrUnknown(maxmemory_policy_enum,server.maxmemory_policy);
+    return configEnumGetName(maxmemory_policy_enum,server.maxmemory_policy, 0);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1348,7 +1321,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
  * option. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, standardConfig *config) {
     int multiarg = config->flags & MULTI_ARG_CONFIG;
-    sds names = configEnumGetNamesOrUnknown(config->data.enumd.enum_value,value,multiarg);
+    sds names = configEnumGetName(config->data.enumd.enum_value,value,multiarg);
     sds line = sdscatfmt(sdsempty(),"%s %s",option,names);
     sdsfree(names);
     int force = value != config->data.enumd.default_value;
@@ -1942,11 +1915,8 @@ static void enumConfigInit(standardConfig *config) {
 
 static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
     int enumval;
-    if (config->flags & MULTI_ARG_CONFIG) {
-        enumval = configEnumGetValues(config->data.enumd.enum_value, argv, argc);
-    } else {
-        enumval = configEnumGetValue(config->data.enumd.enum_value, argv[0]);
-    }
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    enumval = configEnumGetValue(config->data.enumd.enum_value, argv, argc, bitflags);
 
     if (enumval == INT_MIN) {
         sds enumerr = sdsnew("argument(s) must be one of the following: ");
@@ -1980,8 +1950,8 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    int multiarg = config->flags & MULTI_ARG_CONFIG;
-    return configEnumGetNamesOrUnknown(config->data.enumd.enum_value,val,multiarg);
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    return configEnumGetName(config->data.enumd.enum_value,val,bitflags);
 }
 
 static void enumConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
