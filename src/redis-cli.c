@@ -215,6 +215,7 @@ static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 static redisContext *context;
 static struct config {
     cliConnInfo conn_info;
+    struct timeval connect_timeout;
     char *hostsocket;
     int tls;
     cliSSLconfig sslconfig;
@@ -1094,9 +1095,10 @@ static int cliConnect(int flags) {
         /* Do not use hostsocket when we got redirected in cluster mode */
         if (config.hostsocket == NULL ||
             (config.cluster_mode && config.cluster_reissue_command)) {
-            context = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
+            context = redisConnectWithTimeout(config.conn_info.hostip, config.conn_info.hostport,
+                                              config.connect_timeout);
         } else {
-            context = redisConnectUnix(config.hostsocket);
+            context = redisConnectUnixWithTimeout(config.hostsocket, config.connect_timeout);
         }
 
         if (!context->err && config.tls) {
@@ -1909,7 +1911,8 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             fflush(stdout);
 
             redisFree(c);
-            c = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
+            c = redisConnectWithTimeout(config.conn_info.hostip, config.conn_info.hostport,
+                                        config.connect_timeout);
             if (!c->err && config.tls) {
                 const char *err = NULL;
                 if (cliSecureConnection(c, config.sslconfig, &err) == REDIS_ERR && err) {
@@ -1960,6 +1963,15 @@ static int parseOptions(int argc, char **argv) {
             config.stdin_tag_name = argv[++i];
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-t") && !lastarg) {
+            double seconds = atof(argv[++i]);
+            long long milliseconds = seconds * 1000;
+            if (milliseconds < 0) {
+                fprintf(stderr, "Invalid connection timeout for -t.\n");
+                exit(1);
+            }
+            config.connect_timeout.tv_sec = milliseconds / 1000;
+            config.connect_timeout.tv_usec = (milliseconds % 1000) * 1000;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -2281,6 +2293,7 @@ static void usage(int err) {
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
+"  -t <timeout>       Server connection timeout in milliseconds (default: 60000).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
@@ -3298,7 +3311,7 @@ cleanup:
 
 static int clusterManagerNodeConnect(clusterManagerNode *node) {
     if (node->context) redisFree(node->context);
-    node->context = redisConnect(node->ip, node->port);
+    node->context = redisConnectWithTimeout(node->ip, node->port, config.connect_timeout);
     if (!node->context->err && config.tls) {
         const char *err = NULL;
         if (cliSecureConnection(node->context, config.sslconfig, &err) == REDIS_ERR && err) {
@@ -7104,7 +7117,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
     // Connect to the source node.
-    redisContext *src_ctx = redisConnect(src_ip, src_port);
+    redisContext *src_ctx = redisConnectWithTimeout(src_ip, src_port, config.connect_timeout);
     if (src_ctx->err) {
         success = 0;
         fprintf(stderr,"Could not connect to Redis at %s:%d: %s.\n", src_ip,
@@ -8857,6 +8870,8 @@ int main(int argc, char **argv) {
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.conn_info.hostip = sdsnew("127.0.0.1");
     config.conn_info.hostport = 6379;
+    config.connect_timeout.tv_sec = 60;
+    config.connect_timeout.tv_usec = 0;
     config.hostsocket = NULL;
     config.repeat = 1;
     config.interval = 0;
