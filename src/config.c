@@ -264,8 +264,7 @@ struct configSetValue {
 };
 
 /* Dict destructor to free old value in the config */
-static void configValuesDestructor(dict *d, void *val)
-{
+static void configValuesDestructor(dict *d, void *val) {
     UNUSED(d);
     configSetValue *config_value = val;
     sdsfree(config_value->old_value);
@@ -302,8 +301,12 @@ dictType configSetDictType = {
     NULL                        /* allow to expand */
 };
 
-dictType KeyValueDictType = {
-    dictSdsCaseHash,            /* hash function */
+static uint64_t dictPtrHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, sizeof(key));
+}
+
+dictType ptrCStrDictType = {
+    dictPtrHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictPointerCompare,         /* key compare */
@@ -825,7 +828,7 @@ void configSetCommand(client *c) {
     dict *set_config_values = dictCreate(&configSetDictType);
     list *module_configs_apply;
     const char **config_names;
-    dict *apply_fns = dictCreate(&KeyValueDictType);
+    dict *apply_fns = dictCreate(&ptrCStrDictType);
     int config_count, i;
     int invalid_args = 0, deny_loading_error = 0;
 
@@ -835,8 +838,6 @@ void configSetCommand(client *c) {
         return;
     }
     config_count = (c->argc - 2) / 2;
-
-    // configSetValue config_values[config_count];
     module_configs_apply = listCreate();
     config_names = zcalloc(sizeof(char*)*config_count);
 
