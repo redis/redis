@@ -301,6 +301,7 @@ start_server {overrides {save ""} tags {"other"}} {
     }
 }
 
+if {!$::debug_evict_keys} {
 start_server {tags {"other"}} {
     test {Don't rehash if redis has child proecess} {
         r config set save ""
@@ -325,6 +326,7 @@ start_server {tags {"other"}} {
         r set k3 v3
         assert_match "*table size: 8192*" [r debug HTSTATS $::target_db]
     }
+}
 }
 
 proc read_proc_title {pid} {

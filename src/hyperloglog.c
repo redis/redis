@@ -1209,7 +1209,7 @@ void pfaddCommand(client *c) {
     hdr = o->ptr;
     if (updated) {
         signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        notifyKeyspaceEventDirty(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id,o,NULL);
         server.dirty += updated;
         HLL_INVALIDATE_CACHE(hdr);
     }
@@ -1375,7 +1375,7 @@ void pfmergeCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
-    notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id,o,NULL);
     server.dirty++;
     addReply(c,shared.ok);
 }

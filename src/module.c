@@ -4824,7 +4824,7 @@ int RM_DeleteEvict(RedisModuleKey *key) {
     if (key->evict) {
         moduleValue *mv = key->evict->ptr;
         mv->value = NULL; /* free only robj shell (avoid releasing scs) */
-        dbDeleteEvict(key->db, key->key);
+        dictDelete(key->db->evict, key->key->ptr);
         key->evict = NULL;
     }
     return REDISMODULE_OK;

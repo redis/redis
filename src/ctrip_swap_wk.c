@@ -154,17 +154,21 @@ sds objectDump(robj *o) {
 /* Move key from db.evict to db.dict. (newval ownership moved) */
 void dbSwapInWk(redisDb *db, robj *key, robj *newval) {
     robj *evict, *swapin;
+    long long expire;
 
+    expire = getExpire(db,key);
     evict = lookupEvict(db,key);
     swapin = createSwapInObject(newval, evict);
-    dbAdd(db,key,swapin);
 
+    if (expire != -1) removeExpire(db,key);
     /* reserve scs */
     if (evict->scs) {
         evict->evicted = 0;
     } else {
-        dbDeleteEvict(db,key);
+        dictDelete(db->evict,key->ptr);
     }
+    dbAdd(db,key,swapin);
+    if (expire != -1) setExpire(NULL,db,key,expire);
 }
 
 void *lookupSwappingClientsWk(redisDb *db, robj *key) {
@@ -186,7 +190,7 @@ void setupSwappingClientsWk(redisDb *db, robj *key, void *scs) {
         } else {
             if (!objectIsEvicted(evict)) {
                 /* delete key.evict if key not evicted and new scs is NULL */
-                dbDeleteEvict(db, key);
+                dictDelete(db->evict,key->ptr);
             } else {
                 /* clear scs and scs flag if key evicted and new scs is NULL */ 
                 evictObjectSetSCS(evict, NULL);
@@ -285,14 +289,18 @@ void swapInWk(void *ctx, int action, char* _rawkey, char *_rawval, void *_pd) {
 
 void dbSwapOutWk(redisDb *db, robj *key) {
     robj *value, *evict, *swapout;
+    long long expire;
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     evict = lookupEvict(db,key);
+    expire = getExpire(db,key);
 
+    if (expire != -1) removeExpire(db,key);
     swapout = createSwapOutObject(value, evict);
-    if (evict) dbDeleteEvict(db, key);
-    dictDelete(db->dict, key->ptr);
+    if (evict) dictDelete(db->evict, key->ptr);
+    if (value) dictDelete(db->dict, key->ptr);
     dbAddEvict(db, key, swapout);
+    if (expire != -1) setExpire(NULL,db,key,expire);
 }
 
 void swapOutWk(void *ctx, int action, char* _rawkey, char *_rawval, void *pd) {

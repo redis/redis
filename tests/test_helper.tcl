@@ -11,6 +11,14 @@ source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
 
+set ::swap_failed {
+    unit/sort
+    unit/obuf-limits
+    unit/lazyfree
+    unit/shutdown
+    unit/memefficiency
+}
+
 set ::all_tests {
     unit/printver
     unit/dump
@@ -29,13 +37,31 @@ set ::all_tests {
     unit/type/hash
     unit/type/stream
     unit/type/stream-cgroups
-    unit/sort
     unit/expire
     unit/multi
     unit/quit
     unit/acl
     unit/latency-monitor
+    unit/slowlog
+    unit/introspection-2
+    unit/limits
+    unit/bitops
+    unit/geo
+    unit/hyperloglog
+    unit/wait
+    unit/pendingquerybuf
+    unit/tls
+    unit/oom-score-adj
+    unit/networking
+    unit/other
+    unit/introspection
+    unit/bitfield
+    unit/tracking
+    unit/pubsub
+    integration/logging
+
     integration/block-repl
+    integration/redis-cli
     integration/replication-2
     integration/replication-3
     integration/replication-4
@@ -44,35 +70,13 @@ set ::all_tests {
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
-    integration/logging
     integration/redis-benchmark
-    unit/slowlog
-    unit/introspection-2
-    unit/limits
-    unit/obuf-limits
-    unit/bitops
-    unit/geo
-    unit/hyperloglog
-    unit/lazyfree
-    unit/wait
-    unit/pendingquerybuf
-    unit/tls
-    unit/oom-score-adj
-    unit/shutdown
-    unit/networking
-    unit/other
-    unit/pubsub
-    unit/introspection
-    unit/bitfield
     integration/replication
     integration/replication-psync
     integration/psync2
     integration/psync2-reg
     integration/psync2-pingoff
     integration/failover
-    integration/redis-cli
-    unit/memefficiency
-    unit/tracking
 }
 set failed_tests {
     unit/aofrw

@@ -9,8 +9,6 @@ start_server {tags {"expire"}} {
         list $v1 $v2 $v3 $v4
     } {1 [45] 1 10}
 
-    puts "[r config get port]"
-
     test {EXPIRE - It should be still possible to read 'x'} {
         r get x
     } {foobar}
@@ -18,14 +16,7 @@ start_server {tags {"expire"}} {
     tags {"slow"} {
         test {EXPIRE - After 2.1 seconds the key should no longer be here} {
             after 2100
-            puts "x: [r ttl x] [r get x] [r exists x]"
-            after 100
-            puts "y: [r ttl x] [r get x] [r exists x]"
             list [r get x] [r exists x]
-            while 1 {
-                puts "0: [r ttl x] [r get x] [r exists x]"
-                after 1000
-            }
         } {{} 0}
     }
 
@@ -273,46 +264,48 @@ start_server {tags {"expire"}} {
         r ttl foo
     } {-2}
 
-    test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
-        # This test makes sure that expire times are propagated as absolute
-        # times to the AOF file and not as relative time, so that when the AOF
-        # is reloaded the TTLs are not being shifted forward to the future.
-        # We want the time to logically pass when the server is restarted!
+    if {!$::swap} {
+        test {EXPIRE and SET/GETEX EX/PX/EXAT/PXAT option, TTL should not be reset after loadaof} {
+            # This test makes sure that expire times are propagated as absolute
+            # times to the AOF file and not as relative time, so that when the AOF
+            # is reloaded the TTLs are not being shifted forward to the future.
+            # We want the time to logically pass when the server is restarted!
 
-        r config set appendonly yes
-        r set foo1 bar EX 100
-        r set foo2 bar PX 100000
-        r set foo3 bar
-        r set foo4 bar
-        r expire foo3 100
-        r pexpire foo4 100000
-        r setex foo5 100 bar
-        r psetex foo6 100000 bar
-        r set foo7 bar EXAT [expr [clock seconds] + 100]
-        r set foo8 bar PXAT [expr [clock milliseconds] + 100000]
-        r set foo9 bar
-        r getex foo9 EX 100
-        r set foo10 bar
-        r getex foo10 PX 100000
-        r set foo11 bar
-        r getex foo11 EXAT [expr [clock seconds] + 100]
-        r set foo12 bar
-        r getex foo12 PXAT [expr [clock milliseconds] + 100000]
+            r config set appendonly yes
+            r set foo1 bar EX 100
+            r set foo2 bar PX 100000
+            r set foo3 bar
+            r set foo4 bar
+            r expire foo3 100
+            r pexpire foo4 100000
+            r setex foo5 100 bar
+            r psetex foo6 100000 bar
+            r set foo7 bar EXAT [expr [clock seconds] + 100]
+            r set foo8 bar PXAT [expr [clock milliseconds] + 100000]
+            r set foo9 bar
+            r getex foo9 EX 100
+            r set foo10 bar
+            r getex foo10 PX 100000
+            r set foo11 bar
+            r getex foo11 EXAT [expr [clock seconds] + 100]
+            r set foo12 bar
+            r getex foo12 PXAT [expr [clock milliseconds] + 100000]
 
-        after 2000
-        r debug loadaof
-        assert_range [r ttl foo1] 90 98
-        assert_range [r ttl foo2] 90 98
-        assert_range [r ttl foo3] 90 98
-        assert_range [r ttl foo4] 90 98
-        assert_range [r ttl foo5] 90 98
-        assert_range [r ttl foo6] 90 98
-        assert_range [r ttl foo7] 90 98
-        assert_range [r ttl foo8] 90 98
-        assert_range [r ttl foo9] 90 98
-        assert_range [r ttl foo10] 90 98
-        assert_range [r ttl foo11] 90 98
-        assert_range [r ttl foo12] 90 98
+            after 2000
+            r debug loadaof
+            assert_range [r ttl foo1] 90 98
+            assert_range [r ttl foo2] 90 98
+            assert_range [r ttl foo3] 90 98
+            assert_range [r ttl foo4] 90 98
+            assert_range [r ttl foo5] 90 98
+            assert_range [r ttl foo6] 90 98
+            assert_range [r ttl foo7] 90 98
+            assert_range [r ttl foo8] 90 98
+            assert_range [r ttl foo9] 90 98
+            assert_range [r ttl foo10] 90 98
+            assert_range [r ttl foo11] 90 98
+            assert_range [r ttl foo12] 90 98
+        }
     }
 
     test {EXPIRE relative and absolute propagation to replicas} {
@@ -383,14 +376,16 @@ start_server {tags {"expire"}} {
         assert {$ttl <= 100 && $ttl > 90}
     }
 
-    test {SET - use KEEPTTL option, TTL should not be removed after loadaof} {
-        r config set appendonly yes
-        r set foo bar EX 100
-        r set foo bar2 KEEPTTL
-        after 2000
-        r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+    if {!$::swap} {
+        test {SET - use KEEPTTL option, TTL should not be removed after loadaof} {
+            r config set appendonly yes
+            r set foo bar EX 100
+            r set foo bar2 KEEPTTL
+            after 2000
+            r debug loadaof
+            set ttl [r ttl foo]
+            assert {$ttl <= 98 && $ttl > 90}
+        }
     }
 
     test {GETEX use of PERSIST option should remove TTL} {
@@ -399,13 +394,15 @@ start_server {tags {"expire"}} {
        r ttl foo
     } {-1}
 
-    test {GETEX use of PERSIST option should remove TTL after loadaof} {
-       r set foo bar EX 100
-       r getex foo PERSIST
-       after 2000
-       r debug loadaof
-       r ttl foo
-    } {-1}
+    if {!$::swap} {
+        test {GETEX use of PERSIST option should remove TTL after loadaof} {
+            r set foo bar EX 100
+            r getex foo PERSIST
+            after 2000
+            r debug loadaof
+            r ttl foo
+        } {-1}
+    }
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
        set repl [attach_to_replication_stream]

@@ -325,10 +325,6 @@ robj *dbRandomKey(redisDb *db) {
 void logStackTrace(void *eip, int uplevel);
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
-
-    serverLog(LL_WARNING, "[xxx] dbDelete %s?", (sds)key->ptr);
-    logStackTrace(NULL, 1);
-
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -628,15 +624,28 @@ void dbAddEvict(redisDb *db, robj *key, robj *evict) {
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
 }
 
-/* Note: only evict object shell will be deleted. */
+/* Note: 
+ * - only evict object shell will be deleted.
+ * - corresponding expire will be deleted (expire must not survive alone) */
 int dbDeleteEvict(redisDb *db, robj *key) {
-    dictEntry *de;
-    robj *evict;
-    if ((de = dictUnlink(db->evict,key->ptr)) == NULL) return 0;
-    evict = dictGetVal(de);
-    evict->ptr = NULL;
-    dictFreeUnlinkedEntry(db->evict,de);
-    return 1;
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    dictEntry *de = dictUnlink(db->evict,key->ptr);
+    if (de) {
+        robj *evict = dictGetVal(de);
+        /* Tells the module that the key has been unlinked from the database. */
+        moduleNotifyKeyUnlink(key,evict);
+        /* Only free evict object shell */ 
+        if (evict->type == OBJ_MODULE) {
+            moduleValue *mv = evict->ptr;
+            if (mv) mv->value = NULL;
+        } else {
+            evict->ptr = NULL;
+        }
+        dictFreeUnlinkedEntry(db->evict,de);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 void dbSetDirty(redisDb *db, robj *key) {

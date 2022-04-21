@@ -514,7 +514,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
                                                     dbSyncDelete(c->db,key);
-        dbDeleteEvict(c->db,key);
+        dictDelete(c->db->evict,key->ptr);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 

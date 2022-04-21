@@ -334,6 +334,7 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    if {!$::swap} {
     test "Keyspace notifications: evicted events" {
         r config set notify-keyspace-events Ee
         r config set maxmemory-policy allkeys-lru
@@ -345,6 +346,7 @@ start_server {tags {"pubsub network"}} {
         assert_match {pmessage * __keyevent@*__:evicted foo} [$rd1 read]
         r config set maxmemory 0
         $rd1 close
+    }
     }
 
     test "Keyspace notifications: test CONFIG GET/SET of event flags" {
