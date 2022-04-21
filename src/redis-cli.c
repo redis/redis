@@ -1966,7 +1966,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-t") && !lastarg) {
             char *eptr;
             double seconds = strtod(argv[++i], &eptr);
-            if (eptr[0] != '\0' || isnan(seconds)) {
+            if (eptr[0] != '\0' || isnan(seconds) || seconds < 0.0) {
                 fprintf(stderr, "Invalid connection timeout for -t.\n");
                 exit(1);
             }
