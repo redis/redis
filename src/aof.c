@@ -739,7 +739,7 @@ int aofFileExist(char *filename) {
 }
 
 /* Called in `rewriteAppendOnlyFileBackground`. If `server.aof_state`
- * is 'AOF_ON' or 'AOF_WAIT_REWRITE', It will do two things:
+ * is 'AOF_ON', It will do two things:
  * 1. Open a new INCR type AOF for writing
  * 2. Synchronously update the manifest file to the disk
  *
@@ -789,6 +789,38 @@ int openNewIncrAofForAppend(void) {
     server.aof_last_incr_size = 0;
     /* Update `server.aof_manifest`. */
     aofManifestFreeAndUpdate(temp_am);
+    return C_OK;
+}
+
+/* Called in `rewriteAppendOnlyFileBackground` to open a new temp INCR AOF in 
+ * AOF_WAIT_REWRITE state, the AOF information will not appear in server.aof_manifest 
+ * and will not be persisted to disk.
+ * */
+int openNewTempIncrAofForAppend() {
+    serverAssert(server.aof_manifest != NULL);
+    serverAssert(server.aof_state == AOF_WAIT_REWRITE);
+
+    /* Dup a temp aof_manifest to modify. */
+    aofManifest *temp_am = aofManifestDup(server.aof_manifest);
+
+    /* Open new AOF. */
+    sds new_aof_name = getNewIncrAofName(temp_am);
+    sds new_aof_filepath = makePath(server.aof_dirname, new_aof_name);
+    int newfd = open(new_aof_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    sdsfree(new_aof_filepath);
+    if (newfd == -1) {
+        serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
+            new_aof_name, strerror(errno));
+        aofManifestFree(temp_am);
+        return C_ERR;
+    }
+
+    aofManifestFree(temp_am);
+
+    /* Close old aof_fd if needed. */
+    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+    server.aof_fd = newfd;
+    server.aof_last_incr_size = 0;
     return C_OK;
 }
 
@@ -1266,7 +1298,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
      * of re-entering the event loop, so before the client will get a
      * positive reply about the operation performed. */
     if (server.aof_state == AOF_ON ||
-        server.child_type == CHILD_TYPE_AOF)
+        (server.aof_state == AOF_WAIT_REWRITE && server.child_type == CHILD_TYPE_AOF))
     {
         server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
     }
@@ -2365,8 +2397,16 @@ int rewriteAppendOnlyFileBackground(void) {
     /* We set aof_selected_db to -1 in order to force the next call to the
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
+
     flushAppendOnlyFile(1);
-    if (openNewIncrAofForAppend() != C_OK) return C_ERR;
+    if (server.aof_state == AOF_ON) {
+        if (openNewIncrAofForAppend() != C_OK) return C_ERR;
+    } else if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* When we are in AOF_WAIT_REWRITE state, we must hide this newly created 
+         * INCR AOF (delayed write manifest) until the BASE AOF is successfully created. */
+        if (openNewTempIncrAofForAppend() != C_OK) return C_ERR;
+    }
+
     server.stat_aof_rewrites++;
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
@@ -2508,6 +2548,11 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverAssert(new_base_filename != NULL);
         sds new_base_filepath = makePath(server.aof_dirname, new_base_filename);
 
+        /* Because in the AOF_WAIT_REWRITE state, the newly opened INCR AOF information 
+         * will not be added to server.aof_manifest, so we use getNewIncrAofName to add 
+         * it to temp_am which will be persisted to the manifest file in the subsequent process. */
+        if (server.aof_state == AOF_WAIT_REWRITE) getNewIncrAofName(temp_am);
+        
         /* Rename the temporary aof file to 'new_base_filename'. */
         latencyStartMonitor(latency);
         if (rename(tmpfile, new_base_filepath) == -1) {
@@ -2578,6 +2623,11 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
 cleanup:
     aofRemoveTempFile(server.child_pid);
+    /* Clear AOF buffer for next rewrite. */
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        sdsfree(server.aof_buf);
+        server.aof_buf = sdsempty();
+    }
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */
