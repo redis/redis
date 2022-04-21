@@ -1964,14 +1964,14 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-t") && !lastarg) {
-            double seconds = atof(argv[++i]);
-            long long milliseconds = seconds * 1000;
-            if (milliseconds < 0) {
+            char *eptr;
+            double seconds = strtod(argv[++i], &eptr);
+            if (eptr[0] != '\0' || isnan(seconds)) {
                 fprintf(stderr, "Invalid connection timeout for -t.\n");
                 exit(1);
             }
-            config.connect_timeout.tv_sec = milliseconds / 1000;
-            config.connect_timeout.tv_usec = (milliseconds % 1000) * 1000;
+            config.connect_timeout.tv_sec = (long long)seconds;
+            config.connect_timeout.tv_usec = (long long)(seconds * 1000000) % 1000000;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -2293,7 +2293,7 @@ static void usage(int err) {
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
-"  -t <timeout>       Server connection timeout in milliseconds (default: 60000).\n"
+"  -t <timeout>       Server connection timeout in seconds (default: 60, decimals allowed).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
