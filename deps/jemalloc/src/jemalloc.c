@@ -3954,13 +3954,10 @@ get_defrag_hint(void* ptr) {
 }
 
 static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
+    struct timespec ts;
+    int res = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(res == 0);
+    return (ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
 }
 
 static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max_time) {
@@ -3984,7 +3981,7 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
         extent_t *r0 = extent_heap_first(&bin->slabs_nonfull);
         extent_t *r1 = extent_heap_first(&bin->slabs_nonfull_temp);
         phn_merge(extent_t, ph_link, r0, r1, extent_snad_comp, bin->slabs_nonfull.ph_root);
-        // Clear the temp heap after merge
+        /* Clear the temp heap after merge */
         extent_heap_new(&bin->slabs_nonfull_temp);
         assert(extent_heap_empty(&bin->slabs_nonfull_temp));
         bin->initing_defrag = false;
@@ -4027,23 +4024,22 @@ init_defrag_step(long long max_time) {
     unsigned long long i;
     tsd_t * tsd = tsd_fetch();
     arena_t *arena = arena_choose(tsd, NULL);
-
-    long long t;
-    bool need_more = false;
-    t = ustime();
+    long long start_time = ustime();
 
     for (i = 0; i < SC_NBINS; i++) {
         unsigned binshard;
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        init_defrag_bin_step(bin, t, max_time);
-        need_more |= bin->initing_defrag;
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
-        if (ustime() - t >= max_time) {
-            fprintf(stderr, "Stopping defrag init step: timed out\n");
-            break;
+        if (bin->initing_defrag) {
+            init_defrag_bin_step(bin, start_time, max_time);
+            /* If we're still initing after the step it means we've timed out but have more work */
+            if (bin->initing_defrag) {
+                malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+                break;
+            }
         }
+        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
     }
-    return need_more ? 1 : 0;
+    return i < SC_NBINS;
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
