@@ -67,30 +67,30 @@ start_server {tags {"repl"}} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 1
             assert_equal OK [$master set foo 123]
-            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 1 foo]
         }
 
         test {With min-slaves-to-write (2,3): master should not be writable} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 2
             assert_error "*NOREPLICAS*" {$master set foo bar}
-            assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 0}
+            assert_error "*NOREPLICAS*" {$master eval "redis.call('set','foo','bar')" 1 foo}
         }
 
         test {With not enough good slaves, read in Lua script is still accepted} {
             $master config set min-slaves-max-lag 3
             $master config set min-slaves-to-write 1
-            $master eval "redis.call('set','foo','bar')" 0
+            $master eval "redis.call('set','foo','bar')" 1 foo
 
             $master config set min-slaves-to-write 2
-            $master eval "return redis.call('get','foo')" 0
+            $master eval "return redis.call('get','foo')" 1 foo
         } {bar}
 
         test {With min-slaves-to-write: master not writable with lagged slave} {
             $master config set min-slaves-max-lag 2
             $master config set min-slaves-to-write 1
             assert_equal OK [$master set foo 123]
-            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
+            assert_equal OK [$master eval "return redis.call('set','foo',12345)" 1 foo]
             # Killing a slave to make it become a lagged slave.
             exec kill -SIGSTOP [srv 0 pid]
             # Waiting for slave kill.
@@ -100,7 +100,7 @@ start_server {tags {"repl"}} {
                 fail "Master didn't become readonly"
             }
             assert_error "*NOREPLICAS*" {$master set foo 123}
-            assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
+            assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 1 foo}
             exec kill -SIGCONT [srv 0 pid]
         }
     }

@@ -69,7 +69,7 @@ start_server {tags {"benchmark network"}} {
             assert_match  {} [cmdstat lrange]
 
             # ensure only one key was populated
-            assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+            if {!$::debug_evict_keys} {assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d] }
         }
 
         test {benchmark: pipelined full set,get} {
@@ -87,7 +87,7 @@ start_server {tags {"benchmark network"}} {
             assert_match  {} [cmdstat lrange]
 
             # ensure only one key was populated
-            assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+            if {!$::debug_evict_keys} {assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]}
         }
 
         test {benchmark: arbitrary command} {
@@ -104,7 +104,7 @@ start_server {tags {"benchmark network"}} {
             assert_match  {} [cmdstat get]
 
             # ensure only one key was populated
-            assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+            if {!$::debug_evict_keys} {assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]}
         }
 
         test {benchmark: keyspace length} {
@@ -121,7 +121,7 @@ start_server {tags {"benchmark network"}} {
             assert_match  {} [cmdstat get]
 
             # ensure the keyspace has the desired size
-            assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+            if {!$::debug_evict_keys} {assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]}
         }
 
         # tls specific tests

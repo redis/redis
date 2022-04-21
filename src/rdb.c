@@ -1113,6 +1113,10 @@ int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw,
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
     if (rdbWriteRaw(rdb,raw,sdslen(raw)) == -1) return -1;
 
+    /* Delay return if required (for testing) */
+    if (server.rdb_key_save_delay)
+        debugDelay(server.rdb_key_save_delay);
+
     return 1;
 }
 

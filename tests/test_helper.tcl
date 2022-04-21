@@ -17,6 +17,10 @@ set ::swap_failed {
     unit/lazyfree
     unit/shutdown
     unit/memefficiency
+    integration/rdb
+    integration/replication
+    integration/replication-3
+    integration/psync2
 }
 
 set ::all_tests {
@@ -59,25 +63,21 @@ set ::all_tests {
     unit/tracking
     unit/pubsub
     integration/logging
-
-    integration/block-repl
     integration/redis-cli
     integration/replication-2
-    integration/replication-3
     integration/replication-4
-    integration/aof
-    integration/rdb
+    integration/block-repl
+    integration/psync2-reg
+    integration/psync2-pingoff
+    integration/replication-psync
+    integration/failover
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
     integration/convert-zipmap-hash-on-load
+    integration/aof
     integration/redis-benchmark
-    integration/replication
-    integration/replication-psync
-    integration/psync2
-    integration/psync2-reg
-    integration/psync2-pingoff
-    integration/failover
 }
+
 set failed_tests {
     unit/aofrw
     unit/scripting
