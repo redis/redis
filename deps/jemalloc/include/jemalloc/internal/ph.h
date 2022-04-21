@@ -203,7 +203,7 @@ a_attr void	a_prefix##insert(a_ph_type *ph, a_type *phn);		\
 a_attr a_type	*a_prefix##remove_first(a_ph_type *ph);			\
 a_attr a_type	*a_prefix##remove_any(a_ph_type *ph);			\
 a_attr void	a_prefix##remove(a_ph_type *ph, a_type *phn); \
-a_attr void a_prefix##remove_either(a_ph_type *ph1, a_ph_type *ph2, a_type *phn);
+a_attr void	a_prefix##remove_either(a_ph_type *ph1, a_ph_type *ph2, a_type *phn);
 
 /*
  * The ph_gen() macro generates a type-specific pairing heap implementation,
