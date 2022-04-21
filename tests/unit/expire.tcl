@@ -9,6 +9,8 @@ start_server {tags {"expire"}} {
         list $v1 $v2 $v3 $v4
     } {1 [45] 1 10}
 
+    puts "[r config get port]"
+
     test {EXPIRE - It should be still possible to read 'x'} {
         r get x
     } {foobar}
@@ -16,7 +18,14 @@ start_server {tags {"expire"}} {
     tags {"slow"} {
         test {EXPIRE - After 2.1 seconds the key should no longer be here} {
             after 2100
+            puts "x: [r ttl x] [r get x] [r exists x]"
+            after 100
+            puts "y: [r ttl x] [r get x] [r exists x]"
             list [r get x] [r exists x]
+            while 1 {
+                puts "0: [r ttl x] [r get x] [r exists x]"
+                after 1000
+            }
         } {{} 0}
     }
 

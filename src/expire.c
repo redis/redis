@@ -503,7 +503,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         return;
     }
     /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL) {
+    if (lookupKeyWrite(c->db,key) == NULL &&
+            lookupEvictKey(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
@@ -513,6 +514,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
         int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
                                                     dbSyncDelete(c->db,key);
+        dbDeleteEvict(c->db,key);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 
@@ -589,7 +591,8 @@ void pttlCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    if (lookupKeyWrite(c->db,c->argv[1])) {
+    if (lookupKeyWrite(c->db,c->argv[1]) ||
+            lookupEvictKey(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             signalModifiedKey(c,c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);

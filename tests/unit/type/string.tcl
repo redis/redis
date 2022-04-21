@@ -384,7 +384,7 @@ start_server {tags {"string"}} {
         r set mykey 1234
         assert_encoding int mykey
         assert_equal 4 [r setrange mykey 0 2]
-        assert_encoding raw mykey
+        if {!$::swap} { assert_encoding raw mykey}
         assert_equal 2234 [r get mykey]
 
         # Shouldn't change encoding when nothing is set
@@ -397,7 +397,7 @@ start_server {tags {"string"}} {
         r set mykey 1234
         assert_encoding int mykey
         assert_equal 4 [r setrange mykey 1 3]
-        assert_encoding raw mykey
+        if {!$::swap} { assert_encoding raw mykey}
         assert_equal 1334 [r get mykey]
 
         r set mykey 1234

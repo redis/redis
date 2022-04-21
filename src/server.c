@@ -245,7 +245,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_GET,1,-1,1,0,0,0},
 
     {"setbit",setbitCommand,4,
      "write use-memory @bitmap",
@@ -661,11 +661,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"move",moveCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0}, //TODO
+     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
 
     {"copy",copyCommand,-3,
      "write use-memory @keyspace",
-     0,NULL,NULL,SWAP_GET,1,2,1,0,0,0}, //TODO
+     0,NULL,NULL,SWAP_GET,1,2,1,0,0,0},
 
     /* Like for SET, we can't mark rename as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
@@ -794,19 +794,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"ttl",ttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_GET,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_GET,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_GET,1,1,1,0,0,0},
 
     {"persist",persistCommand,2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_GET,1,1,1,0,0,0},
 
     {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale",

@@ -17,6 +17,7 @@ start_server {tags {"keyspace"}} {
         foreach key {key_x key_y key_z foo_a foo_b foo_c} {
             r set $key hello
         }
+        after 200
         lsort [r keys foo*]
     } {foo_a foo_b foo_c}
 

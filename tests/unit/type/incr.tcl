@@ -60,21 +60,24 @@ start_server {tags {"incr"}} {
         assert {[r object refcount foo] > 1}
         r set foo 9998
         r incr foo
-        assert {[r object refcount foo] > 1}
+        if {!$::swap} {assert {[r object refcount foo] > 1} }
         r incr foo
         assert {[r object refcount foo] == 1}
     }
 
-    test {INCR can modify objects in-place} {
-        r set foo 20000
-        r incr foo
-        assert {[r object refcount foo] == 1}
-        set old [lindex [split [r debug object foo]] 1]
-        r incr foo
-        set new [lindex [split [r debug object foo]] 1]
-        assert {[string range $old 0 2] eq "at:"}
-        assert {[string range $new 0 2] eq "at:"}
-        assert {$old eq $new}
+    if {!$::swap} {
+        # object may re-create when swap in
+        test {INCR can modify objects in-place} {
+            r set foo 20000
+            r incr foo
+            assert {[r object refcount foo] == 1}
+            set old [lindex [split [r debug object foo]] 1]
+            r incr foo
+            set new [lindex [split [r debug object foo]] 1]
+            assert {[string range $old 0 2] eq "at:"}
+            assert {[string range $new 0 2] eq "at:"}
+            assert {$old eq $new}
+        }
     }
 
     test {INCRBYFLOAT against non existing key} {

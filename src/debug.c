@@ -385,7 +385,8 @@ void mallctl_string(client *c, robj **argv, int argc) {
 int debugGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int *keys = getKeysPrepareResult(result, 1);
     UNUSED(cmd);
-    if (argc == 3 && !strcasecmp(argv[1]->ptr,"object")) {
+    if (argc == 3 && (!strcasecmp(argv[1]->ptr,"object") ||
+                !strcasecmp(argv[1]->ptr, "digest-value"))) {
         keys[0] = 2;
         result->numkeys = 1;
     } else {

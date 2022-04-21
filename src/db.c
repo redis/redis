@@ -322,8 +322,13 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
+void logStackTrace(void *eip, int uplevel);
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
+
+    serverLog(LL_WARNING, "[xxx] dbDelete %s?", (sds)key->ptr);
+    logStackTrace(NULL, 1);
+
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -1073,6 +1078,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter an element if it isn't the type we want. */
         if (!filter && o == NULL && typename){
             robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
+            if (typecheck == NULL) typecheck = lookupEvictKey(c->db, kobj);
             char* type = getObjectTypeName(typecheck);
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
@@ -1227,8 +1233,8 @@ void renameGenericCommand(client *c, int nx) {
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c,c->db,c->argv[1]);
     signalModifiedKey(c,c->db,c->argv[2]);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
-        c->argv[1],c->db->id);
+    notifyKeyspaceEventDirty(NOTIFY_GENERIC,"rename_from",
+        c->argv[1],c->db->id,o,NULL);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
         c->argv[2],c->db->id);
     server.dirty++;
