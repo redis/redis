@@ -792,9 +792,9 @@ int openNewIncrAofForAppend(void) {
     return C_OK;
 }
 
-/* Called in `rewriteAppendOnlyFileBackground` to open a new temp INCR AOF in 
- * AOF_WAIT_REWRITE state, the AOF information will not appear in server.aof_manifest 
- * and will not be persisted to disk.
+/* Called in `rewriteAppendOnlyFileBackground` to open a new temp INCR AOF when in 
+ * AOF_WAIT_REWRITE state, the AOF information will not be added to server.aof_manifest 
+ * and persisted to manifest file.
  * */
 int openNewTempIncrAofForAppend() {
     serverAssert(server.aof_manifest != NULL);
@@ -2548,9 +2548,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverAssert(new_base_filename != NULL);
         sds new_base_filepath = makePath(server.aof_dirname, new_base_filename);
 
-        /* Because in the AOF_WAIT_REWRITE state, the newly opened INCR AOF information 
-         * will not be added to server.aof_manifest, so we use getNewIncrAofName to add 
-         * it to temp_am which will be persisted to the manifest file in the subsequent process. */
+        /* Newly opened INCR AOF information will not be added to server.aof_manifest 
+         * when in AOF_WAIT_REWRITE state, so we use getNewIncrAofName to add it to 
+         * temp_am which will be persisted to the manifest file in the subsequent process. */
         if (server.aof_state == AOF_WAIT_REWRITE) getNewIncrAofName(temp_am);
         
         /* Rename the temporary aof file to 'new_base_filename'. */
