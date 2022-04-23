@@ -407,6 +407,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
 
     for (int j = startdb; j <= enddb; j++) {
         removed += dictSize(dbarray[j].dict);
+        removed += dictSize(dbarray[j].evict);
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
@@ -501,6 +502,7 @@ dbBackup *backupDb(void) {
         backup->dbarray[i] = server.db[i];
         server.db[i].dict = dictCreate(&dbDictType,NULL);
         server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[i].evict = dictCreate(&evictDictType,NULL);
     }
 
     /* Backup cluster slots to keys map if enable cluster. */
@@ -530,6 +532,7 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
     for (int i=0; i<server.dbnum; i++) {
         dictRelease(buckup->dbarray[i].dict);
         dictRelease(buckup->dbarray[i].expires);
+        dictRelease(buckup->dbarray[i].evict);
     }
 
     /* Release slots to keys map backup if enable cluster. */
@@ -553,8 +556,10 @@ void restoreDbBackup(dbBackup *buckup) {
     for (int i=0; i<server.dbnum; i++) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
+        serverAssert(dictSize(server.db[i].evict) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
+        dictRelease(server.db[i].evict);
         server.db[i] = buckup->dbarray[i];
     }
 
@@ -587,7 +592,7 @@ long long dbTotalServerKeyCount() {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
-        total += dictSize(server.db[j].dict);
+        total += dictSize(server.db[j].dict) + dictSize(server.db[j].evict);
     }
     return total;
 }

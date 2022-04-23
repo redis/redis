@@ -1269,7 +1269,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
-int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db);
+int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db, int rdbflags);
 
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
@@ -1355,7 +1355,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         di = NULL; /* So that we don't release it again on error. */
 
         /* Iterate DB.evict writing every entry */
-        if (rdbSaveEvictDb(rdb, error, db)) return C_ERR;
+        if (rdbSaveEvictDb(rdb, error, db, rdbflags)) return C_ERR;
 
         dbResumeRehash(db);
     }
@@ -2503,7 +2503,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
-        (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
+        r->processed_bytes - (size_t)server.loading_loaded_bytes > (size_t)server.loading_process_events_interval_bytes)
     {
 		rdbLoadProgress(r);
     }

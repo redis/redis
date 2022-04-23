@@ -5,258 +5,257 @@ proc log_file_matches {log pattern} {
     string match $pattern $content
 }
 
-# start_server {tags {"repl network"}} {
-    # set slave [srv 0 client]
-    # set slave_host [srv 0 host]
-    # set slave_port [srv 0 port]
-    # set slave_log [srv 0 stdout]
-    # start_server {} {
-        # set master [srv 0 client]
-        # set master_host [srv 0 host]
-        # set master_port [srv 0 port]
+start_server {tags {"repl network"}} {
+    set slave [srv 0 client]
+    set slave_host [srv 0 host]
+    set slave_port [srv 0 port]
+    set slave_log [srv 0 stdout]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
 
-        # # Configure the master in order to hang waiting for the BGSAVE
-        # # operation, so that the slave remains in the handshake state.
-        # $master config set repl-diskless-sync yes
-        # $master config set repl-diskless-sync-delay 1000
+        # Configure the master in order to hang waiting for the BGSAVE
+        # operation, so that the slave remains in the handshake state.
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 1000
 
-        # # Use a short replication timeout on the slave, so that if there
-        # # are no bugs the timeout is triggered in a reasonable amount
-        # # of time.
-        # $slave config set repl-timeout 5
+        # Use a short replication timeout on the slave, so that if there
+        # are no bugs the timeout is triggered in a reasonable amount
+        # of time.
+        $slave config set repl-timeout 5
 
-        # # Start the replication process...
-        # $slave slaveof $master_host $master_port
+        # Start the replication process...
+        $slave slaveof $master_host $master_port
 
-        # test {Slave enters handshake} {
-            # wait_for_condition 50 1000 {
-                # [string match *handshake* [$slave role]]
-            # } else {
-                # fail "Replica does not enter handshake state"
-            # }
-        # }
+        test {Slave enters handshake} {
+            wait_for_condition 50 1000 {
+                [string match *handshake* [$slave role]]
+            } else {
+                fail "Replica does not enter handshake state"
+            }
+        }
 
-        # # But make the master unable to send
-        # # the periodic newlines to refresh the connection. The slave
-        # # should detect the timeout.
-        # $master debug sleep 10
+        # But make the master unable to send
+        # the periodic newlines to refresh the connection. The slave
+        # should detect the timeout.
+        $master debug sleep 10
 
-        # test {Slave is able to detect timeout during handshake} {
-            # wait_for_condition 50 1000 {
-                # [log_file_matches $slave_log "*Timeout connecting to the MASTER*"]
-            # } else {
-                # fail "Replica is not able to detect timeout"
-            # }
-        # }
-    # }
-# }
+        test {Slave is able to detect timeout during handshake} {
+            wait_for_condition 50 1000 {
+                [log_file_matches $slave_log "*Timeout connecting to the MASTER*"]
+            } else {
+                fail "Replica is not able to detect timeout"
+            }
+        }
+    }
+}
 
-# start_server {tags {"repl"}} {
-    # set A [srv 0 client]
-    # set A_host [srv 0 host]
-    # set A_port [srv 0 port]
-    # start_server {} {
-        # set B [srv 0 client]
-        # set B_host [srv 0 host]
-        # set B_port [srv 0 port]
+start_server {tags {"repl"}} {
+    set A [srv 0 client]
+    set A_host [srv 0 host]
+    set A_port [srv 0 port]
+    start_server {} {
+        set B [srv 0 client]
+        set B_host [srv 0 host]
+        set B_port [srv 0 port]
 
-        # test {Set instance A as slave of B} {
-            # $A slaveof $B_host $B_port
-            # wait_for_condition 50 100 {
-                # [lindex [$A role] 0] eq {slave} &&
-                # [string match {*master_link_status:up*} [$A info replication]]
-            # } else {
-                # fail "Can't turn the instance into a replica"
-            # }
-        # }
+        test {Set instance A as slave of B} {
+            $A slaveof $B_host $B_port
+            wait_for_condition 50 100 {
+                [lindex [$A role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$A info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+        }
 
-        # test {INCRBYFLOAT replication, should not remove expire} {
-            # r set test 1 EX 100
-            # r incrbyfloat test 0.1
-            # after 1000
-            # if {!$::debug_evict_keys} {
-                # assert_equal [$A debug digest] [$B debug digest]
-            # } else {
-                # assert_equal [$A ttl test] [$B ttl test]
-            # }
-        # }
+        test {INCRBYFLOAT replication, should not remove expire} {
+            r set test 1 EX 100
+            r incrbyfloat test 0.1
+            after 1000
+            if {!$::debug_evict_keys} {
+                assert_equal [$A debug digest] [$B debug digest]
+            } else {
+                assert_equal [$A ttl test] [$B ttl test]
+            }
+        }
 
-        # test {GETSET replication} {
-            # $A config resetstat
-            # $A config set loglevel debug
-            # $B config set loglevel debug
-            # r set test foo
-            # assert_equal [r getset test bar] foo
-            # wait_for_condition 500 10 {
-                # [$A get test] eq "bar"
-            # } else {
-                # fail "getset wasn't propagated"
-            # }
-            # assert_equal [r set test vaz get] bar
-            # wait_for_condition 500 10 {
-                # [$A get test] eq "vaz"
-            # } else {
-                # fail "set get wasn't propagated"
-            # }
-            # assert_match {*calls=3,*} [cmdrstat set $A]
-            # assert_match {} [cmdrstat getset $A]
-        # }
+        test {GETSET replication} {
+            $A config resetstat
+            $A config set loglevel debug
+            $B config set loglevel debug
+            r set test foo
+            assert_equal [r getset test bar] foo
+            wait_for_condition 500 10 {
+                [$A get test] eq "bar"
+            } else {
+                fail "getset wasn't propagated"
+            }
+            assert_equal [r set test vaz get] bar
+            wait_for_condition 500 10 {
+                [$A get test] eq "vaz"
+            } else {
+                fail "set get wasn't propagated"
+            }
+            assert_match {*calls=3,*} [cmdrstat set $A]
+            assert_match {} [cmdrstat getset $A]
+        }
 
-        # test {BRPOPLPUSH replication, when blocking against empty list} {
-            # $A config resetstat
-            # set rd [redis_deferring_client]
-            # $rd brpoplpush a b 5
-            # r lpush a foo
-            # wait_for_condition 50 100 {
-                # [$A debug digest] eq [$B debug digest]
-            # } else {
-                # fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            # }
-            # assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
-            # assert_match {} [cmdrstat lmove $A]
-        # }
+        test {BRPOPLPUSH replication, when blocking against empty list} {
+            $A config resetstat
+            set rd [redis_deferring_client]
+            $rd brpoplpush a b 5
+            r lpush a foo
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
+        }
 
-        # test {BRPOPLPUSH replication, list exists} {
-            # $A config resetstat
-            # set rd [redis_deferring_client]
-            # r lpush c 1
-            # r lpush c 2
-            # r lpush c 3
-            # $rd brpoplpush c d 5
-            # after 1000
-            # assert_equal [$A debug digest] [$B debug digest]
-            # assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
-            # assert_match {} [cmdrstat lmove $A]
-        # }
+        test {BRPOPLPUSH replication, list exists} {
+            $A config resetstat
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd brpoplpush c d 5
+            after 1000
+            assert_equal [$A debug digest] [$B debug digest]
+            assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
+            assert_match {} [cmdrstat lmove $A]
+        }
 
-        # foreach wherefrom {left right} {
-            # foreach whereto {left right} {
-                # test "BLMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
-                    # $A config resetstat
-                    # set rd [redis_deferring_client]
-                    # $rd blmove a b $wherefrom $whereto 5
-                    # r lpush a foo
-                    # wait_for_condition 50 100 {
-                        # [$A debug digest] eq [$B debug digest]
-                    # } else {
-                        # fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-                    # }
-                    # assert_match {*calls=1,*} [cmdrstat lmove $A]
-                    # assert_match {} [cmdrstat rpoplpush $A]
-                # }
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    $rd blmove a b $wherefrom $whereto 5
+                    r lpush a foo
+                    wait_for_condition 50 100 {
+                        [$A debug digest] eq [$B debug digest]
+                    } else {
+                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+                    }
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
 
-                # test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
-                    # $A config resetstat
-                    # set rd [redis_deferring_client]
-                    # r lpush c 1
-                    # r lpush c 2
-                    # r lpush c 3
-                    # $rd blmove c d $wherefrom $whereto 5
-                    # after 1000
-                    # assert_equal [$A debug digest] [$B debug digest]
-                    # assert_match {*calls=1,*} [cmdrstat lmove $A]
-                    # assert_match {} [cmdrstat rpoplpush $A]
-                # }
-            # }
-        # }
+                test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    r lpush c 1
+                    r lpush c 2
+                    r lpush c 3
+                    $rd blmove c d $wherefrom $whereto 5
+                    after 1000
+                    assert_equal [$A debug digest] [$B debug digest]
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+            }
+        }
 
-        # test {BLPOP followed by role change, issue #2473} {
-            # set rd [redis_deferring_client]
-            # $rd blpop foo 0 ; # Block while B is a master
+        test {BLPOP followed by role change, issue #2473} {
+            set rd [redis_deferring_client]
+            $rd blpop foo 0 ; # Block while B is a master
 
-            # # Turn B into master of A
-            # $A slaveof no one
-            # $B slaveof $A_host $A_port
-            # wait_for_condition 50 100 {
-                # [lindex [$B role] 0] eq {slave} &&
-                # [string match {*master_link_status:up*} [$B info replication]]
-            # } else {
-                # fail "Can't turn the instance into a replica"
-            # }
+            # Turn B into master of A
+            $A slaveof no one
+            $B slaveof $A_host $A_port
+            wait_for_condition 50 100 {
+                [lindex [$B role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$B info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
 
-            # # Push elements into the "foo" list of the new replica.
-            # # If the client is still attached to the instance, we'll get
-            # # a desync between the two instances.
-            # $A rpush foo a b c
-            # after 100
+            # Push elements into the "foo" list of the new replica.
+            # If the client is still attached to the instance, we'll get
+            # a desync between the two instances.
+            $A rpush foo a b c
+            after 100
 
-            # wait_for_condition 50 100 {
-                # [$A debug digest] eq [$B debug digest] &&
-                # [$A lrange foo 0 -1] eq {a b c} &&
-                # [$B lrange foo 0 -1] eq {a b c}
-            # } else {
-                # fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            # }
-        # }
-    # }
-# }
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest] &&
+                [$A lrange foo 0 -1] eq {a b c} &&
+                [$B lrange foo 0 -1] eq {a b c}
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+        }
+    }
+}
 
-# start_server {tags {"repl"}} {
-    # r set mykey foo
+start_server {tags {"repl"}} {
+    r set mykey foo
 
-    # start_server {} {
-        # test {Second server should have role master at first} {
-            # s role
-        # } {master}
+    start_server {} {
+        test {Second server should have role master at first} {
+            s role
+        } {master}
 
-        # test {SLAVEOF should start with link status "down"} {
-            # r multi
-            # r slaveof [srv -1 host] [srv -1 port]
-            # r info replication
-            # r exec
-        # } {*master_link_status:down*}
+        test {SLAVEOF should start with link status "down"} {
+            r multi
+            r slaveof [srv -1 host] [srv -1 port]
+            r info replication
+            r exec
+        } {*master_link_status:down*}
 
-        # test {The role should immediately be changed to "replica"} {
-            # s role
-        # } {slave}
+        test {The role should immediately be changed to "replica"} {
+            s role
+        } {slave}
 
-        # wait_for_sync r
-        # test {Sync should have transferred keys from master} {
-            # r get mykey
-        # } {foo}
+        wait_for_sync r
+        test {Sync should have transferred keys from master} {
+            r get mykey
+        } {foo}
 
-        # test {The link status should be up} {
-            # s master_link_status
-        # } {up}
+        test {The link status should be up} {
+            s master_link_status
+        } {up}
 
-        # test {SET on the master should immediately propagate} {
-            # r -1 set mykey bar
+        test {SET on the master should immediately propagate} {
+            r -1 set mykey bar
 
-            # wait_for_condition 500 100 {
-                # [r  0 get mykey] eq {bar}
-            # } else {
-                # fail "SET on master did not propagated on replica"
-            # }
-        # }
+            wait_for_condition 500 100 {
+                [r  0 get mykey] eq {bar}
+            } else {
+                fail "SET on master did not propagated on replica"
+            }
+        }
 
-        # test {FLUSHALL should replicate} {
-            # r -1 flushall
-            # if {$::valgrind} {after 2000}
-            # list [r -1 dbsize] [r 0 dbsize]
-        # } {0 0}
+        test {FLUSHALL should replicate} {
+            r -1 flushall
+            if {$::valgrind} {after 2000}
+            list [r -1 dbsize] [r 0 dbsize]
+        } {0 0}
 
-        # test {ROLE in master reports master with a slave} {
-            # set res [r -1 role]
-            # lassign $res role offset slaves
-            # assert {$role eq {master}}
-            # assert {$offset > 0}
-            # assert {[llength $slaves] == 1}
-            # lassign [lindex $slaves 0] master_host master_port slave_offset
-            # assert {$slave_offset <= $offset}
-        # }
+        test {ROLE in master reports master with a slave} {
+            set res [r -1 role]
+            lassign $res role offset slaves
+            assert {$role eq {master}}
+            assert {$offset > 0}
+            assert {[llength $slaves] == 1}
+            lassign [lindex $slaves 0] master_host master_port slave_offset
+            assert {$slave_offset <= $offset}
+        }
 
-        # test {ROLE in slave reports slave in connected state} {
-            # set res [r role]
-            # lassign $res role master_host master_port slave_state slave_offset
-            # assert {$role eq {slave}}
-            # assert {$slave_state eq {connected}}
-        # }
-    # }
-# }
+        test {ROLE in slave reports slave in connected state} {
+            set res [r role]
+            lassign $res role master_host master_port slave_state slave_offset
+            assert {$role eq {slave}}
+            assert {$slave_state eq {connected}}
+        }
+    }
+}
 
 foreach mdl {no yes} {
-    # foreach sdl {disabled swapdb} {
-    foreach sdl {disabled} {
+    foreach sdl {disabled swapdb} {
         start_server {tags {"repl"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
@@ -337,10 +336,17 @@ foreach mdl {no yes} {
                             wait_for_ofs_sync $master [lindex $slaves 2]
 
                             # Check digests
-                            set digest [$master debug digest]
-                            set digest0 [[lindex $slaves 0] debug digest]
-                            set digest1 [[lindex $slaves 1] debug digest]
-                            set digest2 [[lindex $slaves 2] debug digest]
+                            if {$::debug_evict_keys} {
+                                set digest [$master debug digest-keys]
+                                set digest0 [[lindex $slaves 0] debug digest-keys]
+                                set digest1 [[lindex $slaves 1] debug digest-keys]
+                                set digest2 [[lindex $slaves 2] debug digest-keys]
+                            } else {
+                                set digest [$master debug digest]
+                                set digest0 [[lindex $slaves 0] debug digest]
+                                set digest1 [[lindex $slaves 1] debug digest]
+                                set digest2 [[lindex $slaves 2] debug digest]
+                            }
                             assert {$digest ne 0000000000000000000000000000000000000000}
                             assert {$digest eq $digest0}
                             assert {$digest eq $digest1}
@@ -387,10 +393,18 @@ start_server {tags {"repl"}} {
             stop_write_load $load_handle0
 
             # number of keys
-            wait_for_condition 500 100 {
-                [$master debug digest] eq [$slave debug digest]
+            if {$::debug_evict_keys} {
+                wait_for_condition 500 100 {
+                    [$master debug digest-keys] eq [$slave debug digest-keys]
+                } else {
+                    fail "Different datasets between replica and master"
+                }
             } else {
-                fail "Different datasets between replica and master"
+                wait_for_condition 500 100 {
+                    [$master debug digest] eq [$slave debug digest]
+                } else {
+                    fail "Different datasets between replica and master"
+                }
             }
         }
     }
@@ -410,8 +424,8 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             # Put different data sets on the master and slave
             # we need to put large keys on the master since the slave replies to info only once in 2mb
             $slave debug populate 2000 slave 10
-            $master debug populate 200 master 100000
             $master config set rdbcompression no
+            $master debug populate 200 master 100000
 
             # Set master and slave to use diskless replication
             $master config set repl-diskless-sync yes
@@ -426,7 +440,7 @@ test {slave fails full sync and diskless load swapdb recovers it} {
             $slave slaveof $master_host $master_port
 
             # wait for the slave to start reading the rdb
-            wait_for_condition 50 100 {
+            wait_for_condition 500 100 {
                 [s -1 loading] eq 1
             } else {
                 fail "Replica didn't get into loading mode"
@@ -604,8 +618,8 @@ start_server {tags {"repl"}} {
     # put enough data in the db that the rdb file will be bigger than the socket buffers
     # and since we'll have key-load-delay of 100, 20000 keys will take at least 2 seconds
     # we also need the replica to process requests during transfer (which it does only once in 2mb)
-    $master debug populate 20000 test 10000
     $master config set rdbcompression no
+    $master debug populate 20000 test 10000
     # If running on Linux, we also measure utime/stime to detect possible I/O handling issues
     set os [catch {exec uname}]
     set measure_time [expr {$os == "Linux"} ? 1 : 0]
@@ -732,8 +746,13 @@ start_server {tags {"repl"}} {
                         }
 
                         # Check digests
-                        set digest [$master debug digest]
-                        set digest0 [$replica debug digest]
+                        if {$::debug_evict_keys} {
+                            set digest [$master debug digest-keys]
+                            set digest0 [$replica debug digest-keys]
+                        } else {
+                            set digest [$master debug digest]
+                            set digest0 [$replica debug digest]
+                        }
                         assert {$digest ne 0000000000000000000000000000000000000000}
                         assert {$digest eq $digest0}
                     }
@@ -799,8 +818,8 @@ test "diskless replication read pipe cleanup" {
 
         # put enough data in the db, and slowdown the save, to keep the parent busy at the read process
         $master config set rdb-key-save-delay 100000
-        $master debug populate 20000 test 10000
         $master config set rdbcompression no
+        $master debug populate 20000 test 10000
         start_server {} {
             set replica [srv 0 client]
             set loglines [count_log_lines 0]

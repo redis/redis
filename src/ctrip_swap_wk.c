@@ -231,11 +231,6 @@ sds encodeValRdbWk(robj *value) {
 
     rioInitWithBuffer(&sdsrdb,sdsempty());
     rdbSaveObject(&sdsrdb,value,NULL);
-
-    sds repr = objectDump(value);
-    serverLog(LL_WARNING, "[xxx] encode %s => %s", repr, sdsrdb.io.buffer.ptr);
-    serverLogHexDump(LL_WARNING, "[xxx] hex", sdsrdb.io.buffer.ptr, sdslen(sdsrdb.io.buffer.ptr));
-    sdsfree(repr);
     
     /* rawvalue ownership transfered to caller */
     return sdsrdb.io.buffer.ptr;
@@ -247,11 +242,6 @@ robj *decodeValRdbWk(int rdbtype, sds raw) {
 
     rioInitWithBuffer(&sdsrdb,raw);
     value = rdbLoadObject(rdbtype,&sdsrdb,NULL,NULL);
-
-    serverLogHexDump(LL_WARNING, "[xxx] hex", raw, sdslen(raw));
-    sds repr = objectDump(value);
-    serverLog(LL_WARNING, "[xxx] decode %s => %s", raw, repr);
-    sdsfree(repr);
 
     return value;
 }
@@ -271,10 +261,6 @@ void swapInWk(void *ctx, int action, char* _rawkey, char *_rawval, void *_pd) {
     UNUSED(_rawkey);
 
     val = decodeValRdbWk(pd->rdbtype, rawval);
-
-    sds repr = objectDump(val);
-    serverLog(LL_WARNING, "[xxx] swapin: %s", repr);
-    sdsfree(repr);
 
     if (val == NULL) {
         serverLogHexDump(LL_WARNING, "swapInWk decode key failed",

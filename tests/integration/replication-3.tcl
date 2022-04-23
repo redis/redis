@@ -16,7 +16,15 @@ start_server {tags {"repl"}} {
             after 4000 ;# Make sure everything expired before taking the digest
             r keys *   ;# Force DEL syntesizing to slave
             after 1000 ;# Wait another second. Now everything should be fine.
-            if {[r debug digest] ne [r -1 debug digest]} {
+           
+            if {$::debug_evict_keys} {
+                set slave_digest [r -1 debug digest-keys]
+                set master_digest [r -1 debug digest-keys]
+            } else {
+                set slave_digest [r -1 debug digest]
+                set master_digest [r -1 debug digest]
+            }
+            if {$master_digest ne $slave_digest} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
                 set fd [open /tmp/repldump1.txt w]
@@ -28,7 +36,7 @@ start_server {tags {"repl"}} {
                 puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert_equal [r debug digest] [r -1 debug digest]
+            assert_equal $master_digest $slave_digest
         }
 
         test {Slave is able to evict keys created in writable slaves} {
@@ -75,11 +83,13 @@ start_server {tags {"repl"}} {
                 set script "return redis.call('incr','$key')"
                 set sha1 [r eval "return redis.sha1hex(\"$script\")" 0]
                 set oldsha($j) $sha1
-                r eval $script 0
-                set res [r evalsha $sha1 0]
+                r eval $script 1 $key
+                set res [r evalsha $sha1 1 $key]
                 assert {$res == 2}
                 # Additionally call one of the old scripts as well, at random.
-                set res [r evalsha $oldsha([randomInt $j]) 0]
+                set rand_idx [randomInt $j]
+                set rand_key "key:$rand_idx"
+                set res [r evalsha $oldsha($rand_idx) 1 $rand_key]
                 assert {$res > 2}
 
                 # Trigger an AOF rewrite while we are half-way, this also
@@ -90,21 +100,40 @@ start_server {tags {"repl"}} {
                 }
             }
 
-            wait_for_condition 50 100 {
-                [r dbsize] == $numops &&
-                [r -1 dbsize] == $numops &&
-                [r debug digest] eq [r -1 debug digest]
+            if {$::debug_evict_keys} {
+                wait_for_condition 500 100 {
+                    [r dbsize] == $numops &&
+                    [r -1 dbsize] == $numops &&
+                    [r debug digest-keys] eq [r -1 debug digest-keys]
+                } else {
+                    set csv1 [csvdump r]
+                    set csv2 [csvdump {r -1}]
+                    set fd [open /tmp/repldump1.txt w]
+                    puts -nonewline $fd $csv1
+                    close $fd
+                    set fd [open /tmp/repldump2.txt w]
+                    puts -nonewline $fd $csv2
+                    close $fd
+                    puts "Master - Replica inconsistency"
+                    puts "Run diff -u against /tmp/repldump*.txt for more info"
+                }
             } else {
-                set csv1 [csvdump r]
-                set csv2 [csvdump {r -1}]
-                set fd [open /tmp/repldump1.txt w]
-                puts -nonewline $fd $csv1
-                close $fd
-                set fd [open /tmp/repldump2.txt w]
-                puts -nonewline $fd $csv2
-                close $fd
-                puts "Master - Replica inconsistency"
-                puts "Run diff -u against /tmp/repldump*.txt for more info"
+                wait_for_condition 50 100 {
+                    [r dbsize] == $numops &&
+                    [r -1 dbsize] == $numops &&
+                    [r debug digest] eq [r -1 debug digest]
+                } else {
+                    set csv1 [csvdump r]
+                    set csv2 [csvdump {r -1}]
+                    set fd [open /tmp/repldump1.txt w]
+                    puts -nonewline $fd $csv1
+                    close $fd
+                    set fd [open /tmp/repldump2.txt w]
+                    puts -nonewline $fd $csv2
+                    close $fd
+                    puts "Master - Replica inconsistency"
+                    puts "Run diff -u against /tmp/repldump*.txt for more info"
+                }
             }
 
             set old_digest [r debug digest]
@@ -129,10 +158,18 @@ start_server {tags {"repl"}} {
                 fail "Replication not started."
             }
 
-            wait_for_condition 50 100 {
-                [r debug digest] eq [r -1 debug digest]
+            if {$::debug_evict_keys} {
+                wait_for_condition 500 100 {
+                    [r debug digest-keys] eq [r -1 debug digest-keys]
+                } else {
+                    fail "DEBUG DIGEST-KEYS mismatch after full SYNC with many scripts"
+                }
             } else {
-                fail "DEBUG DIGEST mismatch after full SYNC with many scripts"
+                wait_for_condition 50 100 {
+                    [r debug digest] eq [r -1 debug digest]
+                } else {
+                    fail "DEBUG DIGEST mismatch after full SYNC with many scripts"
+                }
             }
         }
     }

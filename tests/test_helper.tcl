@@ -11,19 +11,24 @@ source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
 
+set mem_failed {
+    unit/aofrw
+    unit/scripting
+    unit/maxmemory
+}
+
 set ::swap_failed {
-    unit/sort
     unit/obuf-limits
     unit/lazyfree
-    unit/shutdown
     unit/memefficiency
-    integration/rdb
-    integration/replication
-    integration/replication-3
-    integration/psync2
+}
+
+set swap_not_supported {
+    unit/sort
 }
 
 set ::all_tests {
+    unit/shutdown
     unit/printver
     unit/dump
     unit/auth
@@ -64,7 +69,9 @@ set ::all_tests {
     unit/pubsub
     integration/logging
     integration/redis-cli
+    integration/replication
     integration/replication-2
+    integration/replication-3
     integration/replication-4
     integration/block-repl
     integration/psync2-reg
@@ -76,12 +83,8 @@ set ::all_tests {
     integration/convert-zipmap-hash-on-load
     integration/aof
     integration/redis-benchmark
-}
-
-set failed_tests {
-    unit/aofrw
-    unit/scripting
-    unit/maxmemory
+    integration/rdb
+    integration/psync2
 }
 
 # Index to the next test to run in the ::all_tests list.

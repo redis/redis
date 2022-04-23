@@ -312,6 +312,51 @@ void computeDatasetDigest(unsigned char *final) {
     }
 }
 
+void computeKeysDigest(unsigned char *final) {
+    unsigned char digest[20];
+    dictIterator *di = NULL;
+    dictEntry *de;
+    int j;
+    uint32_t aux;
+
+    memset(final,0,20); /* Start with a clean result */
+
+    for (j = 0; j < server.dbnum; j++) {
+        int d;
+        redisDb *db = server.db+j;
+        dict *dicts[] = {db->dict, db->evict};
+
+        for (d= 0; d < (int)(sizeof(dicts)/sizeof(dict*)); d++) {
+            dict *dict = dicts[d];
+
+            if (dictSize(dict) == 0) continue;
+
+            /* hash the DB id, so the same dataset moved in a different
+             * DB will lead to a different digest */
+            aux = htonl(j);
+            mixDigest(final,&aux,sizeof(aux));
+
+            /* Iterate this DB writing every entry */
+            di = dictGetSafeIterator(dict);
+            while((de = dictNext(di)) != NULL) {
+                sds key;
+                robj *keyobj;
+
+                memset(digest,0,20); /* This key-val digest */
+                key = dictGetKey(de);
+                keyobj = createStringObject(key,sdslen(key));
+
+                mixDigest(digest,key,sdslen(key));
+
+                /* We can finally xor the key-val digest to the final digest */
+                xorDigest(final,digest,20);
+                decrRefCount(keyobj);
+            }
+            dictReleaseIterator(di);
+        }
+    }
+}
+
 #ifdef USE_JEMALLOC
 void mallctl_int(client *c, robj **argv, int argc) {
     int ret;
@@ -703,6 +748,15 @@ NULL
         sds d = sdsempty();
 
         computeDatasetDigest(digest);
+        for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
+        addReplyStatus(c,d);
+        sdsfree(d);
+    } else if (!strcasecmp(c->argv[1]->ptr,"digest-keys") && c->argc == 2) {
+        /* DEBUG DIGEST-KEYS (form without keys specified) */
+        unsigned char digest[20];
+        sds d = sdsempty();
+
+        computeKeysDigest(digest);
         for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
         addReplyStatus(c,d);
         sdsfree(d);

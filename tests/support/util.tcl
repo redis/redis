@@ -98,7 +98,8 @@ proc wait_for_sync r {
 }
 
 proc wait_for_ofs_sync {r1 r2} {
-    wait_for_condition 50 100 {
+    if {$::debug_evict_keys} {set retry 500} else {set retry 50}
+    wait_for_condition $retry 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
     } else {
         fail "replica didn't sync in time"

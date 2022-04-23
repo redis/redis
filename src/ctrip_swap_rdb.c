@@ -100,11 +100,14 @@ err:
     return C_ERR;
 }
 
-int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db) {
+int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db, int rdbflags) {
     dictIterator *di = NULL;
     dictEntry *de;
     dict *d = db->evict;
-    long long num = 0;
+    long long key_count = 0;
+    static long long info_updated_time;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
+    size_t processed = 0;
 
     parallelSwap *ps = parallelSwapNew(server.ps_parallism_rdb);
 
@@ -151,15 +154,35 @@ int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db) {
 
         /* Note that complement swaps are refs to rawkey (moved to rocks). */
         getSwapsFreeResult(&result);
-        num++;
+
+        /* When this RDB is produced as part of an AOF rewrite, move
+         * accumulated diff from parent to child while rewriting in
+         * order to have a smaller final write. */
+        if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
+                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
+        {
+            processed = rdb->processed_bytes;
+            aofReadDiffFromParent();
+        }
+
+        /* Update child info every 1 second (approximately).
+         * in order to avoid calling mstime() on each iteration, we will
+         * check the diff every 1024 keys */
+        if ((key_count++ & 1023) == 0) {
+            long long now = mstime();
+            if (now - info_updated_time >= 1000) {
+                sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
+                info_updated_time = now;
+            }
+        }
     }
     dictReleaseIterator(di);
 
     if (parallelSwapDrain(ps)) goto werr;
     parallelSwapFree(ps);
 
-    if (num) serverLog(LL_WARNING, "[RKS] DB-%d saved %lld evicted key to rdb.",
-            db->id, num);
+    if (key_count) serverLog(LL_WARNING, "[RKS] DB-%d saved %lld evicted key to rdb.",
+            db->id, key_count);
 
     return C_OK;
 
