@@ -886,7 +886,7 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
-static void harndfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -969,7 +969,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 lpRandomPairs(hash->ptr, sample_count, keys, vals);
-                harndfieldReplyWithListpack(c, sample_count, keys, vals);
+                hrandfieldReplyWithListpack(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -1071,7 +1071,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             if (withvalues)
                 vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
-            harndfieldReplyWithListpack(c, count, keys, vals);
+            hrandfieldReplyWithListpack(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
             return;
