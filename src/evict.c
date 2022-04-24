@@ -492,10 +492,6 @@ static int isSafeToPerformEvictions(void) {
      * expires and evictions of keys not being performed. */
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
 
-    /* We cannot evict if we already have stuff to propagate (for example,
-     * CONFIG SET maxmemory inside a MULTI/EXEC) */
-    if (server.also_propagate.numops != 0) return 0;
-
     return 1;
 }
 
