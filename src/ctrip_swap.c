@@ -717,8 +717,6 @@ static void replCommandDispatch(client *wc, client *c) {
     /* Swapping count is dispatched command count. Note that free repl
      * client would be defered untill swapping count drops to 0. */
     c->swapping_count++;
-
-    serverLog(LL_WARNING, "[xxx] dispatch cmd(%s) with cmd_reploff(%lld)", wc->cmd->name, wc->cmd_reploff);
 }
 
 static void processFinishedReplCommands() {
@@ -793,7 +791,6 @@ static void processFinishedReplCommands() {
 		 * sub-replicas and to the replication backlog. */
 		if ((c->flags&CLIENT_MASTER)) {
 			size_t applied = c->reploff - prev_offset;
-            serverLog(LL_WARNING, "[xxx] cmd(%s) prev_offset(%lld) -> reploff(%lld)", cur_cmd->name, prev_offset, c->reploff);
 			if (applied) {
 				if(!server.repl_slave_repl_all){
 					replicationFeedSlavesFromMasterStream(server.slaves,

@@ -1483,7 +1483,6 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     if (server.master->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
     if (dbid != -1) selectDb(server.master,dbid);
-    serverLog(LL_WARNING, "[xxx] initial reploff(%lld), read_reploff(%lld)", server.master->reploff, server.master->read_reploff);
 }
 
 /* This function will try to re-enable the AOF file after the

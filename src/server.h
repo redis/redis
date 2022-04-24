@@ -1736,7 +1736,9 @@ struct redisServer {
     list *repl_worker_clients_used; /* used clients for repl swap. */
     list *repl_swapping_clients; /* list of repl swapping clients. */
     /* parallel swap */
-    int ps_parallism_rdb;  /* parallel swap parallelism for rdb save. */
+    int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
+    /* rdb */
+    struct parallelSwap *rdb_load_ps; /* parallel swap for rdb load */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -3054,6 +3056,7 @@ int parallelSwapDrain(parallelSwap *ps);
 
 /* complement swap */
 #define COMP_MODE_RDB           0
+
 #define COMP_TYPE_OBJ           0
 #define COMP_TYPE_RAW           1
 
@@ -3070,7 +3073,7 @@ compVal *getComplementSwaps(redisDb *db, robj *key, int mode, getSwapsResult *re
 int complementObj(robj *dup, sds rawkey, sds rawval, complementObjectFunc comp, void *pd);
 int complementCompVal(compVal *cv, sds rawkey, sds rawval, complementObjectFunc comp, void *pd);
 
-/* rks */
+/* swap rocks related */
 struct swappingClients *lookupSwappingClients(client *c, robj *key, robj *subkey);
 void setupSwappingClients(client *c, robj *key, robj *subkey, swappingClients *scs);
 void getEvictionSwaps(client *c, robj *key, getSwapsResult *result);
@@ -3086,5 +3089,8 @@ void getDataSwapsWk(robj *key, int mode, getSwapsResult *result);
 void setupSwappingClientsWk(redisDb *db, robj *key, void *scs);
 void *lookupSwappingClientsWk(redisDb *db, robj *key);
 void *getComplementSwapsWk(redisDb *db, robj *key, int mode, int *type, getSwapsResult *result, complementObjectFunc *comp, void **pd);
+
+/* swap rdb related */
+int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db, int rdbflags);
 
 #endif

@@ -1269,8 +1269,6 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
-int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db, int rdbflags);
-
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -2743,6 +2741,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         /* Read key */
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
+
         /* Read value */
         val = rdbLoadObject(type,rdb,key,&error);
 

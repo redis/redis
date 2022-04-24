@@ -28,6 +28,7 @@
 
 #include "server.h"
 
+/* ------------------------------ rdb save -------------------------------- */
 typedef struct {
     rio *rdb;               /* rdb stream */
     redisDb *db;            /* db */
@@ -193,3 +194,243 @@ werr:
     return C_ERR;
 }
 
+/* ------------------------------ rdb load -------------------------------- */
+
+#define RDB_LOAD_VTYPE_VERBATIM 0  /* Raw buffer that could be directly write to rocksdb. */
+#define RDB_LOAD_VTYPE_OBJECT 1  /* Robj that should be encoded before write to rocksdb. */
+
+int rdbLoadIntegerVerbatim(rio *rdb, sds *verbatim, int enctype, long long *val) {
+    unsigned char enc[4];
+
+    if (enctype == RDB_ENC_INT8) {
+        if (rioRead(rdb,enc,1) == 0) return -1;
+        *val = (signed char)enc[0];
+        *verbatim = sdscatlen(*verbatim,enc,1);
+    } else if (enctype == RDB_ENC_INT16) {
+        uint16_t v;
+        if (rioRead(rdb,enc,2) == 0) return -1;
+        v = enc[0]|(enc[1]<<8);
+        *val = (int16_t)v;
+        *verbatim = sdscatlen(*verbatim,enc,2);
+    } else if (enctype == RDB_ENC_INT32) {
+        uint32_t v;
+        if (rioRead(rdb,enc,4) == 0) return -1;
+        v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
+        *val = (int32_t)v;
+        *verbatim = sdscatlen(*verbatim,enc,4);
+    } else {
+        return -1; /* Never reached. */
+    }
+    return 0;
+}
+
+int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr) {
+    unsigned char buf[2];
+    int type;
+
+    if (isencoded) *isencoded = 0;
+    if (rioRead(rdb,buf,1) == 0) return -1;
+    type = (buf[0]&0xC0)>>6;
+    if (type == RDB_ENCVAL) {
+        /* Read a 6 bit encoding type. */
+        if (isencoded) *isencoded = 1;
+        *lenptr = buf[0]&0x3F;
+        *verbatim = sdscatlen(*verbatim,buf,1);
+    } else if (type == RDB_6BITLEN) {
+        /* Read a 6 bit len. */
+        *lenptr = buf[0]&0x3F;
+        *verbatim = sdscatlen(*verbatim,buf,1);
+    } else if (type == RDB_14BITLEN) {
+        /* Read a 14 bit len. */
+        if (rioRead(rdb,buf+1,1) == 0) return -1;
+        *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
+        *verbatim = sdscatlen(*verbatim,buf,2);
+    } else if (buf[0] == RDB_32BITLEN) {
+        /* Read a 32 bit len. */
+        uint32_t len;
+        if (rioRead(rdb,&len,4) == 0) return -1;
+        *lenptr = ntohl(len);
+        *verbatim = sdscatlen(*verbatim,buf,1);
+        *verbatim = sdscatlen(*verbatim,&len,sizeof(len));
+    } else if (buf[0] == RDB_64BITLEN) {
+        /* Read a 64 bit len. */
+        uint64_t len;
+        if (rioRead(rdb,&len,8) == 0) return -1;
+        *lenptr = ntohu64(len);
+        *verbatim = sdscatlen(*verbatim,buf,1);
+        *verbatim = sdscatlen(*verbatim,&len,sizeof(len));
+    } else {
+        return -1; /* Never reached. */
+    }
+
+    return 0;
+}
+
+int rdbLoadRawVerbatim(rio *rdb, sds *verbatim, unsigned long long len) {
+    sdsMakeRoomFor(*verbatim, len);
+    rioRead(rdb, *verbatim+sdslen(*verbatim), len);
+    sdsIncrLen(*verbatim, len);
+    return 0;
+}
+
+int rdbLoadLzfStringVerbatim(rio *rdb, sds *verbatim) {
+    unsigned long long len, clen;
+    int isencode;
+
+    if ((rdbLoadLenVerbatim(rdb,verbatim,&isencode,&clen))) return -1;
+    if ((rdbLoadLenVerbatim(rdb,verbatim,&isencode,&len))) return -1;
+    if ((rdbLoadRawVerbatim(rdb,verbatim,clen))) return -1;
+
+    return 0;
+}
+
+int rdbLoadStringVerbatim(rio *rdb, sds *verbatim) {
+    int isencoded, retval;
+    unsigned long long len;
+    long long val;
+
+     if ((retval = rdbLoadLenVerbatim(rdb,verbatim,&isencoded,&len)))
+         return retval;
+
+     if (isencoded) {
+        switch(len) {
+        case RDB_ENC_INT8:
+        case RDB_ENC_INT16:
+        case RDB_ENC_INT32:
+            return rdbLoadIntegerVerbatim(rdb,verbatim,len,&val);
+        case RDB_ENC_LZF:
+            return rdbLoadLzfStringVerbatim(rdb,verbatim);
+        default:
+            return -1;
+        }
+     } else {
+         return rdbLoadRawVerbatim(rdb,verbatim,len);
+     }
+
+     return 0;
+}
+
+int rdbLoadHashVerbatim(rio *rdb, sds *verbatim) {
+    int isencode;
+    unsigned long long len;
+
+    /* nfield */
+    if (rdbLoadLenVerbatim(rdb,verbatim,&isencode,&len)) return -1;
+    while (len--) {
+        if (rdbLoadStringVerbatim(rdb,verbatim)) return -1; /* field */
+        if (rdbLoadStringVerbatim(rdb,verbatim)) return -1; /* value */
+    }
+
+    return 0;
+}
+
+int evictRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, void **val) {
+    int error = 0;
+    sds verbatim = sdsempty();
+
+    if (!rdbIsObjectType(rdbtype)) return -1;
+
+    if (rdbtype == RDB_TYPE_STRING) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        error = rdbLoadStringVerbatim(rdb,&verbatim);
+        *val = verbatim;
+    } else if (rdbtype == RDB_TYPE_HASH) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        error = rdbLoadHashVerbatim(rdb,&verbatim);
+        *val = verbatim;
+    } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP || rdbtype == RDB_TYPE_HASH_ZIPLIST) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        error = rdbLoadStringVerbatim(rdb,&verbatim);
+        *val = verbatim;
+    } else {
+        *vtype = RDB_LOAD_VTYPE_OBJECT;
+        *val = rdbLoadObject(rdbtype, rdb, key, &error);
+    }
+
+    return error;
+}
+
+char *getTypeName(int type) {
+    char* typename;
+    switch(type) {
+    case OBJ_STRING: typename = "string"; break;
+    case OBJ_LIST: typename = "list"; break;
+    case OBJ_SET: typename = "set"; break;
+    case OBJ_ZSET: typename = "zset"; break;
+    case OBJ_HASH: typename = "hash"; break;
+    case OBJ_STREAM: typename = "stream"; break;
+    default: typename = "unknown"; break;
+    }
+    return typename;
+}
+
+sds encodeKeyVerbatim(sds key, int type) {
+    sds rawkey;
+    char *typename = getTypeName(type);
+
+    rawkey = sdscat(sdsempty(), typename);
+    rawkey = sdscatsds(rawkey, key);
+    return rawkey;
+}
+
+int rdbLoadSwapVerbatimFinished(sds rawkey, sds rawval, void *pd) {
+    sdsfree(rawkey);
+    sdsfree(rawval);
+    return 0;
+}
+
+/* TODO support module. */
+int evictAddRDBLoad(int vtype, redisDb *db, int type, sds key, void *val) {
+    robj *evict;
+
+    if (vtype == RDB_LOAD_VTYPE_VERBATIM) {
+        sds rawkey, rawval;
+        rawval = val;
+        rawkey = encodeKeyVerbatim(key, type);
+        if (parallelSwapSubmit(server.rdb_load_ps, rawkey,
+                rdbLoadSwapVerbatimFinished, rawval)) {
+            sdsfree(rawkey);
+            sdsfree(rawval);
+            return -1;
+        }
+    } else if (vtype == RDB_LOAD_VTYPE_OBJECT) {
+        int swap_count, i;
+        client *c = server.evict_clients[db->id];
+        getSwapsResult result = GETSWAPS_RESULT_INIT;
+        getRDBLoadSwaps(c, key, &result);
+        /* key is rawkey, val is rawval */
+        for (i = 0; i < swap_count; i++) {
+            sds rawkey, rawval;
+            rawkey = 
+            if (parallelSwapSubmit(server.rdb_load_ps, ,
+                        rdbLoadSwapVerbatimFinished, rawval)) {
+                return -1;
+            }
+        }
+    } else {
+        serverPanic("unexpceted rdb load vtype.");
+        return 0;
+    }
+
+    evict = createEvictObject(type, NULL);
+    evict->evicted = 1;
+
+    if (dictAdd(db->evict, key, evict) != DICT_OK) {
+        decrRefCount(evict);
+        return -1;
+    }
+
+    if (server.cluster_enabled) slotToKeyAdd(key);
+    return 1;
+}
+
+void evictStartLoading() {
+    server.rdb_load_ps = parallelSwapNew(server.ps_parallism_rdb);
+}
+
+void evictStopLoading(int success) {
+    UNUSED(success);
+    rocksIODrain(server.rocks, -1);
+    parallelSwapFree(server.rdb_load_ps);
+    server.rdb_load_ps = NULL;
+}

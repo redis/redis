@@ -2258,7 +2258,6 @@ void readQueryFromClient(connection *conn) {
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) {
-        serverLog(LL_WARNING, "[xxx] read_reploff %lld-> %lld", c->read_reploff, c->read_reploff+nread);
         c->read_reploff += nread;
     }
     atomicIncr(server.stat_net_input_bytes, nread);
