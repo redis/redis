@@ -4765,7 +4765,7 @@ struct redisCommandArg MEMORY_USAGE_Args[] = {
 struct redisCommand MEMORY_Subcommands[] = {
 {"doctor","Outputs memory problems report","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_DOCTOR_History,MEMORY_DOCTOR_tips,memoryCommand,2,0,0},
 {"help","Show helpful text about the different subcommands","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_HELP_History,MEMORY_HELP_tips,memoryCommand,2,CMD_LOADING|CMD_STALE,0},
-{"malloc-stats","Show allocator internal stats","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_tips,memoryCommand,2,0,0},
+{"malloc-stats","Show allocator internal stats","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_MALLOC_STATS_History,MEMORY_MALLOC_STATS_tips,memoryCommand,2,CMD_LOADING,0},
 {"purge","Ask the allocator to release memory","Depends on how much memory is allocated, could be slow","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_PURGE_History,MEMORY_PURGE_tips,memoryCommand,2,0,0},
 {"stats","Show memory usage details","O(1)","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_STATS_History,MEMORY_STATS_tips,memoryCommand,2,0,0},
 {"usage","Estimate the memory usage of a key","O(N) where N is the number of samples.","4.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SERVER,MEMORY_USAGE_History,MEMORY_USAGE_tips,memoryCommand,-3,CMD_READONLY,0,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=MEMORY_USAGE_Args},
