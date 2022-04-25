@@ -3812,7 +3812,7 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Compute current most restictive pause type and its end time, aggregated for
+/* Compute current most restrictive pause type and its end time, aggregated for
  * all pause purposes. */
 static void updateClientPauseTypeAndEndTime(void) {
     pause_type old_type = server.client_pause_type;

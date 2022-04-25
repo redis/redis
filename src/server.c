@@ -3494,7 +3494,7 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
         cmd->flags |= CMD_MOVABLE_KEYS;
 }
 
-/* Check if c->cmd exists, fills `err` with deatils in case it doesn't
+/* Check if c->cmd exists, fills `err` with details in case it doesn't.
  * Return 1 if exists. */
 int commandCheckExistence(client *c, sds *err) {
     if (c->cmd)
@@ -3516,14 +3516,14 @@ int commandCheckExistence(client *c, sds *err) {
         for (i=1; i < c->argc && sdslen(args) < 128; i++)
             args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
         *err = sdsnew(NULL);
-        *err = sdscatprintf(*err, "unknown command '%s', with args beginning with: %s",
+        *err = sdscatprintf(*err, "unknown command '%.128s', with args beginning with: %s",
                             (char*)c->argv[0]->ptr, args);
         sdsfree(args);
     }
     return 0;
 }
 
-/* Check if c->argc is valid for c->cmd, fills `err` with deatils in case it isn't
+/* Check if c->argc is valid for c->cmd, fills `err` with details in case it isn't.
  * Return 1 if valid. */
 int commandCheckArity(client *c, sds *err) {
     if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
