@@ -2864,6 +2864,8 @@ struct redisCommand *lookupCommandBySds(sds s);
 struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
+int commandCheckExistence(client *c, sds *err);
+int commandCheckArity(client *c, sds *err);
 void startCommandExecution();
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);

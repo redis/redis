@@ -3429,6 +3429,8 @@ void rejectCommand(client *c, robj *reply) {
 }
 
 void rejectCommandSds(client *c, sds s) {
+    flagTransaction(c);
+    if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
         sdsfree(s);
@@ -3439,8 +3441,6 @@ void rejectCommandSds(client *c, sds s) {
 }
 
 void rejectCommandFormat(client *c, const char *fmt, ...) {
-    if (c->cmd) c->cmd->rejected_calls++;
-    flagTransaction(c);
     va_list ap;
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
@@ -3494,6 +3494,51 @@ void populateCommandMovableKeys(struct redisCommand *cmd) {
         cmd->flags |= CMD_MOVABLE_KEYS;
 }
 
+/* Check if c->cmd exists, fills `err` with deatils in case it doesn't
+ * Return 1 if exists. */
+int commandCheckExistence(client *c, sds *err) {
+    if (c->cmd)
+        return 1;
+    if (!err)
+        return 0;
+    if (isContainerCommandBySds(c->argv[0]->ptr)) {
+        /* If we can't find the command but argv[0] by itself is a command
+         * it means we're dealing with an invalid subcommand. Print Help. */
+        sds cmd = sdsnew((char *)c->argv[0]->ptr);
+        sdstoupper(cmd);
+        *err = sdsnew(NULL);
+        *err = sdscatprintf(*err, "unknown subcommand '%.128s'. Try %s HELP.",
+                            (char *)c->argv[1]->ptr, cmd);
+        sdsfree(cmd);
+    } else {
+        sds args = sdsempty();
+        int i;
+        for (i=1; i < c->argc && sdslen(args) < 128; i++)
+            args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+        *err = sdsnew(NULL);
+        *err = sdscatprintf(*err, "unknown command '%s', with args beginning with: %s",
+                            (char*)c->argv[0]->ptr, args);
+        sdsfree(args);
+    }
+    return 0;
+}
+
+/* Check if c->argc is valid for c->cmd, fills `err` with deatils in case it isn't
+ * Return 1 if valid. */
+int commandCheckArity(client *c, sds *err) {
+    if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
+        (c->argc < -c->cmd->arity))
+    {
+        if (err) {
+            *err = sdsnew(NULL);
+            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", c->cmd->fullname);
+        }
+        return 0;
+    }
+
+    return 1;
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -3533,29 +3578,13 @@ int processCommand(client *c) {
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
-    if (!c->cmd) {
-        if (isContainerCommandBySds(c->argv[0]->ptr)) {
-            /* If we can't find the command but argv[0] by itself is a command
-             * it means we're dealing with an invalid subcommand. Print Help. */
-            sds cmd = sdsnew((char *)c->argv[0]->ptr);
-            sdstoupper(cmd);
-            rejectCommandFormat(c, "Unknown subcommand '%.128s'. Try %s HELP.",
-                                (char *)c->argv[1]->ptr, cmd);
-            sdsfree(cmd);
-            return C_OK;
-        }
-        sds args = sdsempty();
-        int i;
-        for (i=1; i < c->argc && sdslen(args) < 128; i++)
-            args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
-        rejectCommandFormat(c,"unknown command '%s', with args beginning with: %s",
-            (char*)c->argv[0]->ptr, args);
-        sdsfree(args);
+    sds err;
+    if (!commandCheckExistence(c, &err)) {
+        rejectCommandSds(c, err);
         return C_OK;
-    } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-               (c->argc < -c->cmd->arity))
-    {
-        rejectCommandFormat(c,"wrong number of arguments for '%s' command", c->cmd->fullname);
+    }
+    if (!commandCheckArity(c, &err)) {
+        rejectCommandSds(c, err);
         return C_OK;
     }
 
