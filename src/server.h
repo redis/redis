@@ -1401,7 +1401,6 @@ typedef struct {
     list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
                                          `base_aof_info` and `incr_aof_list` will be moved to this list. We
                                          will delete these AOF files when AOFRW finish. */
-    aofInfo     *tmp_incr_aof_info;   /* Temp INCR file info(Used to accumulate data in AOF_WAIT_REWRITE state). */
     long long   curr_base_file_seq;   /* The sequence number used by the current BASE file. */
     long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with

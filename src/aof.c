@@ -87,7 +87,7 @@ void aofManifestFreeAndUpdate(aofManifest *am);
 #define RDB_FORMAT_SUFFIX          ".rdb"
 #define AOF_FORMAT_SUFFIX          ".aof"
 #define MANIFEST_NAME_SUFFIX       ".manifest"
-#define MANIFEST_TEMP_NAME_PREFIX  "temp_"
+#define TEMP_FILE_NAME_PREFIX      "temp_"
 
 /* AOF manifest key. */
 #define AOF_MANIFEST_KEY_FILE_NAME   "file"
@@ -148,7 +148,6 @@ aofManifest *aofManifestCreate(void) {
     aofManifest *am = zcalloc(sizeof(aofManifest));
     am->incr_aof_list = listCreate();
     am->history_aof_list = listCreate();
-    am->tmp_incr_aof_info = NULL;
     listSetFreeMethod(am->incr_aof_list, aofListFree);
     listSetDupMethod(am->incr_aof_list, aofListDup);
     listSetFreeMethod(am->history_aof_list, aofListFree);
@@ -161,7 +160,6 @@ void aofManifestFree(aofManifest *am) {
     if (am->base_aof_info) aofInfoFree(am->base_aof_info);
     if (am->incr_aof_list) listRelease(am->incr_aof_list);
     if (am->history_aof_list) listRelease(am->history_aof_list);
-    if (am->tmp_incr_aof_info) aofInfoFree(am->tmp_incr_aof_info);
     zfree(am);
 }
 
@@ -171,7 +169,7 @@ sds getAofManifestFileName() {
 }
 
 sds getTempAofManifestFileName() {
-    return sdscatprintf(sdsempty(), "%s%s%s", MANIFEST_TEMP_NAME_PREFIX,
+    return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX,
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
 
@@ -401,10 +399,6 @@ aofManifest *aofManifestDup(aofManifest *orig) {
         am->base_aof_info = aofInfoDup(orig->base_aof_info);
     }
 
-    if (orig->tmp_incr_aof_info) {
-        am->tmp_incr_aof_info = aofInfoDup(orig->tmp_incr_aof_info);
-    }
-
     am->incr_aof_list = listDup(orig->incr_aof_list);
     am->history_aof_list = listDup(orig->history_aof_list);
     serverAssert(am->incr_aof_list != NULL);
@@ -457,20 +451,13 @@ sds getNewBaseFileNameAndMarkPreAsHistory(aofManifest *am) {
  * for example:
  *  appendonly.aof.1.incr.aof
  */
-sds getNewIncrAofName(aofManifest *am, int temp) {
+sds getNewIncrAofName(aofManifest *am) {
     aofInfo *ai = aofInfoCreate();
     ai->file_type = AOF_FILE_TYPE_INCR;
     ai->file_name = sdscatprintf(sdsempty(), "%s.%lld%s%s", server.aof_filename,
                         ++am->curr_incr_file_seq, INCR_FILE_SUFFIX, AOF_FORMAT_SUFFIX);
     ai->file_seq = am->curr_incr_file_seq;
-    if (!temp) {
-        listAddNodeTail(am->incr_aof_list, ai);
-    } else {
-        if (am->tmp_incr_aof_info) {
-            aofInfoFree(am->tmp_incr_aof_info);
-        }
-        am->tmp_incr_aof_info = ai;
-    }
+    listAddNodeTail(am->incr_aof_list, ai);
     am->dirty = 1;
     return ai->file_name;
 }
@@ -481,7 +468,7 @@ sds getLastIncrAofName(aofManifest *am) {
 
     /* If 'incr_aof_list' is empty, just create a new one. */
     if (!listLength(am->incr_aof_list)) {
-        return getNewIncrAofName(am, 0);
+        return getNewIncrAofName(am);
     }
 
     /* Or return the last one. */
@@ -524,20 +511,6 @@ void markRewrittenIncrAofAsHistory(aofManifest *am) {
         listDelNode(am->incr_aof_list, ln);
     }
 
-    am->dirty = 1;
-}
-
-/* Called in `backgroundRewriteDoneHandler` used to mark the 
- * temporary INCR AOF as permanent.
- */
-void markTempIncrAofAsPerm(aofManifest *am) {
-    serverAssert(am != NULL);
-    serverAssert(am->tmp_incr_aof_info != NULL);
-    serverAssert(am->tmp_incr_aof_info->file_type == AOF_FILE_TYPE_INCR);
-
-    listAddNodeTail(am->incr_aof_list, am->tmp_incr_aof_info);
-    am->curr_incr_file_seq = am->tmp_incr_aof_info->file_seq;
-    am->tmp_incr_aof_info = NULL;
     am->dirty = 1;
 }
 
@@ -703,18 +676,13 @@ int aofDelHistoryFiles(void) {
 
 /* Used to clean up temp INCR AOF when AOFRW fails. */
 void aofDelTempIncrAofFile() {
-    if (server.aof_manifest->tmp_incr_aof_info == NULL) {
-        return;
-    }
-
-    sds aof_filename = server.aof_manifest->tmp_incr_aof_info->file_name;
+    sds aof_filename = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
+                        INCR_FILE_SUFFIX);
     sds aof_filepath = makePath(server.aof_dirname, aof_filename);
     serverLog(LL_NOTICE, "Removing the temp incr aof file %s in the background", aof_filename);
     bg_unlink(aof_filepath);
     sdsfree(aof_filepath);
-
-    aofInfoFree(server.aof_manifest->tmp_incr_aof_info);
-    server.aof_manifest->tmp_incr_aof_info = NULL;
+    sdsfree(aof_filename);
     return;
 }
 
@@ -799,42 +767,43 @@ int aofFileExist(char *filename) {
 int openNewIncrAofForAppend(void) {
     serverAssert(server.aof_manifest != NULL);
     int newfd;
+    aofManifest *temp_am = NULL;
 
     /* Only open new INCR AOF when AOF enabled. */
     if (server.aof_state == AOF_OFF) return C_OK;
 
-    /* Dup a temp aof_manifest to modify. */
-    aofManifest *temp_am = aofManifestDup(server.aof_manifest);
-
     /* Open new AOF. */
-    sds new_aof_name = getNewIncrAofName(temp_am, server.aof_state == AOF_WAIT_REWRITE);
+    sds new_aof_name;
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Construct temporary incr aof filename when we are in AOF_WAIT_REWRITE state. */
+        new_aof_name = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
+                        INCR_FILE_SUFFIX);
+    } else {
+        /* Dup a temp aof_manifest to modify. */
+        temp_am = aofManifestDup(server.aof_manifest);
+        new_aof_name = getNewIncrAofName(temp_am);
+    }
     sds new_aof_filepath = makePath(server.aof_dirname, new_aof_name);
     newfd = open(new_aof_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
     sdsfree(new_aof_filepath);
     if (newfd == -1) {
         serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
             new_aof_name, strerror(errno));
-
-        aofManifestFree(temp_am);
-        return C_ERR;
+        goto cleanup;
     }
 
-    if (server.aof_state != AOF_WAIT_REWRITE) {
+    if (temp_am) {
         /* Persist AOF Manifest. */
         int ret = persistAofManifest(temp_am);
         if (ret == C_ERR) {
-            close(newfd);
-            aofManifestFree(temp_am);
-            return C_ERR;
+            goto cleanup;
         }
-
-        /* If reaches here, we can safely modify the `server.aof_manifest`. */
-        aofManifestFreeAndUpdate(temp_am);
     } else {
-        server.aof_manifest->tmp_incr_aof_info = aofInfoDup(temp_am->tmp_incr_aof_info);
-        /* If reaches here, we only open the new INCR AOF. */
-        aofManifestFree(temp_am);
+        sdsfree(new_aof_name);
     }
+
+    /* If reaches here, we can safely modify the `server.aof_manifest`
+     * and `server.aof_fd`. */
 
     /* Close old aof_fd if needed. */
     if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
@@ -842,7 +811,17 @@ int openNewIncrAofForAppend(void) {
 
     /* Reset the aof_last_incr_size. */
     server.aof_last_incr_size = 0;
+    /* Update `server.aof_manifest`. */
+    if (temp_am) aofManifestFreeAndUpdate(temp_am);
     return C_OK;
+
+cleanup:
+    if (newfd != -1) close(newfd);
+    if (temp_am) 
+        aofManifestFree(temp_am);
+    else
+        sdsfree(new_aof_name);
+    return C_ERR;
 }
 
 /* Whether to limit the execution of Background AOF rewrite.
@@ -2576,8 +2555,32 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename", latency);
 
-        /* Mark the temporary INCR AOF as permanent. */
-        if (server.aof_state == AOF_WAIT_REWRITE) markTempIncrAofAsPerm(temp_am);
+        /* Rename the temporary incr aof file to 'new_incr_filename'. */
+        if (server.aof_state == AOF_WAIT_REWRITE) {
+            sds temp_incr_aof_name = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
+                        INCR_FILE_SUFFIX);
+            sds temp_incr_filepath = makePath(server.aof_dirname, temp_incr_aof_name);
+            sds new_incr_filename = getNewIncrAofName(temp_am);
+            sds new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
+            latencyStartMonitor(latency);
+            if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
+                serverLog(LL_WARNING,
+                    "Error trying to rename the temporary incr AOF file %s into %s: %s",
+                    temp_incr_aof_name,
+                    new_incr_filename,
+                    strerror(errno));
+                aofManifestFree(temp_am);
+                sdsfree(temp_incr_aof_name);
+                sdsfree(temp_incr_filepath);
+                sdsfree(new_incr_filepath);
+                goto cleanup;
+            }
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("aof-rename", latency);
+            sdsfree(temp_incr_aof_name);
+            sdsfree(temp_incr_filepath);
+            sdsfree(new_incr_filepath);
+        }
 
         /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR
          * to AOF_FILE_TYPE_HIST, and move them to the 'history_aof_list'. */
