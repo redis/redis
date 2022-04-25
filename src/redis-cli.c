@@ -1971,7 +1971,7 @@ static int parseOptions(int argc, char **argv) {
                 exit(1);
             }
             config.connect_timeout.tv_sec = (long long)seconds;
-            config.connect_timeout.tv_usec = (long long)(seconds * 1000000) % 1000000;
+            config.connect_timeout.tv_usec = ((long long)(seconds * 1000000)) % 1000000;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
