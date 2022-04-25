@@ -746,6 +746,11 @@ int aofFileExist(char *filename) {
  * The above two steps of modification are atomic, that is, if
  * any step fails, the entire operation will rollback and returns
  * C_ERR, and if all succeeds, it returns C_OK.
+ * 
+ * If `server.aof_state` is 'AOF_WAIT_REWRITE', it will only open the 
+ * INCR AOF but not write it to the manifest file. When AOFRW is 
+ * successful, the INCR AOF and the newly generated BASE AOF will 
+ * be written into the manifest together.
  * */
 int openNewIncrAofForAppend(void) {
     serverAssert(server.aof_manifest != NULL);
@@ -770,56 +775,27 @@ int openNewIncrAofForAppend(void) {
         return C_ERR;
     }
 
-    /* Persist AOF Manifest. */
-    int ret = persistAofManifest(temp_am);
-    if (ret == C_ERR) {
-        close(newfd);
-        aofManifestFree(temp_am);
-        return C_ERR;
-    }
+    if (server.aof_state != AOF_WAIT_REWRITE) {
+        /* Persist AOF Manifest. */
+        int ret = persistAofManifest(temp_am);
+        if (ret == C_ERR) {
+            close(newfd);
+            aofManifestFree(temp_am);
+            return C_ERR;
+        }
 
-    /* If reaches here, we can safely modify the `server.aof_manifest`
-     * and `server.aof_fd`. */
+        /* If reaches here, we can safely modify the `server.aof_manifest`. */
+        aofManifestFreeAndUpdate(temp_am);
+    } else {
+        /* When we are in AOF_WAIT_REWRITE state, we must hide this newly created 
+         * INCR AOF (delayed write manifest) until the BASE AOF is successfully created. */
+        aofManifestFree(temp_am);
+    }
 
     /* Close old aof_fd if needed. */
     if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
     server.aof_fd = newfd;
-
     /* Reset the aof_last_incr_size. */
-    server.aof_last_incr_size = 0;
-    /* Update `server.aof_manifest`. */
-    aofManifestFreeAndUpdate(temp_am);
-    return C_OK;
-}
-
-/* Called in `rewriteAppendOnlyFileBackground` to open a new temp INCR AOF when in 
- * AOF_WAIT_REWRITE state, the AOF information will not be added to server.aof_manifest 
- * and persisted to manifest file.
- * */
-int openNewTempIncrAofForAppend() {
-    serverAssert(server.aof_manifest != NULL);
-    serverAssert(server.aof_state == AOF_WAIT_REWRITE);
-
-    /* Dup a temp aof_manifest to modify. */
-    aofManifest *temp_am = aofManifestDup(server.aof_manifest);
-
-    /* Open new AOF. */
-    sds new_aof_name = getNewIncrAofName(temp_am);
-    sds new_aof_filepath = makePath(server.aof_dirname, new_aof_name);
-    int newfd = open(new_aof_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
-    sdsfree(new_aof_filepath);
-    if (newfd == -1) {
-        serverLog(LL_WARNING, "Can't open the append-only file %s: %s",
-            new_aof_name, strerror(errno));
-        aofManifestFree(temp_am);
-        return C_ERR;
-    }
-
-    aofManifestFree(temp_am);
-
-    /* Close old aof_fd if needed. */
-    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
-    server.aof_fd = newfd;
     server.aof_last_incr_size = 0;
     return C_OK;
 }
@@ -2397,16 +2373,8 @@ int rewriteAppendOnlyFileBackground(void) {
     /* We set aof_selected_db to -1 in order to force the next call to the
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
-
     flushAppendOnlyFile(1);
-    if (server.aof_state == AOF_ON) {
-        if (openNewIncrAofForAppend() != C_OK) return C_ERR;
-    } else if (server.aof_state == AOF_WAIT_REWRITE) {
-        /* When we are in AOF_WAIT_REWRITE state, we must hide this newly created 
-         * INCR AOF (delayed write manifest) until the BASE AOF is successfully created. */
-        if (openNewTempIncrAofForAppend() != C_OK) return C_ERR;
-    }
-
+    if (openNewIncrAofForAppend() != C_OK) return C_ERR;
     server.stat_aof_rewrites++;
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
