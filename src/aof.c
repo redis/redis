@@ -759,10 +759,9 @@ int aofFileExist(char *filename) {
  * any step fails, the entire operation will rollback and returns
  * C_ERR, and if all succeeds, it returns C_OK.
  * 
- * If `server.aof_state` is 'AOF_WAIT_REWRITE', it will only open the 
- * INCR AOF but not write it to the manifest file. When AOFRW is 
- * successful, the INCR AOF and the newly generated BASE AOF will 
- * be written into the manifest together.
+ * If `server.aof_state` is 'AOF_WAIT_REWRITE', It will open a temporary INCR AOF 
+ * file to accumulate data during AOF_WAIT_REWRITE, and it will eventually be 
+ * renamed in the backgroundRewriteDoneHandler and written to the manifest file.
  * */
 int openNewIncrAofForAppend(void) {
     serverAssert(server.aof_manifest != NULL);
@@ -817,10 +816,11 @@ int openNewIncrAofForAppend(void) {
 
 cleanup:
     if (newfd != -1) close(newfd);
-    if (temp_am) 
+    if (temp_am) {
         aofManifestFree(temp_am);
-    else
+    } else {
         sdsfree(new_aof_name);
+    }
     return C_ERR;
 }
 

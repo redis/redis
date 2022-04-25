@@ -1198,7 +1198,7 @@ tags {"external:skip"} {
                 # Make sure AOFRW was scheduled 3 times
                 set total_forks [s total_forks]
                 set maxtries 1000
-                set delay 10
+                set delay 100
                 while {[incr maxtries -1] >= 0} {
                     if {[s total_forks] == [expr $total_forks + 3]} {
                         break
@@ -1266,7 +1266,7 @@ tags {"external:skip"} {
                 # Make sure AOFRW was scheduled 3 times
                 set total_forks [s total_forks]
                 set maxtries 1000
-                set delay 10
+                set delay 100
                 while {[incr maxtries -1] >= 0} {
                     if {[s total_forks] == [expr $total_forks + 3]} {
                         break
