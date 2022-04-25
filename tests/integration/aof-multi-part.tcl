@@ -1180,6 +1180,7 @@ tags {"external:skip"} {
             set master_port [srv 0 port]
 
             test "AOF will not open incr file until the first AOFRW success when AOF is dynamically enabled" {
+                r config set save ""
                 # Increase AOFRW execution time to give us enough time to kill it
                 r config set rdb-key-save-delay 10000000
 
@@ -1208,15 +1209,15 @@ tags {"external:skip"} {
                     after $delay
                 }
                 if {$maxtries == -1} {
-                    fail "aof rewrite did not scheduled 5 times"
+                    fail "aof rewrite did not scheduled 3 times"
                 }
-            
+
                 # Make sure manifest file is not created
                 assert_equal 0 [check_file_exist $aof_dirpath $aof_manifest_name]
                 # Make sure BASE AOF is not created
                 assert_equal 0 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
                 # Make sure temp INCR AOF is deleted
-                wait_for_condition 1000 50 {
+                wait_for_condition 1000 100 {
                     [count_log_message 0 "Removing the temp incr aof file"] == 3
                 } else {
                     fail "temp aof did not delete 3 times"
@@ -1270,7 +1271,9 @@ tags {"external:skip"} {
                     if {[s total_forks] == [expr $total_forks + 3]} {
                         break
                     }
-                    catch {exec kill -9 [get_child_pid 0]}
+                    if {[s aof_rewrite_in_progress] == 1} {
+                        catch {exec kill -9 [get_child_pid 0]}
+                    }
                     after $delay
                 }
                 if {$maxtries == -1} {
@@ -1287,7 +1290,7 @@ tags {"external:skip"} {
                 set total_forks [s total_forks]
                 r config set rdb-key-save-delay 0
                 catch {exec kill -9 [get_child_pid 0]}
-                
+
                 wait_for_condition 1000 10 {
                     [s total_forks] == [expr $total_forks + 1]
                 } else {
