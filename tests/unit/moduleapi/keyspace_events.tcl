@@ -85,8 +85,8 @@ tags "modules" {
 
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
-            r set exp 1 PX 300
-            wait_for_condition 100 800 {
+            r set exp 1 PX 10
+            wait_for_condition 10 10 {
                 [s expired_keys] eq $prev_expired + 1
             } else {
                 fail "key not expired"
