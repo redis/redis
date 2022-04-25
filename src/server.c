@@ -3509,9 +3509,6 @@ int commandCheckExistence(client *c, sds *err) {
         *err = sdsnew(NULL);
         *err = sdscatprintf(*err, "unknown subcommand '%.128s'. Try %s HELP.",
                             (char *)c->argv[1]->ptr, cmd);
-        /* Make sure there are no newlines in the string, otherwise invalid protocol
-         * is emitted (The args come from the user, they may contain any character). */
-        sdsmapchars(*err, "\r\n", "  ",  2);
         sdsfree(cmd);
     } else {
         sds args = sdsempty();
@@ -3521,11 +3518,11 @@ int commandCheckExistence(client *c, sds *err) {
         *err = sdsnew(NULL);
         *err = sdscatprintf(*err, "unknown command '%.128s', with args beginning with: %s",
                             (char*)c->argv[0]->ptr, args);
-        /* Make sure there are no newlines in the string, otherwise invalid protocol
-         * is emitted (The args come from the user, they may contain any character). */
-        sdsmapchars(*err, "\r\n", "  ",  2);
         sdsfree(args);
     }
+    /* Make sure there are no newlines in the string, otherwise invalid protocol
+     * is emitted (The args come from the user, they may contain any character). */
+    sdsmapchars(*err, "\r\n", "  ",  2);
     return 0;
 }
 
