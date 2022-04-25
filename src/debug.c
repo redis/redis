@@ -579,7 +579,7 @@ NULL
         aofLoadManifestFromDisk();
         aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY && ret != AOF_NOT_EXIST)
+        if (ret != AOF_OK && ret != AOF_EMPTY)
             exit(1);
         unprotectClient(c);
         server.dirty = 0; /* Prevent AOF / replication */

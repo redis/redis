@@ -1167,137 +1167,148 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
         }
 
-        test "AOF will not open incr file until the first AOFRW success when AOF is dynamically enabled" {
-            # Clear all data and delete appenddir to get an empty redis
-            r flushall
-            r config set appendonly no
-            catch {exec rm -rf $aof_dirpath}
-            r debug loadaof
+        start_server {overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
+            set dir [get_redis_dir]
+            set aof_basename "appendonly.aof"
+            set aof_dirname "appendonlydir"
+            set aof_dirpath "$dir/$aof_dirname"
+            set aof_manifest_name "$aof_basename$::manifest_suffix"
+            set aof_manifest_file "$dir/$aof_dirname/$aof_manifest_name"
 
-            assert_equal 0 [r dbsize]
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
 
-            # Increase AOFRW execution time to give us enough time to kill it
-            r config set rdb-key-save-delay 10000000
+            test "AOF will not open incr file until the first AOFRW success when AOF is dynamically enabled" {
+                # Increase AOFRW execution time to give us enough time to kill it
+                r config set rdb-key-save-delay 10000000
 
-            # Start write load
-            set load_handle0 [start_write_load $master_host $master_port 10]
+                # Start write load
+                set load_handle0 [start_write_load $master_host $master_port 10]
 
-            wait_for_condition 50 100 {
-                [r dbsize] > 0
-            } else {
-                fail "No write load detected."
-            }
-
-            r config set appendonly yes
-            
-            # Make sure AOFRW was scheduled 5 times
-            set total_forks [s total_forks]
-            set maxtries 1000
-            set delay 10
-            while {[incr maxtries -1] >= 0} {
-                if {[s total_forks] == [expr $total_forks + 5]} {
-                    break
+                wait_for_condition 50 100 {
+                    [r dbsize] > 0
+                } else {
+                    fail "No write load detected."
                 }
-                catch {exec kill -9 [get_child_pid 0]}
-                after $delay
-            }
-            if {$maxtries == -1} {
-                fail "aof rewrite did not scheduled 5 times"
-            }
-           
-            # Make sure manifest file is not created
-            assert_equal 0 [check_file_exist $aof_dirpath $aof_manifest_name]
-            # Make sure BASE AOF is not created
-            assert_equal 0 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
-            # Make sure temp INCR AOF is created
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::incr_aof_sufix}${::aof_format_suffix}"]
 
-            # Do a successful AOFRW
-            set total_forks [s total_forks]
-            r config set rdb-key-save-delay 0
-            catch {exec kill -9 [get_child_pid 0]}
-            
-            wait_for_condition 1000 10 {
-                [s total_forks] == [expr $total_forks + 1]
-            } else {
-                fail "aof rewrite did not scheduled"
-            }
-            waitForBgrewriteaof r
+                r config set appendonly yes
 
-            # BASE and INCR AOF are successfully created
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.1.base.rdb seq 1 type b}
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
-
-            stop_write_load $load_handle0
-            wait_load_handlers_disconnected
-
-            set d1 [r debug digest]
-            r debug loadaof
-            set d2 [r debug digest]
-            assert {$d1 eq $d2}
-
-            # Dynamic disable AOF again
-            r config set appendonly no
-
-            # Disabling AOF does not delete previous AOF files
-            r debug loadaof
-            set d2 [r debug digest]
-            assert {$d1 eq $d2}
-
-            r config set rdb-key-save-delay 10000000
-            set load_handle0 [start_write_load $master_host $master_port 10]
-
-            # Re-enable AOF
-            r config set appendonly yes
-
-            # Make sure AOFRW was scheduled 5 times
-            set total_forks [s total_forks]
-            set maxtries 1000
-            set delay 10
-            while {[incr maxtries -1] >= 0} {
-                if {[s total_forks] == [expr $total_forks + 5]} {
-                    break
+                # Make sure AOFRW was scheduled 3 times
+                set total_forks [s total_forks]
+                set maxtries 1000
+                set delay 10
+                while {[incr maxtries -1] >= 0} {
+                    if {[s total_forks] == [expr $total_forks + 3]} {
+                        break
+                    }
+                    if {[s aof_rewrite_in_progress] == 1} {
+                        catch {exec kill -9 [get_child_pid 0]}
+                    }
+                    after $delay
                 }
-                catch {exec kill -9 [get_child_pid 0]}
-                after $delay
-            }
-            if {$maxtries == -1} {
-                fail "aof rewrite did not scheduled 5 times"
-            }
-
-            # Make sure no new incr AOF was created           
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.1.base.rdb seq 1 type b}
-                {file appendonly.aof.1.incr.aof seq 1 type i}
-            }
-
-            # Do a successful AOFRW
-            set total_forks [s total_forks]
-            r config set rdb-key-save-delay 0
-            catch {exec kill -9 [get_child_pid 0]}
+                if {$maxtries == -1} {
+                    fail "aof rewrite did not scheduled 5 times"
+                }
             
-            wait_for_condition 1000 10 {
-                [s total_forks] == [expr $total_forks + 1]
-            } else {
-                fail "aof rewrite did not scheduled"
+                # Make sure manifest file is not created
+                assert_equal 0 [check_file_exist $aof_dirpath $aof_manifest_name]
+                # Make sure BASE AOF is not created
+                assert_equal 0 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
+                # Make sure temp INCR AOF is deleted
+                wait_for_condition 1000 50 {
+                    [count_log_message 0 "Removing the temp incr aof file"] == 3
+                } else {
+                    fail "temp aof did not delete 3 times"
+                }
+
+                # Do a successful AOFRW
+                set total_forks [s total_forks]
+                r config set rdb-key-save-delay 0
+                catch {exec kill -9 [get_child_pid 0]}
+
+                wait_for_condition 1000 10 {
+                    [s total_forks] == [expr $total_forks + 1]
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+                waitForBgrewriteaof r
+
+                # BASE and INCR AOF are successfully created
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.1.base.rdb seq 1 type b}
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                stop_write_load $load_handle0
+                wait_load_handlers_disconnected
+
+                set d1 [r debug digest]
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
+
+                # Dynamic disable AOF again
+                r config set appendonly no
+
+                # Disabling AOF does not delete previous AOF files
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
+
+                r config set rdb-key-save-delay 10000000
+                set load_handle0 [start_write_load $master_host $master_port 10]
+
+                # Re-enable AOF
+                r config set appendonly yes
+
+                # Make sure AOFRW was scheduled 3 times
+                set total_forks [s total_forks]
+                set maxtries 1000
+                set delay 10
+                while {[incr maxtries -1] >= 0} {
+                    if {[s total_forks] == [expr $total_forks + 3]} {
+                        break
+                    }
+                    catch {exec kill -9 [get_child_pid 0]}
+                    after $delay
+                }
+                if {$maxtries == -1} {
+                    fail "aof rewrite did not scheduled 3 times"
+                }
+
+                # Make sure no new incr AOF was created           
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.1.base.rdb seq 1 type b}
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                # Do a successful AOFRW
+                set total_forks [s total_forks]
+                r config set rdb-key-save-delay 0
+                catch {exec kill -9 [get_child_pid 0]}
+                
+                wait_for_condition 1000 10 {
+                    [s total_forks] == [expr $total_forks + 1]
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+                waitForBgrewriteaof r
+
+                # New BASE and INCR AOF are successfully created
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.2.base.rdb seq 2 type b}
+                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                }
+
+                stop_write_load $load_handle0
+                wait_load_handlers_disconnected
+
+                set d1 [r debug digest]
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
             }
-            waitForBgrewriteaof r
-
-            # New BASE and INCR AOF are successfully created
-            assert_aof_manifest_content $aof_manifest_file {
-                {file appendonly.aof.2.base.rdb seq 2 type b}
-                {file appendonly.aof.2.incr.aof seq 2 type i}
-            }
-
-            stop_write_load $load_handle0
-            wait_load_handlers_disconnected
-
-            set d1 [r debug digest]
-            r debug loadaof
-            set d2 [r debug digest]
-            assert {$d1 eq $d2}
         }
     }
 }
