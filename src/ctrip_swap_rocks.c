@@ -419,7 +419,7 @@ int rocksProcessCompleteQueue(rocks *rocks) {
 static int rocksInitDB(rocks *rocks) {
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
     rocksdb_cache_t *block_cache;
-
+    rocks->rocksdb_snapshot = NULL;
     rocks->rocksdb_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->rocksdb_opts, 1); 
     rocksdb_options_enable_statistics(rocks->rocksdb_opts);

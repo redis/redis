@@ -846,10 +846,15 @@ void hdelCommand(client *c) {
     }
     if (deleted) {
         signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEventDirty(NOTIFY_HASH,"hdel",c->argv[1],c->db->id,o,NULL);
-        if (keyremoved)
+        
+        if (keyremoved) {
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"hdel",c->argv[1],
+                                c->db->id);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
+        } else {
+            notifyKeyspaceEventDirty(NOTIFY_HASH,"hdel",c->argv[1],c->db->id,o,NULL);
+        }
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
