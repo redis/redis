@@ -3520,6 +3520,9 @@ int commandCheckExistence(client *c, sds *err) {
                             (char*)c->argv[0]->ptr, args);
         sdsfree(args);
     }
+    /* Make sure there are no newlines in the string, otherwise invalid protocol
+     * is emitted (The args come from the user, they may contain any character). */
+    sdsmapchars(*err, "\r\n", "  ",  2);
     return 0;
 }
 
