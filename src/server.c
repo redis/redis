@@ -5938,6 +5938,45 @@ void linuxMemoryWarnings(void) {
     }
 }
 
+void linuxTimeWarnings(void) {
+#ifdef HAVE_PROC_STAT
+#define PROC_STAT_STIME_IDX 15
+    long long sys_time_ticks, sys_time_ticks_start;
+    unsigned long systime_us, system_hz, test_time_us;
+    struct timespec ts;
+    unsigned long long start_us;
+    system_hz = sysconf(_SC_CLK_TCK);
+
+    if (!get_proc_stat_ll(PROC_STAT_STIME_IDX, &sys_time_ticks_start))
+        return;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
+        return;
+    }
+    start_us = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000);
+
+    /* clock_gettime() busy loop of 5 times system hz (for a system_hz of 100 this is 50ms).
+     * If our clocksource is configured correctly (vdso) this will result in no system calls.
+     * If our clocksource is inefficient it'll waste most of the busy loop in the kernel. */
+    test_time_us = 5 * 1000000 / system_hz;
+    while (1) {
+        unsigned long long d;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0)
+            return;
+        d = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000) - start_us;
+        if (d >= test_time_us) break;
+    }
+    if (!get_proc_stat_ll(PROC_STAT_STIME_IDX, &sys_time_ticks))
+        return;
+    /* Calculate how much time we spent in kernel system calls */
+    systime_us = (1000000 * (sys_time_ticks - sys_time_ticks_start)) / system_hz;
+
+    /* If more than half the time was in system calls we probably have an inefficient clocksource - print a warning */
+    if (systime_us * 2 >= test_time_us) {
+        serverLog(LL_WARNING,"WARNING it looks like your system's clocksource is configured inefficiently!!!.");
+    }
+#endif
+}
+
 #ifdef __arm64__
 
 /* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
@@ -6958,6 +6997,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
+        linuxTimeWarnings();
     #if defined (__arm64__)
         int ret;
         if ((ret = linuxMadvFreeForkBugCheck())) {
