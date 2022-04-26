@@ -1280,6 +1280,13 @@ tags {"external:skip"} {
                     {file appendonly.aof.1.incr.aof seq 1 type i}
                 }
 
+                # Make sure the next AOFRW has started
+                wait_for_condition 1000 50 {
+                    [s aof_rewrite_in_progress] == 1
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+
                 # Do a successful AOFRW
                 set total_forks [s total_forks]
                 r config set rdb-key-save-delay 0
