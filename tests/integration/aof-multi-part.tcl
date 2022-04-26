@@ -1179,7 +1179,7 @@ tags {"external:skip"} {
             set master_host [srv 0 host]
             set master_port [srv 0 port]
 
-            test "AOF will not open incr file until the first AOFRW success when AOF is dynamically enabled" {
+            test "AOF will open a temporary INCR AOF to accumulate data until the first AOFRW success when AOF is dynamically enabled" {
                 r config set save ""
                 # Increase AOFRW execution time to give us enough time to kill it
                 r config set rdb-key-save-delay 10000000
@@ -1193,34 +1193,30 @@ tags {"external:skip"} {
                     fail "No write load detected."
                 }
 
+                # Enable AOF will trigger an initialized AOFRW
                 r config set appendonly yes
-
-                # Make sure AOFRW was scheduled 3 times
-                set total_forks [s total_forks]
-                set maxtries 1000
-                set delay 100
-                while {[incr maxtries -1] >= 0} {
-                    if {[s total_forks] == [expr $total_forks + 3]} {
-                        break
-                    }
-                    if {[s aof_rewrite_in_progress] == 1} {
-                        catch {exec kill -9 [get_child_pid 0]}
-                    }
-                    after $delay
-                }
-                if {$maxtries == -1} {
-                    fail "aof rewrite did not scheduled 3 times"
+                # Let AOFRW fail
+                assert_equal 1 [s aof_rewrite_in_progress]
+                set pid1 [get_child_pid 0]
+                catch {exec kill -9 $pid1}
+ 
+                # Wait for AOFRW to exit and delete temp incr aof
+                wait_for_condition 1000 100 {
+                    [count_log_message 0 "Removing the temp incr aof file"] == 1
+                } else {
+                    fail "temp aof did not delete"
                 }
 
                 # Make sure manifest file is not created
                 assert_equal 0 [check_file_exist $aof_dirpath $aof_manifest_name]
                 # Make sure BASE AOF is not created
                 assert_equal 0 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
-                # Make sure temp INCR AOF is deleted
-                wait_for_condition 1000 100 {
-                    [count_log_message 0 "Removing the temp incr aof file"] == 3
+
+                # Make sure the next AOFRW has started
+                wait_for_condition 1000 50 {
+                    [s aof_rewrite_in_progress] == 1
                 } else {
-                    fail "temp aof did not delete 3 times"
+                    fail "aof rewrite did not scheduled"
                 }
 
                 # Do a successful AOFRW
@@ -1228,12 +1224,15 @@ tags {"external:skip"} {
                 r config set rdb-key-save-delay 0
                 catch {exec kill -9 [get_child_pid 0]}
 
+                # Make sure the next AOFRW has started
                 wait_for_condition 1000 10 {
                     [s total_forks] == [expr $total_forks + 1]
                 } else {
                     fail "aof rewrite did not scheduled"
                 }
                 waitForBgrewriteaof r
+
+                assert_equal 2 [count_log_message 0 "Removing the temp incr aof file"]
 
                 # BASE and INCR AOF are successfully created
                 assert_aof_manifest_content $aof_manifest_file {
@@ -1263,21 +1262,16 @@ tags {"external:skip"} {
                 # Re-enable AOF
                 r config set appendonly yes
 
-                # Make sure AOFRW was scheduled 3 times
-                set total_forks [s total_forks]
-                set maxtries 1000
-                set delay 100
-                while {[incr maxtries -1] >= 0} {
-                    if {[s total_forks] == [expr $total_forks + 3]} {
-                        break
-                    }
-                    if {[s aof_rewrite_in_progress] == 1} {
-                        catch {exec kill -9 [get_child_pid 0]}
-                    }
-                    after $delay
-                }
-                if {$maxtries == -1} {
-                    fail "aof rewrite did not scheduled 3 times"
+                # Let AOFRW fail
+                assert_equal 1 [s aof_rewrite_in_progress]
+                set pid1 [get_child_pid 0]
+                catch {exec kill -9 $pid1}
+
+                # Wait for AOFRW to exit and delete temp incr aof
+                wait_for_condition 1000 100 {
+                    [count_log_message 0 "Removing the temp incr aof file"] == 3
+                } else {
+                    fail "temp aof did not delete 3 times"
                 }
 
                 # Make sure no new incr AOF was created           
@@ -1297,6 +1291,8 @@ tags {"external:skip"} {
                     fail "aof rewrite did not scheduled"
                 }
                 waitForBgrewriteaof r
+
+                assert_equal 4 [count_log_message 0 "Removing the temp incr aof file"]
 
                 # New BASE and INCR AOF are successfully created
                 assert_aof_manifest_content $aof_manifest_file {
