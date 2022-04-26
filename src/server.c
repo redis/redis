@@ -5970,8 +5970,8 @@ void linuxTimeWarnings(void) {
     /* Calculate how much time we spent in kernel system calls */
     systime_us = (1000000 * (sys_time_ticks - sys_time_ticks_start)) / system_hz;
 
-    /* If more than half the time was in system calls we probably have an inefficient clocksource - print a warning */
-    if (systime_us * 2 >= test_time_us) {
+    /* If more than 10% of the time was in system calls we probably have an inefficient clocksource, print a warning */
+    if (systime_us * 10 > test_time_us) {
         char avail[1024] = "";
         char curr[1024] = "";
         FILE *fp = fopen("/sys/devices/system/clocksource/clocksource0/available_clocksource","r");
