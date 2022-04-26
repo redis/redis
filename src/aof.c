@@ -87,7 +87,7 @@ void aofManifestFreeAndUpdate(aofManifest *am);
 #define RDB_FORMAT_SUFFIX          ".rdb"
 #define AOF_FORMAT_SUFFIX          ".aof"
 #define MANIFEST_NAME_SUFFIX       ".manifest"
-#define TEMP_FILE_NAME_PREFIX      "temp_"
+#define TEMP_FILE_NAME_PREFIX      "temp-"
 
 /* AOF manifest key. */
 #define AOF_MANIFEST_KEY_FILE_NAME   "file"
