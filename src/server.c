@@ -101,6 +101,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
+    const char *level_color[] = {"\033[30m", "\033[37m", "\033[32m", "\033[31m"};
     FILE *fp;
     char buf[64];
     int rawmode = (level & LL_RAW);
@@ -132,8 +133,14 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        fprintf(fp,"%d:%c %s %c %s\n",
-            (int)getpid(),role_char, buf,c[level],msg);
+        const char *pre = "";
+        const char *post = "";
+        if (isatty(fileno(fp))) {
+            pre = level_color[level];
+            post = "\033[0m";
+        }
+        fprintf(fp,"%d:%c %s %s%c%s %s\n",
+            (int)getpid(),role_char, buf, pre, c[level], post, msg);
     }
     fflush(fp);
 
