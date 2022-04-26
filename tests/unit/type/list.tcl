@@ -252,6 +252,7 @@ start_server [list overrides [list save ""] ] {
     } {} {needs:debug}
 }
 
+run_solo {list-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -349,6 +350,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
    } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo
 
 start_server {
     tags {"list"}

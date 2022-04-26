@@ -36,6 +36,7 @@ scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
     {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
     {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
+    {.flag = SCRIPT_FLAG_ALLOW_CROSS_SLOT, .str = "allow-cross-slot-keys"},
     {.flag = 0, .str = NULL}, /* flags array end */
 };
 
@@ -114,6 +115,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
             server.repl_serve_stale_data == 0;
+    int obey_client = mustObeyClient(caller);
 
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
@@ -139,16 +141,14 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 1. we are not a readonly replica
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
-            if (server.masterhost && server.repl_slave_ro && caller->id != CLIENT_ID_AOF
-                && !(caller->flags & CLIENT_MASTER))
-            {
+            if (server.masterhost && server.repl_slave_ro && !obey_client) {
                 addReplyError(caller, "Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
             /* Deny writes if we're unale to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
-            if (deny_write_type != DISK_ERROR_TYPE_NONE && server.masterhost == NULL) {
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
                     addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
                                      "but it's currently unable to persist to disk. "
@@ -219,6 +219,10 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 
+    if ((script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) || (script_flags & SCRIPT_FLAG_ALLOW_CROSS_SLOT)) {
+        run_ctx->flags |= SCRIPT_ALLOW_CROSS_SLOT;
+    }
+
     /* set the curr_run_ctx so we can use it to kill the script if needed */
     curr_run_ctx = run_ctx;
 
@@ -269,7 +273,7 @@ void scriptKill(client *c, int is_eval) {
         addReplyError(c, "-NOTBUSY No scripts in execution right now.");
         return;
     }
-    if (curr_run_ctx->original_client->flags & CLIENT_MASTER) {
+    if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
     }
@@ -334,8 +338,8 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * of this script. */
     int deny_write_type = writeCommandsDeniedByDiskError();
 
-    if (server.masterhost && server.repl_slave_ro && run_ctx->original_client->id != CLIENT_ID_AOF
-        && !(run_ctx->original_client->flags & CLIENT_MASTER))
+    if (server.masterhost && server.repl_slave_ro &&
+        !mustObeyClient(run_ctx->original_client))
     {
         *err = sdsdup(shared.roslaveerr->ptr);
         return C_ERR;
@@ -380,8 +384,7 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
      * in the middle. */
 
     if (server.maxmemory &&                            /* Maxmemory is actually enabled. */
-        run_ctx->original_client->id != CLIENT_ID_AOF && /* Don't care about mem if loading from AOF. */
-        !server.masterhost &&                          /* Slave must execute the script. */
+        !mustObeyClient(run_ctx->original_client) &&   /* Don't care about mem for replicas or AOF. */
         !(run_ctx->flags & SCRIPT_WRITE_DIRTY) &&        /* Script had no side effects so far. */
         server.script_oom &&                           /* Detected OOM when script start. */
         (run_ctx->c->cmd->flags & CMD_DENYOOM))
@@ -393,8 +396,8 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
     return C_OK;
 }
 
-static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
-    if (!server.cluster_enabled || original_c->id == CLIENT_ID_AOF || (original_c->flags & CLIENT_MASTER)) {
+static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *original_c, sds *err) {
+    if (!server.cluster_enabled || mustObeyClient(original_c)) {
         return C_OK;
     }
     /* If this is a Redis Cluster node, we need to make sure the script is not
@@ -404,7 +407,8 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
     /* Duplicate relevant flags in the script client. */
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, NULL, &error_code) != server.cluster->myself) {
+    int hashslot = -1;
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -417,6 +421,19 @@ static int scriptVerifyClusterState(client *c, client *original_c, sds *err) {
                     "cluster node");
         }
         return C_ERR;
+    }
+
+    /* If the script declared keys in advanced, the cross slot error would have
+     * already been thrown. This is only checking for cross slot keys being accessed
+     * that weren't pre-declared. */
+    if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
+        if (original_c->slot == -1) {
+            original_c->slot = hashslot;
+        } else if (original_c->slot != hashslot) {
+            *err = sdsnew("Script attempted to access keys that do not hash to "
+                    "the same slot");
+            return C_ERR;
+        }
     }
     return C_OK;
 }
@@ -522,7 +539,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         run_ctx->flags |= SCRIPT_WRITE_DIRTY;
     }
 
-    if (scriptVerifyClusterState(c, run_ctx->original_client, err) != C_OK) {
+    if (scriptVerifyClusterState(run_ctx, c, run_ctx->original_client, err) != C_OK) {
         goto error;
     }
 

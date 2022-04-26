@@ -11,7 +11,10 @@ int cmd_set(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 int cmd_get(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
-    UNUSED(argc);
+
+    if (argc > 4) /* For testing */
+        return RedisModule_WrongArity(ctx);
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }

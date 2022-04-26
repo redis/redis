@@ -77,6 +77,12 @@ proc getInfoProperty {infostr property} {
     }
 }
 
+proc cluster_info {r field} {
+    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
+        set _ $value
+    }
+}
+
 # Return value for INFO property
 proc status {r property} {
     set _ [getInfoProperty [{*}$r info] $property]
