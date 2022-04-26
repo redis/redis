@@ -761,18 +761,18 @@ int aofFileExist(char *filename) {
  * 
  * If `server.aof_state` is 'AOF_WAIT_REWRITE', It will open a temporary INCR AOF 
  * file to accumulate data during AOF_WAIT_REWRITE, and it will eventually be 
- * renamed in the backgroundRewriteDoneHandler and written to the manifest file.
+ * renamed in the `backgroundRewriteDoneHandler` and written to the manifest file.
  * */
 int openNewIncrAofForAppend(void) {
     serverAssert(server.aof_manifest != NULL);
-    int newfd;
+    int newfd = -1;
     aofManifest *temp_am = NULL;
+    sds new_aof_name = NULL;
 
     /* Only open new INCR AOF when AOF enabled. */
     if (server.aof_state == AOF_OFF) return C_OK;
 
     /* Open new AOF. */
-    sds new_aof_name;
     if (server.aof_state == AOF_WAIT_REWRITE) {
         /* Construct temporary incr aof filename when we are in AOF_WAIT_REWRITE state. */
         new_aof_name = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
@@ -780,7 +780,7 @@ int openNewIncrAofForAppend(void) {
     } else {
         /* Dup a temp aof_manifest to modify. */
         temp_am = aofManifestDup(server.aof_manifest);
-        new_aof_name = getNewIncrAofName(temp_am);
+        new_aof_name = sdsdup(getNewIncrAofName(temp_am));
     }
     sds new_aof_filepath = makePath(server.aof_dirname, new_aof_name);
     newfd = open(new_aof_filepath, O_WRONLY|O_TRUNC|O_CREAT, 0644);
@@ -793,13 +793,11 @@ int openNewIncrAofForAppend(void) {
 
     if (temp_am) {
         /* Persist AOF Manifest. */
-        int ret = persistAofManifest(temp_am);
-        if (ret == C_ERR) {
+        if (persistAofManifest(temp_am) == C_ERR) {
             goto cleanup;
         }
-    } else {
-        sdsfree(new_aof_name);
     }
+    sdsfree(new_aof_name);
 
     /* If reaches here, we can safely modify the `server.aof_manifest`
      * and `server.aof_fd`. */
@@ -815,12 +813,9 @@ int openNewIncrAofForAppend(void) {
     return C_OK;
 
 cleanup:
+    if (new_aof_name) sdsfree(new_aof_name);
     if (newfd != -1) close(newfd);
-    if (temp_am) {
-        aofManifestFree(temp_am);
-    } else {
-        sdsfree(new_aof_name);
-    }
+    if (temp_am) aofManifestFree(temp_am);
     return C_ERR;
 }
 
@@ -2570,6 +2565,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                     new_incr_filename,
                     strerror(errno));
                 aofManifestFree(temp_am);
+                sdsfree(new_base_filepath);
                 sdsfree(temp_incr_aof_name);
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
@@ -2637,7 +2633,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
 cleanup:
     aofRemoveTempFile(server.child_pid);
-    /* Clear AOF buffer for next rewrite. */
+    /* Clear AOF buffer and delete temp incr aof for next rewrite. */
     if (server.aof_state == AOF_WAIT_REWRITE) {
         sdsfree(server.aof_buf);
         server.aof_buf = sdsempty();
