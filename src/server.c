@@ -1213,10 +1213,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     cronUpdateMemoryStats();
 
-    /* We received a SIGTERM, shutting down here in a safe way, as it is
+    /* We received a SIGTERM or SIGINT, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap && !isShutdownInitiated()) {
-        if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
+        int shutdownFlags = SHUTDOWN_NOFLAGS;
+        if (server.last_sig_received == SIGINT && server.shutdown_on_sigint)
+            shutdownFlags = server.shutdown_on_sigint;
+        else if (server.last_sig_received == SIGTERM && server.shutdown_on_sigterm)
+            shutdownFlags = server.shutdown_on_sigterm;
+
+        if (prepareForShutdown(shutdownFlags) == C_OK) exit(0);
     } else if (isShutdownInitiated()) {
         if (server.mstime >= server.shutdown_mstime || isReadyToShutdown()) {
             if (finishShutdown() == C_OK) exit(0);
@@ -1469,6 +1475,7 @@ void whileBlockedCron() {
         if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
         server.shutdown_asap = 0;
+        server.last_sig_received = 0;
     }
 }
 
@@ -2542,6 +2549,7 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
+    server.last_sig_received = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -4012,6 +4020,7 @@ static void cancelShutdown(void) {
     server.shutdown_asap = 0;
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
+    server.last_sig_received = 0;
     replyToClientsBlockedOnShutdown();
     unpauseClients(PAUSE_DURING_SHUTDOWN);
 }
@@ -6302,6 +6311,7 @@ static void sigShutdownHandler(int sig) {
 
     serverLogFromHandler(LL_WARNING, msg);
     server.shutdown_asap = 1;
+    server.last_sig_received = sig;
 }
 
 void setupSignalHandlers(void) {

@@ -1462,6 +1462,7 @@ struct redisServer {
     redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
     mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
+    int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
     int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
@@ -1729,6 +1730,8 @@ struct redisServer {
                                      * abort(). useful for Valgrind. */
     /* Shutdown */
     int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
+    int shutdown_on_sigint;         /* Shutdown flags configured for SIGINT. */
+    int shutdown_on_sigterm;        /* Shutdown flags configured for SIGTERM. */
 
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */

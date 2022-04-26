@@ -94,6 +94,15 @@ configEnum aof_fsync_enum[] = {
     {NULL, 0}
 };
 
+configEnum shutdown_on_sig_enum[] = {
+    {"default", 0},
+    {"save", SHUTDOWN_SAVE},
+    {"nosave", SHUTDOWN_NOSAVE},
+    {"now", SHUTDOWN_NOW},
+    {"force", SHUTDOWN_FORCE},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -283,33 +292,50 @@ static standardConfig *lookupConfig(sds name) {
  *----------------------------------------------------------------------------*/
 
 /* Get enum value from name. If there is no match INT_MIN is returned. */
-int configEnumGetValue(configEnum *ce, char *name) {
-    while(ce->name != NULL) {
-        if (!strcasecmp(ce->name,name)) return ce->val;
-        ce++;
+int configEnumGetValue(configEnum *ce, sds *argv, int argc, int bitflags) {
+    if (argc == 0 || (!bitflags && argc != 1)) return INT_MIN;
+    int values = 0;
+    for (int i = 0; i < argc; i++) {
+        int matched = 0;
+        for (configEnum *ceItem = ce; ceItem->name != NULL; ceItem++) {
+            if (!strcasecmp(argv[i],ceItem->name)) {
+                values |= ceItem->val;
+                matched = 1;
+            }
+        }
+        if (!matched) return INT_MIN;
     }
-    return INT_MIN;
+    return values;
 }
 
-/* Get enum name from value. If no match is found NULL is returned. */
-const char *configEnumGetName(configEnum *ce, int val) {
-    while(ce->name != NULL) {
-        if (ce->val == val) return ce->name;
-        ce++;
+/* Get enum name/s from value. If no matches are found "unknown" is returned. */
+static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
+    sds names = NULL;
+    int matches = 0;
+    for( ; ce->name != NULL; ce++) {
+        if (values == ce->val) { /* Short path for perfect match */
+            sdsfree(names);
+            return sdsnew(ce->name);
+        }
+        if (bitflags && (values & ce->val)) {
+            names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
+            matches |= ce->val;
+        }
     }
-    return NULL;
-}
-
-/* Wrapper for configEnumGetName() returning "unknown" instead of NULL if
- * there is no match. */
-const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
-    const char *name = configEnumGetName(ce,val);
-    return name ? name : "unknown";
+    if (!names || values != matches) {
+        sdsfree(names);
+        return sdsnew("unknown");
+    }
+    return names;
 }
 
 /* Used for INFO generation. */
 const char *evictPolicyToString(void) {
-    return configEnumGetNameOrUnknown(maxmemory_policy_enum,server.maxmemory_policy);
+    for (configEnum *ce = maxmemory_policy_enum; ce->name != NULL; ce++) {
+        if (server.maxmemory_policy == ce->val)
+            return ce->name;
+    }
+    serverPanic("unknown eviction policy");
 }
 
 /*-----------------------------------------------------------------------------
@@ -1304,12 +1330,13 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
 /* Rewrite an enumeration option. It takes as usually state and option name,
  * and in addition the enumeration array and the default value for the
  * option. */
-void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
-    sds line;
-    const char *name = configEnumGetNameOrUnknown(ce,value);
-    int force = value != defval;
+void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, standardConfig *config) {
+    int multiarg = config->flags & MULTI_ARG_CONFIG;
+    sds names = configEnumGetName(config->data.enumd.enum_value,value,multiarg);
+    sds line = sdscatfmt(sdsempty(),"%s %s",option,names);
+    sdsfree(names);
+    int force = value != config->data.enumd.default_value;
 
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
@@ -1898,10 +1925,12 @@ static void enumConfigInit(standardConfig *config) {
 }
 
 static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    int enumval = configEnumGetValue(config->data.enumd.enum_value, argv[0]);
+    int enumval;
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    enumval = configEnumGetValue(config->data.enumd.enum_value, argv, argc, bitflags);
+
     if (enumval == INT_MIN) {
-        sds enumerr = sdsnew("argument must be one of the following: ");
+        sds enumerr = sdsnew("argument(s) must be one of the following: ");
         configEnum *enumNode = config->data.enumd.enum_value;
         while(enumNode->name != NULL) {
             enumerr = sdscatlen(enumerr, enumNode->name,
@@ -1932,12 +1961,13 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    return configEnumGetName(config->data.enumd.enum_value,val,bitflags);
 }
 
 static void enumConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    rewriteConfigEnumOption(state, name, val, config->data.enumd.enum_value, config->data.enumd.default_value);
+    rewriteConfigEnumOption(state, name, val, config);
 }
 
 #define createEnumConfig(name, alias, flags, enum, config_addr, default, is_valid, apply) { \
@@ -2292,6 +2322,16 @@ static int isValidAOFdirname(char *val, const char **err) {
     }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
+        return 0;
+    }
+    return 1;
+}
+
+static int isValidShutdownOnSigFlags(int val, const char **err) {
+    /* Individual arguments are validated by createEnumConfig logic.
+     * We just need to ensure valid combinations here. */
+    if (val & SHUTDOWN_NOSAVE && val & SHUTDOWN_SAVE) {
+        *err = "shutdown options SAVE and NOSAVE can't be used simultaneously";
         return 0;
     }
     return 1;
@@ -2943,6 +2983,8 @@ standardConfig static_configs[] = {
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
+    createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
