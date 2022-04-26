@@ -539,6 +539,21 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
             showLatestBacklog();
         }
         server.stat_unexpected_error_replies++;
+
+        /* Based off the propagation error behavior, check if we need to panic here. There
+         * are currently two checked cases:
+         * * If this command was from our master and we are not a writable replica.
+         * * We are reading from an AOF file. */
+        int panic_in_replicas = (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro)
+            && (server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC ||
+            server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS);
+        int panic_in_aof = c->id == CLIENT_ID_AOF 
+            && server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC;
+        if (panic_in_replicas || panic_in_aof) {
+            serverPanic("This %s panicked sending an error to its %s"
+                " after processing the command '%s'",
+                from, to, cmdname ? cmdname : "<unknown>");
+        }
     }
 }
 
