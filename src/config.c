@@ -552,14 +552,9 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
             sds name = sdsdup(argv[0]);
-            sds val;
-            if (argc == 2) {
-                val = sdsdup(argv[1]);
-            } else {
-                val = sdscatfmt(sdsempty(), "%S", argv[1]);
-                for (int i=2; i<argc; i++)
-                    val = sdscatfmt(val, " %S", argv[i]);
-            }
+            sds val = sdsdup(argv[1]);
+            for (int i=2; i<argc; i++)
+                val = sdscatfmt(val, " %S", argv[i]);
             if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
