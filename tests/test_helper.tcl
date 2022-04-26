@@ -94,6 +94,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster-scripting
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -272,12 +273,6 @@ proc s {args} {
         set args [lrange $args 1 end]
     }
     status [srv $level "client"] [lindex $args 0]
-}
-
-proc cluster_info {r field} {
-    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-        set _ $value
-    }
 }
 
 # Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
