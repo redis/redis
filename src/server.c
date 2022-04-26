@@ -3635,7 +3635,10 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* If cluster is enabled, redirect here */
+    /* If cluster is enabled perform the cluster redirection here.
+     * However we don't perform the redirection if:
+     * 1) The sender of this command is our master.
+     * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !mustObeyClient(c) &&
         !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
