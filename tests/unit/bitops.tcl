@@ -546,7 +546,10 @@ start_server {tags {"bitops"}} {
             }
         }
     }
+}
 
+run_solo {bitops-large-memory} {
+start_server {tags {"bitops"}} {
     test "BIT pos larger than UINT_MAX" {
         set bytes [expr (1 << 29) + 1]
         set bitpos [expr (1 << 32)]
@@ -587,3 +590,4 @@ start_server {tags {"bitops"}} {
         r del mykey
     } {1} {large-memory needs:debug}
 }
+} ;#run_solo

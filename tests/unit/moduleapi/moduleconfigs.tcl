@@ -54,7 +54,7 @@ start_server {tags {"modules"}} {
     test {Enums only able to be set to passed in values} {
         # Module authors specify what values are valid for enums, check that only those values are ok on a set
         catch {[r config set moduleconfigs.enum four]} e
-        assert_match {*argument must be one of the following*} $e
+        assert_match {*must be one of the following*} $e
     }
 
     test {Unload removes module configs} {

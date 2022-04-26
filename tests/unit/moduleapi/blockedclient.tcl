@@ -203,8 +203,12 @@ foreach call_type {nested normal} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "ERR Unknown Redis command 'hgetalllll'." {r do_rm_call hgetalllll}
+        assert_error "ERR unknown command 'hgetalllll', with args beginning with:" {r do_rm_call hgetalllll}
         assert_equal [errorrstat ERR r] {count=1}
+
+        # simple module command that replies with string error
+        assert_error "ERR unknown subcommand 'bla'. Try CONFIG HELP." {r do_rm_call config bla}
+        assert_equal [errorrstat ERR r] {count=2}
 
         # module command that replies with string error from bg thread
         assert_error "NULL reply returned" {r do_bg_rm_call hgetalllll}
@@ -213,7 +217,7 @@ foreach call_type {nested normal} {
         # module command that returns an arity error
         r do_rm_call set x x
         assert_error "ERR wrong number of arguments for 'do_rm_call' command" {r do_rm_call}
-        assert_equal [errorrstat ERR r] {count=2}
+        assert_equal [errorrstat ERR r] {count=3}
 
         # RM_Call that propagates an error
         assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
@@ -225,8 +229,8 @@ foreach call_type {nested normal} {
         assert_equal [errorrstat WRONGTYPE r] {count=2}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat hgetall r]
 
-        assert_equal [s total_error_replies] 5
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=3} [cmdrstat do_rm_call r]
+        assert_equal [s total_error_replies] 6
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4} [cmdrstat do_rm_call r]
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
     }
 

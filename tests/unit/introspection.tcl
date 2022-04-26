@@ -286,16 +286,22 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
-    test {CONFIG REWRITE handles save properly} {
+    test {CONFIG REWRITE handles save and shutdown properly} {
         r config set save "3600 1 300 100 60 10000"
+        r config set shutdown-on-sigterm "nosave now"
+        r config set shutdown-on-sigint "save"
         r config rewrite
         restart_server 0 true false
         assert_equal [r config get save] {save {3600 1 300 100 60 10000}}
+        assert_equal [r config get shutdown-on-sigterm] {shutdown-on-sigterm {nosave now}}
+        assert_equal [r config get shutdown-on-sigint] {shutdown-on-sigint save}
 
         r config set save ""
+        r config set shutdown-on-sigterm "default"
         r config rewrite
         restart_server 0 true false
         assert_equal [r config get save] {save {}}
+        assert_equal [r config get shutdown-on-sigterm] {shutdown-on-sigterm default}
 
         start_server {config "minimal.conf"} {
             assert_equal [r config get save] {save {3600 1 300 100 60 10000}}

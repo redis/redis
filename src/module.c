@@ -1049,9 +1049,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
  * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
- *                     the command has sensible data among the arguments.
+ *                     the command has sensitive data among the arguments.
  * * **"no-slowlog"**: Don't log this command in the slowlog. Use this if
- *                     the command has sensible data among the arguments.
+ *                     the command has sensitive data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
  *                    anything else representing the normal scalability
@@ -2659,9 +2659,7 @@ void RM_TrimStringAllocation(RedisModuleString *str) {
  *     if (argc != 3) return RedisModule_WrongArity(ctx);
  */
 int RM_WrongArity(RedisModuleCtx *ctx) {
-    addReplyErrorFormat(ctx->client,
-        "wrong number of arguments for '%s' command",
-        (char*)ctx->client->argv[0]->ptr);
+    addReplyErrorArity(ctx->client);
     return REDISMODULE_OK;
 }
 
@@ -5759,26 +5757,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
      */
-    cmd = lookupCommand(c->argv,c->argc);
-    if (!cmd) {
+    cmd = c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+    sds err;
+    if (!commandCheckExistence(c, error_as_call_replies? &err : NULL)) {
         errno = ENOENT;
-        if (error_as_call_replies) {
-            sds msg = sdscatfmt(sdsempty(),"Unknown Redis "
-                                           "command '%S'.",c->argv[0]->ptr);
-            reply = callReplyCreateError(msg, ctx);
-        }
+        if (error_as_call_replies)
+            reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
-    c->cmd = c->lastcmd = c->realcmd = cmd;
-
-    /* Basic arity checks. */
-    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
+    if (!commandCheckArity(c, error_as_call_replies? &err : NULL)) {
         errno = EINVAL;
-        if (error_as_call_replies) {
-            sds msg = sdscatfmt(sdsempty(), "Wrong number of "
-                                            "args calling Redis command '%S'.", c->cmd->fullname);
-            reply = callReplyCreateError(msg, ctx);
-        }
+        if (error_as_call_replies)
+            reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
 

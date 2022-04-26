@@ -1002,7 +1002,7 @@ void bitposCommand(client *c) {
     }
 }
 
-/* BITFIELD key subcommmand-1 arg ... subcommand-2 arg ... subcommand-N ...
+/* BITFIELD key subcommand-1 arg ... subcommand-2 arg ... subcommand-N ...
  *
  * Supported subcommands:
  *

@@ -1104,7 +1104,11 @@ tags {"external:skip"} {
             # Set a key so that AOFRW can be delayed
             r set k v
 
-            # Let AOFRW fail two times, this will trigger AOFRW limit
+            # Let AOFRW fail 3 times, this will trigger AOFRW limit
+            r bgrewriteaof
+            catch {exec kill -9 [get_child_pid 0]}
+            waitForBgrewriteaof r
+
             r bgrewriteaof
             catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
@@ -1118,6 +1122,7 @@ tags {"external:skip"} {
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
                 {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
             
             # Write 1KB data to trigger AOFRW
@@ -1137,6 +1142,7 @@ tags {"external:skip"} {
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
                 {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
 
             # Turn off auto rewrite
@@ -1154,17 +1160,173 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.9${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.10${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
                 {file appendonly.aof.11.base.rdb seq 11 type b}
-                {file appendonly.aof.9.incr.aof seq 9 type i}
+                {file appendonly.aof.10.incr.aof seq 10 type i}
             }
 
             set d1 [r debug digest]
             r debug loadaof
             set d2 [r debug digest]
             assert {$d1 eq $d2}
+        }
+
+        start_server {overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
+            set dir [get_redis_dir]
+            set aof_basename "appendonly.aof"
+            set aof_dirname "appendonlydir"
+            set aof_dirpath "$dir/$aof_dirname"
+            set aof_manifest_name "$aof_basename$::manifest_suffix"
+            set aof_manifest_file "$dir/$aof_dirname/$aof_manifest_name"
+
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            test "AOF will open a temporary INCR AOF to accumulate data until the first AOFRW success when AOF is dynamically enabled" {
+                r config set save ""
+                # Increase AOFRW execution time to give us enough time to kill it
+                r config set rdb-key-save-delay 10000000
+
+                # Start write load
+                set load_handle0 [start_write_load $master_host $master_port 10]
+
+                wait_for_condition 50 100 {
+                    [r dbsize] > 0
+                } else {
+                    fail "No write load detected."
+                }
+
+                # Enable AOF will trigger an initialized AOFRW
+                r config set appendonly yes
+                # Let AOFRW fail
+                assert_equal 1 [s aof_rewrite_in_progress]
+                set pid1 [get_child_pid 0]
+                catch {exec kill -9 $pid1}
+ 
+                # Wait for AOFRW to exit and delete temp incr aof
+                wait_for_condition 1000 100 {
+                    [count_log_message 0 "Removing the temp incr aof file"] == 1
+                } else {
+                    fail "temp aof did not delete"
+                }
+
+                # Make sure manifest file is not created
+                assert_equal 0 [check_file_exist $aof_dirpath $aof_manifest_name]
+                # Make sure BASE AOF is not created
+                assert_equal 0 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
+
+                # Make sure the next AOFRW has started
+                wait_for_condition 1000 50 {
+                    [s aof_rewrite_in_progress] == 1
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+
+                # Do a successful AOFRW
+                set total_forks [s total_forks]
+                r config set rdb-key-save-delay 0
+                catch {exec kill -9 [get_child_pid 0]}
+
+                # Make sure the next AOFRW has started
+                wait_for_condition 1000 10 {
+                    [s total_forks] == [expr $total_forks + 1]
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+                waitForBgrewriteaof r
+
+                assert_equal 2 [count_log_message 0 "Removing the temp incr aof file"]
+
+                # BASE and INCR AOF are successfully created
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.1.base.rdb seq 1 type b}
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                stop_write_load $load_handle0
+                wait_load_handlers_disconnected
+
+                set d1 [r debug digest]
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
+
+                # Dynamic disable AOF again
+                r config set appendonly no
+
+                # Disabling AOF does not delete previous AOF files
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
+
+                assert_equal 0 [s rdb_changes_since_last_save]
+                r config set rdb-key-save-delay 10000000
+                set load_handle0 [start_write_load $master_host $master_port 10]
+                wait_for_condition 50 100 {
+                    [s rdb_changes_since_last_save] > 0
+                } else {
+                    fail "No write load detected."
+                }
+
+                # Re-enable AOF
+                r config set appendonly yes
+
+                # Let AOFRW fail
+                assert_equal 1 [s aof_rewrite_in_progress]
+                set pid1 [get_child_pid 0]
+                catch {exec kill -9 $pid1}
+
+                # Wait for AOFRW to exit and delete temp incr aof
+                wait_for_condition 1000 100 {
+                    [count_log_message 0 "Removing the temp incr aof file"] == 3
+                } else {
+                    fail "temp aof did not delete 3 times"
+                }
+
+                # Make sure no new incr AOF was created           
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.1.base.rdb seq 1 type b}
+                    {file appendonly.aof.1.incr.aof seq 1 type i}
+                }
+
+                # Make sure the next AOFRW has started
+                wait_for_condition 1000 50 {
+                    [s aof_rewrite_in_progress] == 1
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+
+                # Do a successful AOFRW
+                set total_forks [s total_forks]
+                r config set rdb-key-save-delay 0
+                catch {exec kill -9 [get_child_pid 0]}
+
+                wait_for_condition 1000 10 {
+                    [s total_forks] == [expr $total_forks + 1]
+                } else {
+                    fail "aof rewrite did not scheduled"
+                }
+                waitForBgrewriteaof r
+
+                assert_equal 4 [count_log_message 0 "Removing the temp incr aof file"]
+
+                # New BASE and INCR AOF are successfully created
+                assert_aof_manifest_content $aof_manifest_file {
+                    {file appendonly.aof.2.base.rdb seq 2 type b}
+                    {file appendonly.aof.2.incr.aof seq 2 type i}
+                }
+
+                stop_write_load $load_handle0
+                wait_load_handlers_disconnected
+
+                set d1 [r debug digest]
+                r debug loadaof
+                set d2 [r debug digest]
+                assert {$d1 eq $d2}
+            }
         }
     }
 }
