@@ -1335,8 +1335,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * however to try every second is enough in case of 'hz' is set to
      * a higher frequency. */
     run_with_period(1000) {
-        if (server.aof_state == AOF_ON && server.aof_last_write_status == C_ERR)
-            flushAppendOnlyFile(0);
+        if ((server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE) &&
+            server.aof_last_write_status == C_ERR) 
+            {
+                flushAppendOnlyFile(0);
+            }
     }
 
     /* Clear the paused clients state if needed. */
@@ -2348,6 +2351,7 @@ void resetServerStats(void) {
     }
     server.stat_aof_rewrites = 0;
     server.stat_rdb_saves = 0;
+    server.stat_aofrw_consecutive_failures = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
@@ -5467,6 +5471,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "aof_current_rewrite_time_sec:%jd\r\n"
             "aof_last_bgrewrite_status:%s\r\n"
             "aof_rewrites:%lld\r\n"
+            "aof_rewrites_consecutive_failures:%lld\r\n"
             "aof_last_write_status:%s\r\n"
             "aof_last_cow_size:%zu\r\n"
             "module_fork_in_progress:%d\r\n"
@@ -5498,6 +5503,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
             server.stat_aof_rewrites,
+            server.stat_aofrw_consecutive_failures,
             (server.aof_last_write_status == C_OK &&
                 aof_bio_fsync_status == C_OK) ? "ok" : "err",
             server.stat_aof_cow_bytes,

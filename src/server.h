@@ -1568,6 +1568,7 @@ struct redisServer {
     monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_aof_rewrites;    /* number of aof file rewrites performed */
+    long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
     long long stat_rdb_saves;       /* number of rdb saves performed */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
