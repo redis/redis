@@ -121,7 +121,7 @@ start_server {tags {"keyspace"}} {
     test {RENAME against non existing source key} {
         catch {r rename nokey{t} foobar{t}} err
         format $err
-    } {ERR*}
+    } {ERR *}
 
     test {RENAME where source and dest key are the same (existing)} {
         r set mykey foo
@@ -137,7 +137,7 @@ start_server {tags {"keyspace"}} {
         r del mykey
         catch {r rename mykey mykey} err
         format $err
-    } {ERR*}
+    } {ERR *}
 
     test {RENAME with volatile key, should move the TTL as well} {
         r del mykey{t} mykey2{t}

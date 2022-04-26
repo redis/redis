@@ -133,12 +133,12 @@ start_server {tags {"bitops"}} {
     test {BITCOUNT syntax error #1} {
         catch {r bitcount s 0} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {BITCOUNT syntax error #2} {
         catch {r bitcount s 0 1 hello} e
         set e
-    } {ERR*syntax*}
+    } {ERR *syntax*}
 
     test {BITCOUNT regression test for github issue #582} {
         r del foo

@@ -47,7 +47,7 @@ start_server {tags {"repl external:skip"}} {
         set slave [srv 0 client]
 
         # Load some functions to be used later
-        $master FUNCTION load lua test replace {
+        $master FUNCTION load replace {#!lua name=test
             redis.register_function{function_name='f_default_flags', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={}}
             redis.register_function{function_name='f_no_writes', callback=function(keys, args) return redis.call('get',keys[1]) end, flags={'no-writes'}}
         }

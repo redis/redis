@@ -19,7 +19,7 @@
             ],
             [
                 "7.0.0",
-                "Added additional networking metadata and added support for hostnames and unknown endpoints."
+                "Added additional networking metadata field."
             ]
         ],
         "command_flags": [

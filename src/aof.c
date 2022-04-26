@@ -813,40 +813,41 @@ int openNewIncrAofForAppend(void) {
  * AOFs has not reached the limit threshold.
  * */
 #define AOF_REWRITE_LIMITE_THRESHOLD    3
-#define AOF_REWRITE_LIMITE_NAX_MINUTES  60 /* 1 hour */
+#define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
-    int limit = 0;
-    static int limit_deley_minutes = 0;
+    static int next_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
+    /* If the number of incr AOFs exceeds the threshold but server.aof_lastbgrewrite_status is OK, it 
+     * means that redis may have just loaded a dataset containing many incr AOFs. At this time, we 
+     * will not limit the AOFRW. */
     unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
-    if (incr_aof_num >= AOF_REWRITE_LIMITE_THRESHOLD) {
-        if (server.unixtime < next_rewrite_time) {
-            limit = 1;
-        } else {
-            if (limit_deley_minutes == 0) {
-                limit = 1;
-                limit_deley_minutes = 1;
-            } else {
-                limit_deley_minutes *= 2;
-            }
-
-            if (limit_deley_minutes > AOF_REWRITE_LIMITE_NAX_MINUTES) {
-                limit_deley_minutes = AOF_REWRITE_LIMITE_NAX_MINUTES;
-            }
-
-            next_rewrite_time = server.unixtime + limit_deley_minutes * 60;
-
-            serverLog(LL_WARNING,
-                "Background AOF rewrite has repeatedly failed %ld times and triggered the limit, will retry in %d minutes",
-                incr_aof_num, limit_deley_minutes);
-        }
-    } else {
-        limit_deley_minutes = 0;
+    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD || server.aof_lastbgrewrite_status == C_OK) {
+        /* We may be recovering from limited state, so reset all states. */
+        next_delay_minutes = 0;
         next_rewrite_time = 0;
+        return 0;
+    }
+    
+    /* if it is in the limiting state, then check if the next_rewrite_time is reached */
+    if (next_rewrite_time != 0) {
+        if (server.unixtime < next_rewrite_time) {
+            return 1;
+        } else {
+            next_rewrite_time = 0;
+            return 0;
+        }
     }
 
-    return limit;
+    next_delay_minutes = (next_delay_minutes == 0) ? 1 : (next_delay_minutes * 2);
+    if (next_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
+        next_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
+    }
+
+    next_rewrite_time = server.unixtime + next_delay_minutes * 60;
+    serverLog(LL_WARNING,
+        "Background AOF rewrite has repeatedly failed and triggered the limit, will retry in %d minutes", next_delay_minutes);
+    return 1;
 }
 
 /* ----------------------------------------------------------------------------
@@ -1558,7 +1559,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
     serverAssert(am != NULL);
     int status, ret = C_OK;
     long long start;
-    off_t total_size = 0;
+    off_t total_size = 0, base_size = 0;
     sds aof_name;
     int total_num, aof_num = 0, last_file;
 
@@ -1607,6 +1608,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
         aof_name = (char*)am->base_aof_info->file_name;
         updateLoadingFileName(aof_name);
+        base_size = getAppendOnlyFileSize(aof_name, NULL);
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
@@ -1659,7 +1661,16 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     server.aof_current_size = total_size;
-    server.aof_rewrite_base_size = server.aof_current_size;
+    /* Ideally, the aof_rewrite_base_size variable should hold the size of the
+     * AOF when the last rewrite ended, this should include the size of the
+     * incremental file that was created during the rewrite since otherwise we
+     * risk the next automatic rewrite to happen too soon (or immediately if
+     * auto-aof-rewrite-percentage is low). However, since we do not persist
+     * aof_rewrite_base_size information anywhere, we initialize it on restart
+     * to the size of BASE AOF file. This might cause the first AOFRW to be
+     * executed early, but that shouldn't be a problem since everything will be
+     * fine after the first AOFRW. */
+    server.aof_rewrite_base_size = base_size;
     server.aof_fsync_offset = server.aof_current_size;
 
 cleanup:
@@ -2142,19 +2153,9 @@ static int rewriteFunctions(rio *aof) {
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
         functionLibInfo *li = dictGetVal(entry);
-        if (li->desc) {
-            if (rioWrite(aof, "*7\r\n", 4) == 0) goto werr;
-        } else {
-            if (rioWrite(aof, "*5\r\n", 4) == 0) goto werr;
-        }
+        if (rioWrite(aof, "*3\r\n", 4) == 0) goto werr;
         char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
         if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
-        if (rioWriteBulkString(aof, li->ei->name, sdslen(li->ei->name)) == 0) goto werr;
-        if (rioWriteBulkString(aof, li->name, sdslen(li->name)) == 0) goto werr;
-        if (li->desc) {
-            if (rioWriteBulkString(aof, "description", 11) == 0) goto werr;
-            if (rioWriteBulkString(aof, li->desc, sdslen(li->desc)) == 0) goto werr;
-        }
         if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
     }
     dictReleaseIterator(iter);

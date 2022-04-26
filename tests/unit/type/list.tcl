@@ -510,7 +510,11 @@ start_server {
     }
 
     foreach resp {3 2} {
-        r hello $resp
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+        }
 
         # Make sure we can distinguish between an empty array and a null response
         r readraw 1
@@ -1173,7 +1177,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
-            assert_error "ERR*is negative*" {$rd read}
+            assert_error "ERR *is negative*" {$rd read}
             $rd close
         }
 

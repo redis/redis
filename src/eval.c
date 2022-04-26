@@ -242,7 +242,7 @@ void scriptingInit(int setup) {
                                 "    i = dbg.getinfo(3,'nSl')\n"
                                 "  end\n"
                                 "  if type(err) ~= 'table' then\n"
-                                "    err = {err='ERR' .. tostring(err)}"
+                                "    err = {err='ERR ' .. tostring(err)}"
                                 "  end"
                                 "  if i then\n"
                                 "    err['source'] = i.source\n"
@@ -508,6 +508,7 @@ void evalGenericCommand(client *c, int evalsha) {
 
     scriptRunCtx rctx;
     if (scriptPrepareForRun(&rctx, lctx.lua_client, c, lua_cur_script, l->flags, ro) != C_OK) {
+        lua_pop(lua,2); /* Remove the function and error handler. */
         return;
     }
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll

@@ -139,7 +139,7 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp xx 10 x 20} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD XX option without key - $encoding" {
             r del ztmp
@@ -214,7 +214,7 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp xx nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD NX with non existing key - $encoding" {
             r del ztmp
@@ -236,19 +236,19 @@ start_server {tags {"zset"}} {
             r del ztmp
             catch {r zadd ztmp gt nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD LT and NX are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt nx 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD LT and GT are not compatible - $encoding" {
             r del ztmp
             catch {r zadd ztmp lt gt 10 x} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD INCR LT/GT replies with nill if score not updated - $encoding" {
             r del ztmp
@@ -294,7 +294,7 @@ start_server {tags {"zset"}} {
             r zadd ztmp 10 x 20 y 30 z
             catch {r zadd ztmp INCR 15 x 10 y} err
             set err
-        } {ERR*}
+        } {ERR *}
 
         test "ZADD CH option changes return value to all changed elements - $encoding" {
             r del ztmp
@@ -1223,11 +1223,20 @@ start_server {tags {"zset"}} {
     } {} {needs:repl}
 
     foreach resp {3 2} {
+        set rd [redis_deferring_client]
+
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+            $rd hello $resp
+            $rd read
+        }
+
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZPOP against non existing key.
@@ -1260,9 +1269,6 @@ start_server {tags {"zset"}} {
             r del zset{t}
             create_zset zset2{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZPOP released on timeout.
@@ -1291,7 +1297,7 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {a}
             verify_score_response $rd $resp 1
 
-            $rd close
+            $rd readraw 0
         }
 
         test "ZMPOP readraw in RESP$resp" {
@@ -1299,7 +1305,6 @@ start_server {tags {"zset"}} {
             create_zset zset3{t} {1 a}
             create_zset zset4{t} {1 a 2 b 3 c 4 d 5 e}
 
-            r hello $resp
             r readraw 1
 
             # ZMPOP against non existing key.
@@ -1339,9 +1344,6 @@ start_server {tags {"zset"}} {
             r del zset{t} zset2{t}
             create_zset zset3{t} {1 a 2 b 3 c 4 d 5 e}
 
-            set rd [redis_deferring_client]
-            $rd hello $resp
-            $rd read
             $rd readraw 1
 
             # BZMPOP released on timeout.
@@ -1380,8 +1382,9 @@ start_server {tags {"zset"}} {
             assert_equal [$rd read] {b}
             verify_score_response $rd $resp 2
 
-            $rd close
         }
+
+        $rd close
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
