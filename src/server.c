@@ -5972,7 +5972,20 @@ void linuxTimeWarnings(void) {
 
     /* If more than half the time was in system calls we probably have an inefficient clocksource - print a warning */
     if (systime_us * 2 >= test_time_us) {
-        serverLog(LL_WARNING,"WARNING it looks like your system's clocksource is configured inefficiently!!!.");
+        char avail[1024] = "";
+        char curr[1024] = "";
+        FILE *fp = fopen("/sys/devices/system/clocksource/clocksource0/available_clocksource","r");
+        if (fp) {
+            if (fgets(avail,sizeof(avail),fp)) avail[strcspn(avail, "\n")] = 0;
+            fclose(fp);
+        }
+        fp = fopen("/sys/devices/system/clocksource/clocksource0/current_clocksource","r");
+        if (fp) {
+            if (fgets(curr,sizeof(curr),fp)) curr[strcspn(curr, "\n")] = 0;
+            fclose(fp);
+        }
+        serverLog(LL_WARNING,"WARNING slow system clocksource detected. This can result in degraded redis performance. You should consider changing the system's clocksource. Current clocksource: %s, available clocksources: %s.",
+                  curr, avail);
     }
 #endif
 }
