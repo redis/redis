@@ -849,17 +849,13 @@ int aofRewriteLimited(void) {
     static int next_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
-    /* If the number of incr AOFs exceeds the threshold but server.aof_lastbgrewrite_status is OK, it 
-     * means that redis may have just loaded a dataset containing many incr AOFs. At this time, we 
-     * will not limit the AOFRW. */
-    unsigned long incr_aof_num = listLength(server.aof_manifest->incr_aof_list);
-    if (incr_aof_num < AOF_REWRITE_LIMITE_THRESHOLD || server.aof_lastbgrewrite_status == C_OK) {
+    if (server.stat_aofrw_consecutive_failures < AOF_REWRITE_LIMITE_THRESHOLD) {
         /* We may be recovering from limited state, so reset all states. */
         next_delay_minutes = 0;
         next_rewrite_time = 0;
         return 0;
     }
-    
+
     /* if it is in the limiting state, then check if the next_rewrite_time is reached */
     if (next_rewrite_time != 0) {
         if (server.unixtime < next_rewrite_time) {
@@ -2435,6 +2431,9 @@ void bgrewriteaofCommand(client *c) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess() || server.in_exec) {
         server.aof_rewrite_scheduled = 1;
+        /* When manually triggering AOFRW we reset the count 
+         * so that it can be executed immediately. */
+        server.stat_aofrw_consecutive_failures = 0;
         addReplyStatus(c,"Background append only file rewriting scheduled");
     } else if (rewriteAppendOnlyFileBackground() == C_OK) {
         addReplyStatus(c,"Background append only file rewriting started");
@@ -2613,6 +2612,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         aofDelHistoryFiles();
 
         server.aof_lastbgrewrite_status = C_OK;
+        server.stat_aofrw_consecutive_failures = 0;
 
         serverLog(LL_NOTICE, "Background AOF rewrite finished successfully");
         /* Change state from WAIT_REWRITE to ON if needed */
@@ -2623,14 +2623,17 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
         server.aof_lastbgrewrite_status = C_ERR;
+        server.stat_aofrw_consecutive_failures++;
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated with error");
     } else {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * triggering an error condition. */
-        if (bysignal != SIGUSR1)
+        if (bysignal != SIGUSR1) {
             server.aof_lastbgrewrite_status = C_ERR;
+            server.stat_aofrw_consecutive_failures++;
+        }
 
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);

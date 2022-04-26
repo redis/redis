@@ -1104,7 +1104,11 @@ tags {"external:skip"} {
             # Set a key so that AOFRW can be delayed
             r set k v
 
-            # Let AOFRW fail two times, this will trigger AOFRW limit
+            # Let AOFRW fail 3 times, this will trigger AOFRW limit
+            r bgrewriteaof
+            catch {exec kill -9 [get_child_pid 0]}
+            waitForBgrewriteaof r
+
             r bgrewriteaof
             catch {exec kill -9 [get_child_pid 0]}
             waitForBgrewriteaof r
@@ -1118,6 +1122,7 @@ tags {"external:skip"} {
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
                 {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
             
             # Write 1KB data to trigger AOFRW
@@ -1137,6 +1142,7 @@ tags {"external:skip"} {
                 {file appendonly.aof.6.incr.aof seq 6 type i}
                 {file appendonly.aof.7.incr.aof seq 7 type i}
                 {file appendonly.aof.8.incr.aof seq 8 type i}
+                {file appendonly.aof.9.incr.aof seq 9 type i}
             }
 
             # Turn off auto rewrite
@@ -1154,11 +1160,11 @@ tags {"external:skip"} {
             waitForBgrewriteaof r
 
             # Can create New INCR AOF
-            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.9${::incr_aof_sufix}${::aof_format_suffix}"]
+            assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.10${::incr_aof_sufix}${::aof_format_suffix}"]
 
             assert_aof_manifest_content $aof_manifest_file {
                 {file appendonly.aof.11.base.rdb seq 11 type b}
-                {file appendonly.aof.9.incr.aof seq 9 type i}
+                {file appendonly.aof.10.incr.aof seq 10 type i}
             }
 
             set d1 [r debug digest]
