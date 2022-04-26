@@ -553,7 +553,7 @@ void loadServerConfigFromString(char *config) {
             }
             sds name = sdsdup(argv[0]);
             sds val = sdsdup(argv[1]);
-            for (int i=2; i<argc; i++)
+            for (int i = 2; i < argc; i++)
                 val = sdscatfmt(val, " %S", argv[i]);
             if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
