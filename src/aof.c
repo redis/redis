@@ -2545,7 +2545,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             serverLog(LL_WARNING,
                 "Error trying to rename the temporary AOF file %s into %s: %s",
                 tmpfile,
-                new_base_filename,
+                new_base_filepath,
                 strerror(errno));
             aofManifestFree(temp_am);
             sdsfree(new_base_filepath);
@@ -2556,28 +2556,29 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Rename the temporary incr aof file to 'new_incr_filename'. */
         if (server.aof_state == AOF_WAIT_REWRITE) {
+            /* Get temporary incr aof name. */
             sds temp_incr_aof_name = getTempIncrAofName();
             sds temp_incr_filepath = makePath(server.aof_dirname, temp_incr_aof_name);
+            sdsfree(temp_incr_aof_name);
+            /* Get next new incr aof name. */
             sds new_incr_filename = getNewIncrAofName(temp_am);
             sds new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
             latencyStartMonitor(latency);
             if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
                 serverLog(LL_WARNING,
                     "Error trying to rename the temporary incr AOF file %s into %s: %s",
-                    temp_incr_aof_name,
-                    new_incr_filename,
+                    temp_incr_filepath,
+                    new_incr_filepath,
                     strerror(errno));
                 bg_unlink(new_base_filepath);
                 sdsfree(new_base_filepath);
                 aofManifestFree(temp_am);
-                sdsfree(temp_incr_aof_name);
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
                 goto cleanup;
             }
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("aof-rename", latency);
-            sdsfree(temp_incr_aof_name);
             sdsfree(temp_incr_filepath);
             sdsfree(new_incr_filepath);
         }
