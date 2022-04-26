@@ -462,6 +462,12 @@ sds getNewIncrAofName(aofManifest *am) {
     return ai->file_name;
 }
 
+/* Get temp INCR type AOF name. */
+sds getTempIncrAofName() {
+    return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
+        INCR_FILE_SUFFIX);
+}
+
 /* Get the last INCR AOF name or create a new one. */
 sds getLastIncrAofName(aofManifest *am) {
     serverAssert(am != NULL);
@@ -676,8 +682,7 @@ int aofDelHistoryFiles(void) {
 
 /* Used to clean up temp INCR AOF when AOFRW fails. */
 void aofDelTempIncrAofFile() {
-    sds aof_filename = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
-                        INCR_FILE_SUFFIX);
+    sds aof_filename = getTempIncrAofName();
     sds aof_filepath = makePath(server.aof_dirname, aof_filename);
     serverLog(LL_NOTICE, "Removing the temp incr aof file %s in the background", aof_filename);
     bg_unlink(aof_filepath);
@@ -774,9 +779,8 @@ int openNewIncrAofForAppend(void) {
 
     /* Open new AOF. */
     if (server.aof_state == AOF_WAIT_REWRITE) {
-        /* Construct temporary incr aof filename when we are in AOF_WAIT_REWRITE state. */
-        new_aof_name = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
-                        INCR_FILE_SUFFIX);
+        /* Use a temporary INCR AOF file to accumulate data during AOF_WAIT_REWRITE. */
+        new_aof_name = getTempIncrAofName();
     } else {
         /* Dup a temp aof_manifest to modify. */
         temp_am = aofManifestDup(server.aof_manifest);
@@ -2552,8 +2556,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Rename the temporary incr aof file to 'new_incr_filename'. */
         if (server.aof_state == AOF_WAIT_REWRITE) {
-            sds temp_incr_aof_name = sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
-                        INCR_FILE_SUFFIX);
+            sds temp_incr_aof_name = getTempIncrAofName();
             sds temp_incr_filepath = makePath(server.aof_dirname, temp_incr_aof_name);
             sds new_incr_filename = getNewIncrAofName(temp_am);
             sds new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
@@ -2564,8 +2567,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                     temp_incr_aof_name,
                     new_incr_filename,
                     strerror(errno));
-                aofManifestFree(temp_am);
+                bg_unlink(new_base_filepath);
                 sdsfree(new_base_filepath);
+                aofManifestFree(temp_am);
                 sdsfree(temp_incr_aof_name);
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
