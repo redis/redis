@@ -12,3 +12,8 @@ then
     exit 1
 fi
 $TCLSH tests/sentinel/run.tcl $*
+
+
+
+
+
