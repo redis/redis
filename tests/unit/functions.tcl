@@ -999,7 +999,7 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 1
 
-        assert_match {OK} [r fcall f1 1 k]
+        assert_match {OK} [r fcall f1 1 x]
         assert_match {1} [r get x]
 
         r config set maxmemory 0
