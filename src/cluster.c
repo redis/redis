@@ -6666,6 +6666,17 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
+
+    /* Handle the special case of a master. We only check the command
+     * is well formed, not for other cases such as cluster down. */
+    if (c->flags & CLIENT_MASTER) {
+        if (n != myself->slaveof) {
+            serverPanic("Command sent by master hashes to a slot it does not own.");
+        }
+        /* Let ourself process the command */
+        return myself;
+    }
+
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (server.cluster->state != CLUSTER_OK) {

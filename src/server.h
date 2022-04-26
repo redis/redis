@@ -1780,6 +1780,8 @@ struct redisServer {
     char *slave_announce_ip;        /* Give the master this ip address. */
     int propagation_error_behavior; /* Configures the behavior of the replica
                                      * when it receives an error on the replication stream */
+    int repl_ignore_disk_write_error    /* Configures whether replicas panic when unable to
+                                         * persist writes to AOF. */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
