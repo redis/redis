@@ -11325,12 +11325,17 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
                     | REDISMODULE_CONFIG_HIDDEN
                     | REDISMODULE_CONFIG_PROTECTED
                     | REDISMODULE_CONFIG_DENY_LOADING
+                    | REDISMODULE_CONFIG_BITFLAGS
                     | REDISMODULE_CONFIG_MEMORY))) {
         serverLogRaw(LL_WARNING, "Invalid flag(s) for configuration");
         return REDISMODULE_ERR;
     }
     if (type != NUMERIC_CONFIG && flags & REDISMODULE_CONFIG_MEMORY) {
         serverLogRaw(LL_WARNING, "Numeric flag provided for non-numeric configuration.");
+        return REDISMODULE_ERR;
+    }
+    if (type != ENUM_CONFIG && flags & REDISMODULE_CONFIG_BITFLAGS) {
+        serverLogRaw(LL_WARNING, "Enum flag provided for non-enum configuration.");
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -11534,6 +11539,12 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
     return new_flags;
 }
 
+unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
+    unsigned int new_flags = 0;
+    if (flags & REDISMODULE_CONFIG_BITFLAGS) new_flags |= MULTI_ARG_CONFIG;
+    return new_flags;
+}
+
 /* Create a string config that Redis users can interact with via the Redis config file,
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
  *
@@ -11573,6 +11584,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the value of enable-protected-configs.
  * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
  * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
+ * * REDISMODULE_CONFIG_BITFLAGS: For enum configs, this config will allow multiple entries to be combined as bit flags.
  *
  * Default values are used on startup to set the value if it is not provided via the config file
  * or command line. Default values are also used to compare to on a config rewrite.
@@ -11688,7 +11700,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     enum_vals[num_enum_vals].name = NULL;
     enum_vals[num_enum_vals].val = 0;
     listAddNodeTail(module->module_configs, new_config);
-    flags = maskModuleConfigFlags(flags);
+    flags = maskModuleConfigFlags(flags) | maskModuleEnumConfigFlags(flags);
     addModuleEnumConfig(module->name, name, flags, new_config, default_val, enum_vals);
     return REDISMODULE_OK;
 }

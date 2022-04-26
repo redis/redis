@@ -547,12 +547,15 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (strchr(argv[0], '.')) {
-            if (argc != 2) {
+            if (argc < 2) {
                 err = "Module config specified without value";
                 goto loaderr;
             }
             sds name = sdsdup(argv[0]);
-            if (!dictReplace(server.module_configs_queue, name, sdsdup(argv[1]))) sdsfree(name);
+            sds val = sdsdup(argv[1]);
+            for (int i = 2; i < argc; i++)
+                val = sdscatfmt(val, " %S", argv[i]);
+            if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
