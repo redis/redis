@@ -1256,8 +1256,14 @@ tags {"external:skip"} {
                 set d2 [r debug digest]
                 assert {$d1 eq $d2}
 
+                set dbsize [r dbsize]
                 r config set rdb-key-save-delay 10000000
                 set load_handle0 [start_write_load $master_host $master_port 10]
+                wait_for_condition 50 100 {
+                    [r dbsize] > $dbsize
+                } else {
+                    fail "No write load detected."
+                }
 
                 # Re-enable AOF
                 r config set appendonly yes
