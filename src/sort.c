@@ -605,6 +605,7 @@ void sortCommandGeneric(client *c, int readonly) {
 }
 
 /* SORT wrapper function for read-only mode. */
+/* SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ ASC | DESC] [ALPHA] */
 void sortroCommand(client *c) {
     sortCommandGeneric(c, 1);
 }

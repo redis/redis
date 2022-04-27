@@ -428,9 +428,7 @@ int functionsRegisterEngine(const char *engine_name, engine *engine) {
     return C_OK;
 }
 
-/*
- * FUNCTION STATS
- */
+/* FUNCTION STATS */
 void functionStatsCommand(client *c) {
     if (scriptIsRunning() && scriptIsEval()) {
         addReplyErrorObject(c, shared.slowevalerr);
@@ -599,6 +597,7 @@ void functionDeleteCommand(client *c) {
     addReply(c, shared.ok);
 }
 
+/* FUNCTION KILL */
 void functionKillCommand(client *c) {
     scriptKill(c, 0);
 }
@@ -778,6 +777,7 @@ load_error:
     }
 }
 
+/* FUNCTION FLUSH [ASYNC | SYNC] */
 void functionFlushCommand(client *c) {
     if (c->argc > 3) {
         addReplySubcommandSyntaxError(c);
@@ -803,6 +803,7 @@ void functionFlushCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/* FUNCTION HELP */
 void functionHelpCommand(client *c) {
     const char *help[] = {
 "LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",

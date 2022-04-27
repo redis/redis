@@ -708,7 +708,7 @@ void ssubscribeCommand(client *c) {
 }
 
 
-/* SUNSUBSCRIBE [channel ...] */
+/* SUNSUBSCRIBE [channel [channel ...]] */
 void sunsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeShardAllChannels(c, 1);
