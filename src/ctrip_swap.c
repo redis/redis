@@ -433,10 +433,13 @@ void rocksSwapFinished(int action, sds rawkey, sds rawval, void *privdata) {
     /* Note that client_cb might spawned new swap(typically by expire), those
      * swaps can be appended to scs because PUT will not happend unless scs
      * is empty. */
-    sds dump = swappingClientsDump(scs);
-    serverLog(LL_DEBUG, "- client(id=%ld,cmd=%s,key=%s): %s",
-            c->id, c->cmd->name, (sds)key->ptr, dump);
-    sdsfree(dump);
+    if (server.verbosity == LL_DEBUG) {
+        sds dump = swappingClientsDump(scs);
+        serverLog(LL_DEBUG, "- client(id=%ld,cmd=%s,key=%s): %s",
+                c->id, c->cmd->name, (sds)key->ptr, dump);
+        sdsfree(dump);
+    }
+    
 
     if (client_cb)  client_cb(c, key, client_pd);
 
@@ -457,10 +460,12 @@ void rocksSwapFinished(int action, sds rawkey, sds rawval, void *privdata) {
                 client_cb = (clientSwapFinishedCallback)nc->client_swap_finished_cb;
                 client_pd = nc->client_swap_finished_pd;
 
-                sds dump = swappingClientsDump(scs);
-                serverLog(LL_DEBUG, "-.client(id=%ld,cmd=%s,key=%s): %s",
-                        nc->id, nc->cmd->name, (sds)key->ptr, dump);
-                sdsfree(dump);
+                if (server.verbosity == LL_DEBUG) {
+                    sds dump = swappingClientsDump(scs);
+                    serverLog(LL_DEBUG, "-.client(id=%ld,cmd=%s,key=%s): %s",
+                            nc->id, nc->cmd->name, (sds)key->ptr, dump);
+                    sdsfree(dump);
+                }
 
                 if (client_cb) client_cb(nc, nsc->s.key, client_pd);
 
@@ -607,10 +612,12 @@ int clientSwapSwaps(client *c, getSwapsResult *result, clientSwapFinishedCallbac
         }
 
         char *sign = nswaps > oswaps ? "+" : "=";
-        sds dump = scs ? swappingClientsDump(scs) : sdsempty();
-        serverLog(LL_DEBUG, "%s client(id=%ld,cmd=%s,key=%s): %s",
-                sign, c->id, c->cmd->name, s->key ? (sds)s->key->ptr:"", dump);
-        sdsfree(dump);
+        if (server.verbosity == LL_DEBUG) {
+            sds dump = scs ? swappingClientsDump(scs) : sdsempty();
+            serverLog(LL_DEBUG, "%s client(id=%ld,cmd=%s,key=%s): %s",
+                    sign, c->id, c->cmd->name, s->key ? (sds)s->key->ptr:"", dump);
+            sdsfree(dump);
+        }
     }
 
     if (cb && !nswaps && c->client_hold_mode == CLIENT_HOLD_MODE_CMD)

@@ -2975,6 +2975,9 @@ typedef struct swappingClients {
     list *swapclients; /* list of swapClients */
 } swappingClients;
 
+/**
+ *   call swappingClientsDump function when server.verbosity == LL_DEBUG 
+ */
 sds swappingClientsDump(swappingClients *scs);
 
 typedef struct swapStat {
