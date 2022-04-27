@@ -1003,12 +1003,23 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
      * The repeating part is a fixed unit; we don't skip matched elements. */
     switch (arg->type) {
      case ARG_TYPE_ONEOF:
-        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", 0);
+        if (arg->matched == 0 || ignorematches) {
+            namePart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", ignorematches);
+        } else {
+            int i;
+            for (i = 0; i < arg->numsubargs; i++) {
+                if (arg->subargs[i].matched != 0) {
+                    /* Bypass the logic below that sets the optionalPart, since argument matching will be
+                     * handled in this nested call. */
+                    optionalPart = addHintForArgument(optionalPart, &arg->subargs[i], 0);
+                }
+            }
+        }
         repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", 1);
         break;
 
     case ARG_TYPE_BLOCK:
-        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", 0);
+        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", ignorematches);
         repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", 1);
         break;
 
@@ -1061,7 +1072,7 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
     /* Add "[" and "]" around optional part, if it's not already matched. */
     if (arg->optional && optionalPart[0] != '\0' &&
         !(optionalPart[0] == '[' && optionalPart[sdslen(optionalPart)-1] == ']') &&
-        (!(arg->token != NULL && repeatPart[0] != '\0' && arg->matched == 1) || ignorematches)) {
+        (!arg->matched || ignorematches)) {
         hint = sdscat(hint, "[");
         hint = sdscat(hint, optionalPart);
         hint = sdscat(hint, "]");
