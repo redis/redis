@@ -416,7 +416,7 @@ int get_proc_stat_ll(int i, long long *res) {
     if (buf[l-1] == '\n') buf[l-1] = '\0';
 
     /* Skip pid and process name (surrounded with parentheses) */
-    p = strchr(buf, ')');
+    p = strrchr(buf, ')');
     if (!p) return 0;
     p++;
     while (*p == ' ') p++;
