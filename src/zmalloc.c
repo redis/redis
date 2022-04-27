@@ -412,7 +412,6 @@ int get_proc_stat_ll(int i, long long *res) {
     close(fd);
     buf[l] = '\0';
     if (buf[l-1] == '\n') buf[l-1] = '\0';
-    if (i == -1) printf("%s\n", buf);
 
     /* Skip pid and process name (surrounded with parentheses) */
     p = strchr(buf, ')');
