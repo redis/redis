@@ -55,6 +55,8 @@ void zlibc_free(void *ptr) {
 #include "zmalloc.h"
 #include "atomicvar.h"
 
+#define UNUSED(x) (void)(x)
+
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #define ASSERT_NO_SIZE_OVERFLOW(sz)
@@ -434,6 +436,8 @@ int get_proc_stat_ll(int i, long long *res) {
     if (*x != '\0') return 0;
     return 1;
 #else
+    UNUSED(i);
+    UNUSED(res);
     return 0;
 #endif
 }
