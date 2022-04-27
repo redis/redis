@@ -12,6 +12,63 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.7 Released Wed Apr 27 12:00:00 IDT 2022
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-24736) An attacker attempting to load a specially crafted Lua script
+  can cause NULL pointer dereference which will result with a crash of the
+  redis-server process. This issue affects all versions of Redis.
+  [reported by Aviv Yahav].
+* (CVE-2022-24735) By exploiting weaknesses in the Lua script execution
+  environment, an attacker with access to Redis can inject Lua code that will
+  execute with the (potentially higher) privileges of another Redis user.
+  [reported by Aviv Yahav].
+
+
+Potentially Breaking Fixes
+==========================
+
+* LPOP/RPOP with count against non-existing list return null array (#10095)
+* LPOP/RPOP used to produce wrong replies when count is 0 (#9692)
+
+
+Performance and resource utilization improvements
+=================================================
+
+* Speed optimization in command execution pipeline (#10502)
+* Fix regression in Z[REV]RANGE commands (by-rank) introduced in Redis 6.2 (#10337)
+
+
+Platform / toolchain support related improvements
+=================================================
+
+* Fix RSS metrics on NetBSD and OpenBSD (#10116, #10149)
+* Fix OpenSSL 3.0.x related issues (#10291)
+
+
+Bug Fixes
+=========
+
+* Lua: Add checks for min-slave-* configs when evaluating Lua scripts (#10160)
+* Lua: fix crash on a script call with many arguments, a regression in v6.2.6 (#9809)
+* Tracking: Make invalidation messages always after command's reply (#9422)
+* Fix excessive stream trimming due to an overflow (#10068)
+* Add missed error counting for INFO errorstats (#9646)
+* Fix geo search bounding box check causing missing results (#10018)
+* Improve EXPIRE TTL overflow detection (#9839)
+* Modules: Fix thread safety violation when a module thread adds an error reply, broken in 6.2 (#10278)
+* Modules: Fix missing and duplicate error stats (#10278)
+* Module APIs: release clients blocked on module commands in cluster resharding
+  and down state (#9483)
+* Sentinel: Fix memory leak with TLS (#9753)
+* Sentinel: Fix issues with hostname support (#10146)
+* Sentinel: Fix election failures on certain container environments (#10197)
+
+
+================================================================================
 Redis 6.2.6 Released Mon Oct 4 12:00:00 IDT 2021
 ================================================================================
 
