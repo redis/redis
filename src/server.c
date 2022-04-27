@@ -5950,12 +5950,16 @@ static sds read_sysfs_line(char *path) {
 }
 
 void linuxTimeWarnings(void) {
-#ifdef HAVE_PROC_STAT
 #define PROC_STAT_STIME_IDX 15
     long long sys_time_ticks, sys_time_ticks_start;
     unsigned long systime_us, system_hz, test_time_us;
     struct timespec ts;
     unsigned long long start_us;
+
+    /* Check if we're configured to skip this check (useful for slightly faster startup) */
+    if (checkIgnoreWarning("SLOW-CLOCKSOURCE"))
+        return;
+
     system_hz = sysconf(_SC_CLK_TCK);
 
     if (!get_proc_stat_ll(PROC_STAT_STIME_IDX, &sys_time_ticks_start))
@@ -5990,7 +5994,6 @@ void linuxTimeWarnings(void) {
         sdsfree(avail);
         sdsfree(curr);
     }
-#endif
 }
 
 #ifdef __arm64__
