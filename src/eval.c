@@ -505,7 +505,6 @@ void evalCommand(client *c) {
         evalGenericCommandWithDebugging(c,0);
 }
 
-/* EVAL_RO script numkeys key [key ...] arg [arg ...] */
 void evalRoCommand(client *c) {
     evalCommand(c);
 }
@@ -530,7 +529,6 @@ void evalShaCommand(client *c) {
     }
 }
 
-/* EVALSHA_RO sha1 numkeys key [key ...] arg [arg ...] */
 void evalShaRoCommand(client *c) {
     evalShaCommand(c);
 }
