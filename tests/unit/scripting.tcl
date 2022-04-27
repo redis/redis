@@ -15,17 +15,25 @@ if {$is_eval == 1} {
     }
 } else {
     proc run_script {args} {
-        r function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall test {*}[lrange $args 1 end]
     }
     proc run_script_ro {args} {
-        r function load LUA test replace [format "redis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        r function load replace [format "#!lua name=test\nredis.register_function{function_name='test', callback=function(KEYS, ARGV)\n %s \nend, flags={'no-writes'}}" [lindex $args 0]]
+        if {[r readingraw] eq 1} {
+            # read name
+            assert_equal {test} [r read]
+        }
         r fcall_ro test {*}[lrange $args 1 end]
     }
     proc run_script_on_connection {args} {
         set rd [lindex $args 0]
-        $rd function load LUA test replace [format "redis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
-        # read the ok reply of function create
+        $rd function load replace [format "#!lua name=test\nredis.register_function('test', function(KEYS, ARGV)\n %s \nend)" [lindex $args 1]]
+        # read name
         $rd read
         $rd fcall test {*}[lrange $args 2 end]
     }
@@ -44,7 +52,7 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
     } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
@@ -439,12 +447,12 @@ start_server {tags {"scripting"}} {
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e
-    } {ERR*attempted to access * global*}
+    } {ERR *attempted to access * global*}
 
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {ERR*attempted to create global*}
+    } {ERR *Attempt to modify a readonly table*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
@@ -727,6 +735,112 @@ start_server {tags {"scripting"}} {
             return redis.acl_check_cmd('invalid-cmd','arg')
         } 0}
     }
+
+    test "Binary code loading failed" {
+        assert_error {ERR *attempt to call a nil value*} {run_script {
+            return loadstring(string.dump(function() return 1 end))()
+        } 0}
+    }
+
+    test "Try trick global protection 1" {
+        catch {
+            run_script {
+                setmetatable(_G, {})
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 2" {
+        catch {
+            run_script {
+                local g = getmetatable(_G)
+                g.__index = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 3" {
+        catch {
+            run_script {
+                redis = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 4" {
+        catch {
+            run_script {
+                _G = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on redis table" {
+        catch {
+            run_script {
+                redis.call = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on json table" {
+        catch {
+            run_script {
+                cjson.encode = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on cmsgpack table" {
+        catch {
+            run_script {
+                cmsgpack.pack = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on bit table" {
+        catch {
+            run_script {
+                bit.lshift = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Test loadfile are not available" {
+        catch {
+            run_script {
+                loadfile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'loadfile'*}
+
+    test "Test dofile are not available" {
+        catch {
+            run_script {
+                dofile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'dofile'*}
+
+    test "Test print are not available" {
+        catch {
+            run_script {
+                print('some data')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'print'*}
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -784,7 +898,7 @@ start_server {tags {"scripting"}} {
             set buf "*3\r\n\$4\r\neval\r\n\$33\r\nwhile 1 do redis.call('ping') end\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         } else {
-            set buf "*6\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$3\r\nlua\r\n\$4\r\ntest\r\n\$7\r\nreplace\r\n\$81\r\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
+            set buf "*4\r\n\$8\r\nfunction\r\n\$4\r\nload\r\n\$7\r\nreplace\r\n\$97\r\n#!lua name=test\nredis.register_function('test', function() while 1 do redis.call('ping') end end)\r\n"
             append buf "*3\r\n\$5\r\nfcall\r\n\$4\r\ntest\r\n\$1\r\n0\r\n"
             append buf "*1\r\n\$4\r\nping\r\n"
         }
@@ -808,8 +922,8 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
 
         if {$is_eval == 0} {
-            # read the ok reply of function create
-            assert_match {OK} [$rd read]
+            # read the function name
+            assert_match {test} [$rd read]
         }
 
         catch {$rd read} res
@@ -1316,7 +1430,7 @@ start_server {tags {"scripting"}} {
         ] 1
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test "no-writes shebang flag" {
         assert_error {ERR Write commands are not allowed from read-only scripts*} {
@@ -1399,6 +1513,19 @@ start_server {tags {"scripting"}} {
         r config set replica-serve-stale-data yes
         set _ {}
     } {} {external:skip}
+
+    test "reject script do not cause a Lua stack leak" {
+        r config set maxmemory 1
+        for {set i 0} {$i < 50} {incr i} {
+            assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {r eval {#!lua
+                return 1
+            } 0}
+        }
+        r config set maxmemory 0
+        assert_equal [r eval {#!lua
+            return 1
+        } 0] 1
+    }
 }
 
 # Additional eval only tests

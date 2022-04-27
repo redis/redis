@@ -64,7 +64,7 @@ test "It is possible to write and read from the cluster" {
 }
 
 test "Function no-cluster flag" {
-    R 1 function load lua test {
+    R 1 function load {#!lua name=test
         redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
     }
     catch {R 1 fcall f1 0} e

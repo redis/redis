@@ -2,7 +2,7 @@ start_server {tags {"auth external:skip"}} {
     test {AUTH fails if there is no password configured server side} {
         catch {r auth foo} err
         set _ $err
-    } {ERR*any password*}
+    } {ERR *any password*}
 
     test {Arity check for auth command} {
         catch {r auth a b c} err

@@ -1,8 +1,8 @@
-STD=
+STD= -std=c99
 WARN= -Wall
 OPT= -Os
 
-R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
+R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) -DHDR_MALLOC_INCLUDE=\"hdr_redis_malloc.h\"
 R_LDFLAGS= $(LDFLAGS)
 DEBUG= -g
 
@@ -12,12 +12,10 @@ R_LD=$(CC) $(R_LDFLAGS)
 AR= ar
 ARFLAGS= rcs
 
-libhdrhistogram.a: hdr_histogram.o hdr_alloc.o
+libhdrhistogram.a: hdr_histogram.o
 	$(AR) $(ARFLAGS) $@ $+
 
-hdr_alloc.o: hdr_alloc.h hdr_alloc.c
-
-hdr_histogram.o: hdr_alloc.o hdr_histogram.h hdr_histogram.c
+hdr_histogram.o: hdr_histogram.h hdr_histogram.c
 
 .c.o:
 	$(R_CC) -c  $< 

@@ -94,6 +94,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster-scripting
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -272,6 +273,16 @@ proc s {args} {
         set args [lrange $args 1 end]
     }
     status [srv $level "client"] [lindex $args 0]
+}
+
+# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
+proc csi {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    cluster_info [srv $level "client"] [lindex $args 0]
 }
 
 # Test wrapped into run_solo are sent back from the client to the
