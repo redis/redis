@@ -160,12 +160,13 @@ proc server_is_up {host port retrynum} {
 # case err_return names a return variable for the message to be logged.
 proc tags_acceptable {err_return} {
     upvar $err_return err
+    set tags $::tags
 
     # If tags are whitelisted, make sure there's match
     if {[llength $::allowtags] > 0} {
         set matched 0
         foreach tag $::allowtags {
-            if {[lsearch $::tags $tag] >= 0} {
+            if {[lsearch $tags $tag] >= 0} {
                 incr matched
             }
         }
@@ -176,10 +177,25 @@ proc tags_acceptable {err_return} {
     }
 
     foreach tag $::denytags {
-        if {[lsearch $::tags $tag] >= 0} {
+        if {[lsearch $tags $tag] >= 0} {
             set err "Tag: $tag denied"
             return 0
         }
+    }
+
+    if {$::external && [lsearch $tags "external:skip"] >= 0} {
+        set err "Not supported on external server"
+        return 0
+    }
+
+    if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
+        set err "Not supported on singledb"
+        return 0
+    }
+
+    if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
+        set err "Not supported in tls mode"
+        return 0
     }
 
     return 1
@@ -320,7 +336,9 @@ proc start_server {options {code undefined}} {
             dict set srv "port" $::port
             set client [redis $::host $::port 0 $::tls]
             dict set srv "client" $client
-            $client select 9
+            if {!$::singledb} {
+                $client select 9
+            }
 
             set config {}
             dict set config "port" $::port
