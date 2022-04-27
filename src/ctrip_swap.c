@@ -1394,11 +1394,11 @@ int parallelSwapSubmit(parallelSwap *ps, int action, sds rawkey, sds rawval, par
     return C_OK;
 }
 
-int parallelSwapDrain(parallelSwap *ps) {
+int parallelSwapDrain() {
     listIter li;
     listNode *ln;
 
-    listRewind(ps->entries, &li);
+    listRewind(server.rdb_load_ps->entries, &li);
     while((ln = listNext(&li))) {
         swapEntry *e = listNodeValue(ln);
         if ((parallelSwapProcess(e)))
@@ -1414,6 +1414,9 @@ int parallelSwapGet(sds rawkey, parallelSwapFinishedCb cb, void *pd) {
 }
 
 int parallelSwapPut(sds rawkey, sds rawval, parallelSwapFinishedCb cb, void *pd) {
+    if(server.rdb_load_ps == NULL) {
+        server.rdb_load_ps = parallelSwapNew(server.ps_parallism_rdb);
+    }
     return parallelSwapSubmit(server.rdb_load_ps, SWAP_PUT, rawkey, rawval, cb, pd);
 }
 

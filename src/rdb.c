@@ -42,6 +42,7 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/param.h>
+#include "ctrip_swap_rdb.h"
 
 /* This macro is called when the internal RDB structure is corrupt */
 #define rdbReportCorruptRDB(...) rdbReportError(1, __LINE__,__VA_ARGS__)
@@ -2484,6 +2485,8 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
 
+    /* statistical cold data */
+    int cold_data_count = 0;
     while(1) {
         sds key;
         robj *val;
@@ -2690,7 +2693,37 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,&error);
+        // val = rdbLoadObject(type,rdb,key,&error);
+        struct ctripRdbLoadResult result = {
+            type: HOT_DATA,
+            val: NULL,
+            cold_data: NULL,
+            error: error
+        };
+        ctripRdbLoadObject(type, rdb, key, &result);
+        error = result.error;
+        if(result.type == COLD_DATA) {
+            if(result.val == NULL) {
+                sdsfree(key);
+                goto eoferr;
+            }
+            /* Set usage information (for eviction). */
+            objectSetLRUOrLFU(result.val,lfu_freq,lru_idle,lru_clock,1000);
+            if(!ctripDbAddColdData(db, type, key, result.val, result.cold_data, expiretime)) {
+                serverLog(LL_WARNING, "ctripDbAddColdData fail key: %s", key);
+                return C_ERR;
+            }
+            cold_data_count++;
+            /* Reset the state that is key-specified and is populated by
+                * opcodes before the key, so that we start from scratch again. */
+            expiretime = -1;
+            lfu_freq = -1;
+            lru_idle = -1;
+            continue;
+        } else {
+            val = result.val;
+        }
+
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -2793,6 +2826,15 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
                 keys_loaded, expired_keys_skipped);
     }
+
+    if (cold_data_count > 0) {
+        //wait for all submitted tasks to complete
+        if(parallelSwapDrain()) {
+            serverLog(LL_WARNING,"write cold data to rocksdb tasks fail");
+            return C_ERR;
+        }
+    }
+
     return C_OK;
 
     /* Unexpected end of file is handled here calling rdbReportReadError():

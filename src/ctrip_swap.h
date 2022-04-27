@@ -92,7 +92,7 @@ typedef struct parallelSwap {
 parallelSwap *parallelSwapNew(int parallel);
 void parallelSwapFree(parallelSwap *ps);
 int parallelSwapSubmit(parallelSwap *ps, int action, sds rawkey, sds rawval, parallelSwapFinishedCb cb, void *pd);
-int parallelSwapDrain(parallelSwap *ps);
+int parallelSwapDrain();
 int parallelSwapGet(sds rawkey, parallelSwapFinishedCb cb, void *pd);
 int parallelSwapPut(sds rawkey, sds rawval, parallelSwapFinishedCb cb, void *pd);
 int parallelSwapDel(sds rawkey, parallelSwapFinishedCb cb, void *pd);
