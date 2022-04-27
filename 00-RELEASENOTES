@@ -12,6 +12,25 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.0.17 Released Tue Jan 17 12:00:00 IDT 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-35977) Integer overflow in the Redis SETRANGE and SORT/SORT_RO
+  commands can drive Redis to OOM panic
+
+Bug Fixes
+=========
+
+* Avoid hang when client issues long SRANDMEMBER command and gets
+  disconnected by client output buffer limit (#11676)
+* Lua: fix crash on a script call with many arguments, a regression in v6.0.16 (#9809)
+* Lua: Add checks for min-slave-* configs when evaluating Lua scripts (#10160)
+* Fix BITFIELD overflow detection on some compilers due to undefined behavior (#9601)
+
+================================================================================
 Redis 6.0.16 Released Mon Oct 4 12:00:00 IDT 2021
 ================================================================================
 
