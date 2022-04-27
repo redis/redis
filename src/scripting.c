@@ -87,6 +87,7 @@ static char *lua_builtins_allow_list[] = {
     "setfenv",
     "load",
     "error",
+    "print", /* should be blocked, but kept in old releases to avoid breaking change. */
     NULL,
 };
 
@@ -126,7 +127,6 @@ static char **allow_lists[] = {
 static char *deny_list[] = {
     "dofile",
     "loadfile",
-    "print",
     NULL,
 };
 
