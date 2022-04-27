@@ -687,14 +687,14 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Script attempted to access nonexistent global variable 'dofile'*}
 
-    test "Test print are not available" {
+    test "Test print is available to avoid breaking change" {
         catch {
             r eval {
                 print('some data')
             } 0
         } e
         set _ $e
-    } {*Script attempted to access nonexistent global variable 'print'*}
+    } {}
 
     test {Script return recursive object} {
         r readraw 1
