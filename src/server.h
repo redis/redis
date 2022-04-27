@@ -3032,28 +3032,6 @@ int swapRateLimitState();
 int swapRateLimit(client *c);
 int swapRateLimited(client *c);
 
-/* parallel swap */
-typedef int (*parallelSwapFinishedCb)(sds rawkey, sds rawval, void *pd);
-
-typedef struct {
-    int inprogress;         /* swap entry in progress? */
-    int pipe_read_fd;       /* read end to wait rio swap finish. */
-    int pipe_write_fd;      /* write end to notify swap finish by rio. */
-    struct RIO *r;          /* swap attached RIO handle. */
-    parallelSwapFinishedCb cb; /* swap finished callback. */
-    void *pd;               /* swap finished private data. */
-} swapEntry;
-
-typedef struct parallelSwap {
-    list *entries;
-    int parallel;
-} parallelSwap;
-
-parallelSwap *parallelSwapNew(int parallel);
-void parallelSwapFree(parallelSwap *ps);
-int parallelSwapSubmit(parallelSwap *ps, sds rawkey, parallelSwapFinishedCb cb, void *pd);
-int parallelSwapDrain(parallelSwap *ps);
-
 /* complement swap */
 #define COMP_MODE_RDB           0
 
@@ -3090,7 +3068,6 @@ void setupSwappingClientsWk(redisDb *db, robj *key, void *scs);
 void *lookupSwappingClientsWk(redisDb *db, robj *key);
 void *getComplementSwapsWk(redisDb *db, robj *key, int mode, int *type, getSwapsResult *result, complementObjectFunc *comp, void **pd);
 
-/* swap rdb related */
-int rdbSaveEvictDb(rio *rdb, int *error, redisDb *db, int rdbflags);
+#include "ctrip_swap.h"
 
 #endif

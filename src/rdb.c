@@ -94,7 +94,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     exit(1);
 }
 
-static ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
@@ -1075,65 +1075,6 @@ size_t rdbSavedObjectLen(robj *o, robj *key) {
     return len;
 }
 
-/* Whole key encoding in rocksdb is the same as in rdb, so we skip encoding
- * and decoding to reduce cpu usage. */ 
-int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw, 
-                        long long expiretime) {
-    int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
-    int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
-
-    /* save expire/type/key */
-    if (expiretime != -1) {
-        if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
-        if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
-    }    
-
-    /* Save the LRU info. */
-    if (savelru) {
-        uint64_t idletime = estimateObjectIdleTime(evict);
-        idletime /= 1000; /* Using seconds is enough and requires less space.*/
-        if (rdbSaveType(rdb,RDB_OPCODE_IDLE) == -1) return -1;
-        if (rdbSaveLen(rdb,idletime) == -1) return -1;
-    }
-
-    /* Save the LFU info. */
-    if (savelfu) {
-        uint8_t buf[1];
-        buf[0] = LFUDecrAndReturn(evict);
-        /* We can encode this in exactly two bytes: the opcode and an 8
-         * bit counter, since the frequency is logarithmic with a 0-255 range.
-         * Note that we do not store the halving time because to reset it
-         * a single time when loading does not affect the frequency much. */
-        if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
-        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
-    }
-
-    /* Save type, key, value */
-    if (rdbSaveObjectType(rdb,evict) == -1) return -1;
-    if (rdbSaveStringObject(rdb,key) == -1) return -1;
-    if (rdbWriteRaw(rdb,raw,sdslen(raw)) == -1) return -1;
-
-    /* Delay return if required (for testing) */
-    if (server.rdb_key_save_delay)
-        debugDelay(server.rdb_key_save_delay);
-
-    return 1;
-}
-
-int rdbSaveKeyCompValPair(rio *rdb, redisDb *db, robj *key, compVal *cv,
-        long long expiretime)
-{
-    UNUSED(db);
-    switch (cv->type) {
-    case COMP_TYPE_OBJ:
-        return rdbSaveKeyValuePair(rdb,key,cv->value,expiretime);
-    case COMP_TYPE_RAW:
-        return rdbSaveKeyRawPair(rdb,key,cv->evict,cv->value,expiretime);
-    default:
-        return -1;
-    }
-}
-
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned. */
@@ -1178,6 +1119,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
 
     return 1;
 }
+
 
 /* Save an AUX field. */
 ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
@@ -1269,6 +1211,34 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     return io.bytes;
 }
 
+static long rdb_load_key_count = 0;
+static size_t rdb_load_processed = 0;
+void rdbSaveProgress(rio *rdb, int rdbflags) {
+    static long long info_updated_time = 0;
+    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
+
+    /* When this RDB is produced as part of an AOF rewrite, move
+     * accumulated diff from parent to child while rewriting in
+     * order to have a smaller final write. */
+    if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
+            rdb->processed_bytes > rdb_load_processed+AOF_READ_DIFF_INTERVAL_BYTES)
+    {
+        rdb_load_processed = rdb->processed_bytes;
+        aofReadDiffFromParent();
+    }
+
+    /* Update child info every 1 second (approximately).
+     * in order to avoid calling mstime() on each iteration, we will
+     * check the diff every 1024 keys */
+    if ((rdb_load_key_count & 1023) == 0) {
+        long long now = mstime();
+        if (now - info_updated_time >= 1000) {
+            sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, rdb_load_key_count, pname);
+            info_updated_time = now;
+        }
+    }
+}
+
 /* Produces a dump of the database in RDB format sending it to the specified
  * Redis I/O channel. On success C_OK is returned, otherwise C_ERR
  * is returned and part of the output, or all the output, can be
@@ -1282,11 +1252,11 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     dictEntry *de;
     char magic[10];
     uint64_t cksum;
-    size_t processed = 0;
     int j;
-    long key_count = 0;
-    long long info_updated_time = 0;
-    char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
+
+    /* start saving */
+    rdb_load_key_count = 0;
+    rdb_load_processed = 0;
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
@@ -1297,9 +1267,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0 && dictSize(db->evict) == 0) continue;
-        di = dictGetSafeIterator(d);
+        if (dictSize(db->dict) == 0 && dictSize(db->evict) == 0) continue;
 
         /* Write the SELECT DB opcode */
         if (rdbSaveType(rdb,RDB_OPCODE_SELECTDB) == -1) goto werr;
@@ -1316,7 +1284,9 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         /* Pause rehash to reduce cow */
         dbPauseRehash(db);
 
-        /* Iterate this DB writing every entry */
+        dict *d = db->dict;
+        di = dictGetSafeIterator(d);
+        /* Iterate this DB.dict writing every entry */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
@@ -1324,36 +1294,14 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
-            /* Evicted key will be processed later. */
-            if (lookupEvictKey(db,&key)) continue;
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
-
-            /* When this RDB is produced as part of an AOF rewrite, move
-             * accumulated diff from parent to child while rewriting in
-             * order to have a smaller final write. */
-            if (rdbflags & RDBFLAGS_AOF_PREAMBLE &&
-                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
-            {
-                processed = rdb->processed_bytes;
-                aofReadDiffFromParent();
-            }
-
-            /* Update child info every 1 second (approximately).
-             * in order to avoid calling mstime() on each iteration, we will
-             * check the diff every 1024 keys */
-            if ((key_count++ & 1023) == 0) {
-                long long now = mstime();
-                if (now - info_updated_time >= 1000) {
-                    sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, key_count, pname);
-                    info_updated_time = now;
-                }
-            }
+            rdbSaveProgress(rdb,rdbflags);
         }
         dictReleaseIterator(di);
-        di = NULL; /* So that we don't release it again on error. */
+        di = NULL;
 
-        /* Iterate DB.evict writing every entry */
-        if (rdbSaveEvictDb(rdb, error, db, rdbflags)) return C_ERR;
+        /* Iterate DB.rocks writing every entry */
+        if (rdbSaveRocks(rdb, db, rdbflags)) goto werr;
 
         dbResumeRehash(db);
     }

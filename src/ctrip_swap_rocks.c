@@ -556,6 +556,26 @@ void rocksReleaseSnapshot(rocks *rocks) {
     }
 }
 
+rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
+    rocksdb_iterator_t *it;
+    UNUSED(db);
+    it = rocksdb_create_iterator(rocks->rocksdb, rocks->rocksdb_ropts);
+    if (it == NULL) return NULL;
+    rocksdb_iter_seek_to_first(it);
+    return it;
+}
+
+int rocksIterNext(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen) {
+    if (!rocksdb_iter_valid(it)) return 0;
+    if (rawkey) *rawkey = rocksdb_iter_key(it, klen);
+    if (rawval) *rawval = rocksdb_iter_value(it, vlen);
+    rocksdb_iter_next(it);
+    return 1;
+}
+
+void rocksReleaseIter(rocksIter *it) {
+    rocksdb_iter_destroy(it);
+}
 
 void rocksDestroy(rocks *rocks) {
     rocksDeinitThreads(rocks);

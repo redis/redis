@@ -212,20 +212,6 @@ void getDataSwapsWk(robj *key, int mode, getSwapsResult *result) {
     getSwapsAppendResult(result, key, NULL, NULL);
 }
 
-sds encodeKeyWk(robj *key, robj *value, robj* evict) {
-    char *typename;
-    sds rawkey;
-
-    serverAssert(value || evict);
-
-    if (value) typename = getObjectTypeName(value);
-    else typename = getObjectTypeName(evict);
-
-    rawkey = sdscat(sdsempty(), typename);
-    rawkey = sdscatsds(rawkey, key->ptr);
-    return rawkey;
-}
-
 sds encodeValRdbWk(robj *value) {
     rio sdsrdb;
 
@@ -302,11 +288,13 @@ void swapOutWk(void *ctx, int action, char* _rawkey, char *_rawval, void *pd) {
 int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action,
         char **rawkey, char **rawval, dataSwapFinishedCallback *cb, void **pd)
 {
+    int obj_type;
     robj *value, *evict;
     int swapaction = cmd->swap_action;
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     evict = lookupEvict(db,key);
     serverAssert(value || evict);
+    obj_type = value ? value->type : evict->type;
 
     /* NOTE that rawkey/rawval ownership are moved to rocks, which will be
      * freed when rocksSwapFinished. Also NOTE that if CRDT key expired, we
@@ -314,7 +302,7 @@ int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action,
     if (keyIsExpired(db,key) && lookupEvictKey(db,key)) {
         swapInWkPd *sipd = zmalloc(sizeof(swapInWkPd));
         *action = SWAP_GET;
-        *rawkey = encodeKeyWk(key,value,evict);
+        *rawkey = rocksEncodeKey(obj_type,key->ptr);
         *rawval = NULL;
         *cb = swapInWk;
         incrRefCount(key);
@@ -324,7 +312,7 @@ int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action,
     } else if (swapaction == SWAP_GET && lookupEvictKey(db,key)) {
         swapInWkPd *sipd = zmalloc(sizeof(swapInWkPd));
         *action = SWAP_GET;
-        *rawkey = encodeKeyWk(key,value,evict);
+        *rawkey = rocksEncodeKey(obj_type,key->ptr);
         *rawval = NULL;
         *cb = swapInWk;
         incrRefCount(key);
@@ -344,7 +332,7 @@ int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action,
             *pd = NULL;
         } else {
             *action = SWAP_PUT;
-            *rawkey = encodeKeyWk(key,value,evict);
+            *rawkey = rocksEncodeKey(obj_type,key->ptr);
             *rawval = encodeValRdbWk(value);
             *cb = swapOutWk;
             incrRefCount(key);
@@ -352,7 +340,7 @@ int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action,
         }
     } else if (swapaction == SWAP_DEL) {
         *action = SWAP_DEL;
-        *rawkey = encodeKeyWk(key,value,evict);
+        *rawkey = rocksEncodeKey(obj_type,key->ptr);
         *rawval = NULL;
         *cb = NULL;
         *pd = NULL;
@@ -378,13 +366,15 @@ int complementWkRaw(void **pdupptr, char* _rawkey, char *_rawval, void *pd) {
 
 void *getComplementSwapsWk(redisDb *db, robj *key, int mode, int *type,
         getSwapsResult *result, complementObjectFunc *comp, void **pd) {
+    int obj_type;
     robj *value, *evict;
     UNUSED(mode);
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     evict = lookupEvict(db, key);
     serverAssert(value || evict);
+    obj_type = value ? value->type : evict->type;
 
-    sds rawkey = encodeKeyWk(key,value,evict);
+    sds rawkey = rocksEncodeKey(obj_type,key->ptr);
     /* NOTE that rawkey is sds if this is a complement swap. */
     getSwapsAppendResult(result, (robj*)rawkey, NULL, NULL);
 
