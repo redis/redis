@@ -5938,6 +5938,17 @@ void linuxMemoryWarnings(void) {
     }
 }
 
+static sds read_sysfs_line(char *path) {
+    char buf[256];
+    FILE *fp = fopen(path, "r");
+    if (!fp) return NULL;
+    if (!fgets(buf, sizeof(buf), fp)) return NULL;
+    fclose(fp);
+    sds res = sdsnew(buf);
+    res = sdstrim(res, " \n");
+    return res;
+}
+
 void linuxTimeWarnings(void) {
 #ifdef HAVE_PROC_STAT
 #define PROC_STAT_STIME_IDX 15
@@ -5972,20 +5983,12 @@ void linuxTimeWarnings(void) {
 
     /* If more than 10% of the time was in system calls we probably have an inefficient clocksource, print a warning */
     if (systime_us * 10 > test_time_us) {
-        char avail[1024] = "";
-        char curr[1024] = "";
-        FILE *fp = fopen("/sys/devices/system/clocksource/clocksource0/available_clocksource","r");
-        if (fp) {
-            if (fgets(avail,sizeof(avail),fp)) avail[strcspn(avail, "\n")] = 0;
-            fclose(fp);
-        }
-        fp = fopen("/sys/devices/system/clocksource/clocksource0/current_clocksource","r");
-        if (fp) {
-            if (fgets(curr,sizeof(curr),fp)) curr[strcspn(curr, "\n")] = 0;
-            fclose(fp);
-        }
-        serverLog(LL_WARNING,"WARNING slow system clocksource detected. This can result in degraded redis performance. You should consider changing the system's clocksource. Current clocksource: %s, available clocksources: %s.",
-                  curr, avail);
+        sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
+        sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
+        serverLog(LL_WARNING,"WARNING slow system clocksource detected. This can result in degraded performance. Consider changing the system's clocksource. Current clocksource: %s. Available clocksources: %s.",
+                  curr ? curr : "", avail ? avail : "");
+        sdsfree(avail);
+        sdsfree(curr);
     }
 #endif
 }
