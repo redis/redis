@@ -173,7 +173,7 @@ start_server {tags {"acl external:skip"}} {
         assert_equal PONG [$r2 PING]
 
         assert_equal {} [$r2 get readwrite_str]
-        assert_error {ERR* not an integer *} {$r2 set readwrite_str bar ex get}
+        assert_error {ERR * not an integer *} {$r2 set readwrite_str bar ex get}
 
         assert_equal {OK} [$r2 set readwrite_str bar]
         assert_equal {bar} [$r2 get readwrite_str]

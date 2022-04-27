@@ -511,7 +511,7 @@ start_server {tags {"acl external:skip"}} {
 
     test "ACL CAT with illegal arguments" {
         assert_error {*Unknown category 'NON_EXISTS'} {r ACL CAT NON_EXISTS}
-        assert_error {*Unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
+        assert_error {*unknown subcommand or wrong number of arguments for 'CAT'*} {r ACL CAT NON_EXISTS NON_EXISTS2}
     }
 
     test "ACL CAT without category - list all categories" {

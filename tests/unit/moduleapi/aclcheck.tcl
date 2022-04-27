@@ -16,6 +16,7 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry username] eq {default}}
         assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {set}}
+        assert {[dict get $entry reason] eq {command}}
     }
 
     test {test module check acl for key perm} {
@@ -75,6 +76,7 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry username] eq {default}}
         assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {z}}
+        assert {[dict get $entry reason] eq {key}}
 
         # rm call check for command permission
         r acl setuser default -set
@@ -88,6 +90,7 @@ start_server {tags {"modules acl"}} {
         assert {[dict get $entry username] eq {default}}
         assert {[dict get $entry context] eq {module}}
         assert {[dict get $entry object] eq {set}}
+        assert {[dict get $entry reason] eq {command}}
     }
 
     test "Unload the module - aclcheck" {

@@ -73,5 +73,6 @@ int anetKeepAlive(char *err, int fd, int interval);
 int anetFormatAddr(char *fmt, size_t fmt_len, char *ip, int port);
 int anetFormatFdAddr(int fd, char *buf, size_t buf_len, int fd_to_str_type);
 int anetPipe(int fds[2], int read_flags, int write_flags);
+int anetSetSockMarkId(char *err, int fd, uint32_t id);
 
 #endif

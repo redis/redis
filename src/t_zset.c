@@ -1029,17 +1029,25 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, doub
     unsigned char *sptr;
     char scorebuf[MAX_D2STRING_CHARS];
     int scorelen;
-
-    scorelen = d2string(scorebuf,sizeof(scorebuf),score);
+    long long lscore;
+    int score_is_long = double2ll(score, &lscore);
+    if (!score_is_long)
+        scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
         zl = lpAppend(zl,(unsigned char*)ele,sdslen(ele));
-        zl = lpAppend(zl,(unsigned char*)scorebuf,scorelen);
+        if (score_is_long)
+            zl = lpAppendInteger(zl,lscore);
+        else
+            zl = lpAppend(zl,(unsigned char*)scorebuf,scorelen);
     } else {
         /* Insert member before the element 'eptr'. */
         zl = lpInsertString(zl,(unsigned char*)ele,sdslen(ele),eptr,LP_BEFORE,&sptr);
 
         /* Insert score after the member. */
-        zl = lpInsertString(zl,(unsigned char*)scorebuf,scorelen,sptr,LP_AFTER,NULL);
+        if (score_is_long)
+            zl = lpInsertInteger(zl,lscore,sptr,LP_AFTER,NULL);
+        else
+            zl = lpInsertString(zl,(unsigned char*)scorebuf,scorelen,sptr,LP_AFTER,NULL);
     }
     return zl;
 }
@@ -3964,7 +3972,7 @@ void zpopminCommand(client *c) {
     zpopMinMaxCommand(c, ZSET_MIN);
 }
 
-/* ZMAXPOP key [<count>] */
+/* ZPOPMAX key [<count>] */
 void zpopmaxCommand(client *c) {
     zpopMinMaxCommand(c, ZSET_MAX);
 }
@@ -4351,12 +4359,12 @@ void zmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     }
 }
 
-/* ZMPOP numkeys [<key> ...] MIN|MAX [COUNT count] */
+/* ZMPOP numkeys key [<key> ...] MIN|MAX [COUNT count] */
 void zmpopCommand(client *c) {
     zmpopGenericCommand(c, 1, 0);
 }
 
-/* BZMPOP timeout numkeys [<key> ...] MIN|MAX [COUNT count] */
+/* BZMPOP timeout numkeys key [<key> ...] MIN|MAX [COUNT count] */
 void bzmpopCommand(client *c) {
     zmpopGenericCommand(c, 2, 1);
 }

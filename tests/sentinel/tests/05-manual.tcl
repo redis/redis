@@ -3,9 +3,9 @@
 source "../tests/includes/init-tests.tcl"
 
 foreach_sentinel_id id {
-    S $id sentinel debug info-period 1000
-    S $id sentinel debug default-down-after 3000
-    S $id sentinel debug publish-period 500
+    S $id sentinel debug info-period 2000
+    S $id sentinel debug default-down-after 6000
+    S $id sentinel debug publish-period 1000
 }
 
 test "Manual failover works" {

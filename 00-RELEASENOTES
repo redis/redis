@@ -1,3 +1,105 @@
+Redis 7.0 release notes
+=======================
+
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
+
+================================================================================
+Redis 7.0.0 GA  Released Wed Apr 27 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-24736) An attacker attempting to load a specially crafted Lua script
+  can cause NULL pointer dereference which will result with a crash of the
+  redis-server process. This issue affects all versions of Redis.
+  [reported by Aviv Yahav].
+* (CVE-2022-24735) By exploiting weaknesses in the Lua script execution
+  environment, an attacker with access to Redis can inject Lua code that will
+  execute with the (potentially higher) privileges of another Redis user.
+  [reported by Aviv Yahav].
+
+
+New Features
+============
+
+* Keyspace event for new keys (#10512)
+
+
+Command replies that have been extended
+---------------------------------------
+
+* COMMAND DOCS shows deprecated_since field in command args (#10545)
+* COMMAND DOCS shows module name where applicable (#10544)
+
+
+Potentially Breaking Changes
+============================
+
+* Replicas panic when they fail writing persistence (#10504)
+* Prevent cross slot operations in functions and scripts with shebang (#10615)
+* Rephrased some error responses about invalid commands or args (#10612)
+* Lua scripts do not have access to the print() function (#10651)
+
+
+Performance and resource utilization improvements
+=================================================
+
+* Speed optimization in streams (#10574)
+* Speed optimization in command execution pipeline (#10502)
+* Speed optimization in listpack encoded sorted (#10486)
+* Speed optimization in latency tracking at INFO (relevant for 7.0 RCs) (#10606)
+* Speed optimization when there are many replicas (relevant for 7.0 RCs) (#10588)
+
+
+New configuration options
+=========================
+
+* Allow ignoring disk persistence errors on replicas (#10504)
+* Allow abort with panic when replica fails to execute a command sent by the master (#10504)
+* Allow configuring shutdown flags of SIGTERM and SIGINT (#10594)
+* Allow attaching an operating system-specific identifier to Redis sockets (#10349)
+
+
+Module API changes
+==================
+
+* Add argument specifying ACL reason for module log entry (#10559)
+  Breaking API compatibility with 7.0 RCs
+* Add the deprecated_since field in command args of COMMAND DOCS (#10545)
+  Breaking API/ABI compatibility with 7.0 RCs
+* Add module API flag for using enum configs as bit flags (#10643)
+* Add RM_PublishMessageShard (#10543)
+* Add RM_MallocSizeString, RM_MallocSizeDict (#10542)
+* Add RM_TryAlloc (#10541)
+
+
+Bug Fixes
+=========
+
+* Replica report disk persistence errors in PING (#10603)
+* Fixes around rejecting commands on replicas and AOF when they must be respected (#10603)
+* Durability fixes for appendfsync=always policy (#9678)
+
+
+Fixes for issues in previous release candidates of Redis 7.0
+------------------------------------------------------------
+
+* Fix possible crash on CONFIG REWRITE (#10598)
+* Fix regression not aborting transaction on errors (#10612)
+* Fix auto-aof-rewrite-percentage based AOFRW trigger after restart (#10550)
+* Fix bugs when AOF enabled after startup, in case of failure before the first rewrite completes (#10616)
+* Fix RM_Yield module API bug processing future commands of the current client (#10573)
+
+
 ================================================================================
 Redis 7.0 RC3   Released Tue Apr 5 12:00:00 IST 2022
 ================================================================================
@@ -490,18 +592,6 @@ Bug Fixes
 * Sentinel: Fix issues with hostname support (#10146)
 * Sentinel: Fix election failures on certain container environments (#10197)
 
-
-Known Issues
-============
-
-This is a list of known issues that affect this release, and are planned to be
-fixed or completed before Redis 7 is officially released:
-
-* Module APIs for modules to provide additional command meta-data are still
-  missing.
-* Module APIs for supporting the new ACL selectors are still missing.
-* ACL key access selectors do not yet apply to SORT with GET/BY does.
-* Multi-Part AOF support in redis-check-aof is still missing.
 
 Thanks to all the users and developers who made this release possible.
 We'll follow up with more RC releases, until the code looks production ready

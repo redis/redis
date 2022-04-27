@@ -175,6 +175,8 @@ class Argument(object):
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
         )
+        if "deprecated_since" in self.desc:
+            s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 

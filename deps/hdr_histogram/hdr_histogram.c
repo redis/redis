@@ -14,13 +14,14 @@
 #include <inttypes.h>
 
 #include "hdr_histogram.h"
+#include "hdr_tests.h"
 #include "hdr_atomic.h"
-#include "hdr_alloc.h"
 
-#define malloc hdr_malloc
-#define calloc hdr_calloc
-#define free hdr_free
-#define realloc hdr_realloc
+#ifndef HDR_MALLOC_INCLUDE
+#define HDR_MALLOC_INCLUDE "hdr_malloc.h"
+#endif
+
+#include HDR_MALLOC_INCLUDE
 
 /*  ######   #######  ##     ## ##    ## ########  ######  */
 /* ##    ## ##     ## ##     ## ###   ##    ##    ##    ## */
@@ -164,6 +165,16 @@ static int32_t count_leading_zeros_64(int64_t value)
 #endif
 }
 
+static int64_t get_count_at_index_given_bucket_base_idx(const struct hdr_histogram* h, int32_t bucket_base_idx, int32_t sub_bucket_idx)
+{
+    return h->counts[(bucket_base_idx + sub_bucket_idx) - h->sub_bucket_half_count];
+}
+
+static int32_t get_bucket_base_index(const struct hdr_histogram* h, int32_t bucket_index)
+{
+    return (bucket_index + 1) << h->sub_bucket_half_count_magnitude;
+}
+
 static int32_t get_bucket_index(const struct hdr_histogram* h, int64_t value)
 {
     int32_t pow2ceiling = 64 - count_leading_zeros_64(value | h->sub_bucket_mask); /* smallest power of 2 containing value */
@@ -221,10 +232,27 @@ int64_t hdr_size_of_equivalent_value_range(const struct hdr_histogram* h, int64_
     return INT64_C(1) << (h->unit_magnitude + adjusted_bucket);
 }
 
+static int64_t size_of_equivalent_value_range_given_bucket_indices(
+    const struct hdr_histogram *h,
+    int32_t bucket_index,
+    int32_t sub_bucket_index)
+{
+    const int32_t adjusted_bucket  = (sub_bucket_index >= h->sub_bucket_count) ? (bucket_index + 1) : bucket_index;
+    return INT64_C(1) << (h->unit_magnitude + adjusted_bucket);
+}
+
 static int64_t lowest_equivalent_value(const struct hdr_histogram* h, int64_t value)
 {
     int32_t bucket_index     = get_bucket_index(h, value);
     int32_t sub_bucket_index = get_sub_bucket_index(value, bucket_index, h->unit_magnitude);
+    return value_from_index(bucket_index, sub_bucket_index, h->unit_magnitude);
+}
+
+static int64_t lowest_equivalent_value_given_bucket_indices(
+    const struct hdr_histogram *h,
+    int32_t bucket_index,
+    int32_t sub_bucket_index)
+{
     return value_from_index(bucket_index, sub_bucket_index, h->unit_magnitude);
 }
 
@@ -323,7 +351,7 @@ static int32_t buckets_needed_to_cover_value(int64_t value, int32_t sub_bucket_c
 /* ##     ## ######## ##     ##  #######  ##     ##    ##    */
 
 int hdr_calculate_bucket_config(
-        int64_t lowest_trackable_value,
+        int64_t lowest_discernible_value,
         int64_t highest_trackable_value,
         int significant_figures,
         struct hdr_histogram_bucket_config* cfg)
@@ -331,14 +359,14 @@ int hdr_calculate_bucket_config(
     int32_t sub_bucket_count_magnitude;
     int64_t largest_value_with_single_unit_resolution;
 
-    if (lowest_trackable_value < 1 ||
+    if (lowest_discernible_value < 1 ||
             significant_figures < 1 || 5 < significant_figures ||
-            lowest_trackable_value * 2 > highest_trackable_value)
+            lowest_discernible_value * 2 > highest_trackable_value)
     {
         return EINVAL;
     }
 
-    cfg->lowest_trackable_value = lowest_trackable_value;
+    cfg->lowest_discernible_value = lowest_discernible_value;
     cfg->significant_figures = significant_figures;
     cfg->highest_trackable_value = highest_trackable_value;
 
@@ -346,8 +374,13 @@ int hdr_calculate_bucket_config(
     sub_bucket_count_magnitude = (int32_t) ceil(log((double)largest_value_with_single_unit_resolution) / log(2));
     cfg->sub_bucket_half_count_magnitude = ((sub_bucket_count_magnitude > 1) ? sub_bucket_count_magnitude : 1) - 1;
 
-    cfg->unit_magnitude = (int32_t) floor(log((double)lowest_trackable_value) / log(2));
+    double unit_magnitude = log((double)lowest_discernible_value) / log(2);
+    if (INT32_MAX < unit_magnitude)
+    {
+        return EINVAL;
+    }
 
+    cfg->unit_magnitude = (int32_t) unit_magnitude;
     cfg->sub_bucket_count      = (int32_t) pow(2, (cfg->sub_bucket_half_count_magnitude + 1));
     cfg->sub_bucket_half_count = cfg->sub_bucket_count / 2;
     cfg->sub_bucket_mask       = ((int64_t) cfg->sub_bucket_count - 1) << cfg->unit_magnitude;
@@ -365,7 +398,7 @@ int hdr_calculate_bucket_config(
 
 void hdr_init_preallocated(struct hdr_histogram* h, struct hdr_histogram_bucket_config* cfg)
 {
-    h->lowest_trackable_value          = cfg->lowest_trackable_value;
+    h->lowest_discernible_value        = cfg->lowest_discernible_value;
     h->highest_trackable_value         = cfg->highest_trackable_value;
     h->unit_magnitude                  = (int32_t)cfg->unit_magnitude;
     h->significant_figures             = (int32_t)cfg->significant_figures;
@@ -383,7 +416,7 @@ void hdr_init_preallocated(struct hdr_histogram* h, struct hdr_histogram_bucket_
 }
 
 int hdr_init(
-        int64_t lowest_trackable_value,
+        int64_t lowest_discernible_value,
         int64_t highest_trackable_value,
         int significant_figures,
         struct hdr_histogram** result)
@@ -392,22 +425,22 @@ int hdr_init(
     struct hdr_histogram_bucket_config cfg;
     struct hdr_histogram* histogram;
 
-    int r = hdr_calculate_bucket_config(lowest_trackable_value, highest_trackable_value, significant_figures, &cfg);
+    int r = hdr_calculate_bucket_config(lowest_discernible_value, highest_trackable_value, significant_figures, &cfg);
     if (r)
     {
         return r;
     }
 
-    counts = (int64_t*) calloc((size_t) cfg.counts_len, sizeof(int64_t));
+    counts = (int64_t*) hdr_calloc((size_t) cfg.counts_len, sizeof(int64_t));
     if (!counts)
     {
         return ENOMEM;
     }
 
-    histogram = (struct hdr_histogram*) calloc(1, sizeof(struct hdr_histogram));
+    histogram = (struct hdr_histogram*) hdr_calloc(1, sizeof(struct hdr_histogram));
     if (!histogram)
     {
-        free(counts);
+        hdr_free(counts);
         return ENOMEM;
     }
 
@@ -422,8 +455,8 @@ int hdr_init(
 void hdr_close(struct hdr_histogram* h)
 {
     if (h) {
-	free(h->counts);
-	free(h);
+	hdr_free(h->counts);
+	hdr_free(h);
     }
 }
 
@@ -643,28 +676,80 @@ int64_t hdr_min(const struct hdr_histogram* h)
     return non_zero_min(h);
 }
 
+static int64_t get_value_from_idx_up_to_count(const struct hdr_histogram* h, int64_t count_at_percentile)
+{
+    int64_t count_to_idx = 0;
+    int64_t value_from_idx = 0;
+    int32_t sub_bucket_idx = -1;
+    int32_t bucket_idx = 0;
+    int32_t bucket_base_idx = get_bucket_base_index(h, bucket_idx);
+
+    // Overflow check
+    if (count_at_percentile > h->total_count)
+    {
+        count_at_percentile = h->total_count;
+    }
+
+    while (count_to_idx < count_at_percentile)
+    {
+        // increment bucket
+        sub_bucket_idx++;
+        if (sub_bucket_idx >= h->sub_bucket_count)
+        {
+            sub_bucket_idx = h->sub_bucket_half_count;
+            bucket_idx++;
+            bucket_base_idx = get_bucket_base_index(h, bucket_idx);
+        }
+        count_to_idx += get_count_at_index_given_bucket_base_idx(h, bucket_base_idx, sub_bucket_idx);
+        value_from_idx = ((int64_t)(sub_bucket_idx)) << (((int64_t)(bucket_idx)) + h->unit_magnitude);
+    }
+    return value_from_idx;
+}
+
 int64_t hdr_value_at_percentile(const struct hdr_histogram* h, double percentile)
 {
-    struct hdr_iter iter;
-    int64_t total = 0;
     double requested_percentile = percentile < 100.0 ? percentile : 100.0;
     int64_t count_at_percentile =
         (int64_t) (((requested_percentile / 100) * h->total_count) + 0.5);
-    count_at_percentile = count_at_percentile > 1 ? count_at_percentile : 1;
-
-    hdr_iter_init(&iter, h);
-
-    while (hdr_iter_next(&iter))
+    int64_t value_from_idx = get_value_from_idx_up_to_count(h, count_at_percentile);
+    if (percentile == 0.0)
     {
-        total += iter.count;
+        return lowest_equivalent_value(h, value_from_idx);
+    }
+    return highest_equivalent_value(h, value_from_idx);
+}
 
-        if (total >= count_at_percentile)
-        {
-            int64_t value_from_index = iter.value;
-            return highest_equivalent_value(h, value_from_index);
-        }
+int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percentiles, int64_t *values, size_t length)
+{
+    if (NULL == percentiles || NULL == values)
+    {
+        return EINVAL;
     }
 
+    struct hdr_iter iter;
+    const int64_t total_count = h->total_count;
+    // to avoid allocations we use the values array for intermediate computation
+    // i.e. to store the expected cumulative count at each percentile
+    for (size_t i = 0; i < length; i++)
+    {
+        const double requested_percentile = percentiles[i] < 100.0 ? percentiles[i] : 100.0;
+        const int64_t count_at_percentile =
+        (int64_t) (((requested_percentile / 100) * total_count) + 0.5);
+        values[i] = count_at_percentile > 1 ? count_at_percentile : 1;
+    }
+
+    hdr_iter_init(&iter, h);
+    int64_t total = 0;
+    size_t at_pos = 0;
+    while (hdr_iter_next(&iter) && at_pos < length)
+    {
+        total += iter.count;
+        while (at_pos < length && total >= values[at_pos])
+        {
+            values[at_pos] = highest_equivalent_value(h, iter.value);
+            at_pos++;
+        }
+    }
     return 0;
 }
 
@@ -757,11 +842,16 @@ static bool move_next(struct hdr_iter* iter)
 
     iter->count = counts_get_normalised(iter->h, iter->counts_index);
     iter->cumulative_count += iter->count;
-
-    iter->value = hdr_value_at_index(iter->h, iter->counts_index);
-    iter->highest_equivalent_value = highest_equivalent_value(iter->h, iter->value);
-    iter->lowest_equivalent_value = lowest_equivalent_value(iter->h, iter->value);
-    iter->median_equivalent_value = hdr_median_equivalent_value(iter->h, iter->value);
+    const int64_t value = hdr_value_at_index(iter->h, iter->counts_index);
+    const int32_t bucket_index = get_bucket_index(iter->h, value);
+    const int32_t sub_bucket_index = get_sub_bucket_index(value, bucket_index, iter->h->unit_magnitude);
+    const int64_t leq = lowest_equivalent_value_given_bucket_indices(iter->h, bucket_index, sub_bucket_index);
+    const int64_t size_of_equivalent_value_range = size_of_equivalent_value_range_given_bucket_indices(
+        iter->h, bucket_index, sub_bucket_index);
+    iter->lowest_equivalent_value = leq;
+    iter->value = value;
+    iter->highest_equivalent_value = leq + size_of_equivalent_value_range - 1;
+    iter->median_equivalent_value = leq + (size_of_equivalent_value_range >> 1);
 
     return true;
 }
