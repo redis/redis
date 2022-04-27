@@ -96,7 +96,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     cached_key = sdsnewlen(NULL,RDBSAVE_ROCKS_CACHED_MAX_KEY);
     cached_val = sdsnewlen(NULL,RDBSAVE_ROCKS_CACHED_MAX_VAL);
 
-    while (rocksIterNext(it, &rawkey, &rklen, &rawval, &rvlen)) {
+    while (rocksIterValid(it)) {
         robj keyobj, *evict;
         long long expire;
         int obj_type;
@@ -105,6 +105,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         sds key, val;
         int retval;
 
+        rocksIterKeyValue(it, &rawkey, &rklen, &rawval, &rvlen);
         obj_type = rocksDecodeKey(rawkey, rklen, &keyptr, &klen);
         if (klen > RDBSAVE_ROCKS_CACHED_MAX_KEY) {
             key = sdsnewlen(keyptr, klen);
@@ -126,11 +127,15 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         initStaticStringObject(keyobj, key);
         evict = lookupEvictKey(db, &keyobj);
         if (evict == NULL || evict->type != obj_type) {
-            serverLog(LL_WARNING,
-                    "Save object rocks type(%d) not match evict type(%d) for key: %s",
-                    obj_type, evict ? evict->type : -1, key);
+            if (evict != NULL) {
+                serverLog(LL_WARNING,
+                        "Save object rocks type(%d) not match "
+                        "evict type(%d) for key: %s",
+                        obj_type, evict->type, key);
+            }
             if (key != cached_key) sdsfree(key);
             if (val != cached_val) sdsfree(val);
+            rocksIterNext(it);
             continue;
         }
 
@@ -141,9 +146,11 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
 
         if (retval == -1) {
             serverLog(LL_WARNING, "Save Raw value failed for key: %s.",key);
+            rocksReleaseIter(it);
             return C_ERR;
         }
         rdbSaveProgress(rdb,rdbflags);
+        rocksIterNext(it);
     }
 
     sdsfree(cached_key);

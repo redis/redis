@@ -565,12 +565,17 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     return it;
 }
 
-int rocksIterNext(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen) {
-    if (!rocksdb_iter_valid(it)) return 0;
+int rocksIterValid(rocksIter *it) {
+    return rocksdb_iter_valid(it);
+}
+
+void rocksIterKeyValue(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen) {
     if (rawkey) *rawkey = rocksdb_iter_key(it, klen);
     if (rawval) *rawval = rocksdb_iter_value(it, vlen);
+}
+
+void rocksIterNext(rocksIter *it) {
     rocksdb_iter_next(it);
-    return 1;
 }
 
 void rocksReleaseIter(rocksIter *it) {

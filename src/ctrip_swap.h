@@ -32,7 +32,9 @@
 
 typedef rocksdb_iterator_t rocksIter;
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
-int rocksIterNext(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen);
+int rocksIterValid(rocksIter *it);
+void rocksIterNext(rocksIter *it);
+void rocksIterKeyValue(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen);
 void rocksReleaseIter(rocksIter *it);
 
 sds rocksEncodeKey(int type, sds key);

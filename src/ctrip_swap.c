@@ -1365,7 +1365,12 @@ static int parallelSwapProcess(swapEntry *e) {
         }
         e->inprogress = 0;
         RIOReap(e->r, &rawkey, &rawval);
-        return e->cb(rawkey, rawval, e->pd);
+        if (e->cb) {
+            return e->cb(rawkey, rawval, e->pd);
+        } else {
+            sdsfree(rawkey);
+            sdsfree(rawval);
+        }
     }
     return C_OK;
 }
