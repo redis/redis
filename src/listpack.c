@@ -180,7 +180,8 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
     int negative = 0;
     uint64_t v;
 
-    if (plen == slen)
+    /* Abort if length indicates this cannot possibly be an int */
+    if (slen == 0 || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */

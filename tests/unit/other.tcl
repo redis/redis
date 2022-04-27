@@ -311,7 +311,7 @@ start_server {tags {"other"}} {
         assert_error {*unknown command*} {r GET|SET}
         assert_error {*unknown command*} {r GET|SET|OTHER}
         assert_error {*unknown command*} {r CONFIG|GET GET_XX}
-        assert_error {*Unknown subcommand*} {r CONFIG GET_XX}
+        assert_error {*unknown subcommand*} {r CONFIG GET_XX}
     }
 }
 

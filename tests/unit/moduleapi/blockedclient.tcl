@@ -90,7 +90,8 @@ start_server {tags {"modules"}} {
         }
     }
 
-    test {Busy module command} {
+foreach call_type {nested normal} {
+    test "Busy module command - $call_type" {
         set busy_time_limit 50
         set old_time_limit [lindex [r config get busy-reply-threshold] 1]
         r config set busy-reply-threshold $busy_time_limit
@@ -98,7 +99,15 @@ start_server {tags {"modules"}} {
 
         # run command that blocks until released
         set start [clock clicks -milliseconds]
-        $rd slow_fg_command 0
+        if {$call_type == "nested"} {
+            $rd do_rm_call slow_fg_command 0
+        } else {
+            $rd slow_fg_command 0
+        }
+        $rd flush
+
+        # send another command after the blocked one, to make sure we don't attempt to process it
+        $rd ping
         $rd flush
 
         # make sure we get BUSY error, and that we didn't get it too early
@@ -112,11 +121,16 @@ start_server {tags {"modules"}} {
         } else {
             fail "Failed waiting for busy command to end"
         }
-        $rd read
+        assert_equal [$rd read] "1"
+        assert_equal [$rd read] "PONG"
 
-        #run command that blocks for 200ms
+        # run command that blocks for 200ms
         set start [clock clicks -milliseconds]
-        $rd slow_fg_command 200000
+        if {$call_type == "nested"} {
+            $rd do_rm_call slow_fg_command 200000
+        } else {
+            $rd slow_fg_command 200000
+        }
         $rd flush
         after 10 ;# try to make sure redis started running the command before we proceed
 
@@ -128,6 +142,7 @@ start_server {tags {"modules"}} {
         $rd close
         r config set busy-reply-threshold $old_time_limit
     }
+}
 
     test {RM_Call from blocked client} {
         set busy_time_limit 50
@@ -140,6 +155,10 @@ start_server {tags {"modules"}} {
         set rd [redis_deferring_client]
         set start [clock clicks -milliseconds]
         $rd do_bg_rm_call hgetall hash
+
+        # send another command after the blocked one, to make sure we don't attempt to process it
+        $rd ping
+        $rd flush
 
         # wait till we know we're blocked inside the module
         wait_for_condition 50 100 {
@@ -162,10 +181,10 @@ start_server {tags {"modules"}} {
         assert_equal [r ping] {PONG}
 
         r config set busy-reply-threshold $old_time_limit
-        set res [$rd read]
+        assert_equal [$rd read] {foo bar}
+        assert_equal [$rd read] {PONG}
         $rd close
-        set _ $res
-    } {foo bar}
+    }
 
     test {blocked client reaches client output buffer limit} {
         r hset hash big [string repeat x 50000]
@@ -184,8 +203,12 @@ start_server {tags {"modules"}} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "ERR Unknown Redis command 'hgetalllll'." {r do_rm_call hgetalllll}
+        assert_error "ERR unknown command 'hgetalllll', with args beginning with:" {r do_rm_call hgetalllll}
         assert_equal [errorrstat ERR r] {count=1}
+
+        # simple module command that replies with string error
+        assert_error "ERR unknown subcommand 'bla'. Try CONFIG HELP." {r do_rm_call config bla}
+        assert_equal [errorrstat ERR r] {count=2}
 
         # module command that replies with string error from bg thread
         assert_error "NULL reply returned" {r do_bg_rm_call hgetalllll}
@@ -194,7 +217,7 @@ start_server {tags {"modules"}} {
         # module command that returns an arity error
         r do_rm_call set x x
         assert_error "ERR wrong number of arguments for 'do_rm_call' command" {r do_rm_call}
-        assert_equal [errorrstat ERR r] {count=2}
+        assert_equal [errorrstat ERR r] {count=3}
 
         # RM_Call that propagates an error
         assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
@@ -206,8 +229,8 @@ start_server {tags {"modules"}} {
         assert_equal [errorrstat WRONGTYPE r] {count=2}
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat hgetall r]
 
-        assert_equal [s total_error_replies] 5
-        assert_match {*calls=4,*,rejected_calls=0,failed_calls=3} [cmdrstat do_rm_call r]
+        assert_equal [s total_error_replies] 6
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4} [cmdrstat do_rm_call r]
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
     }
 

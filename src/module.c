@@ -464,9 +464,16 @@ static int moduleConvertArgFlags(int flags);
 /* Use like malloc(). Memory allocated with this function is reported in
  * Redis INFO memory, used for keys eviction according to maxmemory settings
  * and in general is taken into account as memory allocated by Redis.
- * You should avoid using malloc(). */
+ * You should avoid using malloc().
+ * This function panics if unable to allocate enough memory. */
 void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
+}
+
+/* Similar to RM_Alloc, but returns NULL in case of allocation failure, instead
+ * of panicking. */
+void *RM_TryAlloc(size_t bytes) {
+    return ztrymalloc(bytes);
 }
 
 /* Use like calloc(). Memory allocated with this function is reported in
@@ -710,6 +717,8 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             if (server.busy_module_yield_flags) {
                 blockingOperationEnds();
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+                if (server.current_client)
+                    unprotectClient(server.current_client);
                 unblockPostponedClients();
             }
         }
@@ -1040,9 +1049,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
  * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
- *                     the command has sensible data among the arguments.
+ *                     the command has sensitive data among the arguments.
  * * **"no-slowlog"**: Don't log this command in the slowlog. Use this if
- *                     the command has sensible data among the arguments.
+ *                     the command has sensitive data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
  *                    anything else representing the normal scalability
@@ -1924,6 +1933,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
         if (arg->token) realargs[j].token = zstrdup(arg->token);
         if (arg->summary) realargs[j].summary = zstrdup(arg->summary);
         if (arg->since) realargs[j].since = zstrdup(arg->since);
+        if (arg->deprecated_since) realargs[j].deprecated_since = zstrdup(arg->deprecated_since);
         realargs[j].flags = moduleConvertArgFlags(arg->flags);
         if (arg->subargs) realargs[j].subargs = moduleCopyCommandArgs(arg->subargs, version);
     }
@@ -2079,6 +2089,12 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
  * the -LOADING error)
  */
 void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+    static int yield_nesting = 0;
+    /* Avoid nested calls to RM_Yield */
+    if (yield_nesting)
+        return;
+    yield_nesting++;
+
     long long now = getMonotonicUs();
     if (now >= ctx->next_yield_time) {
         /* In loading mode, there's no need to handle busy_module_yield_reply,
@@ -2092,10 +2108,13 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             server.busy_module_yield_reply = busy_reply;
             /* start the blocking operation if not already started. */
             if (!server.busy_module_yield_flags) {
-                server.busy_module_yield_flags = flags & REDISMODULE_YIELD_FLAG_CLIENTS ?
-                    BUSY_MODULE_YIELD_CLIENTS : BUSY_MODULE_YIELD_EVENTS;
+                server.busy_module_yield_flags = BUSY_MODULE_YIELD_EVENTS;
                 blockingOperationStarts();
+                if (server.current_client)
+                    protectClient(server.current_client);
             }
+            if (flags & REDISMODULE_YIELD_FLAG_CLIENTS)
+                server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
             processEventsWhileBlocked();
@@ -2110,6 +2129,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
+    yield_nesting--;
 }
 
 /* Set flags defining capabilities or behavior bit flags.
@@ -2639,9 +2659,7 @@ void RM_TrimStringAllocation(RedisModuleString *str) {
  *     if (argc != 3) return RedisModule_WrongArity(ctx);
  */
 int RM_WrongArity(RedisModuleCtx *ctx) {
-    addReplyErrorFormat(ctx->client,
-        "wrong number of arguments for '%s' command",
-        (char*)ctx->client->argv[0]->ptr);
+    addReplyErrorArity(ctx->client);
     return REDISMODULE_OK;
 }
 
@@ -3365,10 +3383,13 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
-    int receivers = pubsubPublishMessage(channel, message);
-    if (server.cluster_enabled)
-        clusterPropagatePublish(channel, message);
-    return receivers;
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 0);
+}
+
+/* Publish a message to shard-subscribers (see SPUBLISH command). */
+int RM_PublishMessageShard(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
+    UNUSED(ctx);
+    return pubsubPublishMessageAndPropagateToCluster(channel, message, 1);
 }
 
 /* Return the currently selected DB. */
@@ -3615,7 +3636,7 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * key does not exist, NULL is returned. However it is still safe to
  * call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
  * value. */
-void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
+RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
     int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
@@ -3633,7 +3654,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp = zmalloc(sizeof(*kp));
     moduleInitKey(kp, ctx, keyname, value, mode);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
-    return (void*)kp;
+    return kp;
 }
 
 /* Destroy a RedisModuleKey struct (freeing is the responsibility of the caller). */
@@ -5736,26 +5757,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Lookup command now, after filters had a chance to make modifications
      * if necessary.
      */
-    cmd = lookupCommand(c->argv,c->argc);
-    if (!cmd) {
+    cmd = c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+    sds err;
+    if (!commandCheckExistence(c, error_as_call_replies? &err : NULL)) {
         errno = ENOENT;
-        if (error_as_call_replies) {
-            sds msg = sdscatfmt(sdsempty(),"Unknown Redis "
-                                           "command '%S'.",c->argv[0]->ptr);
-            reply = callReplyCreateError(msg, ctx);
-        }
+        if (error_as_call_replies)
+            reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
-    c->cmd = c->lastcmd = c->realcmd = cmd;
-
-    /* Basic arity checks. */
-    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
+    if (!commandCheckArity(c, error_as_call_replies? &err : NULL)) {
         errno = EINVAL;
-        if (error_as_call_replies) {
-            sds msg = sdscatfmt(sdsempty(), "Wrong number of "
-                                            "args calling Redis command '%S'.", c->cmd->fullname);
-            reply = callReplyCreateError(msg, ctx);
-        }
+        if (error_as_call_replies)
+            reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
 
@@ -5798,8 +5811,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
 
             int deny_write_type = writeCommandsDeniedByDiskError();
+            int obey_client = mustObeyClient(server.current_client);
 
-            if (deny_write_type != DISK_ERROR_TYPE_NONE) {
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 errno = ENOSPC;
                 if (error_as_call_replies) {
                     sds msg = writeCommandsGetDiskErrorMessage(deny_write_type);
@@ -5841,7 +5855,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* If this is a Redis Cluster node, we need to make sure the module is not
      * trying to access non-local keys, with the exception of commands
      * received from our master. */
-    if (server.cluster_enabled && !(ctx->client->flags & CLIENT_MASTER)) {
+    if (server.cluster_enabled && !mustObeyClient(ctx->client)) {
         int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
@@ -5890,11 +5904,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
-    /* Set server.current_client */
-    client *old_client = server.current_client;
-    server.current_client = c;
     call(c,call_flags);
-    server.current_client = old_client;
     server.replication_allowed = prev_replication_allowed;
 
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
@@ -6072,6 +6082,14 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 const char *moduleTypeModuleName(moduleType *mt) {
     if (!mt || !mt->module) return NULL;
     return mt->module->name;
+}
+
+/* Return the module name from a module command */
+const char *moduleNameFromCommand(struct redisCommand *cmd) {
+    serverAssert(cmd->proc == RedisModuleCommandDispatcher);
+
+    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    return cp->module->name;
 }
 
 /* Create a copy of a module type value using the copy callback. If failed
@@ -7623,6 +7641,8 @@ void moduleGILBeforeUnlock() {
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
         server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        if (server.current_client)
+            unprotectClient(server.current_client);
         unblockPostponedClients();
     }
 }
@@ -8676,8 +8696,18 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
  *
  * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
-void RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object) {
-    addACLLogEntry(ctx->client, 0, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason;
+    switch (reason) {
+        case REDISMODULE_ACL_LOG_AUTH: acl_reason = ACL_DENIED_AUTH; break;
+        case REDISMODULE_ACL_LOG_KEY: acl_reason = ACL_DENIED_KEY; break;
+        case REDISMODULE_ACL_LOG_CHANNEL: acl_reason = ACL_DENIED_CHANNEL; break;
+        case REDISMODULE_ACL_LOG_CMD: acl_reason = ACL_DENIED_CMD; break;
+        default: return REDISMODULE_ERR;
+    }
+
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+    return REDISMODULE_OK;
 }
 
 /* Authenticate the client associated with the context with
@@ -9730,8 +9760,27 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
  * with the allocation calls, since sometimes the underlying allocator
  * will allocate more memory.
  */
-size_t RM_MallocSize(void* ptr){
+size_t RM_MallocSize(void* ptr) {
     return zmalloc_size(ptr);
+}
+
+/* Same as RM_MallocSize, except it works on RedisModuleString pointers.
+ */
+size_t RM_MallocSizeString(RedisModuleString* str) {
+    serverAssert(str->type == OBJ_STRING);
+    return sizeof(*str) + getStringObjectSdsUsedMemory(str);
+}
+
+/* Same as RM_MallocSize, except it works on RedisModuleDict pointers.
+ * Note that the returned value is only the overhead of the underlying structures,
+ * it does not include the allocation size of the keys and values.
+ */
+size_t RM_MallocSizeDict(RedisModuleDict* dict) {
+    size_t size = sizeof(RedisModuleDict) + sizeof(rax);
+    size += dict->rax->numnodes * sizeof(raxNode);
+    /* For more info about this weird line, see streamRadixTreeMemoryUsage */
+    size += dict->rax->numnodes * sizeof(long)*30;
+    return size;
 }
 
 /* Return the a number between 0 to 1 indicating the amount of memory
@@ -10908,6 +10957,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
     }
     zfree((char *)cmd->summary);
     zfree((char *)cmd->since);
+    zfree((char *)cmd->deprecated_since);
     zfree((char *)cmd->complexity);
     if (cmd->latency_histogram) {
         hdr_close(cmd->latency_histogram);
@@ -11275,12 +11325,17 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
                     | REDISMODULE_CONFIG_HIDDEN
                     | REDISMODULE_CONFIG_PROTECTED
                     | REDISMODULE_CONFIG_DENY_LOADING
+                    | REDISMODULE_CONFIG_BITFLAGS
                     | REDISMODULE_CONFIG_MEMORY))) {
         serverLogRaw(LL_WARNING, "Invalid flag(s) for configuration");
         return REDISMODULE_ERR;
     }
     if (type != NUMERIC_CONFIG && flags & REDISMODULE_CONFIG_MEMORY) {
         serverLogRaw(LL_WARNING, "Numeric flag provided for non-numeric configuration.");
+        return REDISMODULE_ERR;
+    }
+    if (type != ENUM_CONFIG && flags & REDISMODULE_CONFIG_BITFLAGS) {
+        serverLogRaw(LL_WARNING, "Enum flag provided for non-enum configuration.");
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -11484,6 +11539,12 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
     return new_flags;
 }
 
+unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
+    unsigned int new_flags = 0;
+    if (flags & REDISMODULE_CONFIG_BITFLAGS) new_flags |= MULTI_ARG_CONFIG;
+    return new_flags;
+}
+
 /* Create a string config that Redis users can interact with via the Redis config file,
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
  *
@@ -11523,6 +11584,7 @@ unsigned int maskModuleNumericConfigFlags(unsigned int flags) {
  * * REDISMODULE_CONFIG_PROTECTED: This config will be only be modifiable based off the value of enable-protected-configs.
  * * REDISMODULE_CONFIG_DENY_LOADING: This config is not modifiable while the server is loading data.
  * * REDISMODULE_CONFIG_MEMORY: For numeric configs, this config will convert data unit notations into their byte equivalent.
+ * * REDISMODULE_CONFIG_BITFLAGS: For enum configs, this config will allow multiple entries to be combined as bit flags.
  *
  * Default values are used on startup to set the value if it is not provided via the config file
  * or command line. Default values are also used to compare to on a config rewrite.
@@ -11638,7 +11700,7 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     enum_vals[num_enum_vals].name = NULL;
     enum_vals[num_enum_vals].val = 0;
     listAddNodeTail(module->module_configs, new_config);
-    flags = maskModuleConfigFlags(flags);
+    flags = maskModuleConfigFlags(flags) | maskModuleEnumConfigFlags(flags);
     addModuleEnumConfig(module->name, name, flags, new_config, default_val, enum_vals);
     return REDISMODULE_OK;
 }
@@ -12225,6 +12287,7 @@ void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType);
     server.sharedapi = dictCreate(&moduleAPIDictType);
     REGISTER_API(Alloc);
+    REGISTER_API(TryAlloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
     REGISTER_API(Free);
@@ -12490,6 +12553,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(PublishMessage);
+    REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(SetLRU);
     REGISTER_API(GetLRU);
@@ -12500,6 +12564,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
     REGISTER_API(MallocSize);
+    REGISTER_API(MallocSizeString);
+    REGISTER_API(MallocSizeDict);
     REGISTER_API(ScanCursorCreate);
     REGISTER_API(ScanCursorDestroy);
     REGISTER_API(ScanCursorRestart);

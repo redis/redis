@@ -59,6 +59,8 @@ void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp);
+unsigned char *lpInsertInteger(unsigned char *lp, long long lval,
+                               unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPrependInteger(unsigned char *lp, long long lval);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *s, uint32_t slen);
