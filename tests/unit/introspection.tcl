@@ -474,7 +474,7 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
         assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
 
-        # Using MULTI_ARG's own check, emtpy option value
+        # Using MULTI_ARG's own check, empty option value
         catch {exec src/redis-server --shutdown-on-sigint} err
         assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
         catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
