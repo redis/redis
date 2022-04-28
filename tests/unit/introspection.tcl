@@ -155,8 +155,9 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT GETMETA should return all meta attributes} {
         assert_equal [r client setmeta meta foo meta2 bar] {OK}
-        r client getmeta
-    } {meta=foo meta2=bar }
+        assert_match {*meta2=bar*} [r client getmeta]
+        assert_match {*meta=foo*} [r client getmeta]
+    }
 
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
