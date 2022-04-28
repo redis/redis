@@ -430,7 +430,7 @@ int functionsRegisterEngine(const char *engine_name, engine *engine) {
 
 /*
  * FUNCTION STATS
-*/
+ */
 void functionStatsCommand(client *c) {
     if (scriptIsRunning() && scriptIsEval()) {
         addReplyErrorObject(c, shared.slowevalerr);
