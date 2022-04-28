@@ -5940,10 +5940,13 @@ void linuxMemoryWarnings(void) {
 
 static sds read_sysfs_line(char *path) {
     char buf[256];
-    FILE *fp = fopen(path, "r");
-    if (!fp) return NULL;
-    if (!fgets(buf, sizeof(buf), fp)) return NULL;
-    fclose(fp);
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    if (!fgets(buf, sizeof(buf), f)) {
+        fclose(f);
+        return NULL;
+    }
+    fclose(f);
     sds res = sdsnew(buf);
     res = sdstrim(res, " \n");
     return res;
