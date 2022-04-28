@@ -11656,6 +11656,11 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     return REDISMODULE_OK;
 }
 
+/* configEnum->val compare qsort, putting the high ones first */
+static int configEnumCompareRev(const void *a, const void *b) {
+    return (((configEnum *)b)->val - ((configEnum *)a)->val);
+}
+
 /* 
  * Create an enum config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
@@ -11697,6 +11702,10 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
         enum_vals[i].name = zstrdup(enum_values[i]);
         enum_vals[i].val = int_values[i];
     }
+    /* For bitflags, sort them from high to low, so that if there are several / partially
+     * overlapping entries, we'll prefer the ones matching more bits. */
+    if (flags & REDISMODULE_CONFIG_BITFLAGS)
+        qsort(enum_vals, num_enum_vals, sizeof(*enum_vals), configEnumCompareRev);
     enum_vals[num_enum_vals].name = NULL;
     enum_vals[num_enum_vals].val = 0;
     listAddNodeTail(module->module_configs, new_config);
