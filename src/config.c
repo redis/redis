@@ -484,6 +484,29 @@ void loadServerConfigFromString(char *config) {
                 err = "wrong number of arguments";
                 goto loaderr;
             }
+
+            if (config->flags & MULTI_ARG_CONFIG) {
+                if (argc == 1 && !(config->flags & ALLOW_EMPTY_ARG_CONFIG)) {
+                    /* For MULTI_ARG_CONFIGs, we need to consume at least one argument.
+                     * Except for ALLOW_EMPTY_ARG which can accept empty parameters, like save "". */
+                    err = "wrong number of arguments";
+                    goto loaderr;
+                } else if (argc == 2) {
+                    /* For MULTI_ARG_CONFIGs, if we only have one argument, try to split it by spaces.
+                     * So that we can support something like --config "arg1 arg2 arg3". */
+                    sds *new_argv;
+                    int new_argc;
+                    new_argv = sdssplitargs(argv[1], &new_argc);
+                    if (!config->interface.set(config, &new_argv[0], new_argc, &err)) {
+                        goto loaderr;
+                    }
+                    sdsfreesplitres(argv, argc);
+                    sdsfreesplitres(new_argv, new_argc);
+                    continue;
+                }
+                /* In other cases, like --config arg1 arg2 arg3, enter the following `interface.set`. */
+            }
+
             /* Set config using all arguments that follows */
             if (!config->interface.set(config, &argv[1], argc-1, &err)) {
                 goto loaderr;
@@ -3094,13 +3117,13 @@ standardConfig static_configs[] = {
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
-    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption, NULL),
+    createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG | ALLOW_EMPTY_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption, NULL),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption, NULL),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption, updateOOMScoreAdj),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
-    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
+    createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG | ALLOW_EMPTY_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
-    createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
+    createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG | ALLOW_EMPTY_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
 
     /* NULL Terminator, this is dropped when we convert to the runtime array. */
     {NULL}

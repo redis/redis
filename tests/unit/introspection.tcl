@@ -449,6 +449,30 @@ start_server {tags {"introspection"}} {
         assert {[dict exists $res bind]}  
     }
 
+    test {redis-server command line arguments - NON_MULTI_ARG only one arg} {
+        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port}
+        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port 6379 6380}
+        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port --enable-debug-command yes}
+        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port --bla}
+    } {} {external:skip}
+
+    test {redis-server command line arguments - MULTI_ARG consume at least one arg} {
+        # This used to return an error like this: argument(s) must be one of the following: option1 option2
+        # And now we can return `wrong number of arguments` ASAP
+
+        catch {exec src/redis-server --shutdown-on-sigint} err
+        assert_match {*shutdown-on-sigint*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --shutdown-on-sigint --port} err
+        assert_match {*shutdown-on-sigint*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --shutdown-on-sigint now force --shutdown-on-sigterm} err
+        assert_match {*shutdown-on-sigterm*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
+        assert_match {*shutdown-on-sigterm*wrong number of arguments*} $err
+    } {} {external:skip}
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }
