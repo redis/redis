@@ -915,7 +915,6 @@ struct redisCommandArg CLIENT_NO_EVICT_Args[] = {
 
 /* CLIENT PAUSE history */
 commandHistory CLIENT_PAUSE_History[] = {
-{"3.2.10","Client pause prevents client pause and key eviction as well."},
 {"6.2.0","`CLIENT PAUSE WRITE` mode added along with the `mode` option."},
 {0}
 };
