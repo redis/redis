@@ -449,44 +449,57 @@ start_server {tags {"introspection"}} {
         assert {[dict exists $res bind]}  
     }
 
-    test {redis-server command line arguments - NON_MULTI_ARG only one arg} {
+    test {redis-server command line arguments - error cases} {
         catch {exec src/redis-server --port} err
-        assert_match {*port*wrong number of arguments*} $err
+        assert_match {*'port'*wrong number of arguments*} $err
 
         catch {exec src/redis-server --port 6380 --loglevel} err
-        assert_match {*loglevel*wrong number of arguments*} $err
+        assert_match {*'loglevel'*wrong number of arguments*} $err
 
-        # Take 6380 as a new option (name).
+        # Take `6379` and `6380` as the port option value.
         catch {exec src/redis-server --port 6379 6380} err
-        assert_match {*port*wrong number of arguments*} $err
+        assert_match {*'port "6379" "6380"'*wrong number of arguments*} $err
 
         # Take `--loglevel` and `verbose` as the port option value.
         catch {exec src/redis-server --port --loglevel verbose} err
-        assert_match {*port*wrong number of arguments*} $err
+        assert_match {*'port "--loglevel" "verbose"'*wrong number of arguments*} $err
 
         # Take `--bla` as the port option value.
         catch {exec src/redis-server --port --bla --loglevel verbose} err
-        assert_match {*port*argument couldn't be parsed into an integer*} $err
-    } {} {external:skip}
+        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
 
-if {false} {
-    test {redis-server command line arguments - MULTI_ARG consume at least one arg} {
-        # This used to return an error like this: argument(s) must be one of the following: option1 option2
-        # And now we can return `wrong number of arguments` ASAP
+        catch {exec src/redis-server --port --bla --loglevel verbose} err
+        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
 
+        catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
+        assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
+
+        # Using MULTI_ARG's own check, emtpy option value
         catch {exec src/redis-server --shutdown-on-sigint} err
-        assert_match {*shutdown-on-sigint*wrong number of arguments*} $err
-
-        catch {exec src/redis-server --shutdown-on-sigint --port} err
-        assert_match {*shutdown-on-sigint*wrong number of arguments*} $err
-
-        catch {exec src/redis-server --shutdown-on-sigint now force --shutdown-on-sigterm} err
-        assert_match {*shutdown-on-sigterm*wrong number of arguments*} $err
-
+        assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
         catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
-        assert_match {*shutdown-on-sigterm*wrong number of arguments*} $err
+        assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
     } {} {external:skip}
-}
+
+    test {redis-server command line arguments - allow option value to use the `--` prefix} {
+        set port [find_available_port $::baseport $::portcount]
+        exec src/redis-server --port $port --daemonize yes --logfile --my--log--file --loglevel verbose
+        assert_equal {--my--log--file} [lindex [exec src/redis-cli -p $port config get logfile] 1]
+    } {} {external:skip}
+
+    test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
+        set port [find_available_port $::baseport $::portcount]
+        exec src/redis-server --port $port --daemonize yes --shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"
+
+        set res [exec src/redis-cli -p $port config get shutdown-on-sigint]
+        assert_match {*shutdown-on-sigint*nosave*} $res
+        assert_match {*shutdown-on-sigint*force*} $res
+        assert_match {*shutdown-on-sigint*now*} $res
+
+        set res [exec src/redis-cli -p $port config get shutdown-on-sigterm]
+        assert_match {*shutdown-on-sigterm*nosave*} $res
+        assert_match {*shutdown-on-sigterm*force*} $res
+    } {} {external:skip}
 
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
