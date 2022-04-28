@@ -98,10 +98,26 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
+#define ANSI_BLACK "\033[30m"
+#define ANSI_RED "\033[31m"
+#define ANSI_GREEN "\033[32m"
+#define ANSI_YELLOW "\033[33m"
+#define ANSI_BLUE "\033[34m"
+#define ANSI_MAGENTA "\033[35m"
+#define ANSI_CYAN "\033[36m"
+#define ANSI_WHITE "\033[37m"
+#define ANSI_RESET "\033[0m"
+#define ANSI_BLACK_BOLD "\033[30;1m"
+#define ANSI_RED_BOLD "\033[31;1m"
+#define ANSI_GREEN_BOLD "\033[32;1m"
+#define ANSI_YELLOW_BOLD "\033[33;1m"
+#define ANSI_MAGENTA_BOLD "\033[35;1m"
+#define ANSI_WHITE_BOLD "\033[37;1m"
+#define ANSI_BOLD "\033[1m"
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
-    const char *level_color[] = {"\033[30m", "\033[37m", "\033[32m", "\033[31m"};
+    const char *level_color[] = {ANSI_RESET, ANSI_YELLOW_BOLD, ANSI_GREEN_BOLD, ANSI_RED_BOLD };
     FILE *fp;
     char buf[64];
     int rawmode = (level & LL_RAW);
@@ -133,14 +149,13 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        const char *pre = "";
-        const char *post = "";
         if (isatty(fileno(fp))) {
-            pre = level_color[level];
-            post = "\033[0m";
+            fprintf(fp, ANSI_CYAN"%d"ANSI_BLUE":"ANSI_MAGENTA"%c "ANSI_BLUE"%s %s%c "ANSI_RESET"%s%s\n"ANSI_RESET,
+                    (int)getpid(), role_char, buf, level_color[level], c[level], level >= LL_WARNING ? ANSI_BOLD: "", msg);
+        } else {
+            fprintf(fp,"%d:%c %s %c %s\n",
+                    (int)getpid(),role_char, buf, c[level], msg);
         }
-        fprintf(fp,"%d:%c %s %s%c%s %s\n",
-            (int)getpid(),role_char, buf, pre, c[level], post, msg);
     }
     fflush(fp);
 
