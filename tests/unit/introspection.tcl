@@ -458,11 +458,11 @@ start_server {tags {"introspection"}} {
 
         # Take 6380 as a new option (name).
         catch {exec src/redis-server --port 6379 6380} err
-        assert_match {*6380*Bad directive or wrong number of arguments*} $err
+        assert_match {*port*wrong number of arguments*} $err
 
-        # Take `--loglevel` as the port option value.
+        # Take `--loglevel` and `verbose` as the port option value.
         catch {exec src/redis-server --port --loglevel verbose} err
-        assert_match {*port*argument couldn't be parsed into an integer*} $err
+        assert_match {*port*wrong number of arguments*} $err
 
         # Take `--bla` as the port option value.
         catch {exec src/redis-server --port --bla --loglevel verbose} err

@@ -6962,36 +6962,30 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
+        int last_config_have_value = 0;
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
                 config_from_stdin = 1;
-                j++;
             }
             /* All the other options are parsed and conceptually appended to the
              * configuration file. For instance --port 6380 will generate the
              * string "port 6380\n" to be parsed after the actual config file
              * and stdin input are parsed (if they exist). */
-            else {
+            else if (!last_config_have_value && argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
                 if (sdslen(options)) options = sdscat(options,"\n");
-                if (argv[j][0] == '-' && argv[j][1] == '-') {
-                    /* argv[j]+2 for removing the preceding `--` */
-                    options = sdscat(options,argv[j]+2);
-                } else {
-                    /* Invalid options, add them directly, and verify them in config.c */
-                    options = sdscat(options,argv[j]);
-                }
+                /* argv[j]+2 for removing the preceding `--` */
+                options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
-                j++;
-
+                last_config_have_value = 1;
+            } else {
                 /* Option argument */
-                if (j < argc) {
-                    options = sdscatrepr(options,argv[j],strlen(argv[j]));
-                    options = sdscat(options," ");
-                    j++;
-                }
+                options = sdscatrepr(options,argv[j],strlen(argv[j]));
+                options = sdscat(options," ");
+                last_config_have_value = 0;
             }
+            j++;
         }
 
         loadServerConfig(server.configfile, config_from_stdin, options);
