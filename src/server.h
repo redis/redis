@@ -3010,7 +3010,7 @@ sds keyspaceEventsFlagsToString(int flags);
 #define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
 #define ALIAS_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the alias. */
 #define MODULE_CONFIG (1ULL<<8) /* This config is a module config */
-#define ALLOW_EMPTY_ARG_CONFIG (1ULL<<8) /* This config allow setting empty arg. */
+#define ALLOW_EMPTY_ARG_CONFIG (1ULL<<9) /* This config allow setting empty arg. */
 
 #define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */
