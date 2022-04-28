@@ -494,14 +494,12 @@ void loadServerConfigFromString(char *config) {
                 if (!config->interface.set(config, new_argv, new_argc, &err)) {
                     goto loaderr;
                 }
-                sdsfreesplitres(argv, argc);
                 sdsfreesplitres(new_argv, new_argc);
-                continue;
-            }
-
-            /* Set config using all arguments that follows */
-            if (!config->interface.set(config, &argv[1], argc-1, &err)) {
-                goto loaderr;
+            } else {
+                /* Set config using all arguments that follows */
+                if (!config->interface.set(config, &argv[1], argc-1, &err)) {
+                    goto loaderr;
+                }
             }
 
             sdsfreesplitres(argv,argc);
