@@ -450,12 +450,26 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - NON_MULTI_ARG only one arg} {
-        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port}
-        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port 6379 6380}
-        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port --enable-debug-command yes}
-        assert_error {*port*wrong number of arguments*} {exec src/redis-server --port --bla}
+        catch {exec src/redis-server --port} err
+        assert_match {*port*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --port 6380 --loglevel} err
+        assert_match {*loglevel*wrong number of arguments*} $err
+
+        # Take 6380 as a new option (name).
+        catch {exec src/redis-server --port 6379 6380} err
+        assert_match {*6380*Bad directive or wrong number of arguments*} $err
+
+        # Take `--loglevel` as the port option value.
+        catch {exec src/redis-server --port --loglevel verbose} err
+        assert_match {*port*argument couldn't be parsed into an integer*} $err
+
+        # Take `--bla` as the port option value.
+        catch {exec src/redis-server --port --bla --loglevel verbose} err
+        assert_match {*port*argument couldn't be parsed into an integer*} $err
     } {} {external:skip}
 
+if {false} {
     test {redis-server command line arguments - MULTI_ARG consume at least one arg} {
         # This used to return an error like this: argument(s) must be one of the following: option1 option2
         # And now we can return `wrong number of arguments` ASAP
@@ -472,6 +486,7 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
         assert_match {*shutdown-on-sigterm*wrong number of arguments*} $err
     } {} {external:skip}
+}
 
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
