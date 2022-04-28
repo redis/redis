@@ -39,11 +39,7 @@
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max lp bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
- * container: 2 bits, PLAIN=1, PACKED=2.
- * when the container is PACKED, the quicklist node is a listpack.
- * when the element is large we use PLAIN, which is a string buffer 
- * that is both a container and an element itself.
- * 
+ * container: 2 bits, PLAIN=1 (a single item as char array), PACKED=2 (listpack with multiple items).
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
