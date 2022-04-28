@@ -5992,8 +5992,13 @@ void linuxTimeWarnings(void) {
     if (systime_us * 10 > test_time_us) {
         sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
         sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
-        serverLog(LL_WARNING,"WARNING slow system clocksource detected. This can result in degraded performance. Consider changing the system's clocksource. Current clocksource: %s. Available clocksources: %s.",
-                  curr ? curr : "", avail ? avail : "");
+        serverLog(LL_WARNING,
+            "WARNING slow system clocksource detected. This can result in degraded performance. "
+            "Consider changing the system's clocksource. "
+            "Current clocksource: %s. Available clocksources: %s. "
+            "For example: run the command 'echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource' as root. "
+            "To permanently change the system's clocksource you'll need to set the 'clocksource=' kernel command line parameter.",
+            curr ? curr : "", avail ? avail : "");
         sdsfree(avail);
         sdsfree(curr);
     }
