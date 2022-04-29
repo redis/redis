@@ -2544,7 +2544,9 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            dictExpand(db->dict,db_size);
+            // rdb load robject write rocksdb
+            // dictExpand(db->dict,db_size);
+            dictExpand(db->evict,db_size);
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -2693,7 +2695,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
-        // val = rdbLoadObject(type,rdb,key,&error);
         struct ctripRdbLoadResult result = {
             type: HOT_DATA,
             val: NULL,
