@@ -30,12 +30,42 @@
  */
 #include "server.h"
 
-typedef rocksdb_iterator_t rocksIter;
+#define DEFAULT_BUFFERED_ITER_CAPACITY 256
+#define CACHED_MAX_KEY_LEN 1000
+#define CACHED_MAX_VAL_LEN 4000
+
+typedef struct iterResult {
+    sds cached_key;
+    sds cached_val;
+    sds rawkey;
+    sds rawval;
+} iterResult;
+
+typedef struct bufferedIterCompleteQueue {
+    int buffer_capacity;
+    iterResult *buffered;
+    int iter_finished;
+    int64_t buffered_count;
+    int64_t processed_count;
+    pthread_mutex_t buffer_lock;
+    pthread_cond_t ready_cond;
+    pthread_cond_t vacant_cond;
+} bufferedIterCompleteQueue;
+
+typedef struct rocksIter{
+    redisDb *db;
+    struct rocks *rocks;
+    pthread_t io_thread;
+    bufferedIterCompleteQueue *buffered_cq;
+    rocksdb_iterator_t *rocksdb_iter;
+} rocksIter;
+
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
-int rocksIterValid(rocksIter *it);
-void rocksIterNext(rocksIter *it);
-void rocksIterKeyValue(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen);
+int rocksIterSeekToFirst(rocksIter *it);
+int rocksIterNext(rocksIter *it);
+void rocksIterKeyValue(rocksIter *it, sds *rawkey, sds *rawval);
 void rocksReleaseIter(rocksIter *it);
+void rocksIterGetError(rocksIter *it, char **error);
 
 sds rocksEncodeKey(int type, sds key);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);

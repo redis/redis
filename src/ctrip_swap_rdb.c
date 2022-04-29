@@ -82,9 +82,8 @@ int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw,
 
 int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     rocksIter *it;
-    const char* rawkey, *rawval;
-    size_t rklen, rvlen;
-    sds cached_key, cached_val;
+    sds cached_key;
+    sds rawkey, rawval;
 
     if (db->id > 0) return C_OK; /*TODO support multi-db */
 
@@ -93,35 +92,29 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         return C_ERR;
     }
 
-    cached_key = sdsnewlen(NULL,RDBSAVE_ROCKS_CACHED_MAX_KEY);
-    cached_val = sdsnewlen(NULL,RDBSAVE_ROCKS_CACHED_MAX_VAL);
+    cached_key = sdsnewlen(NULL,CACHED_MAX_KEY_LEN);
 
-    while (rocksIterValid(it)) {
+    if (!rocksIterSeekToFirst(it)) goto end;
+
+    do {
         robj keyobj, *evict;
         long long expire;
         int obj_type;
         const char *keyptr;
         size_t klen;
-        sds key, val;
+        sds key;
         int retval;
 
-        rocksIterKeyValue(it, &rawkey, &rklen, &rawval, &rvlen);
-        obj_type = rocksDecodeKey(rawkey, rklen, &keyptr, &klen);
-        if (klen > RDBSAVE_ROCKS_CACHED_MAX_KEY) {
+        rocksIterKeyValue(it, &rawkey, &rawval);
+
+        obj_type = rocksDecodeKey(rawkey, sdslen(rawkey), &keyptr, &klen);
+        if (klen > CACHED_MAX_KEY_LEN) {
             key = sdsnewlen(keyptr, klen);
         } else {
             memcpy(cached_key, keyptr, klen);
             cached_key[klen] = '\0';
             sdssetlen(cached_key, klen);
             key = cached_key;
-        }
-        if (rvlen > RDBSAVE_ROCKS_CACHED_MAX_VAL) {
-            val = sdsnewlen(rawval, rvlen);
-        } else {
-            val = memcpy(cached_val, rawval, rvlen);
-            cached_val[rvlen] = '\0';
-            sdssetlen(cached_val, rvlen);
-            val = cached_val;
         }
 
         initStaticStringObject(keyobj, key);
@@ -134,28 +127,28 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
                         obj_type, evict->type, key);
             }
             if (key != cached_key) sdsfree(key);
-            if (val != cached_val) sdsfree(val);
-            rocksIterNext(it);
             continue;
         }
 
         expire = getExpire(db, &keyobj);
-        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,val,expire);
+        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,rawval,expire);
         if (key != cached_key) sdsfree(key);
-        if (val != cached_val) sdsfree(val);
 
         if (retval == -1) {
             serverLog(LL_WARNING, "Save Raw value failed for key: %s.",key);
-            rocksReleaseIter(it);
-            return C_ERR;
+            goto err;
         }
         rdbSaveProgress(rdb,rdbflags);
-        rocksIterNext(it);
-    }
+    } while(rocksIterNext(it));
 
+end:
     sdsfree(cached_key);
-    sdsfree(cached_val);
     rocksReleaseIter(it);
     return C_OK;
+
+err:
+    sdsfree(cached_key);
+    rocksReleaseIter(it);
+    return C_ERR;
 }
 

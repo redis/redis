@@ -556,30 +556,256 @@ void rocksReleaseSnapshot(rocks *rocks) {
     }
 }
 
+/* -------------- rocks iter ----------------- */
+static int rocksIterWaitReady(rocksIter* it) {
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    pthread_mutex_lock(&cq->buffer_lock);
+    while (1) {
+        /* iterResult ready */
+        if (cq->processed_count < cq->buffered_count)
+            break;
+        /* iter finished */
+        if (cq->iter_finished) {
+            pthread_mutex_unlock(&cq->buffer_lock);
+            return 0;
+        }
+        /* wait io thread */
+        pthread_cond_wait(&cq->ready_cond, &cq->buffer_lock);
+    }
+    pthread_mutex_unlock(&cq->buffer_lock);
+    return 1;
+}
+
+static void rocksIterNotifyReady(rocksIter* it) {
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    pthread_mutex_lock(&cq->buffer_lock);
+    cq->buffered_count++;
+    pthread_cond_signal(&cq->ready_cond);
+    pthread_mutex_unlock(&cq->buffer_lock);
+}
+
+static void rocksIterNotifyFinshed(rocksIter* it) {
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    pthread_mutex_lock(&cq->buffer_lock);
+    cq->iter_finished = 1;
+    pthread_cond_signal(&cq->ready_cond);
+    pthread_mutex_unlock(&cq->buffer_lock);
+}
+
+static int rocksIterWaitVacant(rocksIter *it) {
+    int64_t slots, occupied;
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    /* wait untill there are vacant slots in buffer. */
+    pthread_mutex_lock(&cq->buffer_lock);
+    while (1) {
+        occupied = cq->buffered_count - cq->processed_count;
+        slots = cq->buffer_capacity - occupied;
+        if (slots < 0) {
+            serverPanic("CQ slots is negative.");
+        } else if (slots == 0) {
+            pthread_cond_wait(&cq->vacant_cond, &cq->buffer_lock);
+        } else {
+            break;
+        }
+    }
+    pthread_mutex_unlock(&cq->buffer_lock);
+    return slots;
+}
+
+static void rocksIterNotifyVacant(rocksIter* it) {
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    pthread_mutex_lock(&cq->buffer_lock);
+    cq->processed_count++;
+    pthread_cond_signal(&cq->vacant_cond);
+    pthread_mutex_unlock(&cq->buffer_lock);
+}
+
+void *rocksIterIOThreadMain(void *arg) {
+    rocksIter *it = arg;
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+
+    redis_set_thread_title("rocks_iter");
+
+    while (!cq->iter_finished) {
+        int64_t slots = rocksIterWaitVacant(it);
+
+        /* there only one producer, slots will decrease only by current
+         * thread, we can produce multiple iterResult in one loop. */
+        while (slots--) {
+            iterResult *cur;
+            int curidx;
+            const char *rawkey, *rawval;
+            size_t rklen, rvlen;
+
+            if (!rocksdb_iter_valid(it->rocksdb_iter)) {
+                rocksIterNotifyFinshed(it);
+                break;
+            }
+
+            curidx = cq->buffered_count % cq->buffer_capacity;
+            cur = cq->buffered + curidx;
+
+            rawkey = rocksdb_iter_key(it->rocksdb_iter,&rklen);
+            rawval = rocksdb_iter_value(it->rocksdb_iter,&rvlen);
+
+            if (rklen > CACHED_MAX_KEY_LEN) {
+                cur->rawkey = sdsnewlen(rawkey, rklen);
+            } else {
+                memcpy(cur->cached_key, rawkey, rklen);
+                cur->cached_key[rklen] = '\0';
+                sdssetlen(cur->cached_key, rklen);
+                cur->rawkey = cur->cached_key;
+            }
+
+            if (rvlen > CACHED_MAX_VAL_LEN) {
+                cur->rawval = sdsnewlen(rawval, rvlen);
+            } else {
+                memcpy(cur->cached_val, rawval, rvlen);
+                cur->cached_val[rvlen] = '\0';
+                sdssetlen(cur->cached_val, rvlen);
+                cur->rawval = cur->cached_val;
+            }
+
+            rocksIterNotifyReady(it);
+
+            rocksdb_iter_next(it->rocksdb_iter);
+        }
+    }
+    serverLog(LL_WARNING, "Rocks iter thread exit.");
+
+    return NULL;
+}
+
+bufferedIterCompleteQueue *bufferedIterCompleteQueueNew(int capacity) {
+    int i;
+    bufferedIterCompleteQueue* buffered_cq;
+
+    buffered_cq = zmalloc(sizeof(bufferedIterCompleteQueue));
+    memset(buffered_cq, 0 ,sizeof(*buffered_cq));
+    buffered_cq->buffer_capacity = capacity;
+
+    buffered_cq->buffered = zmalloc(capacity*sizeof(iterResult));
+    for (i = 0; i < capacity; i++) {
+        iterResult *iter_result = buffered_cq->buffered+i;
+        iter_result->cached_key = sdsnewlen(NULL, CACHED_MAX_KEY_LEN);
+        iter_result->rawkey = NULL;
+        iter_result->cached_val = sdsnewlen(NULL, CACHED_MAX_VAL_LEN);
+        iter_result->rawval = NULL;
+    }
+
+    pthread_mutex_init(&buffered_cq->buffer_lock, NULL);
+    pthread_cond_init(&buffered_cq->ready_cond, NULL);
+    pthread_mutex_init(&buffered_cq->buffer_lock, NULL);
+    pthread_cond_init(&buffered_cq->vacant_cond, NULL);
+    return buffered_cq;
+}
+
+void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
+    if (buffered_cq == NULL) return;
+    for (int i = 0; i < buffered_cq->buffer_capacity;i++) {
+        iterResult *res = buffered_cq->buffered+i;
+        if (res->rawkey != res->cached_key) sdsfree(res->rawkey);
+        if (res->rawval != res->cached_val) sdsfree(res->rawval);
+        sdsfree(res->rawkey);
+        sdsfree(res->rawval);
+    }
+    zfree(buffered_cq->buffered);
+    pthread_mutex_destroy(&buffered_cq->buffer_lock);
+    pthread_cond_destroy(&buffered_cq->ready_cond);
+    pthread_mutex_destroy(&buffered_cq->buffer_lock);
+    pthread_cond_destroy(&buffered_cq->vacant_cond);
+    zfree(buffered_cq);
+}
+
 rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
-    rocksdb_iterator_t *it;
-    UNUSED(db);
-    it = rocksdb_create_iterator(rocks->rocksdb, rocks->rocksdb_ropts);
-    if (it == NULL) return NULL;
-    rocksdb_iter_seek_to_first(it);
+    int err;
+    rocksdb_iterator_t *rocksdb_iter;
+    rocksIter *it = zmalloc(sizeof(rocksIter));
+
+    it->rocks = rocks;
+    it->db = db;
+    rocksdb_iter = rocksdb_create_iterator(rocks->rocksdb, rocks->rocksdb_ropts);
+    if (rocksdb_iter == NULL) {
+        serverLog(LL_WARNING, "Create rocksdb iterator failed.");
+        goto err;
+    }
+    rocksdb_iter_seek_to_first(rocksdb_iter);
+    it->rocksdb_iter = rocksdb_iter;
+
+    it->buffered_cq = bufferedIterCompleteQueueNew(DEFAULT_BUFFERED_ITER_CAPACITY);
+
+    if ((err = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
+        serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(err));
+        goto err;
+    }
+
     return it;
+err:
+    rocksReleaseIter(it);
+    return NULL;
 }
 
-int rocksIterValid(rocksIter *it) {
-    return rocksdb_iter_valid(it);
+int rocksIterSeekToFirst(rocksIter *it) {
+    return rocksIterWaitReady(it);
 }
 
-void rocksIterKeyValue(rocksIter *it, const char **rawkey, size_t *klen, const char **rawval, size_t *vlen) {
-    if (rawkey) *rawkey = rocksdb_iter_key(it, klen);
-    if (rawval) *rawval = rocksdb_iter_value(it, vlen);
+void rocksIterKeyValue(rocksIter *it, sds *rawkey, sds *rawval) {
+    int idx;
+    iterResult *cur;
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    idx = cq->processed_count % cq->buffer_capacity;
+    cur = it->buffered_cq->buffered+idx;
+    if (rawkey) *rawkey = cur->rawkey;
+    if (rawval) *rawval = cur->rawval;
 }
 
-void rocksIterNext(rocksIter *it) {
-    rocksdb_iter_next(it);
+/* Will block untill at least one result is ready.
+ * note that rawkey and rawval are owned by rocksIter. */
+int rocksIterNext(rocksIter *it) {
+    int idx;
+    iterResult *cur;
+    bufferedIterCompleteQueue *cq = it->buffered_cq;
+    idx = cq->processed_count % cq->buffer_capacity;
+    cur = it->buffered_cq->buffered+idx;
+    /* clear previos state */
+    if (cur->rawkey != cur->cached_key) sdsfree(cur->rawkey);
+    if (cur->rawval != cur->cached_val) sdsfree(cur->rawval);
+    rocksIterNotifyVacant(it);
+    return rocksIterWaitReady(it);
 }
 
 void rocksReleaseIter(rocksIter *it) {
-    rocksdb_iter_destroy(it);
+    int err;
+
+    if (it == NULL) return;
+
+    if (it->io_thread) {
+        if (pthread_cancel(it->io_thread) == 0) {
+            if ((err = pthread_join(it->io_thread, NULL)) != 0) {
+                serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
+                         strerror(err));
+            } else {
+                serverLog(LL_WARNING, "Iter io thread terminated.");
+            }
+        }
+        it->io_thread = 0;
+    }
+
+   if (it->buffered_cq) {
+       bufferedIterCompleteQueueFree(it->buffered_cq);
+       it->buffered_cq = NULL;
+   }
+
+   if (it->rocksdb_iter) {
+       rocksdb_iter_destroy(it->rocksdb_iter);
+       it->rocksdb_iter = NULL;
+   }
+
+   zfree(it);
+}
+
+void rocksIterGetError(rocksIter *it, char **error) {
+    rocksdb_iter_get_error(it->rocksdb_iter, error);
 }
 
 void rocksDestroy(rocks *rocks) {
