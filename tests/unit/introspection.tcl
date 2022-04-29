@@ -468,9 +468,7 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --port --bla --loglevel verbose} err
         assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
 
-        catch {exec src/redis-server --port --bla --loglevel verbose} err
-        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
-
+        # Take `--bla` as the loglevel option value.
         catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
         assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
 
@@ -479,6 +477,15 @@ start_server {tags {"introspection"}} {
         assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
         catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
         assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
+
+        # Something like `redis-server --some-config --config-value1 --config-value2 --loglevel debug` would break,
+        # because if you want to pass a value to a config starting with `--`, it can only be a single value.
+        catch {exec src/redis-server --replicaof 127.0.0.1 abc} err
+        assert_match {*'replicaof "127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 abc} err
+        assert_match {*'replicaof "--127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 --abc} err
+        assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
     test {redis-server command line arguments - allow option value to use the `--` prefix} {
