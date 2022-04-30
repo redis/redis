@@ -5,7 +5,7 @@ to be read, to see how Lua programs look.
 Here is a one-line summary of each program:
 
    bisect.lua		bisection method for solving non-linear equations
-   cf.lua		temperature conversion table (celsius to farenheit)
+   cf.lua		temperature conversion table (celsius to fahrenheit)
    echo.lua             echo command line arguments
    env.lua              environment variables as automatic global variables
    factorial.lua	factorial without recursion

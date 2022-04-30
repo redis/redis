@@ -207,7 +207,7 @@ tsd_state_set(tsd_t *tsd, uint8_t new_state) {
 			/*
 			 * This is the tricky case.  We're transitioning from
 			 * one nominal state to another.  The caller can't know
-			 * about any races that are occuring at the same time,
+			 * about any races that are occurring at the same time,
 			 * so we always have to recompute no matter what.
 			 */
 			tsd_slow_update(tsd);

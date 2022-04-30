@@ -10,7 +10,7 @@
  * structs, externs, and inlines), and included each header file multiple times
  * in this file, picking out the portion we want on each pass using the
  * following #defines:
- *   JEMALLOC_H_TYPES   : Preprocessor-defined constants and psuedo-opaque data
+ *   JEMALLOC_H_TYPES   : Preprocessor-defined constants and pseudo-opaque data
  *                        types.
  *   JEMALLOC_H_STRUCTS : Data structures.
  *   JEMALLOC_H_EXTERNS : Extern data declarations and function prototypes.

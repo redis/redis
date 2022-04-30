@@ -307,7 +307,7 @@ static int processLineItem(redisReader *r) {
                 d = strtod((char*)buf,&eptr);
                 /* RESP3 only allows "inf", "-inf", and finite values, while
                  * strtod() allows other variations on infinity, NaN,
-                 * etc. We explicity handle our two allowed infinite cases
+                 * etc. We explicitly handle our two allowed infinite cases
                  * above, so strtod() should only result in finite values. */
                 if (buf[0] == '\0' || eptr != &buf[len] || !isfinite(d)) {
                     __redisReaderSetError(r,REDIS_ERR_PROTOCOL,

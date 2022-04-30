@@ -1,4 +1,4 @@
--- temperature conversion table (celsius to farenheit)
+-- temperature conversion table (celsius to fahrenheit)
 
 for c0=-20,50-1,10 do
 	io.write("C ")

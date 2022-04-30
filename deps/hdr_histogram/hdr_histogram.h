@@ -407,7 +407,7 @@ struct hdr_iter
 };
 
 /**
- * Initalises the basic iterator.
+ * Initialises the basic iterator.
  *
  * @param itr 'This' pointer
  * @param h The histogram to iterate over

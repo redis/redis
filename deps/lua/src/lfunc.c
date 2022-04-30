@@ -59,7 +59,7 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
     lua_assert(p->v != &p->u.value);
     if (p->v == level) {  /* found a corresponding upvalue? */
       if (isdead(g, obj2gco(p)))  /* is it dead? */
-        changewhite(obj2gco(p));  /* ressurect it */
+        changewhite(obj2gco(p));  /* resurrect it */
       return p;
     }
     pp = &p->next;

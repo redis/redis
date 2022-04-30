@@ -270,7 +270,7 @@ hisds hi_sdsRemoveFreeSpace(hisds s) {
     return s;
 }
 
-/* Return the total size of the allocation of the specifed hisds string,
+/* Return the total size of the allocation of the specified hisds string,
  * including:
  * 1) The hisds header before the pointer.
  * 2) The string.

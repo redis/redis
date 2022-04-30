@@ -47,7 +47,7 @@
 
 
 /*
-@@ LUA_USE_POSIX includes all functionallity listed as X/Open System
+@@ LUA_USE_POSIX includes all functionality listed as X/Open System
 @* Interfaces Extension (XSI).
 ** CHANGE it (define it) if your system is XSI compatible.
 */
