@@ -1148,7 +1148,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             sdsfree(ele);
             if (sameset) {
-                /* If we have a set that is the same as the largest set, 
+                /* If we have a set that is the same as the sets[0], 
                  * then the result is always an empty set */
                 break;
             }
