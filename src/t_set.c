@@ -1069,6 +1069,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         sets[j] = setobj;
     }
 
+    /* We need a temp set object to store our union. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+     * this set object will be the resulting object to set into the target key*/
+    dstset = createIntsetObject();
+
     /* Select what DIFF algorithm to use.
      *
      * Algorithm 1 is O(N*M) where N is the size of the element first set
@@ -1083,7 +1088,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
         for (j = 0; j < setnum; j++) {
             if (sets[j] == NULL) continue;
-
+            if(j > 0 && sets[0] == sets[j]) {
+                goto output;
+            }
             algo_one_work += setTypeSize(sets[0]);
             algo_two_work += setTypeSize(sets[j]);
         }
@@ -1101,11 +1108,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 qsortCompareSetsByRevCardinality);
         }
     }
-
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
-     * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
@@ -1182,6 +1184,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
+output:
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplySetLen(c,cardinality);
