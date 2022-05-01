@@ -203,7 +203,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointer was populated.
+ * int64_t pointer or the sds pointer was populated.
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
