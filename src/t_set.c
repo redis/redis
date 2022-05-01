@@ -1131,7 +1131,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
         si = setTypeInitIterator(sets[0]);
-         while((ele = setTypeNextObject(si)) != NULL) {
+        while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
                 if (sets[j] == sets[0]) break; /* same set! */
