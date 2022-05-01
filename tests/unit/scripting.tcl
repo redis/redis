@@ -52,7 +52,7 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
     } ;# is_eval
 
     test {EVAL - Does Lua interpreter replies to our requests?} {
@@ -452,7 +452,7 @@ start_server {tags {"scripting"}} {
     test {Globals protection setting an undeclared global*} {
         catch {run_script {a=10} 0} e
         set e
-    } {ERR *attempted to create global*}
+    } {ERR *Attempt to modify a readonly table*}
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
@@ -741,6 +741,106 @@ start_server {tags {"scripting"}} {
             return loadstring(string.dump(function() return 1 end))()
         } 0}
     }
+
+    test "Try trick global protection 1" {
+        catch {
+            run_script {
+                setmetatable(_G, {})
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 2" {
+        catch {
+            run_script {
+                local g = getmetatable(_G)
+                g.__index = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 3" {
+        catch {
+            run_script {
+                redis = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick global protection 4" {
+        catch {
+            run_script {
+                _G = {}
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on redis table" {
+        catch {
+            run_script {
+                redis.call = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on json table" {
+        catch {
+            run_script {
+                cjson.encode = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on cmsgpack table" {
+        catch {
+            run_script {
+                cmsgpack.pack = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Try trick readonly table on bit table" {
+        catch {
+            run_script {
+                bit.lshift = function() return 1 end
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test "Test loadfile are not available" {
+        catch {
+            run_script {
+                loadfile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'loadfile'*}
+
+    test "Test dofile are not available" {
+        catch {
+            run_script {
+                dofile('some file')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'dofile'*}
+
+    test "Test print are not available" {
+        catch {
+            run_script {
+                print('some data')
+            } 0
+        } e
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'print'*}
 }
 
 # Start a new server since the last test in this stanza will kill the
@@ -1330,7 +1430,7 @@ start_server {tags {"scripting"}} {
         ] 1
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test "no-writes shebang flag" {
         assert_error {ERR Write commands are not allowed from read-only scripts*} {

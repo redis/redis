@@ -117,7 +117,7 @@ start_server {tags {"scripting"}} {
             r function bad_subcommand
         } e
         set _ $e
-    } {*Unknown subcommand*}
+    } {*unknown subcommand*}
 
     test {FUNCTION - test loading from rdb} {
         r debug reload
@@ -205,7 +205,7 @@ start_server {tags {"scripting"}} {
     test {FUNCTION - test function restore with wrong number of arguments} {
         catch {r function restore arg1 args2 arg3} e
         set _ $e
-    } {*Unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
+    } {*unknown subcommand or wrong number of arguments for 'restore'. Try FUNCTION HELP.}
 
     test {FUNCTION - test fcall_ro with write command} {
         r function load REPLACE [get_no_writes_function_code lua test test {return redis.call('set', 'x', '1')}]
@@ -298,7 +298,7 @@ start_server {tags {"scripting"}} {
         assert_match {*only supports SYNC|ASYNC*} $e
 
         catch {r function flush sync extra_arg} e
-        assert_match {*Unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
+        assert_match {*unknown subcommand or wrong number of arguments for 'flush'. Try FUNCTION HELP.} $e
     }
 }
 
@@ -624,16 +624,16 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*attempt to call field 'call' (a nil value)*}
+    } {*attempted to access nonexistent global variable 'call'*}
 
-    test {LIBRARIES - redis.call from function load} {
+    test {LIBRARIES - redis.setresp from function load} {
         catch {
             r function load replace {#!lua name=lib2
                 return redis.setresp(3)
             }
         } e
         set _ $e
-    } {*attempt to call field 'setresp' (a nil value)*}
+    } {*attempted to access nonexistent global variable 'setresp'*}
 
     test {LIBRARIES - redis.set_repl from function load} {
         catch {
@@ -642,7 +642,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*attempt to call field 'set_repl' (a nil value)*}
+    } {*attempted to access nonexistent global variable 'set_repl'*}
 
     test {LIBRARIES - malicious access test} {
         # the 'library' API is not exposed inside a
@@ -669,37 +669,18 @@ start_server {tags {"scripting"}} {
                 end)
             end)
         }
-        assert_equal {OK} [r fcall f1 0]
+        catch {[r fcall f1 0]} e
+        assert_match {*Attempt to modify a readonly table*} $e
 
         catch {[r function load {#!lua name=lib2
             redis.math.random()
         }]} e
-        assert_match {*can only be called inside a script invocation*} $e
-
-        catch {[r function load {#!lua name=lib2
-            redis.math.randomseed()
-        }]} e
-        assert_match {*can only be called inside a script invocation*} $e
+        assert_match {*Script attempted to access nonexistent global variable 'math'*} $e
 
         catch {[r function load {#!lua name=lib2
             redis.redis.call('ping')
         }]} e
-        assert_match {*can only be called inside a script invocation*} $e
-
-        catch {[r function load {#!lua name=lib2
-            redis.redis.pcall('ping')
-        }]} e
-        assert_match {*can only be called inside a script invocation*} $e
-
-        catch {[r function load {#!lua name=lib2
-            redis.redis.setresp(3)
-        }]} e
-        assert_match {*can only be called inside a script invocation*} $e
-
-        catch {[r function load {#!lua name=lib2
-            redis.redis.set_repl(redis.redis.REPL_NONE)
-        }]} e
-        assert_match {*can only be called inside a script invocation*} $e
+        assert_match {*Script attempted to access nonexistent global variable 'redis'*} $e
 
         catch {[r fcall f2 0]} e
         assert_match {*can only be called on FUNCTION LOAD command*} $e
@@ -756,7 +737,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*attempted to create global variable 'a'*}
+    } {*Attempt to modify a readonly table*}
 
     test {LIBRARIES - named arguments} {
         r function load {#!lua name=lib
@@ -986,7 +967,7 @@ start_server {tags {"scripting"}} {
         assert_match {*command not allowed when used memory*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - verify allow-omm allows running any command} {
         r FUNCTION load replace {#!lua name=f1
@@ -999,11 +980,11 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 1
 
-        assert_match {OK} [r fcall f1 1 k]
+        assert_match {OK} [r fcall f1 1 x]
         assert_match {1} [r get x]
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 }
 
 start_server {tags {"scripting"}} {
@@ -1074,7 +1055,7 @@ start_server {tags {"scripting"}} {
         assert_match {*can not run it when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - deny oom on no-writes function} {
         r FUNCTION load replace {#!lua name=test
@@ -1090,7 +1071,7 @@ start_server {tags {"scripting"}} {
         assert_match {*can not run it when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
-    }
+    } {OK} {needs:config-maxmemory}
 
     test {FUNCTION - allow stale} {
         r FUNCTION load replace {#!lua name=test
@@ -1198,4 +1179,32 @@ start_server {tags {"scripting"}} {
             redis.register_function('foo', function() return 1 end)
         }
     } {foo}
+
+    test {FUNCTION - trick global protection 1} {
+        r FUNCTION FLUSH
+
+        r FUNCTION load {#!lua name=test1
+            redis.register_function('f1', function() 
+                mt = getmetatable(_G)
+                original_globals = mt.__index
+                original_globals['redis'] = function() return 1 end
+            end)
+        }
+
+        catch {[r fcall f1 0]} e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
+    test {FUNCTION - test getmetatable on script load} {
+        r FUNCTION FLUSH
+
+        catch {
+            r FUNCTION load {#!lua name=test1
+                mt = getmetatable(_G)
+            }
+        } e
+
+        set _ $e
+    } {*Script attempted to access nonexistent global variable 'getmetatable'*}
+
 }

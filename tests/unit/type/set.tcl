@@ -935,6 +935,7 @@ start_server {
     }
 }
 
+run_solo {set-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -969,3 +970,4 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
     } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo

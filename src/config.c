@@ -94,6 +94,15 @@ configEnum aof_fsync_enum[] = {
     {NULL, 0}
 };
 
+configEnum shutdown_on_sig_enum[] = {
+    {"default", 0},
+    {"save", SHUTDOWN_SAVE},
+    {"nosave", SHUTDOWN_NOSAVE},
+    {"now", SHUTDOWN_NOW},
+    {"force", SHUTDOWN_FORCE},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -140,6 +149,13 @@ configEnum cluster_preferred_endpoint_type_enum[] = {
     {"ip", CLUSTER_ENDPOINT_TYPE_IP},
     {"hostname", CLUSTER_ENDPOINT_TYPE_HOSTNAME},
     {"unknown-endpoint", CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT},
+    {NULL, 0}
+};
+
+configEnum propagation_error_behavior_enum[] = {
+    {"ignore", PROPAGATION_ERR_BEHAVIOR_IGNORE},
+    {"panic", PROPAGATION_ERR_BEHAVIOR_PANIC},
+    {"panic-on-replicas", PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS},
     {NULL, 0}
 };
 
@@ -276,33 +292,50 @@ static standardConfig *lookupConfig(sds name) {
  *----------------------------------------------------------------------------*/
 
 /* Get enum value from name. If there is no match INT_MIN is returned. */
-int configEnumGetValue(configEnum *ce, char *name) {
-    while(ce->name != NULL) {
-        if (!strcasecmp(ce->name,name)) return ce->val;
-        ce++;
+int configEnumGetValue(configEnum *ce, sds *argv, int argc, int bitflags) {
+    if (argc == 0 || (!bitflags && argc != 1)) return INT_MIN;
+    int values = 0;
+    for (int i = 0; i < argc; i++) {
+        int matched = 0;
+        for (configEnum *ceItem = ce; ceItem->name != NULL; ceItem++) {
+            if (!strcasecmp(argv[i],ceItem->name)) {
+                values |= ceItem->val;
+                matched = 1;
+            }
+        }
+        if (!matched) return INT_MIN;
     }
-    return INT_MIN;
+    return values;
 }
 
-/* Get enum name from value. If no match is found NULL is returned. */
-const char *configEnumGetName(configEnum *ce, int val) {
-    while(ce->name != NULL) {
-        if (ce->val == val) return ce->name;
-        ce++;
+/* Get enum name/s from value. If no matches are found "unknown" is returned. */
+static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
+    sds names = NULL;
+    int matches = 0;
+    for( ; ce->name != NULL; ce++) {
+        if (values == ce->val) { /* Short path for perfect match */
+            sdsfree(names);
+            return sdsnew(ce->name);
+        }
+        if (bitflags && (values & ce->val)) {
+            names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
+            matches |= ce->val;
+        }
     }
-    return NULL;
-}
-
-/* Wrapper for configEnumGetName() returning "unknown" instead of NULL if
- * there is no match. */
-const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
-    const char *name = configEnumGetName(ce,val);
-    return name ? name : "unknown";
+    if (!names || values != matches) {
+        sdsfree(names);
+        return sdsnew("unknown");
+    }
+    return names;
 }
 
 /* Used for INFO generation. */
 const char *evictPolicyToString(void) {
-    return configEnumGetNameOrUnknown(maxmemory_policy_enum,server.maxmemory_policy);
+    for (configEnum *ce = maxmemory_policy_enum; ce->name != NULL; ce++) {
+        if (server.maxmemory_policy == ce->val)
+            return ce->name;
+    }
+    serverPanic("unknown eviction policy");
 }
 
 /*-----------------------------------------------------------------------------
@@ -514,12 +547,15 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (strchr(argv[0], '.')) {
-            if (argc != 2) {
+            if (argc < 2) {
                 err = "Module config specified without value";
                 goto loaderr;
             }
             sds name = sdsdup(argv[0]);
-            if (!dictReplace(server.module_configs_queue, name, sdsdup(argv[1]))) sdsfree(name);
+            sds val = sdsdup(argv[1]);
+            for (int i = 2; i < argc; i++)
+                val = sdscatfmt(val, " %S", argv[i]);
+            if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -1297,12 +1333,13 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *opti
 /* Rewrite an enumeration option. It takes as usually state and option name,
  * and in addition the enumeration array and the default value for the
  * option. */
-void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, configEnum *ce, int defval) {
-    sds line;
-    const char *name = configEnumGetNameOrUnknown(ce,value);
-    int force = value != defval;
+void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, standardConfig *config) {
+    int multiarg = config->flags & MULTI_ARG_CONFIG;
+    sds names = configEnumGetName(config->data.enumd.enum_value,value,multiarg);
+    sds line = sdscatfmt(sdsempty(),"%s %s",option,names);
+    sdsfree(names);
+    int force = value != config->data.enumd.default_value;
 
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
@@ -1821,10 +1858,16 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
     UNUSED(argc);
     if (config->data.sds.is_valid_fn && !config->data.sds.is_valid_fn(argv[0], err))
         return 0;
+
     sds prev = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     sds new = (config->data.string.convert_empty_to_null && (sdslen(argv[0]) == 0)) ? NULL : argv[0];
+
+    /* if prev and new configuration are not equal, set the new one */
     if (new != prev && (new == NULL || prev == NULL || sdscmp(prev, new))) {
+        /* If MODULE_CONFIG flag is set, then free temporary prev getModuleStringConfig returned.
+         * Otherwise, free the actual previous config value Redis held (Same action, different reasons) */
         sdsfree(prev);
+
         if (config->flags & MODULE_CONFIG) {
             return setModuleStringConfig(config->privdata, new, err);
         }
@@ -1848,7 +1891,7 @@ static sds sdsConfigGet(standardConfig *config) {
 static void sdsConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     sds val = config->flags & MODULE_CONFIG ? getModuleStringConfig(config->privdata) : *config->data.sds.config;
     rewriteConfigSdsOption(state, name, val, config->data.sds.default_value);
-    if (val) sdsfree(val);
+    if ((val) && (config->flags & MODULE_CONFIG)) sdsfree(val);
 }
 
 
@@ -1885,10 +1928,12 @@ static void enumConfigInit(standardConfig *config) {
 }
 
 static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    int enumval = configEnumGetValue(config->data.enumd.enum_value, argv[0]);
+    int enumval;
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    enumval = configEnumGetValue(config->data.enumd.enum_value, argv, argc, bitflags);
+
     if (enumval == INT_MIN) {
-        sds enumerr = sdsnew("argument must be one of the following: ");
+        sds enumerr = sdsnew("argument(s) must be one of the following: ");
         configEnum *enumNode = config->data.enumd.enum_value;
         while(enumNode->name != NULL) {
             enumerr = sdscatlen(enumerr, enumNode->name,
@@ -1919,12 +1964,13 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
 
 static sds enumConfigGet(standardConfig *config) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    return sdsnew(configEnumGetNameOrUnknown(config->data.enumd.enum_value,val));
+    int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+    return configEnumGetName(config->data.enumd.enum_value,val,bitflags);
 }
 
 static void enumConfigRewrite(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     int val = config->flags & MODULE_CONFIG ? getModuleEnumConfig(config->privdata) : *(config->data.enumd.config);
-    rewriteConfigEnumOption(state, name, val, config->data.enumd.enum_value, config->data.enumd.default_value);
+    rewriteConfigEnumOption(state, name, val, config);
 }
 
 #define createEnumConfig(name, alias, flags, enum, config_addr, default, is_valid, apply) { \
@@ -2279,6 +2325,16 @@ static int isValidAOFdirname(char *val, const char **err) {
     }
     if (!pathIsBaseName(val)) {
         *err = "appenddirname can't be a path, just a dirname";
+        return 0;
+    }
+    return 1;
+}
+
+static int isValidShutdownOnSigFlags(int val, const char **err) {
+    /* Individual arguments are validated by createEnumConfig logic.
+     * We just need to ensure valid combinations here. */
+    if (val & SHUTDOWN_NOSAVE && val & SHUTDOWN_SAVE) {
+        *err = "shutdown options SAVE and NOSAVE can't be used simultaneously";
         return 0;
     }
     return 1;
@@ -2641,7 +2697,7 @@ static int setConfigOOMScoreAdjValuesOption(standardConfig *config, sds *argv, i
 
         if (*eptr != '\0' || val < -2000 || val > 2000) {
             if (err) *err = "Invalid oom-score-adj-values, elements must be between -2000 and 2000.";
-            return -1;
+            return 0;
         }
 
         values[i] = val;
@@ -2887,7 +2943,8 @@ standardConfig static_configs[] = {
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
     createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
-    
+    createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
+
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
@@ -2928,6 +2985,9 @@ standardConfig static_configs[] = {
     createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
+    createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
+    createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
@@ -2971,6 +3031,7 @@ standardConfig static_configs[] = {
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
     createUIntConfig("unixsocketperm", NULL, IMMUTABLE_CONFIG, 0, 0777, server.unixsocketperm, 0, OCTAL_CONFIG, NULL, NULL),
+    createUIntConfig("socket-mark-id", NULL, IMMUTABLE_CONFIG, 0, UINT_MAX, server.socket_mark_id, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned Long configs */
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */

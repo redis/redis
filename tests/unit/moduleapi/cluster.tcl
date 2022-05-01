@@ -2,22 +2,6 @@
 
 source tests/support/cli.tcl
 
-proc cluster_info {r field} {
-    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
-        set _ $value
-    }
-}
-
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
-}
-
 set testmodule [file normalize tests/modules/blockonkeys.so]
 set testmodule_nokey [file normalize tests/modules/blockonbackground.so]
 set testmodule_blockedclient [file normalize tests/modules/blockedclient.so]
