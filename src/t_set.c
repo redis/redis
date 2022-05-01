@@ -1088,9 +1088,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
         for (j = 0; j < setnum; j++) {
             if (sets[j] == NULL) continue;
-            if(j > 0 && sets[0] == sets[j]) {
-                goto output;
-            }
+            if(j > 0 && sets[0] == sets[j]) goto output;
+
             algo_one_work += setTypeSize(sets[0]);
             algo_two_work += setTypeSize(sets[j]);
         }
@@ -1132,15 +1131,10 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
         si = setTypeInitIterator(sets[0]);
-        int sameset = 0;
-        while((ele = setTypeNextObject(si)) != NULL) {
+         while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
-                if (sets[j] == sets[0]) {
-                    /* same set! */
-                    sameset = 1;
-                    break;
-                }
+                if (sets[j] == sets[0]) break; /* same set! */
                 if (setTypeIsMember(sets[j],ele)) break;
             }
             if (j == setnum) {
@@ -1149,11 +1143,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 cardinality++;
             }
             sdsfree(ele);
-            if (sameset) {
-                /* If we have a set that is the same as the sets[0], 
-                 * then the result is always an empty set */
-                break;
-            }
         }
         setTypeReleaseIterator(si);
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 2) {
