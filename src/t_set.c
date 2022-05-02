@@ -1068,9 +1068,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             return;
         }
         sets[j] = setobj;
-        if (j > 0 && sets[0] == sets[j]) {
-            sameset = 1; 
-            break;
+        if (op == SET_OP_DIFF) {
+            if (!sets[0]) {
+                break;
+            } else if (j > 0 && sets[0] == sets[j]) {
+                sameset = 1; 
+                break;
+            }
         }
     }
 
