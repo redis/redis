@@ -1,5 +1,4 @@
 #!/usr/bin/env ruby
-
 # coding: utf-8
 # gendoc.rb -- Converts the top-comments inside module.c to modules API
 #              reference documentation in markdown format.
@@ -80,7 +79,7 @@ def docufy(src,i)
     puts "<span id=\"#{name}\"></span>\n\n"
     puts "### `#{name}`\n\n"
     puts "    #{proto}\n"
-    puts "**Available since:** #{$since[name]}\n\n" if $since[name]
+    puts "**Available since:** #{$since[name] or "unreleased"}\n\n"
     comment = ""
     while true
         i = i-1
