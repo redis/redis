@@ -289,7 +289,6 @@ start_server {
         test "SINTER/SUNION/SDIFF with three same sets - $type" {
             set expected [lsort "[r smembers set1{t}]"]
             assert_equal $expected [lsort [r sinter set1{t} set1{t} set1{t}]]
-            set expected [lsort -uniq "[r smembers set1{t}] [r smembers set1{t}] [r smembers set1{t}]"]
             assert_equal $expected [lsort [r sunion set1{t} set1{t} set1{t}]]
             assert_equal {} [lsort [r sdiff set1{t} set1{t} set1{t}]]
         }
