@@ -1067,11 +1067,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             zfree(sets);
             return;
         }
+        sets[j] = setobj;
         if (j > 0 && sets[0] == sets[j]) {
             sameset = 1; 
             break;
         }
-        sets[j] = setobj;
     }
 
     /* Select what DIFF algorithm to use.
