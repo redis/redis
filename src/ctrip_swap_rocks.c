@@ -33,388 +33,66 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define RIO_THREADS_DEFAULT     6
-#define RIO_THREADS_MAX         64
-
-#define RIO_NOTIFY_CQ           0
-#define RIO_NOTIFY_PIPE         1
-
-typedef struct {
-    int id;
-    pthread_t thread_id;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-    list *pending_rios;
-} RIOThread;
-
-typedef struct {
-    int notify_recv_fd;
-    int notify_send_fd;
-    pthread_mutex_t lock;
-    list *complete_queue;
-} RIOCompleteQueue;
-
-typedef struct rocks {
-    /* rocksdb */
-    int rocksdb_epoch;
-    rocksdb_t *rocksdb;
-    rocksdb_cache_t *block_cache;
-    rocksdb_block_based_table_options_t *block_opts;
-    rocksdb_options_t *rocksdb_opts;
-    rocksdb_readoptions_t *rocksdb_ropts;
-    rocksdb_writeoptions_t *rocksdb_wopts;
-    const rocksdb_snapshot_t *rocksdb_snapshot;
-    /* rocksdb io threads */
-    int threads_num;
-    RIOThread threads[RIO_THREADS_MAX];
-    RIOCompleteQueue CQ;
-} rocks;
-
-
-int appendToRIOComplteQueue(RIOCompleteQueue *cq, RIO *rio);
-
-/* Key/val owned by swapper, rocks only ref key/val. */
-RIO *_RIONew(int type, sds key, sds val, int notify_type,
-        rocksIOCallback cb, void *privdata, int pipe_fd) {
-    RIO *rio = zmalloc(sizeof(RIO));
-    rio->type = type;
-    rio->key = key;
-    rio->val = val;
-    rio->notify_type = notify_type;
-    rio->cb = cb;
-    rio->privdata = privdata;
-    rio->pipe_fd = pipe_fd;
-    return rio;
-}
-
-RIO *RIONewAsync(int type, sds key, sds val, rocksIOCallback cb, void *privdata) {
-    return _RIONew(type, key, val, RIO_NOTIFY_CQ, cb, privdata, -1);
-}
-
-RIO *RIONewSync(int type, sds key, sds val, int pipe_fd) {
-    return _RIONew(type, key, val, RIO_NOTIFY_PIPE, NULL, NULL, pipe_fd);
-}
-
-void RIOFree(RIO *req) {
-    zfree(req);
-}
-
-int doRIORead(RIO *rio) {
-    size_t vallen;
-    char *err = NULL, *val;
-
-    serverAssert(rio->type == ROCKS_GET);
-
-    val = rocksdb_get(server.rocks->rocksdb, server.rocks->rocksdb_ropts,
-            rio->key, sdslen(rio->key), &vallen, &err);
-    if (err != NULL) {
-        serverLog(LL_WARNING,"[rocks] do rocksdb get failed: %s", err);
-        return -1;
-    }
-
-    rio->val = sdsnewlen(val, vallen);
-    zlibc_free(val);
-
-    return 0;
-}
-
-int doRIOWrite(RIO *rio) {
-    char *err = NULL;
-    serverAssert(rio->type == ROCKS_PUT);
-    rocksdb_put(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
-            rio->key, sdslen(rio->key), rio->val, sdslen(rio->val), &err);
-    if (err != NULL) {
-        serverLog(LL_WARNING,"[rocks] do rocksdb write failed: %s", err);
-        return -1;
-    }
-    return 0;
-}
-
-int doRIODel(RIO *rio) {
-    char *err = NULL;
-    serverAssert(rio->type == ROCKS_DEL);
-    rocksdb_delete(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
-            rio->key, sdslen(rio->key), &err);
-    if (err != NULL) {
-        serverLog(LL_WARNING,"[rocks] do rocksdb del failed: %s", err);
-        return -1;
-    }
-    return 0;
-}
-
-int doRIO(RIO *rio) {
-
-    if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
-
-    switch (rio->type) {
-    case ROCKS_GET:
-        return doRIORead(rio);
-    case ROCKS_PUT:
-        return doRIOWrite(rio);
-    case ROCKS_DEL:
-        return doRIODel(rio);
-    default:
-        serverPanic("[rocks] Unknown io type: %d", rio->type);
-        return -1;
-    }
-}
-
-void *RIOThreadMain (void *arg) {
-    char thdname[16];
-    RIOThread *thread = arg;
-
-    snprintf(thdname, sizeof(thdname), "rocks_thd_%d", thread->id);
-    redis_set_thread_title(thdname);
-
-    while (1) {
-        listIter li;
-        listNode *ln;
-        list *processing_rios = listCreate();
-
-        pthread_mutex_lock(&thread->lock);
-        while (listLength(thread->pending_rios) == 0)
-            pthread_cond_wait(&thread->cond, &thread->lock);
-
-        listRewind(thread->pending_rios, &li);
-        while ((ln = listNext(&li))) {
-            RIO *rio = listNodeValue(ln);
-            listAddNodeHead(processing_rios, rio);
-            listDelNode(thread->pending_rios, ln);
-        }
-        pthread_mutex_unlock(&thread->lock);
-
-        listRewind(processing_rios, &li);
-        while ((ln = listNext(&li))) {
-            RIO *rio = listNodeValue(ln);
-
-            doRIO(rio); 
-
-            if (rio->notify_type == RIO_NOTIFY_CQ) {
-                if (rio->cb != NULL) {
-                    appendToRIOComplteQueue(&server.rocks->CQ, rio);
-                } else {
-                    RIOFree(rio);
-                }
-            } else { /* RIO_NOTIFY_PIPE */
-                if (write(rio->pipe_fd, "x", 1) < 1 && errno != EAGAIN) {
-                    static mstime_t prev_log;
-                    if (server.mstime - prev_log >= 1000) {
-                        prev_log = server.mstime;
-                        serverLog(LL_NOTICE,
-                                "[rocks] notify rio finish failed: %s",
-                                strerror(errno));
-                    }
-                }
-            }
-        }
-
-        listRelease(processing_rios);
-    }
-
-    return NULL;
-}
-
-int processFinishedRIOInCompleteQueue(RIOCompleteQueue *cq) {
-    int processed;
-    listIter li;
-    listNode *ln;
-    list *processing_rios = listCreate();
-
-    pthread_mutex_lock(&cq->lock);
-    listRewind(cq->complete_queue, &li);
-    while ((ln = listNext(&li))) {
-        listAddNodeTail(processing_rios, listNodeValue(ln));
-        listDelNode(cq->complete_queue, ln);
-    }
-    pthread_mutex_unlock(&cq->lock);
-
-    listRewind(processing_rios, &li);
-    while ((ln = listNext(&li))) {
-        RIO *rio = listNodeValue(ln);
-        serverAssert(rio->cb);
-        rio->cb(rio->type, rio->key, rio->val, rio->privdata);
-        RIOFree(rio);
-    }
-
-    processed = listLength(processing_rios);
-    listRelease(processing_rios);
-    return processed;
-}
-
-/* read before unlink clients so that main thread won't miss notify event:
- * rocksb thread: 1. link req; 2. send notify byte;
- * main thread: 1. read notify bytes; 2. unlink req;
- * if main thread read less notify bytes than unlink clients num (e.g. rockdb thread
- * link more clients when , main thread would still be triggered because epoll
- * LT-triggering mode. */
-#define RIO_NOTIFY_READ_MAX  512
-void RIOFinished(aeEventLoop *el, int fd, void *privdata, int mask) {
-    char notify_recv_buf[RIO_NOTIFY_READ_MAX];
-
-    UNUSED(el);
-    UNUSED(mask);
-
-    int nread = read(fd, notify_recv_buf, sizeof(notify_recv_buf));
-    if (nread == 0) {
-        serverLog(LL_WARNING, "[rocks] notify recv fd closed.");
-    } else if (nread < 0) {
-        serverLog(LL_WARNING, "[rocks] read notify failed: %s",
-                strerror(errno));
-    }
-
-    processFinishedRIOInCompleteQueue(privdata); /* privdata is cq */
-}
-
-void rocksIOSubmitAsync(uint32_t dist, int type, sds key, sds val, rocksIOCallback cb, void *privdata) {
-    serverAssert(server.rocks->threads_num >= 0);
-    RIOThread *rt = &server.rocks->threads[dist % server.rocks->threads_num];
-    RIO *rio = RIONewAsync(type, key, val, cb, privdata);
-    pthread_mutex_lock(&rt->lock);
-    listAddNodeTail(rt->pending_rios, rio);
-    pthread_cond_signal(&rt->cond);
-    pthread_mutex_unlock(&rt->lock);
-}
-
-RIO *rocksIOSubmitSync(uint32_t dist, int type, sds key, sds val, int notify_fd) {
-    serverAssert(server.rocks->threads_num >= 0);
-    RIOThread *rt = &server.rocks->threads[dist % server.rocks->threads_num];
-    struct RIO *rio = RIONewSync(type, key, val, notify_fd);
-    pthread_mutex_lock(&rt->lock);
-    listAddNodeTail(rt->pending_rios, rio);
-    pthread_cond_signal(&rt->cond);
-    pthread_mutex_unlock(&rt->lock);
-    return rio;
-}
-
-static int rocksRIODrained(rocks *rocks) {
-    RIOThread *rt;
-    int i, drained = 1;
-
-    for (i = 0; i < rocks->threads_num; i++) {
-        rt = &server.rocks->threads[i];
-
-        pthread_mutex_lock(&rt->lock);
-        if (listLength(rt->pending_rios)) drained = 0;
-        pthread_mutex_unlock(&rt->lock);
-    }
-
-    pthread_mutex_lock(&rocks->CQ.lock);
-    if (listLength(rocks->CQ.complete_queue)) drained = 0;
-    pthread_mutex_unlock(&rocks->CQ.lock);
-
-    return drained;
-}
-
-int rocksIODrain(rocks *rocks, mstime_t time_limit) {
-    int result = 0;
-    mstime_t start = mstime();
-
-    while (!rocksRIODrained(rocks)) {
-        processFinishedRIOInCompleteQueue(&rocks->CQ);
-
-        if (time_limit >= 0 && mstime() - start > time_limit) {
-            result = -1;
-            break;
-        }
-    }
-
-    serverLog(LL_NOTICE,
-            "[rocks] drain IO %s: elapsed (%lldms) limit (%lldms)",
-            result == 0 ? "ok":"failed", mstime() - start, time_limit);
-
-    return result;
-}
-
-void RIOReap(RIO *r, sds *key, sds *val) {
-    if (key) *key = r->key;
-    if (val) *val = r->val;
-    RIOFree(r);
-}
-
-int appendToRIOComplteQueue(RIOCompleteQueue *cq, RIO *rio) {
-    pthread_mutex_lock(&cq->lock);
-    listAddNodeTail(cq->complete_queue, rio);
-    pthread_mutex_unlock(&cq->lock);
-    if (write(cq->notify_send_fd, "x", 1) < 1 && errno != EAGAIN) {
-        static mstime_t prev_log;
-        if (server.mstime - prev_log >= 1000) {
-            prev_log = server.mstime;
-            serverLog(LL_NOTICE, "[rocks] notify rio finish failed: %s",
-                    strerror(errno));
-        }
-        return -1;
-    }
-    return 0;
-}
-
-unsigned long rocksPendingIOs() {
-    int i;
-    unsigned long pending = 0;
-    for (i = 0; i < server.rocks->threads_num; i++) {
-        RIOThread *rt = &server.rocks->threads[i];
-        pthread_mutex_lock(&rt->lock);
-        pending += listLength(rt->pending_rios);
-        pthread_mutex_unlock(&rt->lock);
-    }
-    return pending;
-}
-
-static int rocksInitCompleteQueue(rocks *rocks) {
-    int fds[2];
-    char anetErr[ANET_ERR_LEN];
-    RIOCompleteQueue *cq = &rocks->CQ;
-
-    if (pipe(fds)) {
-        perror("Can't create notify pipe");
-        return -1;
-    }
-
-    cq->notify_recv_fd = fds[0];
-    cq->notify_send_fd = fds[1];
-
-    pthread_mutex_init(&cq->lock, NULL);
-
-    cq->complete_queue = listCreate();
-
-    if (anetNonBlock(anetErr, cq->notify_recv_fd) != ANET_OK) {
-        serverLog(LL_WARNING,
-                "Fatal: set notify_recv_fd non-blocking failed: %s",
-                anetErr);
-        return -1;
-    }
-
-    if (anetNonBlock(anetErr, cq->notify_send_fd) != ANET_OK) {
-        serverLog(LL_WARNING,
-                "Fatal: set notify_recv_fd non-blocking failed: %s",
-                anetErr);
-        return -1;
-    }
-
-    if (aeCreateFileEvent(server.el, cq->notify_recv_fd,
-                AE_READABLE, RIOFinished, cq) == AE_ERR) {
-        serverLog(LL_WARNING,"Fatal: create notify recv event failed: %s",
-                strerror(errno));
-        return -1;
-    }
-
-    return 0;
-}
-
-static void rocksDeinitCompleteQueue(rocks *rocks) {
-    RIOCompleteQueue *cq = &rocks->CQ;
-    close(cq->notify_recv_fd);
-    close(cq->notify_send_fd);
-    pthread_mutex_destroy(&cq->lock);
-    listRelease(cq->complete_queue);
-}
-
-int rocksProcessCompleteQueue(rocks *rocks) {
-    return processFinishedRIOInCompleteQueue(&rocks->CQ);
-}
-
-#define ROCKS_DIR_MAX_LEN 512
-
-#define ROCKS_DATA "data.rocks"
+/* unsigned long rocksPendingIOs() { */
+    /* int i; */
+    /* unsigned long pending = 0; */
+    /* for (i = 0; i < server.rocks->threads_num; i++) { */
+        /* RIOThread *rt = &server.rocks->threads[i]; */
+        /* pthread_mutex_lock(&rt->lock); */
+        /* pending += listLength(rt->pending_rios); */
+        /* pthread_mutex_unlock(&rt->lock); */
+    /* } */
+    /* return pending; */
+/* } */
+
+/* static int rocksInitCompleteQueue(rocks *rocks) { */
+    /* int fds[2]; */
+    /* char anetErr[ANET_ERR_LEN]; */
+    /* RIOCompleteQueue *cq = &rocks->CQ; */
+
+    /* if (pipe(fds)) { */
+        /* perror("Can't create notify pipe"); */
+        /* return -1; */
+    /* } */
+
+    /* cq->notify_recv_fd = fds[0]; */
+    /* cq->notify_send_fd = fds[1]; */
+
+    /* pthread_mutex_init(&cq->lock, NULL); */
+
+    /* cq->complete_queue = listCreate(); */
+
+    /* if (anetNonBlock(anetErr, cq->notify_recv_fd) != ANET_OK) { */
+        /* serverLog(LL_WARNING, */
+                /* "Fatal: set notify_recv_fd non-blocking failed: %s", */
+                /* anetErr); */
+        /* return -1; */
+    /* } */
+
+    /* if (anetNonBlock(anetErr, cq->notify_send_fd) != ANET_OK) { */
+        /* serverLog(LL_WARNING, */
+                /* "Fatal: set notify_recv_fd non-blocking failed: %s", */
+                /* anetErr); */
+        /* return -1; */
+    /* } */
+
+    /* if (aeCreateFileEvent(server.el, cq->notify_recv_fd, */
+                /* AE_READABLE, RIOFinished, cq) == AE_ERR) { */
+        /* serverLog(LL_WARNING,"Fatal: create notify recv event failed: %s", */
+                /* strerror(errno)); */
+        /* return -1; */
+    /* } */
+
+    /* return 0; */
+/* } */
+
+/* static void rocksDeinitCompleteQueue(rocks *rocks) { */
+    /* RIOCompleteQueue *cq = &rocks->CQ; */
+    /* close(cq->notify_recv_fd); */
+    /* close(cq->notify_send_fd); */
+    /* pthread_mutex_destroy(&cq->lock); */
+    /* listRelease(cq->complete_queue); */
+/* } */
 
 static int rocksInitDB(rocks *rocks) {
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
@@ -424,7 +102,7 @@ static int rocksInitDB(rocks *rocks) {
     rocksdb_options_set_create_if_missing(rocks->rocksdb_opts, 1); 
     rocksdb_options_enable_statistics(rocks->rocksdb_opts);
     rocksdb_options_set_stats_dump_period_sec(rocks->rocksdb_opts, 60);
-    rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 6);
+    //rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 6);
     rocksdb_options_set_max_bytes_for_level_base(rocks->rocksdb_opts, 512*1024*1024); 
     struct rocksdb_block_based_table_options_t *block_opts = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_block_size(block_opts, 8192);
@@ -440,6 +118,7 @@ static int rocksInitDB(rocks *rocks) {
     rocksdb_options_set_max_background_compactions(rocks->rocksdb_opts, 4); /* default 1 */
     rocksdb_options_compaction_readahead_size(rocks->rocksdb_opts, 2*1024*1024); /* default 0 */
     rocksdb_options_set_optimize_filters_for_hits(rocks->rocksdb_opts, 1); /* default false */
+	rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 64);
 
     rocks->rocksdb_ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->rocksdb_ropts, 0);
@@ -478,51 +157,11 @@ static void rocksDeinitDB(rocks *rocks) {
     rocksdb_close(rocks->rocksdb);
 }
 
-int rocksInitThreads(rocks *rocks) {
-    int i, nthd = RIO_THREADS_DEFAULT;
-
-    if (nthd > RIO_THREADS_MAX) nthd = RIO_THREADS_MAX;
-    rocks->threads_num = nthd;
-
-    for (i = 0; i < nthd; i++) {
-        RIOThread *thread = &rocks->threads[i];
-
-        thread->id = i;
-        thread->pending_rios = listCreate();
-        pthread_mutex_init(&thread->lock, NULL);
-        pthread_cond_init(&thread->cond, NULL);
-        if (pthread_create(&thread->thread_id, NULL, RIOThreadMain, thread)) {
-            serverLog(LL_WARNING, "Fatal: create rocks IO threads failed.");
-            return -1;
-        }
-    }
-
-    return 0;
-}
-
-static void rocksDeinitThreads(rocks *rocks) {
-    int i, err;
-
-    for (i = 0; i < rocks->threads_num; i++) {
-        RIOThread *thread = &rocks->threads[i];
-        listRelease(thread->pending_rios);
-        if (thread->thread_id == pthread_self()) continue;
-        if (thread->thread_id && pthread_cancel(thread->thread_id) == 0) {
-            if ((err = pthread_join(thread->thread_id, NULL)) != 0) {
-                serverLog(LL_WARNING, "rocks thread #%d can't be joined: %s",
-                        i, strerror(err));
-            } else {
-                serverLog(LL_WARNING, "rocks thread #%d terminated.", i);
-            }
-        }
-    }
-}
-
 struct rocks *rocksCreate() {
     rocks *rocks = zmalloc(sizeof(struct rocks));
     rocks->rocksdb_epoch = 0;
     if (rocksInitDB(rocks)) goto err;
-    if (rocksInitCompleteQueue(rocks)) goto err;
+    if (asyncCompleteQueueInit(rocks)) goto err;
     if (rocksInitThreads(rocks)) goto err;
     return rocks;
 err:
@@ -556,261 +195,9 @@ void rocksReleaseSnapshot(rocks *rocks) {
     }
 }
 
-/* -------------- rocks iter ----------------- */
-static int rocksIterWaitReady(rocksIter* it) {
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    pthread_mutex_lock(&cq->buffer_lock);
-    while (1) {
-        /* iterResult ready */
-        if (cq->processed_count < cq->buffered_count)
-            break;
-        /* iter finished */
-        if (cq->iter_finished) {
-            pthread_mutex_unlock(&cq->buffer_lock);
-            return 0;
-        }
-        /* wait io thread */
-        pthread_cond_wait(&cq->ready_cond, &cq->buffer_lock);
-    }
-    pthread_mutex_unlock(&cq->buffer_lock);
-    return 1;
-}
-
-static void rocksIterNotifyReady(rocksIter* it) {
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    pthread_mutex_lock(&cq->buffer_lock);
-    cq->buffered_count++;
-    pthread_cond_signal(&cq->ready_cond);
-    pthread_mutex_unlock(&cq->buffer_lock);
-}
-
-static void rocksIterNotifyFinshed(rocksIter* it) {
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    pthread_mutex_lock(&cq->buffer_lock);
-    cq->iter_finished = 1;
-    pthread_cond_signal(&cq->ready_cond);
-    pthread_mutex_unlock(&cq->buffer_lock);
-}
-
-static int rocksIterWaitVacant(rocksIter *it) {
-    int64_t slots, occupied;
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    /* wait untill there are vacant slots in buffer. */
-    pthread_mutex_lock(&cq->buffer_lock);
-    while (1) {
-        occupied = cq->buffered_count - cq->processed_count;
-        slots = cq->buffer_capacity - occupied;
-        if (slots < 0) {
-            serverPanic("CQ slots is negative.");
-        } else if (slots == 0) {
-            pthread_cond_wait(&cq->vacant_cond, &cq->buffer_lock);
-        } else {
-            break;
-        }
-    }
-    pthread_mutex_unlock(&cq->buffer_lock);
-    return slots;
-}
-
-static void rocksIterNotifyVacant(rocksIter* it) {
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    pthread_mutex_lock(&cq->buffer_lock);
-    cq->processed_count++;
-    pthread_cond_signal(&cq->vacant_cond);
-    pthread_mutex_unlock(&cq->buffer_lock);
-}
-
-void *rocksIterIOThreadMain(void *arg) {
-    rocksIter *it = arg;
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-
-    redis_set_thread_title("rocks_iter");
-
-    while (!cq->iter_finished) {
-        int64_t slots = rocksIterWaitVacant(it);
-
-        /* there only one producer, slots will decrease only by current
-         * thread, we can produce multiple iterResult in one loop. */
-        while (slots--) {
-            iterResult *cur;
-            int curidx;
-            const char *rawkey, *rawval;
-            size_t rklen, rvlen;
-
-            if (!rocksdb_iter_valid(it->rocksdb_iter)) {
-                rocksIterNotifyFinshed(it);
-                break;
-            }
-
-            curidx = cq->buffered_count % cq->buffer_capacity;
-            cur = cq->buffered + curidx;
-
-            rawkey = rocksdb_iter_key(it->rocksdb_iter,&rklen);
-            rawval = rocksdb_iter_value(it->rocksdb_iter,&rvlen);
-
-            if (rklen > CACHED_MAX_KEY_LEN) {
-                cur->rawkey = sdsnewlen(rawkey, rklen);
-            } else {
-                memcpy(cur->cached_key, rawkey, rklen);
-                cur->cached_key[rklen] = '\0';
-                sdssetlen(cur->cached_key, rklen);
-                cur->rawkey = cur->cached_key;
-            }
-
-            if (rvlen > CACHED_MAX_VAL_LEN) {
-                cur->rawval = sdsnewlen(rawval, rvlen);
-            } else {
-                memcpy(cur->cached_val, rawval, rvlen);
-                cur->cached_val[rvlen] = '\0';
-                sdssetlen(cur->cached_val, rvlen);
-                cur->rawval = cur->cached_val;
-            }
-
-            rocksIterNotifyReady(it);
-
-            rocksdb_iter_next(it->rocksdb_iter);
-        }
-    }
-    serverLog(LL_WARNING, "Rocks iter thread exit.");
-
-    return NULL;
-}
-
-bufferedIterCompleteQueue *bufferedIterCompleteQueueNew(int capacity) {
-    int i;
-    bufferedIterCompleteQueue* buffered_cq;
-
-    buffered_cq = zmalloc(sizeof(bufferedIterCompleteQueue));
-    memset(buffered_cq, 0 ,sizeof(*buffered_cq));
-    buffered_cq->buffer_capacity = capacity;
-
-    buffered_cq->buffered = zmalloc(capacity*sizeof(iterResult));
-    for (i = 0; i < capacity; i++) {
-        iterResult *iter_result = buffered_cq->buffered+i;
-        iter_result->cached_key = sdsnewlen(NULL, CACHED_MAX_KEY_LEN);
-        iter_result->rawkey = NULL;
-        iter_result->cached_val = sdsnewlen(NULL, CACHED_MAX_VAL_LEN);
-        iter_result->rawval = NULL;
-    }
-
-    pthread_mutex_init(&buffered_cq->buffer_lock, NULL);
-    pthread_cond_init(&buffered_cq->ready_cond, NULL);
-    pthread_mutex_init(&buffered_cq->buffer_lock, NULL);
-    pthread_cond_init(&buffered_cq->vacant_cond, NULL);
-    return buffered_cq;
-}
-
-void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
-    if (buffered_cq == NULL) return;
-    for (int i = 0; i < buffered_cq->buffer_capacity;i++) {
-        iterResult *res = buffered_cq->buffered+i;
-        if (res->rawkey != res->cached_key) sdsfree(res->rawkey);
-        if (res->rawval != res->cached_val) sdsfree(res->rawval);
-        sdsfree(res->rawkey);
-        sdsfree(res->rawval);
-    }
-    zfree(buffered_cq->buffered);
-    pthread_mutex_destroy(&buffered_cq->buffer_lock);
-    pthread_cond_destroy(&buffered_cq->ready_cond);
-    pthread_mutex_destroy(&buffered_cq->buffer_lock);
-    pthread_cond_destroy(&buffered_cq->vacant_cond);
-    zfree(buffered_cq);
-}
-
-rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
-    int err;
-    rocksdb_iterator_t *rocksdb_iter;
-    rocksIter *it = zmalloc(sizeof(rocksIter));
-
-    it->rocks = rocks;
-    it->db = db;
-    rocksdb_iter = rocksdb_create_iterator(rocks->rocksdb, rocks->rocksdb_ropts);
-    if (rocksdb_iter == NULL) {
-        serverLog(LL_WARNING, "Create rocksdb iterator failed.");
-        goto err;
-    }
-    rocksdb_iter_seek_to_first(rocksdb_iter);
-    it->rocksdb_iter = rocksdb_iter;
-
-    it->buffered_cq = bufferedIterCompleteQueueNew(DEFAULT_BUFFERED_ITER_CAPACITY);
-
-    if ((err = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
-        serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(err));
-        goto err;
-    }
-
-    return it;
-err:
-    rocksReleaseIter(it);
-    return NULL;
-}
-
-int rocksIterSeekToFirst(rocksIter *it) {
-    return rocksIterWaitReady(it);
-}
-
-void rocksIterKeyValue(rocksIter *it, sds *rawkey, sds *rawval) {
-    int idx;
-    iterResult *cur;
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    idx = cq->processed_count % cq->buffer_capacity;
-    cur = it->buffered_cq->buffered+idx;
-    if (rawkey) *rawkey = cur->rawkey;
-    if (rawval) *rawval = cur->rawval;
-}
-
-/* Will block untill at least one result is ready.
- * note that rawkey and rawval are owned by rocksIter. */
-int rocksIterNext(rocksIter *it) {
-    int idx;
-    iterResult *cur;
-    bufferedIterCompleteQueue *cq = it->buffered_cq;
-    idx = cq->processed_count % cq->buffer_capacity;
-    cur = it->buffered_cq->buffered+idx;
-    /* clear previos state */
-    if (cur->rawkey != cur->cached_key) sdsfree(cur->rawkey);
-    if (cur->rawval != cur->cached_val) sdsfree(cur->rawval);
-    rocksIterNotifyVacant(it);
-    return rocksIterWaitReady(it);
-}
-
-void rocksReleaseIter(rocksIter *it) {
-    int err;
-
-    if (it == NULL) return;
-
-    if (it->io_thread) {
-        if (pthread_cancel(it->io_thread) == 0) {
-            if ((err = pthread_join(it->io_thread, NULL)) != 0) {
-                serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
-                         strerror(err));
-            } else {
-                serverLog(LL_WARNING, "Iter io thread terminated.");
-            }
-        }
-        it->io_thread = 0;
-    }
-
-   if (it->buffered_cq) {
-       bufferedIterCompleteQueueFree(it->buffered_cq);
-       it->buffered_cq = NULL;
-   }
-
-   if (it->rocksdb_iter) {
-       rocksdb_iter_destroy(it->rocksdb_iter);
-       it->rocksdb_iter = NULL;
-   }
-
-   zfree(it);
-}
-
-void rocksIterGetError(rocksIter *it, char **error) {
-    rocksdb_iter_get_error(it->rocksdb_iter, error);
-}
-
 void rocksDestroy(rocks *rocks) {
     rocksDeinitThreads(rocks);
-    rocksDeinitCompleteQueue(rocks);
+    asyncCompleteQueueDeinit(&rocks->CQ);
     rocksDeinitDB(rocks);
     zfree(rocks);
 }
@@ -858,7 +245,7 @@ int rocksFlushAll() {
     char odir[ROCKS_DIR_MAX_LEN];
 
     snprintf(odir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocks->rocksdb_epoch);
-    rocksIODrain(server.rocks, -1);
+    asyncCompleteQueueDrain(server.rocks, -1);
     rocksDeinitDB(server.rocks);
     server.rocks->rocksdb_epoch++;
     if (rocksInitDB(server.rocks)) {

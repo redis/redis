@@ -42,7 +42,6 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/param.h>
-#include "ctrip_swap_rdb.h"
 
 /* This macro is called when the internal RDB structure is corrupt */
 #define rdbReportCorruptRDB(...) rdbReportError(1, __LINE__,__VA_ARGS__)
@@ -2363,7 +2362,8 @@ void startLoading(size_t size, int rdbflags) {
      * be sumitted and processed. if there are async RIO in-flight(e.g.
      * fullresync happend if we are slave and there are clients swapping-in
      * evictted keys), server might crash. */
-    rocksIODrain(server.rocks, -1);
+    asyncCompleteQueueDrain(server.rocks, -1);
+    evictStartLoading();
 
     /* Fire the loading modules start event. */
     int subevent;
@@ -2399,6 +2399,8 @@ void stopLoading(int success) {
     server.loading = 0;
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
+
+    evictStopLoading(success);
 
     /* Fire the loading modules end event. */
     moduleFireServerEvent(REDISMODULE_EVENT_LOADING,
@@ -2485,11 +2487,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
 
-    /* statistical cold data */
-    int cold_data_count = 0;
     while(1) {
         sds key;
         robj *val;
+		int vtype;
+		sds rawval = NULL;
 
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
@@ -2544,8 +2546,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            // rdb load robject write rocksdb
-            // dictExpand(db->dict,db_size);
             dictExpand(db->evict,db_size);
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
@@ -2665,66 +2665,12 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             }
         }
 
-        /* slowdown rdbLoad if evicting faster than ssd can handle. */
-        size_t swap_memory = server.swap_memory;
-        int delay = swapRateLimit(NULL);
-        if (!delay) {
-            /* perform eviction while loading to control memory peak. */
-            performEvictions();
-            if (server.swap_memory - swap_memory >
-                    (size_t)server.loading_process_events_interval_bytes) {
-                rdbLoadProgress(rdb);
-            }
-		} else {
-            /* rdb load paused for quite a while, we should progress a bit to
-             * avoid being flagged down by sentinel. */
-            usleep(delay*1000);
-            rdbLoadProgress(rdb);
-        }
-
-        swap_memory = server.swap_memory;
-        /* process completed rocks IO to avoid io requests accumulate. */
-        rocksProcessCompleteQueue(server.rocks);
-        if (swap_memory - server.swap_memory >
-                (size_t)server.loading_process_events_interval_bytes) {
-            rdbLoadProgress(rdb);
-        }
-
         /* Read key */
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
 
-        /* Read value */
-        struct ctripRdbLoadResult result = {
-            type: HOT_DATA,
-            val: NULL,
-            cold_data: NULL,
-            error: error
-        };
-        ctripRdbLoadObject(type, rdb, key, &result);
-        error = result.error;
-        if(result.type == COLD_DATA) {
-            if(result.val == NULL) {
-                sdsfree(key);
-                goto eoferr;
-            }
-            /* Set usage information (for eviction). */
-            objectSetLRUOrLFU(result.val,lfu_freq,lru_idle,lru_clock,1000);
-            if(!ctripDbAddColdData(db, type, key, result.val, result.cold_data, expiretime)) {
-                serverLog(LL_WARNING, "ctripDbAddColdData fail key: %s", key);
-                return C_ERR;
-            }
-            cold_data_count++;
-            /* Reset the state that is key-specified and is populated by
-                * opcodes before the key, so that we start from scratch again. */
-            expiretime = -1;
-            lfu_freq = -1;
-            lru_idle = -1;
-            continue;
-        } else {
-            val = result.val;
-        }
-
+        /* Read value (could be evict or value) */
+		error = ctripRdbLoadObject(type,rdb,key,&vtype,&val,&rawval);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -2743,8 +2689,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 if(empty_keys_skipped++ < 10)
                     serverLog(LL_WARNING, "rdbLoadObject skipping empty key: %s", key);
                 sdsfree(key);
+                sdsfree(rawval);
             } else {
                 sdsfree(key);
+                sdsfree(rawval);
                 goto eoferr;
             }
         } else if (iAmMaster() &&
@@ -2752,14 +2700,15 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             expiretime != -1 && expiretime < now)
         {
             sdsfree(key);
+            sdsfree(rawval);
             decrRefCount(val);
             expired_keys_skipped++;
         } else {
             robj keyobj;
-            initStaticStringObject(keyobj,key);
+            int added;
 
-            /* Add the new object in the hash table */
-            int added = dbAddRDBLoad(db,key,val);
+            initStaticStringObject(keyobj,key);
+            added = ctripDbAddRDBLoad(vtype,db,key,val,rawval);
             keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -2767,10 +2716,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    dbAddRDBLoad(db,key,val);
+                    ctripDbAddRDBLoad(vtype,db,key,val,rawval);
                 } else {
                     serverLog(LL_WARNING,
-                        "RDB has duplicated key '%s' in DB %d",key,db->id);
+                            "RDB has duplicated key '%s' in DB %d",key,db->id);
                     serverPanic("Duplicated key found in RDB file");
                 }
             }
@@ -2826,14 +2775,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         serverLog(LL_WARNING,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
                 keys_loaded, expired_keys_skipped);
-    }
-
-    if (cold_data_count > 0) {
-        //wait for all submitted tasks to complete
-        if(parallelSwapDrain()) {
-            serverLog(LL_WARNING,"write cold data to rocksdb tasks fail");
-            return C_ERR;
-        }
     }
 
     return C_OK;

@@ -26,16 +26,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "server.h"
-#include "ctrip_swap_rdb.h"
+#include "ctrip_swap.h"
 
 /* ------------------------------ rdb save -------------------------------- */
-#define RDBSAVE_ROCKS_CACHED_MAX_KEY 1024
-#define RDBSAVE_ROCKS_CACHED_MAX_VAL 4096
-
-void rdbSaveProgress(rio *rdb, int rdbflags);
-ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
-
 /* Whole key encoding in rocksdb is the same as in rdb, so we skip encoding
  * and decoding to reduce cpu usage. */ 
 int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw, 
@@ -93,7 +86,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         return C_ERR;
     }
 
-    cached_key = sdsnewlen(NULL,CACHED_MAX_KEY_LEN);
+    cached_key = sdsnewlen(NULL,ITER_CACHED_MAX_KEY_LEN);
 
     if (!rocksIterSeekToFirst(it)) goto end;
 
@@ -109,7 +102,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         rocksIterKeyValue(it, &rawkey, &rawval);
 
         obj_type = rocksDecodeKey(rawkey, sdslen(rawkey), &keyptr, &klen);
-        if (klen > CACHED_MAX_KEY_LEN) {
+        if (klen > ITER_CACHED_MAX_KEY_LEN) {
             key = sdsnewlen(keyptr, klen);
         } else {
             memcpy(cached_key, keyptr, klen);
@@ -153,211 +146,275 @@ err:
     return C_ERR;
 }
 
+ctripRdbLoadCtx *ctripRdbLoadCtxNew() {
+    ctripRdbLoadCtx *ctx = zmalloc(sizeof(ctripRdbLoadCtx));
+    ctx->errors = 0;
+    ctx->ps = parallelSwapNew(server.ps_parallism_rdb, PARALLEL_SWAP_MODE_CONST);
+    ctx->batch.count = RDB_LOAD_BATCH_COUNT;
+    ctx->batch.index = 0;
+    ctx->batch.capacity = RDB_LOAD_BATCH_CAPACITY;
+    ctx->batch.memory = 0;
+    ctx->batch.rawkeys = zmalloc(sizeof(sds)*ctx->batch.count);
+    ctx->batch.rawvals = zmalloc(sizeof(sds)*ctx->batch.count);
+    return ctx;
+}
+
+void ctripRdbLoadWriteFinished(int action, sds rawkey, sds rawval,
+        const char *err, void *pd) {
+    UNUSED(action);
+    UNUSED(rawkey);
+    UNUSED(rawval);
+    UNUSED(err);
+    rocksdb_writebatch_t *wb = pd;
+    rocksdb_writebatch_destroy(wb);
+}
+
+void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
+    size_t i;
+    rocksdb_writebatch_t *wb;
+    sds rawkey, rawval;
+
+    if (ctx->batch.index == 0) return;
+    wb = rocksdb_writebatch_create();
+    for (i = 0; i < ctx->batch.count; i++) {
+        rawkey = ctx->batch.rawkeys[i];
+        rawval = ctx->batch.rawvals[i];
+        rocksdb_writebatch_put(wb, rawkey, sdslen(rawkey),
+                rawval, sdslen(rawval));
+    }
+    /* Submit to rio thread. */
+    if (parallelSwapWrite(ctx->ps, wb, ctripRdbLoadWriteFinished, wb)) {
+        if ( ctx->errors++ < 10)
+            serverLog(LL_WARNING, "Write rocksdb failed on RDBLoad");
+    }
+}
+
+void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, sds rawkey, sds rawval) {
+    ctx->batch.rawkeys[ctx->batch.index] = rawkey;
+    ctx->batch.rawvals[ctx->batch.index] = rawval;
+    ctx->batch.index++;
+    ctx->batch.memory = ctx->batch.memory + sdslen(rawkey) + sdslen(rawval);
+
+    if (ctx->batch.index >= ctx->batch.count ||
+            ctx->batch.memory >= ctx->batch.capacity) {
+        ctripRdbLoadSendBatch(ctx);
+        /* Reset batch state */
+        ctx->batch.index = 0;
+        ctx->batch.memory = 0;
+    }
+}
+
+void ctripRdbLoadCtxFree(ctripRdbLoadCtx *ctx) {
+    parallelSwapFree(ctx->ps);
+    zfree(ctx->batch.rawkeys);
+    zfree(ctx->batch.rawvals);
+    zfree(ctx);
+}
+
+void evictStartLoading() {
+    server.rdb_load_ctx = ctripRdbLoadCtxNew();
+}
+
 void evictStopLoading(int success) {
     UNUSED(success);
-    rocksIODrain(server.rocks, -1);
-    parallelSwapFree(server.rdb_load_ps);
-    server.rdb_load_ps = NULL;
+    /* send last buffered batch. */
+    ctripRdbLoadSendBatch(server.rdb_load_ctx);
+    asyncCompleteQueueDrain(server.rocks, -1);
+    parallelSwapDrain(server.rdb_load_ctx->ps);
+    ctripRdbLoadCtxFree(server.rdb_load_ctx);
+    server.rdb_load_ctx = NULL;
 }
 
-#define LOAD_ERR 1 
-#define WRITE_ERR 2
+/* --- rdb load --- */
+int rdbLoadIntegerVerbatim(rio *rdb, sds *verbatim, int enctype, long long *val) {
+    unsigned char enc[4];
 
-
-int rioPipe(rio* src, rio* target,void* enc, size_t len) {
-    if(enc == NULL) {
-        char buf[len];
-        if(rioRead(src, buf, len) == 0) return 0;
-        if(rioWrite(target, buf, len) == 0) return 0;
+    if (enctype == RDB_ENC_INT8) {
+        if (rioRead(rdb,enc,1) == 0) return -1;
+        *val = (signed char)enc[0];
+        *verbatim = sdscatlen(*verbatim,enc,1);
+    } else if (enctype == RDB_ENC_INT16) {
+        uint16_t v;
+        if (rioRead(rdb,enc,2) == 0) return -1;
+        v = enc[0]|(enc[1]<<8);
+        *val = (int16_t)v;
+        *verbatim = sdscatlen(*verbatim,enc,2);
+    } else if (enctype == RDB_ENC_INT32) {
+        uint32_t v;
+        if (rioRead(rdb,enc,4) == 0) return -1;
+        v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
+        *val = (int32_t)v;
+        *verbatim = sdscatlen(*verbatim,enc,4);
     } else {
-        if(rioRead(src, enc, len) == 0) return 0;
-        if(rioWrite(target, enc, len) == 0) return 0;
-    }    
-    return 1; 
-}
-
-int rdbPipeLenByRef(rio* src, rio* target, int *isencoded, uint64_t *lenptr) {
-    unsigned char buf[2];
-    int type;
-    if (rioPipe(src, target, buf, 1) == 0) return -1;
-    type = (buf[0]&0xC0) >> 6;
-    if (type == RDB_ENCVAL) {
-        /* Read a 6 bit len. */
-        *lenptr = buf[0]&0x3F;
-        if (isencoded) *isencoded = 1;
-        *lenptr = buf[0]&0x3F;
-    } else if(type == RDB_6BITLEN) {
-        /* Read a 6 bit len. */
-        *lenptr = buf[0]&0x3F;
-    } else if(type == RDB_14BITLEN) {
-        /* Read a 14 bit len. */
-        if (rioPipe(src,target,buf + 1, 1) == 0) return -1;
-        *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
-    } else if (buf[0] == RDB_32BITLEN) {
-        /* Read a 32 bit len. */
-        uint32_t len;
-        if (rioPipe(src,target,&len, 4) == 0) return -1;
-        *lenptr = ntohl(len);
-    } else if (buf[0] == RDB_64BITLEN) {
-        /* Read a 64 bit len. */
-        uint64_t len;
-        if (rioRead(src,target,8) == 0) return -1;
-        *lenptr = ntohu64(len);
-    } else {
-        serverLog(LL_WARNING,
-            "[rdbPipeLenByRef]Unknown length encoding %d in rdbLoadLen()",type);
         return -1; /* Never reached. */
     }
     return 0;
 }
 
-int rdbPipeLen(rio* src, rio* target, int *isencoded) {
-    uint64_t len;
-    if (rdbPipeLenByRef(src,target,isencoded, &len) == -1) return RDB_LENERR;
-    return len;
-}
+int rdbLoadLenVerbatim(rio *rdb, sds *verbatim, int *isencoded, unsigned long long *lenptr) {
+    unsigned char buf[2];
+    int type;
 
-int rdbPipeWriteIntegerObject(rio* src, rio* target, int enctype) {
-    unsigned char enc[4];
-    long long val;
-
-    if (enctype == RDB_ENC_INT8) {
-        if (rioPipe(src,target,enc, 1) == 0) return 0;
-        val = (signed char)enc[0];
-    } else if (enctype == RDB_ENC_INT16) {
-        uint16_t v;
-        if (rioPipe(src,target,enc,2) == 0) return 0;
-        v = enc[0]|(enc[1]<<8);
-        val = (int16_t)v;
-    } else if (enctype == RDB_ENC_INT32) {
-        if (rioPipe(src,target,enc, 4) == 0) return 0;
+    if (isencoded) *isencoded = 0;
+    if (rioRead(rdb,buf,1) == 0) return -1;
+    type = (buf[0]&0xC0)>>6;
+    if (type == RDB_ENCVAL) {
+        /* Read a 6 bit encoding type. */
+        if (isencoded) *isencoded = 1;
+        *lenptr = buf[0]&0x3F;
+        *verbatim = sdscatlen(*verbatim,buf,1);
+    } else if (type == RDB_6BITLEN) {
+        /* Read a 6 bit len. */
+        *lenptr = buf[0]&0x3F;
+        *verbatim = sdscatlen(*verbatim,buf,1);
+    } else if (type == RDB_14BITLEN) {
+        /* Read a 14 bit len. */
+        if (rioRead(rdb,buf+1,1) == 0) return -1;
+        *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
+        *verbatim = sdscatlen(*verbatim,buf,2);
+    } else if (buf[0] == RDB_32BITLEN) {
+        /* Read a 32 bit len. */
+        uint32_t len;
+        if (rioRead(rdb,&len,4) == 0) return -1;
+        *lenptr = ntohl(len);
+        *verbatim = sdscatlen(*verbatim,buf,1);
+        *verbatim = sdscatlen(*verbatim,&len,sizeof(len));
+    } else if (buf[0] == RDB_64BITLEN) {
+        /* Read a 64 bit len. */
+        uint64_t len;
+        if (rioRead(rdb,&len,8) == 0) return -1;
+        *lenptr = ntohu64(len);
+        *verbatim = sdscatlen(*verbatim,buf,1);
+        *verbatim = sdscatlen(*verbatim,&len,sizeof(len));
     } else {
-        serverLog(LL_WARNING, "[rdbPipeWriteIntegerObject]Unknown RDB integer encoding type %d",enctype);
         return -1; /* Never reached. */
     }
-    return 1;
+
+    return 0;
 }
 
-int rdbPipeWirteLzfStringObject(rio* src, rio* target) {
-    uint64_t len, clen;
-    if((clen = rdbPipeLen(src, target, NULL)) == RDB_LENERR) return 0;
-    if((len = rdbPipeLen(src, target, NULL)) == RDB_LENERR) return 0;
-    if(rioPipe(src, target, NULL, clen) == 0) return 0;
-    return 1;
+int rdbLoadRawVerbatim(rio *rdb, sds *verbatim, unsigned long long len) {
+    size_t oldlen = sdslen(*verbatim);
+    *verbatim = sdsMakeRoomForExact(*verbatim, len);
+    rioRead(rdb, *verbatim+oldlen, len);
+    sdsIncrLen(*verbatim, len);
+    return 0;
 }
 
-int rdbPipeWriteStringObject(rio* src, rio* target, int* error) {
-    int isencoded;
-    unsigned long long len = rdbLoadLen(src, &isencoded);
-    if (len == RDB_LENERR) return 0;
-    rdbSaveLen(target, len);
-    if (isencoded) {
+int rdbLoadLzfStringVerbatim(rio *rdb, sds *verbatim) {
+    unsigned long long len, clen;
+    int isencode;
+    if ((rdbLoadLenVerbatim(rdb,verbatim,&isencode,&clen))) return -1;
+    if ((rdbLoadLenVerbatim(rdb,verbatim,&isencode,&len))) return -1;
+    if ((rdbLoadRawVerbatim(rdb,verbatim,clen))) return -1;
+    return 0;
+}
+
+int rdbLoadStringVerbatim(rio *rdb, sds *verbatim) {
+    int isencoded, retval;
+    unsigned long long len;
+    long long val;
+
+     if ((retval = rdbLoadLenVerbatim(rdb,verbatim,&isencoded,&len)))
+         return retval;
+
+     if (isencoded) {
         switch(len) {
-            case RDB_ENC_INT8:
-            case RDB_ENC_INT16:
-            case RDB_ENC_INT32:
-                return rdbPipeWriteIntegerObject(src, target, len);
-            case RDB_ENC_LZF:
-                return rdbPipeWirteLzfStringObject(src, target);
-            default:
-                return 0;
+        case RDB_ENC_INT8:
+        case RDB_ENC_INT16:
+        case RDB_ENC_INT32:
+            return rdbLoadIntegerVerbatim(rdb,verbatim,len,&val);
+        case RDB_ENC_LZF:
+            return rdbLoadLzfStringVerbatim(rdb,verbatim);
+        default:
+            return -1;
         }
-    } else {
-        return rioPipe(src, target, NULL, len);
-    }
+     } else {
+         return rdbLoadRawVerbatim(rdb,verbatim,len);
+     }
+
+     return 0;
 }
 
-int rdbPipeWriteHashObject(rio* src, rio* target, int* error) {
-    uint64_t len;
-    int ret;
-    sds field, value;
-    dict *dupSearchDict = NULL;
-    len = rdbPipeLen(src, target, NULL);
-    if (len == RDB_LENERR) {
-        return 0;
+int rdbLoadHashVerbatim(rio *rdb, sds *verbatim) {
+    int isencode;
+    unsigned long long len;
+    /* nfield */
+    if (rdbLoadLenVerbatim(rdb,verbatim,&isencode,&len)) return -1;
+    while (len--) {
+        if (rdbLoadStringVerbatim(rdb,verbatim)) return -1; /* field */
+        if (rdbLoadStringVerbatim(rdb,verbatim)) return -1; /* value */
     }
-    if (len == 0) {
-        *error = RDB_LOAD_ERR_EMPTY_KEY; 
-        return 0;
-    }
-    while (len > 0) {
-        len--;
-        //key
-        if (rdbPipeWriteStringObject(src, target, error) == 0) {
-            return 0;
-        }
-        //value
-        if (rdbPipeWriteStringObject(src, target, error) == 0) {
-            return 0;
-        }
-    }
-    return 1;
-}
-//rdb load
-int rdbLoadObjectString(int rdbtype, rio* rdb, sds key, struct ctripRdbLoadResult* result) {
-    //TODO 
-    rio obj_rio;
-    rioInitWithBuffer(&obj_rio, sdsempty());
-    int error;
-    robj* evict;
-    if(rdbtype == RDB_TYPE_STRING) {
-        evict = createObject(OBJ_STRING, NULL);
-        if(rdbPipeWriteStringObject(rdb, &obj_rio, &error) == 0) {
-            result->error = error;
-            return 0;
-        }
-    } else if(rdbtype == RDB_TYPE_HASH) {
-        evict = createHashObject();
-        if(rdbPipeWriteHashObject(rdb, &obj_rio, &error) == 0) {
-            return 0;
-        }
-    } else if(rdbtype == RDB_TYPE_HASH_ZIPLIST) {
-        evict = createObject(OBJ_STRING, NULL);
-        evict->type = OBJ_HASH;
-        evict->encoding = OBJ_ENCODING_ZIPLIST;
-        if(rdbPipeWriteStringObject(rdb, &obj_rio, &error) == 0) {
-            result->error = error;
-            return 0;
-        }
-    } else {
-        //not support data type
-        return -1;
-    }
-    result->cold_data = obj_rio.io.buffer.ptr;
-    result->val = evict;
-    return 1;
+    return 0;
 }
 
-void ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, struct ctripRdbLoadResult* result) {
-    int error = result->error;
-    if (rdbLoadObjectString(rdbtype, rdb, key, result) != -1) {
-        result-> type = COLD_DATA; 
-        return;
-    } else {
-        //hot data save to memory
-        robj* val = rdbLoadObject(rdbtype, rdb, key, &error);
-        result->type = HOT_DATA;
-        result->error = error;
-        result->val = val;
-    }
-    
-}
-
-
-int ctripDbAddColdData(redisDb* db, int datatype, sds key, robj* evict, sds cold_data, long long expire_time) {
-    robj keyobj;
-    initStaticStringObject(keyobj,key);
-    //submit write to rocksdb task 
-    if(parallelSwapPut(rocksEncodeKey(datatype, key), cold_data, NULL, NULL)) {
-        return 0;
-    }
+/* Load directly into db.evict for objects that supports swap. */
+int dbAddEvictRDBLoad(redisDb* db, sds key, robj* evict, sds rawval) {
+    /* Add to db.evict. Note that key is moved to db.evict. */ 
+    int retval = dictAdd(db->evict,key,evict);
+    if (retval != DICT_OK) return 0;
+    if (server.cluster_enabled) slotToKeyAdd(key);
     evict->evicted = 1;
-    //add evict
-    dbAddEvict(db, &keyobj, evict);
-    /* Set the expire time if needed */
-    if (expire_time != -1) {
-        setExpire(NULL,db,&keyobj,expire_time);
-    }
+    /* Add to rocksdb. */
+    sds rawkey = rocksEncodeKey(evict->type,key);
+    ctripRdbLoadCtxFeed(server.rdb_load_ctx, rawkey, rawval);
     return 1;
 }
 
+/* Note that key,val,rawval moved. */
+int ctripDbAddRDBLoad(int vtype, redisDb* db, sds key, robj* val, sds rawval) {
+    if (vtype == RDB_LOAD_VTYPE_VERBATIM)
+        return dbAddEvictRDBLoad(db,key,val,rawval);
+    else /* RDB_LOAD_VTYPE_OBJECT */
+        return dbAddRDBLoad(db,key,val);
+}
+
+int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, sds *rawval) {
+    robj *evict;
+    int error = 0;
+
+    if (!rdbIsObjectType(rdbtype)) return RDB_LOAD_ERR_OTHER;
+
+    *val = NULL;
+    if (rdbtype == RDB_TYPE_STRING) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        sds verbatim = sdsempty();
+        if (rdbLoadStringVerbatim(rdb,&verbatim)) {
+            sdsfree(verbatim);
+            error = RDB_LOAD_ERR_OTHER;
+        } else {
+            *val = createObject(OBJ_STRING, NULL);
+            *rawval = verbatim;
+        }
+    } else if (rdbtype == RDB_TYPE_HASH) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        sds verbatim = sdsempty();
+        if (rdbLoadHashVerbatim(rdb,&verbatim)) {
+            sdsfree(verbatim);
+            error = RDB_LOAD_ERR_OTHER;
+        } else {
+            evict = createObject(OBJ_HASH,NULL);
+            evict->encoding = OBJ_ENCODING_HT;
+            *val = evict;
+            *rawval = verbatim;
+        }
+    } else if (rdbtype == RDB_TYPE_HASH_ZIPLIST) {
+        *vtype = RDB_LOAD_VTYPE_VERBATIM;
+        sds verbatim = sdsempty();
+        if (rdbLoadStringVerbatim(rdb,&verbatim)) {
+            sdsfree(verbatim);
+            error = RDB_LOAD_ERR_OTHER;
+        } else {
+            evict = createObject(OBJ_HASH, NULL);
+            evict->encoding = OBJ_ENCODING_ZIPLIST;
+            *val = evict;
+            *rawval = verbatim;
+        }
+    } else {
+        *vtype = RDB_LOAD_VTYPE_OBJECT;
+        *val = rdbLoadObject(rdbtype, rdb, key, &error);
+        *rawval = NULL;
+    }
+
+    return error;
+}

@@ -1735,10 +1735,9 @@ struct redisServer {
     list *repl_worker_clients_free; /* free clients for repl(slaveof & peerof) swap. */
     list *repl_worker_clients_used; /* used clients for repl swap. */
     list *repl_swapping_clients; /* list of repl swapping clients. */
-    /* parallel swap */
+    /* rdb swap */
     int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
-    /* rdb */
-    struct parallelSwap *rdb_load_ps; /* parallel swap for rdb load */
+    struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2917,157 +2916,10 @@ int tlsConfigure(redisTLSContextConfig *ctx_config);
 
 int iAmMaster(void);
 
+void rdbSaveProgress(rio *rdb, int rdbflags);
+ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
+
 #include "ctrip.h"
-#include <rocksdb/c.h>
-
-/* rocks */
-#define ROCKS_GET             	1
-#define ROCKS_PUT            	2
-#define ROCKS_DEL              	3
-
-typedef void (*rocksIOCallback)(int action, sds key, sds val, void *privdata);
-
-typedef struct RIO {
-    int type;               /* io type, GET/PUT/DEL */
-    sds key;                /* rocks key */
-    sds val;                /* rocks val */
-    int notify_type;        /* notify complete type, CQ/PIPE */
-    rocksIOCallback cb;     /* CQ: io finished callback */
-    void *privdata;         /* CQ: io finished privdata */
-    int pipe_fd;            /* PIPE: fd to notify io finished */
-} RIO;
-
-void rocksIOSubmitAsync(uint32_t dist, int type, sds key, sds val, rocksIOCallback cb, void *privdata);
-struct RIO *rocksIOSubmitSync(uint32_t dist, int type, sds key, sds val, int notify_fd);
-void RIOReap(struct RIO *r, sds *key, sds *val);
-unsigned long rocksPendingIOs();
-int rocksIODrain(struct rocks *rocks, mstime_t time_limit);
-
-struct rocks *rocksCreate(void);
-void rocksDestroy(struct rocks *rocks);
-int rocksEvictionsInprogress(void);
-int rocksDelete(redisDb *db, robj *key);
-int rocksFlushAll();
-rocksdb_t *rocksGetDb(struct rocks *rocks);
-int rocksProcessCompleteQueue(struct rocks *rocks);
-void rocksCron();
-int rocksInitThreads(struct rocks *rocks);
-void rocksCreateSnapshot(struct rocks *rocks);
-void rocksUseSnapshot(struct rocks *rocks);
-void rocksReleaseSnapshot(struct rocks *rocks);
-
-/* swap */
-#define SWAP_NOP    0
-#define SWAP_GET    1
-#define SWAP_PUT    2
-#define SWAP_DEL    3
-#define SWAP_TYPES  4
-
-typedef struct swapClient {
-    swap s;
-    client *c;
-} swapClient;
-
-typedef struct swappingClients {
-    redisDb *db;    /* db used to index scs */
-    robj *key;      /* key used to index scs */
-    robj *subkey;   /* subkey used to index scs */
-    struct swappingClients *parent; /* parent scs */
-    int nchild;     /* # of child scs list */
-    list *swapclients; /* list of swapClients */
-} swappingClients;
-
-/**
- *   call swappingClientsDump function when server.verbosity == LL_DEBUG 
- */
-sds swappingClientsDump(swappingClients *scs);
-
-typedef struct swapStat {
-    char *name;
-    long long started;
-    long long finished;
-    mstime_t last_start_time;
-    mstime_t last_finish_time;
-    size_t started_rawkey_bytes;
-    size_t started_rawval_bytes;
-    size_t finished_rawkey_bytes;
-    size_t finished_rawval_bytes;
-} swapStat;
-
-void swapInit();
-int dbSwap(client *c);
-int clientSwap(client *c);
-int replClientSwap(client *c);
-void continueProcessCommand(client *c);
-void evictCommand(client *c);
-int getSwapsNone(struct redisCommand *cmd, robj **argv, int argc, getSwapsResult *result);
-int getSwapsGlobal(struct redisCommand *cmd, robj **argv, int argc, getSwapsResult *result);
-void updateStatsSwapStart(int type, sds rawkey, sds rawval);
-void updateStatsSwapFinish(int type, sds rawkey, sds rawval);
-int swapsPendingOfType(int type);
-size_t objectComputeSize(robj *o, size_t sample_size);
-size_t keyComputeSize(redisDb *db, robj *key);
-int replClientDiscardDispatchedCommands(client *c);
-void replClientDiscardSwappingState(client *c);
-
-#define EVICT_SUCC_SWAPPED      1
-#define EVICT_SUCC_FREED        2
-#define EVICT_FAIL_ABSENT       -1
-#define EVICT_FAIL_EVICTED      -2
-#define EVICT_FAIL_SWAPPING     -3
-#define EVICT_FAIL_HOLDED       -4
-#define EVICT_FAIL_UNSUPPORTED  -5
-int dbEvict(redisDb *db, robj *key, int *evict_result);
-int dbExpire(redisDb *db, robj *key);
-int serverForked();
-void dbEvictAsapLater(redisDb *db, robj *key);
-int evictAsap();
-void debugEvictKeys();
-
-#define SWAP_RL_NO      0
-#define SWAP_RL_SLOW    1
-#define SWAP_RL_STOP    2
-
-int swapRateLimitState();
-int swapRateLimit(client *c);
-int swapRateLimited(client *c);
-
-/* complement swap */
-#define COMP_MODE_RDB           0
-
-#define COMP_TYPE_OBJ           0
-#define COMP_TYPE_RAW           1
-
-typedef struct {
-    int type;
-    void *value;
-    robj *evict; /* note that evict do not own evict (refcount not incremented
-                    to reduce cow), we have to make sure evict exists. */
-}compVal;
-
-compVal *compValNew(int type, void *value, robj *evict);
-void compValFree(compVal *cv);
-compVal *getComplementSwaps(redisDb *db, robj *key, int mode, getSwapsResult *result, complementObjectFunc *comp, void **pd);
-int complementObj(robj *dup, sds rawkey, sds rawval, complementObjectFunc comp, void *pd);
-int complementCompVal(compVal *cv, sds rawkey, sds rawval, complementObjectFunc comp, void *pd);
-
-/* swap rocks related */
-struct swappingClients *lookupSwappingClients(client *c, robj *key, robj *subkey);
-void setupSwappingClients(client *c, robj *key, robj *subkey, swappingClients *scs);
-void getEvictionSwaps(client *c, robj *key, getSwapsResult *result);
-void getExpireSwaps(client *c, robj *key, getSwapsResult *result);
-int swapAna(client *c, robj *key, robj *subkey, int *action, char **rawkey, char **rawval, int *cb_type, dataSwapFinishedCallback *cb, void **pd);
-void dataSwapFinished(client *c, int action, char *rawkey, char *rawval, int cb_type, dataSwapFinishedCallback cb, void *pd);
-void getSwaps(client *c, getSwapsResult *result);
-void releaseSwaps(getSwapsResult *result);
-
-/* Whole key swap (string, hash) */
-int swapAnaWk(struct redisCommand *cmd, redisDb *db, robj *key, int *action, char **rawkey, char **rawval, dataSwapFinishedCallback *cb, void **pd);
-void getDataSwapsWk(robj *key, int mode, getSwapsResult *result);
-void setupSwappingClientsWk(redisDb *db, robj *key, void *scs);
-void *lookupSwappingClientsWk(redisDb *db, robj *key);
-void *getComplementSwapsWk(redisDb *db, robj *key, int mode, int *type, getSwapsResult *result, complementObjectFunc *comp, void **pd);
-
 #include "ctrip_swap.h"
 
 #endif

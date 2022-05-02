@@ -230,7 +230,8 @@ void sdsclear(sds s) {
  *
  * Note: this does not change the *length* of the sds string as returned
  * by sdslen(), but only the free buffer space we have. */
-sds sdsMakeRoomFor(sds s, size_t addlen) {
+#define SDS_MAKE_ROOM_EXACT (1<<0)
+static sds _sdsMakeRoomFor(sds s, size_t addlen, int flags) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
     size_t len, newlen, reqlen;
@@ -245,10 +246,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     sh = (char*)s-sdsHdrSize(oldtype);
     reqlen = newlen = (len+addlen);
     assert(newlen > len);   /* Catch size_t overflow */
-    if (newlen < SDS_MAX_PREALLOC)
-        newlen *= 2;
-    else
-        newlen += SDS_MAX_PREALLOC;
+    if (!(flags&SDS_MAKE_ROOM_EXACT)) {
+        if (newlen < SDS_MAX_PREALLOC)
+            newlen *= 2;
+        else
+            newlen += SDS_MAX_PREALLOC;
+    }
 
     type = sdsReqType(newlen);
 
@@ -279,6 +282,14 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         usable = sdsTypeMaxSize(type);
     sdssetalloc(s, usable);
     return s;
+}
+
+sds sdsMakeRoomFor(sds s, size_t addlen) {
+    return _sdsMakeRoomFor(s,addlen,0);
+}
+
+sds sdsMakeRoomForExact(sds s, size_t addlen) {
+    return _sdsMakeRoomFor(s,addlen,SDS_MAKE_ROOM_EXACT);
 }
 
 /* Reallocate the sds string so that it has no free space at the end. The

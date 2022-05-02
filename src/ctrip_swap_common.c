@@ -28,7 +28,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 static int typeR2O(char rocks_type) {
     switch (rocks_type) {
     case 'K': return OBJ_STRING;
@@ -42,27 +41,28 @@ static int typeR2O(char rocks_type) {
     }
 }
 
-const char* typeO2R(int obj_type) {
+char typeO2R(int obj_type) {
     switch (obj_type) {
-    case OBJ_STRING : return "K";
-    case OBJ_LIST   : return "L"; 
-    case OBJ_SET    : return "S"; 
-    case OBJ_ZSET   : return "Z"; 
-    case OBJ_HASH   : return "H"; 
-    case OBJ_MODULE : return "M"; 
-    case OBJ_STREAM : return "X"; 
-    default         : return "?";
+    case OBJ_STRING : return 'K';
+    case OBJ_LIST   : return 'L'; 
+    case OBJ_SET    : return 'S'; 
+    case OBJ_ZSET   : return 'Z'; 
+    case OBJ_HASH   : return 'H'; 
+    case OBJ_MODULE : return 'M'; 
+    case OBJ_STREAM : return 'X'; 
+    default         : return '?';
     }
 }
 
 /* TODO support subkey */
 sds rocksEncodeKey(int obj_type, sds key) {
-    sds rawkey = sdsempty();
-    rawkey = sdscatlen(rawkey, typeO2R(obj_type), 1);
-    rawkey = sdscatsds(rawkey, key);
+    sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
+    rawkey[0] = typeO2R(obj_type);
+    memcpy(rawkey+1, key, sdslen(key));
     return rawkey;
 }
 
+/* TODO support subkey */
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen) {
     int obj_type;
 

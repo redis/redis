@@ -191,7 +191,6 @@ void getSwapsPrepareResult(getSwapsResult *result, int numswaps) {
 }
 
 void getSwapsAppendResult(getSwapsResult *result, robj *key, robj *subkey, robj *val) {
-    /* Check overflow */    
     if (result->numswaps == result->size) {
         int newsize = result->size + (result->size > 8192 ? 8192 : result->size);
         getSwapsPrepareResult(result, newsize);
@@ -408,7 +407,7 @@ void continueProcessCommand(client *c) {
 }
 
 int clientSwapProceed(client *c, swap *s, swappingClients **scs);
-void rocksSwapFinished(int action, sds rawkey, sds rawval, void *privdata) {
+void rocksSwapFinished(int action, sds rawkey, sds rawval, const char *err, void *privdata) {
     rocksPrivData *rocks_pd = privdata;
     client *c = rocks_pd->c;
     swapClient *sc, *nsc;
@@ -417,6 +416,7 @@ void rocksSwapFinished(int action, sds rawkey, sds rawval, void *privdata) {
     clientSwapFinishedCallback client_cb = (clientSwapFinishedCallback)c->client_swap_finished_cb;
     void *client_pd = c->client_swap_finished_pd;
 
+    UNUSED(err);
     server.swap_memory -= rocks_pd->swap_memory;
     updateStatsSwapFinish(R2S(action), rawkey, rawval);
 
@@ -567,7 +567,7 @@ int clientSwapProceed(client *c, swap *s, swappingClients **pscs) {
     rocks_pd->swap_memory = estimateSwapMemory(rawkey, rawval, rocks_pd);
     server.swap_memory += rocks_pd->swap_memory;
     updateStatsSwapStart(action, rawkey, rawval);
-    rocksIOSubmitAsync(crc16(rawkey, sdslen(rawkey)), S2R(action), rawkey,
+    rocksAsyncSubmit(crc16(rawkey, sdslen(rawkey)), S2R(action), rawkey,
            rawval, rocksSwapFinished, rocks_pd);
     return 1;
 }
@@ -1306,121 +1306,7 @@ void swapInit() {
         c->client_hold_mode = CLIENT_HOLD_MODE_REPL;
         listAddNodeTail(server.repl_worker_clients_free, c);
     }
-}
 
-/* ------------------------ parallel swap -------------------------------- */
-parallelSwap *parallelSwapNew(int parallel) {
-    int i;
-    parallelSwap *ps = zmalloc(sizeof(parallelSwap));
-
-    ps->parallel = parallel;
-    ps->entries = listCreate();
-
-    for (i = 0; i < parallel; i++) {
-        int fds[2];
-        swapEntry *e;
-
-        if (pipe(fds)) {
-            serverLog(LL_WARNING, "create future pipe failed: %s",
-                    strerror(errno));
-            goto err;
-        }
-
-        e = zmalloc(sizeof(swapEntry));
-        e->inprogress = 0;
-        e->pipe_read_fd = fds[0];
-        e->pipe_write_fd = fds[1];
-        e->pd = NULL;
-
-        listAddNodeTail(ps->entries, e);
-    }
-    return ps;
-
-err:
-    listRelease(ps->entries);
-    return NULL;
-}
-
-void parallelSwapFree(parallelSwap *ps) {
-    listNode *ln;
-    while ((ln = listFirst(ps->entries))) {
-        swapEntry *e = listNodeValue(ln);
-        close(e->pipe_read_fd);
-        close(e->pipe_write_fd);
-        zfree(e);
-        listDelNode(ps->entries, ln);
-    }
-    listRelease(ps->entries);
-    zfree(ps);
-}
-
-static int parallelSwapProcess(swapEntry *e) {
-    if (e->inprogress) {
-        char c;
-        sds rawkey, rawval;
-        if (read(e->pipe_read_fd, &c, 1) != 1) {
-            serverLog(LL_WARNING, "wait swap entry failed: %s",
-                    strerror(errno));
-            return C_ERR;
-        }
-        e->inprogress = 0;
-        RIOReap(e->r, &rawkey, &rawval);
-        if (e->cb) {
-            return e->cb(rawkey, rawval, e->pd);
-        } else {
-            sdsfree(rawkey);
-            sdsfree(rawval);
-        }
-    }
-    return C_OK;
-}
-
-/* Submit one swap (task). swap will start and finish in submit order. */
-int parallelSwapSubmit(parallelSwap *ps, int action, sds rawkey, sds rawval, parallelSwapFinishedCb cb, void *pd) {
-    listNode *ln;
-    swapEntry *e;
-    static int rocksdist = 0;
-    /* wait and handle previous swap */
-    if (!(ln = listFirst(ps->entries))) return C_ERR;
-    e = listNodeValue(ln);
-    if (parallelSwapProcess(e)) return C_ERR;
-    listRotateHeadToTail(ps->entries);
-    /* load new swap */
-    e->cb = cb;
-    e->pd = pd;
-    e->inprogress = 1;
-    e->r = rocksIOSubmitSync(rocksdist++, action, rawkey, rawval,
-            e->pipe_write_fd);
-    return C_OK;
-}
-
-int parallelSwapDrain() {
-    listIter li;
-    listNode *ln;
-
-    listRewind(server.rdb_load_ps->entries, &li);
-    while((ln = listNext(&li))) {
-        swapEntry *e = listNodeValue(ln);
-        if ((parallelSwapProcess(e)))
-            return C_ERR;
-    }
-
-    return C_OK;
-}
-
-/* utility functions */
-int parallelSwapGet(sds rawkey, parallelSwapFinishedCb cb, void *pd) {
-    return parallelSwapSubmit(server.rdb_load_ps, SWAP_GET, rawkey, NULL, cb, pd);
-}
-
-int parallelSwapPut(sds rawkey, sds rawval, parallelSwapFinishedCb cb, void *pd) {
-    if(server.rdb_load_ps == NULL) {
-        server.rdb_load_ps = parallelSwapNew(server.ps_parallism_rdb);
-    }
-    return parallelSwapSubmit(server.rdb_load_ps, SWAP_PUT, rawkey, rawval, cb, pd);
-}
-
-int parallelSwapDel(sds rawkey, parallelSwapFinishedCb cb, void *pd) {
-    return parallelSwapSubmit(server.rdb_load_ps, SWAP_DEL, rawkey, NULL, cb, pd);
+    server.rdb_load_ctx = NULL;
 }
 

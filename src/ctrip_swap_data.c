@@ -25,7 +25,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include "server.h"
+#include "ctrip_swap.h"
 
 /* look up on which scs client should block. client should block on uppper
  * level scs if it's not empty. */
