@@ -203,7 +203,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointer was populated.
+ * int64_t pointer or the sds pointer was populated.
  *
  * Note that both the sdsele and llele pointers should be passed and cannot
  * be NULL since the function will try to defensively populate the non
@@ -1055,6 +1055,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     sds ele;
     int j, cardinality = 0;
     int diff_algo = 1;
+    int sameset = 0; 
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1066,13 +1067,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             zfree(sets);
             return;
         }
+        if (j > 0 && sets[0] == sets[j]) {
+            sameset = 1; 
+            break;
+        }
         sets[j] = setobj;
     }
-
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
-     * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
 
     /* Select what DIFF algorithm to use.
      *
@@ -1083,12 +1083,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * the sets.
      *
      * We compute what is the best bet with the current input here. */
-    if (op == SET_OP_DIFF && sets[0]) {
+    if (op == SET_OP_DIFF && sets[0] && !sameset) {
         long long algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
             if (sets[j] == NULL) continue;
-            if(j > 0 && sets[0] == sets[j]) goto output;
 
             algo_one_work += setTypeSize(sets[0]);
             algo_two_work += setTypeSize(sets[j]);
@@ -1099,7 +1098,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         algo_one_work /= 2;
         diff_algo = (algo_one_work <= algo_two_work) ? 1 : 2;
 
-        if (diff_algo == 1 && setnum > 1) {
+        if (diff_algo == 1 && setnum > 1 && !sameset) {
             /* With algorithm 1 it is better to order the sets to subtract
              * by decreasing size, so that we are more likely to find
              * duplicated elements ASAP. */
@@ -1107,6 +1106,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 qsortCompareSetsByRevCardinality);
         }
     }
+
+    /* We need a temp set object to store our union. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+     * this set object will be the resulting object to set into the target key*/
+    dstset = createIntsetObject();
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
@@ -1121,6 +1125,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             setTypeReleaseIterator(si);
         }
+    } else if (op == SET_OP_DIFF && sameset) {
+        /* nothing to do... */
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
@@ -1173,7 +1179,6 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-output:
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplySetLen(c,cardinality);
