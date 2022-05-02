@@ -252,6 +252,7 @@
 /* Return the pointer to the last entry of a ziplist, using the
  * last entry offset inside the ziplist header. */
 #define ZIPLIST_ENTRY_TAIL(zl)  ((zl)+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)))
+
 /* Return the pointer to the last byte of a ziplist, which is, the
  * end of ziplist FF entry. */
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-ZIPLIST_END_SIZE)
