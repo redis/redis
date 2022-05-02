@@ -1207,8 +1207,6 @@ void activeDefragCycle(void) {
             }
 
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
-            if (!cursor)
-                serverLog(LL_WARNING, "Finished defrag scanning of db %d", db->id);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
