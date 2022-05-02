@@ -241,6 +241,11 @@ start_server {
             assert_equal $expected [lsort [r sunion set1{t} set2{t}]]
         }
 
+        test "SUNION with three same sets - $type" {
+            set expected [lsort -uniq "[r smembers set1{t}] [r smembers set1{t}] [r smembers set1{t}]"]
+            assert_equal $expected [lsort [r sunion set1{t} set1{t} set1{t}]]
+        }
+
         test "SUNIONSTORE with two sets - $type" {
             r sunionstore setres{t} set1{t} set2{t}
             assert_encoding $type setres{t}
