@@ -424,7 +424,7 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
         update[i] = x;
     }
 
-    /* Current node is the last with score < or <= min. */
+    /* Current node is the last with lexicographic value < or <= min. */
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
@@ -685,7 +685,7 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
     x = x->level[0].forward;
     serverAssert(x != NULL);
 
-    /* Check if score <= max. */
+    /* Check if lexicographic value <= max. */
     if (!zslLexValueLteMax(x->ele,range)) return NULL;
     return x;
 }
@@ -710,7 +710,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     /* This is an inner range, so this node cannot be NULL. */
     serverAssert(x != NULL);
 
-    /* Check if score >= min. */
+    /* Check if lexicographic value >= min. */
     if (!zslLexValueGteMin(x->ele,range)) return NULL;
     return x;
 }
@@ -927,7 +927,7 @@ int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
 }
 
 /* Returns if there is a part of the zset is in range. Should only be used
- * internally by zzlFirstInRange and zzlLastInRange. */
+ * internally by zzlFirstInLexRange and zzlLastInLexRange. */
 int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *p;
 
@@ -959,7 +959,7 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
 
     while (eptr != NULL) {
         if (zzlLexValueGteMin(eptr,range)) {
-            /* Check if score <= max. */
+            /* Check if lexicographic value <= max. */
             if (zzlLexValueLteMax(eptr,range))
                 return eptr;
             return NULL;
@@ -984,7 +984,7 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
 
     while (eptr != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
-            /* Check if score >= min. */
+            /* Check if lexicographic value >= min. */
             if (zzlLexValueGteMin(eptr,range))
                 return eptr;
             return NULL;
@@ -4054,7 +4054,7 @@ void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, -1, 0, 0);
 }
 
-static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -4135,7 +4135,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
-                zarndmemberReplyWithListpack(c, sample_count, keys, vals);
+                zrandmemberReplyWithListpack(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -4234,7 +4234,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             if (withscores)
                 vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
-            zarndmemberReplyWithListpack(c, count, keys, vals);
+            zrandmemberReplyWithListpack(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
             zuiClearIterator(&src);
