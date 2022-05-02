@@ -1097,7 +1097,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         algo_one_work /= 2;
         diff_algo = (algo_one_work <= algo_two_work) ? 1 : 2;
 
-        if (diff_algo == 1 && setnum > 1 && !sameset) {
+        if (diff_algo == 1 && setnum > 1) {
             /* With algorithm 1 it is better to order the sets to subtract
              * by decreasing size, so that we are more likely to find
              * duplicated elements ASAP. */
