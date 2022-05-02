@@ -1,6 +1,7 @@
 /* SDSLib 2.0 -- A C dynamic strings library
  *
  * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2015, Oran Agra
  * Copyright (c) 2015, Redis Labs, Inc
  * All rights reserved.
  *
@@ -36,7 +37,8 @@
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */
 
-#include "zmalloc.h"
-#define s_malloc zmalloc
-#define s_realloc zrealloc
-#define s_free zfree
+#include "alloc.h"
+
+#define hi_s_malloc hi_malloc
+#define hi_s_realloc hi_realloc
+#define hi_s_free hi_free

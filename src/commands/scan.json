@@ -1,0 +1,51 @@
+{
+    "SCAN": {
+        "summary": "Incrementally iterate the keys space",
+        "complexity": "O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.",
+        "group": "generic",
+        "since": "2.8.0",
+        "arity": -2,
+        "function": "scanCommand",
+        "history": [
+            [
+                "6.0.0",
+                "Added the `TYPE` subcommand."
+            ]
+        ],
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:SPECIAL"
+        ],
+        "arguments": [
+            {
+                "name": "cursor",
+                "type": "integer"
+            },
+            {
+                "token": "MATCH",
+                "name": "pattern",
+                "type": "pattern",
+                "optional": true
+            },
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "TYPE",
+                "name": "type",
+                "type": "string",
+                "optional": true,
+                "since": "6.0.0"
+            }
+        ]
+    }
+}

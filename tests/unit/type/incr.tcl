@@ -42,6 +42,12 @@ start_server {tags {"incr"}} {
         format $err
     } {ERR*}
 
+    test {DECRBY negation overflow} {
+        r set x 0
+        catch {r decrby x -9223372036854775808} err
+        format $err
+    } {ERR*}
+
     test {INCR fails against a key holding a list} {
         r rpush mylist 1
         catch {r incr mylist} err
@@ -63,7 +69,7 @@ start_server {tags {"incr"}} {
         assert {[r object refcount foo] > 1}
         r incr foo
         assert {[r object refcount foo] == 1}
-    }
+    } {} {needs:debug}
 
     test {INCR can modify objects in-place} {
         r set foo 20000
@@ -75,7 +81,7 @@ start_server {tags {"incr"}} {
         assert {[string range $old 0 2] eq "at:"}
         assert {[string range $new 0 2] eq "at:"}
         assert {$old eq $new}
-    }
+    } {} {needs:debug}
 
     test {INCRBYFLOAT against non existing key} {
         r del novar
@@ -105,21 +111,21 @@ start_server {tags {"incr"}} {
         r set novar "    11"
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (right)} {
         set err {}
         r set novar "11    "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (both)} {
         set err {}
         r set novar " 11 "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against a key holding a list} {
         r del mylist
@@ -130,18 +136,35 @@ start_server {tags {"incr"}} {
         format $err
     } {WRONGTYPE*}
 
-    test {INCRBYFLOAT does not allow NaN or Infinity} {
-        r set foo 0
-        set err {}
-        catch {r incrbyfloat foo +inf} err
-        set err
-        # p.s. no way I can force NaN to test it from the API because
-        # there is no way to increment / decrement by infinity nor to
-        # perform divisions.
-    } {ERR*would produce*}
+    # On some platforms strtold("+inf") with valgrind returns a non-inf result
+    if {!$::valgrind} {
+        test {INCRBYFLOAT does not allow NaN or Infinity} {
+            r set foo 0
+            set err {}
+            catch {r incrbyfloat foo +inf} err
+            set err
+            # p.s. no way I can force NaN to test it from the API because
+            # there is no way to increment / decrement by infinity nor to
+            # perform divisions.
+        } {ERR *would produce*}
+    }
 
     test {INCRBYFLOAT decrement} {
         r set foo 1
         roundFloat [r incrbyfloat foo -1.1]
     } {-0.1}
+
+    test {string to double with null terminator} {
+        r set foo 1
+        r setrange foo 2 2
+        catch {r incrbyfloat foo 1} err
+        format $err
+    } {ERR *valid*}
+
+    test {No negative zero} {
+        r del foo
+        r incrbyfloat foo [expr double(1)/41]
+        r incrbyfloat foo [expr double(-1)/41]
+        r get foo
+    } {0}
 }

@@ -1,0 +1,30 @@
+{
+    "WAIT": {
+        "summary": "Wait for the synchronous replication of all the write commands sent in the context of the current connection",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "3.0.0",
+        "arity": 3,
+        "function": "waitCommand",
+        "command_flags": [
+            "NOSCRIPT"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_MIN"
+        ],
+        "arguments": [
+            {
+                "name": "numreplicas",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            }
+        ]
+    }
+}

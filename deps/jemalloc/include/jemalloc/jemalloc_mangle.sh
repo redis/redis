@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -eu
 
 public_symbols_txt=$1
 symbol_prefix=$2

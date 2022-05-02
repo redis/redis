@@ -1,0 +1,82 @@
+name: External Server Tests
+
+on:
+    pull_request:
+    push:
+    schedule:
+      - cron: '0 0 * * *'
+
+jobs:
+  test-external-standalone:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: make REDIS_CFLAGS=-Werror
+    - name: Start redis-server
+      run: |
+        ./src/redis-server --daemonize yes --save "" --logfile external-redis.log \
+          --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
+    - name: Run external test
+      run: |
+          ./runtest \
+            --host 127.0.0.1 --port 6379 \
+            --tags -slow
+    - name: Archive redis log
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-external-redis-log
+        path: external-redis.log
+
+  test-external-cluster:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: make REDIS_CFLAGS=-Werror
+    - name: Start redis-server
+      run: |
+        ./src/redis-server --cluster-enabled yes --daemonize yes --save "" --logfile external-redis.log \
+          --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
+    - name: Create a single node cluster
+      run: ./src/redis-cli cluster addslots $(for slot in {0..16383}; do echo $slot; done); sleep 5
+    - name: Run external test
+      run: |
+          ./runtest \
+            --host 127.0.0.1 --port 6379 \
+            --cluster-mode \
+            --tags -slow
+    - name: Archive redis log
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-external-cluster-log
+        path: external-redis.log
+
+  test-external-nodebug:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.repository == 'redis/redis'
+    timeout-minutes: 14400
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: make REDIS_CFLAGS=-Werror
+      - name: Start redis-server
+        run: |
+          ./src/redis-server --daemonize yes --save "" --logfile external-redis.log
+      - name: Run external test
+        run: |
+          ./runtest \
+            --host 127.0.0.1 --port 6379 \
+            --tags "-slow -needs:debug"
+      - name: Archive redis log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-external-redis-log
+          path: external-redis.log

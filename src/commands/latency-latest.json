@@ -1,0 +1,22 @@
+{
+    "LATEST": {
+        "summary": "Return the latest latency samples for all events.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": 2,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:SPECIAL"
+        ]
+    }
+}

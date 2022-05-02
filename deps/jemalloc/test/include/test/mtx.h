@@ -8,8 +8,8 @@
 typedef struct {
 #ifdef _WIN32
 	CRITICAL_SECTION	lock;
-#elif (defined(JEMALLOC_OSSPIN))
-	OSSpinLock		lock;
+#elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
+	os_unfair_lock		lock;
 #else
 	pthread_mutex_t		lock;
 #endif

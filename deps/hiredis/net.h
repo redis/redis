@@ -1,7 +1,9 @@
 /* Extracted from anet.c to work properly with Hiredis error reporting.
  *
- * Copyright (c) 2006-2011, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010-2011, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2009-2011, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010-2014, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2015, Matt Stancliff <matt at genges dot com>,
+ *                     Jan-Erik Rediger <janerik at fnordig dot com>
  *
  * All rights reserved.
  *
@@ -35,9 +37,9 @@
 
 #include "hiredis.h"
 
-#if defined(__sun) || defined(_AIX)
-#define AF_LOCAL AF_UNIX
-#endif
+void redisNetClose(redisContext *c);
+ssize_t redisNetRead(redisContext *c, char *buf, size_t bufcap);
+ssize_t redisNetWrite(redisContext *c);
 
 int redisCheckSocketError(redisContext *c);
 int redisContextSetTimeout(redisContext *c, const struct timeval tv);
@@ -47,5 +49,8 @@ int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
                                const char *source_addr);
 int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
 int redisKeepAlive(redisContext *c, int interval);
+int redisCheckConnectDone(redisContext *c, int *completed);
+
+int redisSetTcpNoDelay(redisContext *c);
 
 #endif
