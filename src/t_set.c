@@ -1125,7 +1125,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             setTypeReleaseIterator(si);
         }
     } else if (op == SET_OP_DIFF && sameset) {
-        /* At least one of the sets is the same one (same key) and the first one, result must be empty. */
+        /* At least one of the sets is the same one (same key) as the first one, result must be empty. */
     } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
