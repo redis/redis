@@ -1651,8 +1651,11 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
          * {err='<error msg>', source='<source file>', line=<line>}
          * We can construct the error message from this information */
         if (!lua_istable(lua, -1)) {
-            /* Should not happened, and we should considered assert it */
-            addReplyErrorFormat(c,"Error running script (call to %s)\n", run_ctx->funcname);
+            const char *msg = "execution failure";
+            if (lua_isstring(lua, -1)) {
+                msg = lua_tostring(lua, -1);
+            }
+            addReplyErrorFormat(c,"Error running script %s, %.100s\n", run_ctx->funcname, msg);
         } else {
             errorInfo err_info = {0};
             sds final_msg = sdsempty();
