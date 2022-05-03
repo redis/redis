@@ -137,8 +137,8 @@ def is_func_line(src, i)
 end
 
 puts "---\n"
-puts "title: "Modules API reference"\n"
-puts "linkTitle: "API reference"\n"
+puts "title: \"Modules API reference\"\n"
+puts "linkTitle: \"API reference\"\n"
 puts "weight: 1\n"
 puts "description: >\n"
 puts "    Reference for the Redis Modules API\n"
