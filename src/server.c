@@ -5954,10 +5954,10 @@ static sds read_sysfs_line(char *path) {
 
 void linuxTimeWarnings(void) {
 #define PROC_STAT_STIME_IDX 15
-    long long sys_time_ticks, sys_time_ticks_start;
-    unsigned long systime_us, system_hz, test_time_us;
+    unsigned long test_time_us, system_hz;
     struct timespec ts;
     unsigned long long start_us;
+    struct rusage ru_start, ru_end;
 
     /* Check if we're configured to skip this check (useful for slightly faster startup) */
     if (checkIgnoreWarning("SLOW-CLOCKSOURCE"))
@@ -5965,14 +5965,15 @@ void linuxTimeWarnings(void) {
 
     system_hz = sysconf(_SC_CLK_TCK);
 
-    if (!get_proc_stat_ll(PROC_STAT_STIME_IDX, &sys_time_ticks_start))
+    if (getrusage(RUSAGE_SELF, &ru_start) != 0)
         return;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
         return;
     }
     start_us = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000);
 
-    /* clock_gettime() busy loop of 5 times system hz (for a system_hz of 100 this is 50ms).
+    /* clock_gettime() busy loop of 5 times system tick (for a system_hz of 100 this is 50ms)
+     * Using system_hz is required to ensure accurate measurements from getrusage().
      * If our clocksource is configured correctly (vdso) this will result in no system calls.
      * If our clocksource is inefficient it'll waste most of the busy loop in the kernel. */
     test_time_us = 5 * 1000000 / system_hz;
@@ -5983,13 +5984,14 @@ void linuxTimeWarnings(void) {
         d = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000) - start_us;
         if (d >= test_time_us) break;
     }
-    if (!get_proc_stat_ll(PROC_STAT_STIME_IDX, &sys_time_ticks))
+    if (getrusage(RUSAGE_SELF, &ru_end) != 0)
         return;
-    /* Calculate how much time we spent in kernel system calls */
-    systime_us = (1000000 * (sys_time_ticks - sys_time_ticks_start)) / system_hz;
 
-    /* If more than 10% of the time was in system calls we probably have an inefficient clocksource, print a warning */
-    if (systime_us * 10 > test_time_us) {
+    long long stime_us = (ru_end.ru_stime.tv_sec * 1000000 + ru_end.ru_stime.tv_usec) - (ru_start.ru_stime.tv_sec * 1000000 + ru_start.ru_stime.tv_usec);
+    long long utime_us = (ru_end.ru_utime.tv_sec * 1000000 + ru_end.ru_utime.tv_usec) - (ru_start.ru_utime.tv_sec * 1000000 + ru_start.ru_utime.tv_usec);
+
+    /* If more than 10% of the process time was in system calls we probably have an inefficient clocksource, print a warning */
+    if (stime_us * 10 > stime_us + utime_us) {
         sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
         sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
         serverLog(LL_WARNING,
