@@ -64,16 +64,14 @@ typedef struct RIO {
     /* RIO defines pointer to store svr cb&pd here for simplicty, although it
      * should be define in struct point by pd (rio.pd), but hey... */
     struct {
-      struct {
-        RIOFinished cb;
-        void *pd;
-      } rio; /* rio thread cb&pd */
-      struct {
-        voidfuncptr cb;
-        void *pd;
-      } svr; /* server thread cb&pd */
-      void *extra; /* save extra info here */
-    };
+      RIOFinished cb;
+      void *pd;
+    } rio; /* rio thread cb&pd */
+    struct {
+      voidfuncptr cb;
+      void *pd;
+    } svr; /* server thread cb&pd */
+    void *extra; /* save extra info here */
 } RIO;
 
 typedef struct {
@@ -272,9 +270,10 @@ void *lookupSwappingClientsWk(redisDb *db, robj *key);
 void *getComplementSwapsWk(redisDb *db, robj *key, int mode, int *type, getSwapsResult *result, complementObjectFunc *comp, void **pd);
 
 /* --- rocks iter --- */
-#define ITER_BUFFER_CAPACITY_DEFAULT 256
+#define ITER_BUFFER_CAPACITY_DEFAULT 4096
 #define ITER_CACHED_MAX_KEY_LEN 1000
 #define ITER_CACHED_MAX_VAL_LEN 4000
+#define ITER_NOTIFY_BATCH 32
 
 typedef struct iterResult {
     sds cached_key;

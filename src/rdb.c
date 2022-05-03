@@ -1275,7 +1275,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
         /* Write the RESIZE DB opcode. */
         uint64_t db_size, expires_size;
-        db_size = dictSize(db->dict);
+        db_size = dictSize(db->dict)+dictSize(db->evict);
         expires_size = dictSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;

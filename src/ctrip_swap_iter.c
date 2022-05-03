@@ -51,11 +51,11 @@ static int rocksIterWaitReady(rocksIter* it) {
     return 1;
 }
 
-static void rocksIterNotifyReady(rocksIter* it) {
+static void rocksIterNotifyReady(rocksIter* it, int signal) {
     bufferedIterCompleteQueue *cq = it->buffered_cq;
     pthread_mutex_lock(&cq->buffer_lock);
     cq->buffered_count++;
-    pthread_cond_signal(&cq->ready_cond);
+    if (signal) pthread_cond_signal(&cq->ready_cond);
     pthread_mutex_unlock(&cq->buffer_lock);
 }
 
@@ -97,6 +97,8 @@ static void rocksIterNotifyVacant(rocksIter* it) {
 
 void *rocksIterIOThreadMain(void *arg) {
     rocksIter *it = arg;
+    size_t itered = 0;
+    int signal;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
 
     redis_set_thread_title("rocks_iter");
@@ -114,6 +116,7 @@ void *rocksIterIOThreadMain(void *arg) {
 
             if (!rocksdb_iter_valid(it->rocksdb_iter)) {
                 rocksIterNotifyFinshed(it);
+                serverLog(LL_WARNING, "Rocks iter thread iterated %ld rawkey.", itered);
                 break;
             }
 
@@ -122,6 +125,7 @@ void *rocksIterIOThreadMain(void *arg) {
 
             rawkey = rocksdb_iter_key(it->rocksdb_iter,&rklen);
             rawval = rocksdb_iter_value(it->rocksdb_iter,&rvlen);
+            itered++;
 
             if (rklen > ITER_CACHED_MAX_KEY_LEN) {
                 cur->rawkey = sdsnewlen(rawkey, rklen);
@@ -140,8 +144,8 @@ void *rocksIterIOThreadMain(void *arg) {
                 sdssetlen(cur->cached_val, rvlen);
                 cur->rawval = cur->cached_val;
             }
-
-            rocksIterNotifyReady(it);
+            signal = (itered & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
+            rocksIterNotifyReady(it, signal);
 
             rocksdb_iter_next(it->rocksdb_iter);
         }
