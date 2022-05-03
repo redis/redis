@@ -108,7 +108,7 @@ static int doRIODel(RIO *rio) {
 
 static int doRIOWrite(RIO *rio) {
     char *err = NULL;
-    serverAssert(rio->action == ROCKS_DEL);
+    serverAssert(rio->action == ROCKS_WRITE);
     rocksdb_write(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
             rio->req.wb, &err);
     if (err != NULL) {
@@ -218,6 +218,19 @@ void rocksDeinitThreads(rocks *rocks) {
             }
         }
     }
+}
+
+int rocksThreadsDrained(rocks *rocks) {
+    RIOThread *rt;
+    int drained = 1, i;
+    for (i = 0; i < rocks->threads_num; i++) {
+        rt = &server.rocks->threads[i];
+
+        pthread_mutex_lock(&rt->lock);
+        if (listLength(rt->pending_rios)) drained = 0;
+        pthread_mutex_unlock(&rt->lock);
+    }
+    return drained;
 }
 
 /* --- Async rocks io --- */
@@ -366,17 +379,9 @@ void rocksAsyncDel(uint32_t dist, sds rawkey,
 }
 
 static int asyncCompleteQueueDrained(rocks *rocks) {
-    RIOThread *rt;
-    int i, drained = 1;
+    int drained = 1;
 
-    for (i = 0; i < rocks->threads_num; i++) {
-        rt = &server.rocks->threads[i];
-
-        pthread_mutex_lock(&rt->lock);
-        if (listLength(rt->pending_rios)) drained = 0;
-        pthread_mutex_unlock(&rt->lock);
-    }
-
+    if (!rocksThreadsDrained(rocks)) return 0;
     pthread_mutex_lock(&rocks->CQ.lock);
     if (listLength(rocks->CQ.complete_queue)) drained = 0;
     pthread_mutex_unlock(&rocks->CQ.lock);
@@ -493,6 +498,7 @@ void parallelSwapRIOFinished(RIO *rio, void *pd) {
                     strerror(errno));
         }
     }
+    RIOFree(rio);
 }
 
 /* Submit one swap (task). swap will start and finish in submit order. */

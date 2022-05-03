@@ -175,6 +175,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
     sds rawkey, rawval;
 
     if (ctx->batch.index == 0) return;
+
     wb = rocksdb_writebatch_create();
     for (i = 0; i < ctx->batch.count; i++) {
         rawkey = ctx->batch.rawkeys[i];
@@ -186,6 +187,12 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
     if (parallelSwapWrite(ctx->ps, wb, ctripRdbLoadWriteFinished, wb)) {
         if ( ctx->errors++ < 10)
             serverLog(LL_WARNING, "Write rocksdb failed on RDBLoad");
+    }
+    for (i = 0; i < ctx->batch.count; i++) {
+        rawkey = ctx->batch.rawkeys[i];
+        rawval = ctx->batch.rawvals[i];
+        sdsfree(rawkey);
+        sdsfree(rawval);
     }
 }
 
@@ -219,7 +226,7 @@ void evictStopLoading(int success) {
     UNUSED(success);
     /* send last buffered batch. */
     ctripRdbLoadSendBatch(server.rdb_load_ctx);
-    asyncCompleteQueueDrain(server.rocks, -1);
+    asyncCompleteQueueDrain(server.rocks, -1); /* CONFIRM */
     parallelSwapDrain(server.rdb_load_ctx->ps);
     ctripRdbLoadCtxFree(server.rdb_load_ctx);
     server.rdb_load_ctx = NULL;
