@@ -29,7 +29,9 @@
 
 
 #include <errno.h>
+#ifndef __INTEL_COMPILER
 #include <port.h>
+#endif
 #include <poll.h>
 
 #include <sys/types.h>

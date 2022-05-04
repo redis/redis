@@ -30,7 +30,9 @@
 
 
 #include <sys/types.h>
+#ifndef __INTEL_COMPILER
 #include <sys/event.h>
+#endif
 #include <sys/time.h>
 
 typedef struct aeApiState {
