@@ -674,6 +674,7 @@ struct redisObject;
 struct RedisModuleDefragCtx;
 struct RedisModuleInfoCtx;
 struct RedisModuleKeyOptCtx;
+struct RedisModuleCommand;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -2258,6 +2259,7 @@ struct redisCommand {
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
+    struct RedisModuleCommand *module_cmd; /* A pointer to the module command data (NULL if native command) */
 };
 
 struct redisError {
