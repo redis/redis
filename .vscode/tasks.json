@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "clean"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Compile",
+            "type": "shell",
+            "command": "make",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build",
+            "dependsOn": [
+                "Clean",
+                "Compile"
+            ]
+        },
+        {
+            "label": "writeRedisPID",
+            "type": "shell",
+            "command": "ps -ef | grep 'redis-server' | grep -v grep | awk '{print $2}' > /tmp/redis.pid"
+        }
+    ]
+}
