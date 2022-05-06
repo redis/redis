@@ -230,11 +230,40 @@ connection *connCreateAcceptedSocket(int fd);
 connection *connCreateTLS();
 connection *connCreateAcceptedTLS(int fd, int require_auth);
 
-void connSetPrivateData(connection *conn, void *data);
-void *connGetPrivateData(connection *conn);
-int connGetState(connection *conn);
-int connHasWriteHandler(connection *conn);
-int connHasReadHandler(connection *conn);
+static inline int connGetState(connection *conn) {
+    return conn->state;
+}
+
+/* Returns true if a write handler is registered */
+static inline int connHasWriteHandler(connection *conn) {
+    return conn->write_handler != NULL;
+}
+
+/* Returns true if a read handler is registered */
+static inline int connHasReadHandler(connection *conn) {
+    return conn->read_handler != NULL;
+}
+
+/* Associate a private data pointer with the connection */
+static inline void connSetPrivateData(connection *conn, void *data) {
+    conn->private_data = data;
+}
+
+/* Get the associated private data pointer */
+static inline void *connGetPrivateData(connection *conn) {
+    return conn->private_data;
+}
+
+/* Return a text that describes the connection, suitable for inclusion
+ * in CLIENT LIST and similar outputs.
+ *
+ * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
+ */
+static inline const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
+    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
+    return buf;
+}
+
 int connGetSocketError(connection *conn);
 
 /* anet-style wrappers to conns */
@@ -248,7 +277,6 @@ int connRecvTimeout(connection *conn, long long ms);
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port);
 int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type);
 int connSockName(connection *conn, char *ip, size_t ip_len, int *port);
-const char *connGetInfo(connection *conn, char *buf, size_t buf_len);
 
 /* Helpers for tls special considerations */
 sds connTLSGetPeerCert(connection *conn);
