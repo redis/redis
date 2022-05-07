@@ -91,6 +91,12 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "crc64.h"
 
 /* min/max */
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
