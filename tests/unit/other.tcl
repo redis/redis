@@ -39,8 +39,17 @@ start_server {tags {"other"}} {
     }
 
     test {FLUSHALL will reset the dirty counter to 0} {
+        r set key value
+
+        r multi
         r flushall
-        assert_equal [s rdb_changes_since_last_save] 0
+        r info persistence
+        set res [r exec]
+
+        assert_equal [lindex $res 0] {OK}
+        set persistence_info [lindex $res 1]
+        set dirty [getInfoProperty $persistence_info rdb_changes_since_last_save]
+        assert_equal $dirty 0
     }
 
     test {BGSAVE} {
