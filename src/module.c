@@ -11656,11 +11656,6 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     return REDISMODULE_OK;
 }
 
-/* configEnum->val compare qsort, putting the high ones first */
-static int configEnumCompareRev(const void *a, const void *b) {
-    return (((configEnum *)b)->val - ((configEnum *)a)->val);
-}
-
 /* 
  * Create an enum config that server clients can interact with via the 
  * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
@@ -11684,7 +11679,11 @@ static int configEnumCompareRev(const void *a, const void *b) {
  *      }
  *      ...
  *      RedisModule_RegisterEnumConfig(ctx, "enum", 0, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 3, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL);
- * 
+ *
+ * Note that you can use REDISMODULE_CONFIG_BITFLAGS so that multiple enum string
+ * can be combined into one integer as bit flags, in which case you may want to
+ * sort your enums so that the preferred combinations are present first.
+ *
  * See RedisModule_RegisterStringConfig for detailed general information about configs. */
 int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
@@ -11702,10 +11701,6 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
         enum_vals[i].name = zstrdup(enum_values[i]);
         enum_vals[i].val = int_values[i];
     }
-    /* For bitflags, sort them from high to low, so that if there are several / partially
-     * overlapping entries, we'll prefer the ones matching more bits. */
-    if (flags & REDISMODULE_CONFIG_BITFLAGS)
-        qsort(enum_vals, num_enum_vals, sizeof(*enum_vals), configEnumCompareRev);
     enum_vals[num_enum_vals].name = NULL;
     enum_vals[num_enum_vals].val = 0;
     listAddNodeTail(module->module_configs, new_config);

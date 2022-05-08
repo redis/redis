@@ -121,8 +121,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     /* On the stack to make sure we're copying them. */
-    const char *enum_vals[] = {"none", "one", "two", "four", "five"};
-    const int int_vals[] = {0, 1, 2, 4, 5};
+    const char *enum_vals[] = {"none", "five", "one", "two", "four"};
+    const int int_vals[] = {0, 5, 1, 2, 4};
 
     if (RedisModule_RegisterEnumConfig(ctx, "enum", 1, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 5, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;

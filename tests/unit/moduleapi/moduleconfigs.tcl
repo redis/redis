@@ -11,7 +11,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two one}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {one two}"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
     }
 
@@ -41,7 +41,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags none"
 
         r config set moduleconfigs.flags "two four"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {four two}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
 
         r config set moduleconfigs.flags "five"
         assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags five"
@@ -87,7 +87,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two one}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {one two}"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
     }
@@ -101,7 +101,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string tclortickle"
         # Configs that were not changed should still be their module specified value
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum one"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two one}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {one two}"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
     }
 
@@ -162,7 +162,7 @@ start_server {tags {"modules"}} {
         r config set moduleconfigs.mutable_bool yes
         r config set moduleconfigs.memory_numeric 750
         r config set moduleconfigs.enum two
-        r config set moduleconfigs.flags "two four"
+        r config set moduleconfigs.flags "four two"
         r config rewrite
         restart_server 0 true false
         # Ensure configs we rewrote are present and that the conf file is readable
@@ -170,7 +170,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {four two}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
     }
@@ -250,7 +250,7 @@ start_server {tags {"modules"}} {
             assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
             assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
             assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-            assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {four two}"
+            assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
             assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
             assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
         }
