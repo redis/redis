@@ -38,9 +38,15 @@ start_server {tags {"other"}} {
         }
     }
 
+    test {FLUSHALL will reset the dirty counter to 0} {
+        r flushall
+        assert_equal [s rdb_changes_since_last_save] 0
+    }
+
     test {BGSAVE} {
-        r flushdb
-        waitForBgsave r
+        # Use FLUSHALL instead of FLUSHDB, FLUSHALL do a foreground save
+        # and reset the dirty counter to 0, so we won't trigger an unexpected bgsave.
+        r flushall
         r save
         r set x 10
         r bgsave

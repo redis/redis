@@ -602,18 +602,11 @@ void flushAllDataAndResetRDB(int flags) {
     server.dirty += emptyData(-1,flags,NULL);
     if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
     if (server.saveparamslen > 0) {
-        /* Normally rdbSave() will reset dirty, but we don't want this here
-         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
         rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
-        server.dirty = saved_dirty;
     }
 
-    /* Without that extra dirty++, when db was already empty, FLUSHALL will
-     * not be replicated nor put into the AOF. */
-    server.dirty++;
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
@@ -650,6 +643,7 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushall should not flush the functions */
     flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
     addReply(c,shared.ok);
 }
 

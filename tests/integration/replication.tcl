@@ -226,10 +226,29 @@ start_server {tags {"repl external:skip"}} {
         }
 
         test {FLUSHALL should replicate} {
+            set repl [attach_to_replication_stream]
+
+            r -1 set key value
             r -1 flushall
-            if {$::valgrind} {after 2000}
-            list [r -1 dbsize] [r 0 dbsize]
-        } {0 0}
+            wait_for_ofs_sync [srv 0 client] [srv -1 client]
+            assert_equal [r -1 dbsize] 0
+            assert_equal [r 0 dbsize] 0
+
+            # DBs are empty.
+            r -1 flushall
+            r -1 flushall
+            r -1 flushall
+
+            # Assert that each FLUSHALL command are replicated even the DBs are empty.
+            assert_replication_stream $repl {
+                {set key value}
+                {flushall}
+                {flushall}
+                {flushall}
+                {flushall}
+            }
+            close_replication_stream $repl
+        }
 
         test {ROLE in master reports master with a slave} {
             set res [r -1 role]
