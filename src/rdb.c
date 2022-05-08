@@ -1230,7 +1230,7 @@ void rdbSaveProgress(rio *rdb, int rdbflags) {
     /* Update child info every 1 second (approximately).
      * in order to avoid calling mstime() on each iteration, we will
      * check the diff every 1024 keys */
-    if ((rdb_load_key_count & 1023) == 0) {
+    if ((rdb_load_key_count++ & 1023) == 0) {
         long long now = mstime();
         if (now - info_updated_time >= 1000) {
             sendChildInfo(CHILD_INFO_TYPE_CURRENT_INFO, rdb_load_key_count, pname);

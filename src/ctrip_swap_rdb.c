@@ -124,6 +124,11 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
             continue;
         }
 
+        if (NULL != lookupKey(db, &keyobj, LOOKUP_NOTOUCH)) {
+            continue;
+        }
+
+
         expire = getExpire(db, &keyobj);
         retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,rawval,expire);
         if (key != cached_key) sdsfree(key);
@@ -177,7 +182,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
     if (ctx->batch.index == 0) return;
 
     wb = rocksdb_writebatch_create();
-    for (i = 0; i < ctx->batch.count; i++) {
+    for (i = 0; i < ctx->batch.index; i++) {
         rawkey = ctx->batch.rawkeys[i];
         rawval = ctx->batch.rawvals[i];
         rocksdb_writebatch_put(wb, rawkey, sdslen(rawkey),
@@ -188,7 +193,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
         if ( ctx->errors++ < 10)
             serverLog(LL_WARNING, "Write rocksdb failed on RDBLoad");
     }
-    for (i = 0; i < ctx->batch.count; i++) {
+    for (i = 0; i < ctx->batch.index; i++) {
         rawkey = ctx->batch.rawkeys[i];
         rawval = ctx->batch.rawvals[i];
         sdsfree(rawkey);
