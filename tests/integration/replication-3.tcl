@@ -40,6 +40,12 @@ start_server {tags {"repl"}} {
         }
 
         test {Slave is able to evict keys created in writable slaves} {
+            # wait createComplexDataset 
+            wait_for_condition 500 100 {
+                [r dbsize] == [r -1 dbsize]
+            } else {
+                fail "Replicas and master offsets were unable to match *exactly*."
+            }
             if {$::swap} {
                 r -1 config set slave-read-only no
                 r -1 FLUSHDB
@@ -60,6 +66,7 @@ start_server {tags {"repl"}} {
 
 start_server {tags {"repl"}} {
     start_server {} {
+        r -1 config set aof-use-rdb-preamble no
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
             wait_for_condition 50 100 {
@@ -70,7 +77,7 @@ start_server {tags {"repl"}} {
         }
 
         set numops 20000 ;# Enough to trigger the Script Cache LRU eviction.
-
+        r config set aof-use-rdb-preamble no
         # While we are at it, enable AOF to test it will be consistent as well
         # after the test.
         r config set appendonly yes
