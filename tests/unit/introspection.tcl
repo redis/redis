@@ -460,17 +460,17 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --port 6379 6380} err
         assert_match {*'port "6379" "6380"'*wrong number of arguments*} $err
 
-        # We will not take `--loglevel` and `verbose` as the port option value.
+        # Take `--loglevel` and `verbose` as the port option value.
         catch {exec src/redis-server --port --loglevel verbose} err
-        assert_match {*'port'*wrong number of arguments*} $err
+        assert_match {*'port "--loglevel" "verbose"'*wrong number of arguments*} $err
 
-        # We will not take `--bla` as the port option value.
+        # Take `--bla` as the port option value.
         catch {exec src/redis-server --port --bla --loglevel verbose} err
-        assert_match {*'port'*wrong number of arguments*} $err
+        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
 
-        # We will not take `--my--log--file` as the logfile option value.
+        # Take `--bla` as the loglevel option value.
         catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
-        assert_match {*'logfile'*wrong number of arguments*} $err
+        assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
 
         # Using MULTI_ARG's own check, empty option value
         catch {exec src/redis-server --shutdown-on-sigint} err
@@ -478,25 +478,20 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
         assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
 
-        # Not allow options values to start with the `--` prefix.
+        # Something like `redis-server --some-config --config-value1 --config-value2 --loglevel debug` would break,
+        # because if you want to pass a value to a config starting with `--`, it can only be a single value.
         catch {exec src/redis-server --replicaof 127.0.0.1 abc} err
         assert_match {*'replicaof "127.0.0.1" "abc"'*Invalid master port*} $err
         catch {exec src/redis-server --replicaof --127.0.0.1 abc} err
-        assert_match {*'replicaof'*wrong number of arguments*} $err
+        assert_match {*'replicaof "--127.0.0.1" "abc"'*Invalid master port*} $err
         catch {exec src/redis-server --replicaof --127.0.0.1 --abc} err
-        assert_match {*'replicaof'*wrong number of arguments*} $err
+        assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
-    test {redis-server command line arguments - save with empty input} {
+    test {redis-server command line arguments - allow option value to use the `--` prefix} {
         set port [find_available_port $::baseport $::portcount]
-        exec src/redis-server --port $port --daemonize yes --save --loglevel verbose
-        assert_equal {} [lindex [exec src/redis-cli -p $port config get save] 1]
-        assert_equal {verbose} [lindex [exec src/redis-cli -p $port config get loglevel] 1]
-
-        set port [find_available_port $::baseport $::portcount]
-        exec src/redis-server --port $port --daemonize yes --save "" --loglevel warning
-        assert_equal {} [lindex [exec src/redis-cli -p $port config get save] 1]
-        assert_equal {warning} [lindex [exec src/redis-cli -p $port config get loglevel] 1]
+        exec src/redis-server --port $port --daemonize yes --logfile --my--log--file --loglevel verbose
+        assert_equal {--my--log--file} [lindex [exec src/redis-cli -p $port config get logfile] 1]
     } {} {external:skip}
 
     test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
