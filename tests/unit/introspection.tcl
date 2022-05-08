@@ -494,6 +494,17 @@ start_server {tags {"introspection"}} {
         assert_equal {--my--log--file} [lindex [exec src/redis-cli -p $port config get logfile] 1]
     } {} {external:skip}
 
+    test {redis-server command line arguments - save with empty input} {
+        # Take `--loglevel` as the save option value.
+        catch {exec src/redis-server --save --loglevel verbose} err
+        assert_match {*'save "--loglevel" "verbose"'*Invalid save parameters*} $err
+
+        set port [find_available_port $::baseport $::portcount]
+        exec src/redis-server --port $port --daemonize yes --save "" --loglevel verbose
+        assert_equal {} [lindex [exec src/redis-cli -p $port config get save] 1]
+        assert_equal {verbose} [lindex [exec src/redis-cli -p $port config get loglevel] 1]
+    } {} {external:skip}
+
     test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
         set port [find_available_port $::baseport $::portcount]
         exec src/redis-server --port $port --daemonize yes --shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"
