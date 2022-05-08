@@ -3978,12 +3978,7 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
     }
 
     if (bin->defrag_slabs_to_retain == 0) {
-        extent_t *r0 = extent_heap_first(&bin->slabs_nonfull);
-        extent_t *r1 = extent_heap_first(&bin->slabs_nonfull_temp);
-        phn_merge(extent_t, ph_link, r0, r1, extent_snad_comp, bin->slabs_nonfull.ph_root);
-        /* Clear the temp heap after merge */
-        extent_heap_new(&bin->slabs_nonfull_temp);
-        assert(extent_heap_empty(&bin->slabs_nonfull_temp));
+        extent_heap_merge(&bin->slabs_nonfull, &bin->slabs_nonfull_temp);
         bin->initing_defrag = false;
     }
 }
@@ -4053,14 +4048,7 @@ finish_defrag(void) {
         bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
 
         if (bin->initing_defrag) {
-            extent_t *r0 = extent_heap_first(&bin->slabs_nonfull);
-            extent_t *r1 = extent_heap_first(&bin->slabs_nonfull_temp);
-            phn_merge(extent_t, ph_link, r0, r1, extent_snad_comp, bin->slabs_nonfull.ph_root);
-
-            // Clear the temp heap after merge
-            extent_heap_new(&bin->slabs_nonfull_temp);
-            assert(extent_heap_empty(&bin->slabs_nonfull_temp));
-
+            extent_heap_merge(&bin->slabs_nonfull, &bin->slabs_nonfull_temp);
             bin->initing_defrag = false;
             bin->defrag_slabs_to_retain = 0;
         }
