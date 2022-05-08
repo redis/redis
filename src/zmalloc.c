@@ -502,10 +502,10 @@ size_t zmalloc_get_rss(void) {
     ssize_t cookie = 0;
 
     if (get_thread_info(find_thread(0), &th) != B_OK)
-	    return 0;
+        return 0;
 
     while (get_next_area_info(th.team, &cookie, &info) == B_OK)
-	    rss += info.ram_size;
+        rss += info.ram_size;
 
     return rss;
 }
