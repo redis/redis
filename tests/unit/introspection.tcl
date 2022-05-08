@@ -166,10 +166,25 @@ start_server {tags {"introspection"}} {
             assert_match [r config get save] {save {3600 1 300 100 60 10000}}
         }
 
-        # First "save" keyword overrides defaults
+        # First "save" keyword overrides hard coded defaults
         start_server {config "minimal.conf" overrides {save {100 100}}} {
             # Defaults
             assert_match [r config get save] {save {100 100}}
+        }
+
+        # First "save" keyword in default config file
+        start_server {config "default.conf"} {
+            assert_match [r config get save] {save {900 1}}
+        }
+
+        # First "save" keyword appends default from config file
+        start_server {config "default.conf" args {--save 100 100}} {
+            assert_match [r config get save] {save {900 1 100 100}}
+        }
+
+        # Empty "save" keyword resets all
+        start_server {config "default.conf" args {--save {}}} {
+            assert_match [r config get save] {save {}}
         }
     } {} {external:skip}
 
