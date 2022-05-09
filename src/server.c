@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "syscheck.h"
 
 #include <time.h>
 #include <signal.h>
@@ -5925,84 +5926,19 @@ int linuxOvercommitMemoryValue(void) {
 }
 
 void linuxMemoryWarnings(void) {
-    if (linuxOvercommitMemoryValue() == 0) {
-        serverLog(LL_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
+    sds err_msg;
+    if (check_overcommit(&err_msg) < 0) {
+        serverLog(LL_WARNING,"WARNING %s", err_msg);
+        sdsfree(err_msg);
     }
-    if (THPIsEnabled()) {
+    if (check_thp_enabled(&err_msg) < 0) {
         server.thp_enabled = 1;
         if (THPDisable() == 0) {
             server.thp_enabled = 0;
-            return;
+        } else {
+            serverLog(LL_WARNING, "WARNING %s", err_msg);
         }
-        serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
-    }
-}
-
-static sds read_sysfs_line(char *path) {
-    char buf[256];
-    FILE *f = fopen(path, "r");
-    if (!f) return NULL;
-    if (!fgets(buf, sizeof(buf), f)) {
-        fclose(f);
-        return NULL;
-    }
-    fclose(f);
-    sds res = sdsnew(buf);
-    res = sdstrim(res, " \n");
-    return res;
-}
-
-void linuxTimeWarnings(void) {
-#define PROC_STAT_STIME_IDX 15
-    unsigned long test_time_us, system_hz;
-    struct timespec ts;
-    unsigned long long start_us;
-    struct rusage ru_start, ru_end;
-
-    /* Check if we're configured to skip this check (useful for slightly faster startup) */
-    if (checkIgnoreWarning("SLOW-CLOCKSOURCE"))
-        return;
-
-    system_hz = sysconf(_SC_CLK_TCK);
-
-    if (getrusage(RUSAGE_SELF, &ru_start) != 0)
-        return;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0) {
-        return;
-    }
-    start_us = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000);
-
-    /* clock_gettime() busy loop of 5 times system tick (for a system_hz of 100 this is 50ms)
-     * Using system_hz is required to ensure accurate measurements from getrusage().
-     * If our clocksource is configured correctly (vdso) this will result in no system calls.
-     * If our clocksource is inefficient it'll waste most of the busy loop in the kernel. */
-    test_time_us = 5 * 1000000 / system_hz;
-    while (1) {
-        unsigned long long d;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) < 0)
-            return;
-        d = (ts.tv_sec * 1000000 + ts.tv_nsec / 1000) - start_us;
-        if (d >= test_time_us) break;
-    }
-    if (getrusage(RUSAGE_SELF, &ru_end) != 0)
-        return;
-
-    long long stime_us = (ru_end.ru_stime.tv_sec * 1000000 + ru_end.ru_stime.tv_usec) - (ru_start.ru_stime.tv_sec * 1000000 + ru_start.ru_stime.tv_usec);
-    long long utime_us = (ru_end.ru_utime.tv_sec * 1000000 + ru_end.ru_utime.tv_usec) - (ru_start.ru_utime.tv_sec * 1000000 + ru_start.ru_utime.tv_usec);
-
-    /* If more than 10% of the process time was in system calls we probably have an inefficient clocksource, print a warning */
-    if (stime_us * 10 > stime_us + utime_us) {
-        sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
-        sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
-        serverLog(LL_WARNING,
-            "WARNING slow system clocksource detected. This can result in degraded performance. "
-            "Consider changing the system's clocksource. "
-            "Current clocksource: %s. Available clocksources: %s. "
-            "For example: run the command 'echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource' as root. "
-            "To permanently change the system's clocksource you'll need to set the 'clocksource=' kernel command line parameter.",
-            curr ? curr : "", avail ? avail : "");
-        sdsfree(avail);
-        sdsfree(curr);
+        sdsfree(err_msg);
     }
 }
 
@@ -6957,6 +6893,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
                 exit(1);
             }
+        } if (strcmp(argv[1], "--check-system") == 0) {
+            syscheck();
         }
         /* Parse command line options
          * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
@@ -7026,7 +6964,11 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
-        linuxTimeWarnings();
+        sds err_msg;
+        if (check_xen(&err_msg) < 0) {
+            serverLog(LL_WARNING, "WARNING %s", err_msg);
+            sdsfree(err_msg);
+        }
     #if defined (__arm64__)
         int ret;
         if ((ret = linuxMadvFreeForkBugCheck())) {
