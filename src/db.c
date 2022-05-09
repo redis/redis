@@ -625,7 +625,9 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushdb should not flush the functions */
     server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
     addReply(c,shared.ok);
+
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't

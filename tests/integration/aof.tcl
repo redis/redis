@@ -634,8 +634,18 @@ tags {"aof external:skip"} {
     }
 
     start_server {overrides {appendonly yes appendfsync always}} {
-        test {FLUSHALL should persist in AOF} {
+        test {FLUSHDB / FLUSHALL should persist in AOF} {
             set aof [get_last_incr_aof_path r]
+
+            r set key value
+            r flushdb
+            r set key value2
+            r flushdb
+
+            # DB is empty
+            r flushdb
+            r flushdb
+            r flushdb
 
             r set key value
             r flushall
@@ -647,9 +657,17 @@ tags {"aof external:skip"} {
             r flushall
             r flushall
 
-            # Assert that each FLUSHALL command are persisted even the DBs are empty.
+            # Assert that each FLUSHDB command is persisted even the DB is empty.
+            # Assert that each FLUSHALL command is persisted even the DBs are empty.
             assert_aof_content $aof {
                 {select *}
+                {set key value}
+                {flushdb}
+                {set key value2}
+                {flushdb}
+                {flushdb}
+                {flushdb}
+                {flushdb}
                 {set key value}
                 {flushall}
                 {set key value2}
