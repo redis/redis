@@ -1,5 +1,4 @@
 #!/usr/bin/env ruby
-
 # coding: utf-8
 # gendoc.rb -- Converts the top-comments inside module.c to modules API
 #              reference documentation in markdown format.
@@ -80,7 +79,7 @@ def docufy(src,i)
     puts "<span id=\"#{name}\"></span>\n\n"
     puts "### `#{name}`\n\n"
     puts "    #{proto}\n"
-    puts "**Available since:** #{$since[name]}\n\n" if $since[name]
+    puts "**Available since:** #{$since[name] or "unreleased"}\n\n"
     comment = ""
     while true
         i = i-1
@@ -137,7 +136,16 @@ def is_func_line(src, i)
          src[i-1] =~ /\*\//
 end
 
-puts "# Modules API reference\n\n"
+puts "---\n"
+puts "title: \"Modules API reference\"\n"
+puts "linkTitle: \"API reference\"\n"
+puts "weight: 1\n"
+puts "description: >\n"
+puts "    Reference for the Redis Modules API\n"
+puts "aliases:\n"
+puts "    - /topics/modules-api-ref\n"
+puts "---\n"
+puts "\n"
 puts "<!-- This file is generated from module.c using\n"
 puts "     utils/generate-module-api-doc.rb -->\n\n"
 src = File.open(File.dirname(__FILE__) ++ "/../src/module.c").to_a
