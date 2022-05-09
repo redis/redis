@@ -110,14 +110,15 @@ static int check_clocksource(sds *error_msg) {
 
 int check_xen(sds *error_msg) {
     sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
+    int res = 1;
     if (curr == NULL) {
-        return 0;
+        res = 0;
     } else if (strcmp(curr, "xen") == 0) {
         *error_msg = clocksource_warning_msg();
-        return -1;
-    } else {
-        return 1;
+        res = -1;
     }
+    sdsfree(curr);
+    return res;
 }
 
 int check_overcommit(sds *error_msg) {
