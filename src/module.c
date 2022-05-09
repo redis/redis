@@ -9809,7 +9809,7 @@ typedef struct {
 } ScanCBData;
 
 typedef struct RedisModuleScanCursor{
-    int cursor;
+    unsigned long cursor;
     int done;
 }RedisModuleScanCursor;
 
