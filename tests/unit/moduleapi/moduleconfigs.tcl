@@ -32,10 +32,25 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
         r config set moduleconfigs.flags two
         assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags two"
-        r config set moduleconfigs.flags "two three"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two three}"
         r config set moduleconfigs.numeric -2
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -2"
+    }
+
+    test {Config set commands enum flags} {
+        r config set moduleconfigs.flags "none"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags none"
+
+        r config set moduleconfigs.flags "two four"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
+
+        r config set moduleconfigs.flags "five"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags five"
+
+        r config set moduleconfigs.flags "one four"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags five"
+
+        r config set moduleconfigs.flags "one two four"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {five two}"
     }
 
     test {Immutable flag works properly and rejected strings dont leak} {
@@ -58,7 +73,7 @@ start_server {tags {"modules"}} {
 
     test {Enums only able to be set to passed in values} {
         # Module authors specify what values are valid for enums, check that only those values are ok on a set
-        catch {[r config set moduleconfigs.enum four]} e
+        catch {[r config set moduleconfigs.enum asdf]} e
         assert_match {*must be one of the following*} $e
     }
 
@@ -147,7 +162,7 @@ start_server {tags {"modules"}} {
         r config set moduleconfigs.mutable_bool yes
         r config set moduleconfigs.memory_numeric 750
         r config set moduleconfigs.enum two
-        r config set moduleconfigs.flags "two three"
+        r config set moduleconfigs.flags "four two"
         r config rewrite
         restart_server 0 true false
         # Ensure configs we rewrote are present and that the conf file is readable
@@ -155,7 +170,7 @@ start_server {tags {"modules"}} {
         assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 750"
         assert_equal [r config get moduleconfigs.string] "moduleconfigs.string {super \0secret password}"
         assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two three}"
+        assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
         assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
         r module unload moduleconfigs
     }
@@ -230,12 +245,12 @@ start_server {tags {"modules"}} {
         set stdout [dict get $noload stdout]
         assert_equal [count_message_lines $stdout "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module."] 1
 
-        start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "bootedup" moduleconfigs.enum two moduleconfigs.flags "two three"]] {
+        start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "bootedup" moduleconfigs.enum two moduleconfigs.flags "two four"]] {
             assert_equal [r config get moduleconfigs.string] "moduleconfigs.string bootedup"
             assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
             assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
             assert_equal [r config get moduleconfigs.enum] "moduleconfigs.enum two"
-            assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two three}"
+            assert_equal [r config get moduleconfigs.flags] "moduleconfigs.flags {two four}"
             assert_equal [r config get moduleconfigs.numeric] "moduleconfigs.numeric -1"
             assert_equal [r config get moduleconfigs.memory_numeric] "moduleconfigs.memory_numeric 1024"
         }

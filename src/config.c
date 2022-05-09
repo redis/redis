@@ -311,18 +311,21 @@ int configEnumGetValue(configEnum *ce, sds *argv, int argc, int bitflags) {
 /* Get enum name/s from value. If no matches are found "unknown" is returned. */
 static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
     sds names = NULL;
-    int matches = 0;
+    int unmatched = values;
     for( ; ce->name != NULL; ce++) {
         if (values == ce->val) { /* Short path for perfect match */
             sdsfree(names);
             return sdsnew(ce->name);
         }
-        if (bitflags && (values & ce->val)) {
+
+        /* Note: for bitflags, we want them sorted from high to low, so that if there are several / partially
+         * overlapping entries, we'll prefer the ones matching more bits. */
+        if (bitflags && ce->val && ce->val == (unmatched & ce->val)) {
             names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
-            matches |= ce->val;
+            unmatched &= ~ce->val;
         }
     }
-    if (!names || values != matches) {
+    if (!names || unmatched) {
         sdsfree(names);
         return sdsnew("unknown");
     }
