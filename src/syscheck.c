@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __linux__
 static sds read_sysfs_line(char *path) {
     char buf[256];
     FILE *f = fopen(path, "r");
@@ -150,12 +151,13 @@ int check_thp_enabled(sds *error_msg) {
     fclose(fp);
 
     if (strstr(buf,"[always]") != NULL) {
+        *error_msg = sdsnew("You have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
         return -1;
     } else {
-        *error_msg = sdsnew("You have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
         return 1;
     }
 }
+#endif
 
 typedef struct {
     const char *name;
@@ -163,10 +165,12 @@ typedef struct {
 } check;
 
 check checks[] = {
+#ifdef __linux__
     {.name = "clocksource", .check_fn = check_clocksource},
     {.name = "xen", .check_fn = check_xen},
     {.name = "overcommit", .check_fn = check_overcommit},
     {.name = "THP", .check_fn = check_thp_enabled},
+#endif
     {.name = NULL, .check_fn = NULL}
 };
 

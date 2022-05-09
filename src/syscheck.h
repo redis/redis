@@ -33,8 +33,10 @@
 #include "sds.h"
 
 void syscheck(void);
+#ifdef __linux__
 int check_xen(sds *error_msg);
 int check_thp_enabled(sds *error_msg);
 int check_overcommit(sds *error_msg);
+#endif
 
 #endif
