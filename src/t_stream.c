@@ -2287,6 +2287,13 @@ void xreadCommand(client *c) {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;
             }
+            /* We change the '$' to the current last ID for this stream. this is
+             * Since later on when we unblock on arriving data - we would like to
+             * re-process the command and in case '$' stays we will spin-block forever.
+             */
+            robj *argv_streamid = createObjectFromStreamID(&ids[id_idx]);
+            decrRefCount(c->argv[i]);
+            c->argv[i] = argv_streamid;
             continue;
         } else if (strcmp(c->argv[i]->ptr,">") == 0) {
             if (!xreadgroup) {
@@ -2403,27 +2410,7 @@ void xreadCommand(client *c) {
             addReplyNullArray(c);
             goto cleanup;
         }
-        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count,
-                     -1, timeout, NULL, NULL, ids);
-        /* If no COUNT is given and we block, set a relatively small count:
-         * in case the ID provided is too low, we do not want the server to
-         * block just to serve this client a huge stream of messages. */
-        c->bpop.xread_count = count ? count : XREAD_BLOCKED_DEFAULT_COUNT;
-
-        /* If this is a XREADGROUP + GROUP we need to remember for which
-         * group and consumer name we are blocking, so later when one of the
-         * keys receive more data, we can call streamReplyWithRange() passing
-         * the right arguments. */
-        if (groupname) {
-            incrRefCount(groupname);
-            incrRefCount(consumername);
-            c->bpop.xread_group = groupname;
-            c->bpop.xread_consumer = consumername;
-            c->bpop.xread_group_noack = noack;
-        } else {
-            c->bpop.xread_group = NULL;
-            c->bpop.xread_consumer = NULL;
-        }
+        blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout);
         goto cleanup;
     }
 
@@ -4022,3 +4009,4 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 
     return 1;
 }
+

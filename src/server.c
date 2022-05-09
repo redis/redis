@@ -3403,7 +3403,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable.
      * Administrative commands are considered too dangerous to be shown. */
-    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
+    if (!(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)) && !(c->flags & CLIENT_UNBLOCKED)) {
         robj **argv = c->original_argv ? c->original_argv : c->argv;
         int argc = c->original_argv ? c->original_argc : c->argc;
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
@@ -3417,7 +3417,11 @@ void call(client *c, int flags) {
     /* populate the per-command statistics that we show in INFO commandstats. */
     if (flags & CMD_CALL_STATS) {
         real_cmd->microseconds += duration;
-        real_cmd->calls++;
+        /* In case we are in the process of unblocking a client on keys,
+         * we are going to reprocess a command which was already process once so we do not want to account
+         * for the command twice */
+        if (!(c->flags & CLIENT_UNBLOCKED))
+            real_cmd->calls++;
         /* If the client is blocked we will handle latency stats when it is unblocked. */
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), duration*1000);
@@ -3652,8 +3656,7 @@ int processCommand(client *c) {
     if (server.busy_module_yield_flags != BUSY_MODULE_YIELD_NONE &&
         !(server.busy_module_yield_flags & BUSY_MODULE_YIELD_CLIENTS))
     {
-        c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
+        blockPostponeClient(c);
         return C_OK;
     }
 
@@ -3953,8 +3956,7 @@ int processCommand(client *c) {
         ((server.client_pause_type == CLIENT_PAUSE_ALL) ||
         (server.client_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command)))
     {
-        c->bpop.timeout = 0;
-        blockClient(c,BLOCKED_POSTPONE);
+        blockPostponeClient(c);
         return C_OK;       
     }
 

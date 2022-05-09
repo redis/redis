@@ -235,7 +235,7 @@ start_server {
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         r DEL mystream
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "NOGROUP*" {$rd read}
         $rd close
     }
 
@@ -246,7 +246,7 @@ start_server {
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         r SET mystream val1
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     }
 
@@ -260,7 +260,7 @@ start_server {
         r DEL mystream
         r SADD mystream e1
         r EXEC
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     }
 
@@ -271,7 +271,7 @@ start_server {
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         r FLUSHALL
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*NOGROUP*" {$rd read}
         $rd close
     }
 
@@ -287,7 +287,7 @@ start_server {
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         r SWAPDB 4 9
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*NOGROUP*" {$rd read}
         $rd close
     } {0} {external:skip}
 
@@ -304,7 +304,7 @@ start_server {
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
         r SWAPDB 4 9
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     } {0} {external:skip}
 
