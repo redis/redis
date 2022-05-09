@@ -504,9 +504,10 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
 
     test {redis-server command line arguments - allow option value to use the `--` prefix} {
-        set port [find_available_port $::baseport $::portcount]
-        exec src/redis-server --port $port --daemonize yes --logfile --my--log--file --loglevel verbose
-        assert_equal {--my--log--file} [lindex [exec src/redis-cli -p $port config get logfile] 1]
+        start_server {config "default.conf" args {--proc-title-template --my--title--template --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
     } {} {external:skip}
 
     test {redis-server command line arguments - save with empty input} {
@@ -514,24 +515,17 @@ start_server {tags {"introspection"}} {
         catch {exec src/redis-server --save --loglevel verbose} err
         assert_match {*'save "--loglevel" "verbose"'*Invalid save parameters*} $err
 
-        set port [find_available_port $::baseport $::portcount]
-        exec src/redis-server --port $port --daemonize yes --save "" --loglevel verbose
-        assert_equal {} [lindex [exec src/redis-cli -p $port config get save] 1]
-        assert_equal {verbose} [lindex [exec src/redis-cli -p $port config get loglevel] 1]
+        start_server {config "default.conf" args {--save {} --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
     } {} {external:skip}
 
     test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
-        set port [find_available_port $::baseport $::portcount]
-        exec src/redis-server --port $port --daemonize yes --shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"
-
-        set res [exec src/redis-cli -p $port config get shutdown-on-sigint]
-        assert_match {*shutdown-on-sigint*nosave*} $res
-        assert_match {*shutdown-on-sigint*force*} $res
-        assert_match {*shutdown-on-sigint*now*} $res
-
-        set res [exec src/redis-cli -p $port config get shutdown-on-sigterm]
-        assert_match {*shutdown-on-sigterm*nosave*} $res
-        assert_match {*shutdown-on-sigterm*force*} $res
+        start_server {config "default.conf" args {--shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"}} {
+            assert_match [r config get shutdown-on-sigint] {shutdown-on-sigint {nosave now force}}
+            assert_match [r config get shutdown-on-sigterm] {shutdown-on-sigterm {nosave force}}
+        }
     } {} {external:skip}
 
     # Config file at this point is at a weird state, and includes all
