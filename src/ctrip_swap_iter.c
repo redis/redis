@@ -185,8 +185,8 @@ void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
         iterResult *res = buffered_cq->buffered+i;
         if (res->rawkey != res->cached_key) sdsfree(res->rawkey);
         if (res->rawval != res->cached_val) sdsfree(res->rawval);
-        sdsfree(res->rawkey);
-        sdsfree(res->rawval);
+        sdsfree(res->cached_key);
+        sdsfree(res->cached_val);
     }
     zfree(buffered_cq->buffered);
     pthread_mutex_destroy(&buffered_cq->buffer_lock);
@@ -247,8 +247,15 @@ int rocksIterNext(rocksIter *it) {
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
     /* clear previos state */
-    if (cur->rawkey != cur->cached_key) sdsfree(cur->rawkey);
-    if (cur->rawval != cur->cached_val) sdsfree(cur->rawval);
+    if (cur->rawkey != cur->cached_key) {
+        sdsfree(cur->rawkey);
+        cur->rawkey = NULL;
+    }
+
+    if (cur->rawval != cur->cached_val) {
+        sdsfree(cur->rawval);
+        cur->rawval = NULL;
+    }
     rocksIterNotifyVacant(it);
     return rocksIterWaitReady(it);
 }
