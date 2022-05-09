@@ -424,7 +424,7 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
         update[i] = x;
     }
 
-    /* Current node is the last with lexicographic value < or <= min. */
+    /* Current node is the last with score < or <= min. */
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
@@ -685,7 +685,7 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
     x = x->level[0].forward;
     serverAssert(x != NULL);
 
-    /* Check if lexicographic value <= max. */
+    /* Check if score <= max. */
     if (!zslLexValueLteMax(x->ele,range)) return NULL;
     return x;
 }
@@ -710,7 +710,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     /* This is an inner range, so this node cannot be NULL. */
     serverAssert(x != NULL);
 
-    /* Check if lexicographic value >= min. */
+    /* Check if score >= min. */
     if (!zslLexValueGteMin(x->ele,range)) return NULL;
     return x;
 }
@@ -959,7 +959,7 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
 
     while (eptr != NULL) {
         if (zzlLexValueGteMin(eptr,range)) {
-            /* Check if lexicographic value <= max. */
+            /* Check if score <= max. */
             if (zzlLexValueLteMax(eptr,range))
                 return eptr;
             return NULL;
@@ -984,7 +984,7 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
 
     while (eptr != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
-            /* Check if lexicographic value >= min. */
+            /* Check if score >= min. */
             if (zzlLexValueGteMin(eptr,range))
                 return eptr;
             return NULL;
