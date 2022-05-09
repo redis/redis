@@ -2595,8 +2595,10 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
     int j;
 
     /* Special case: treat single arg "" as zero args indicating empty save configuration */
-    if (argc == 1 && !strcasecmp(argv[0],""))
+    if (argc == 1 && !strcasecmp(argv[0],"")) {
+        resetServerSaveParams();
         argc = 0;
+    }
 
     /* Perform sanity check before setting the new config:
     * - Even number of args
