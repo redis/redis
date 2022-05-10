@@ -295,7 +295,7 @@ exit:
  *   1 in case the check passes.
  *   0 in case the check should not be completed (usually because of some unexpected failed system call).
  *   When (and only when) the check fails and -1 is returned and error description is places in a new sds pointer to by
- *   the singe `sds*` argument to `check_fn`. This message should be freed by the caller via `sdsfree()`.
+ *   the single `sds*` argument to `check_fn`. This message should be freed by the caller via `sdsfree()`.
  */
 typedef struct {
     const char *name;

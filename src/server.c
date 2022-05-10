@@ -5911,6 +5911,22 @@ int checkIgnoreWarning(const char *warning) {
 }
 
 #ifdef __linux__
+#include <sys/prctl.h>
+/* since linux-3.5, kernel supports to set the state of the "THP disable" flag
+ * for the calling thread. PR_SET_THP_DISABLE is defined in linux/prctl.h */
+static int THPDisable(void) {
+    int ret = -EINVAL;
+
+    if (!server.disable_thp)
+        return ret;
+
+#ifdef PR_SET_THP_DISABLE
+    ret = prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif
+
+    return ret;
+}
+
 void linuxMemoryWarnings(void) {
     sds err_msg;
     if (checkOvercommit(&err_msg) < 0) {
