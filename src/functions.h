@@ -106,7 +106,6 @@ struct functionLibInfo {
     dict *functions; /* Functions dictionary */
     engineInfo *ei;  /* Pointer to the function engine */
     sds code;        /* Library code */
-    int is_linked;   /* Indicate that the library is linked to the global dictionaries and can be used */
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
