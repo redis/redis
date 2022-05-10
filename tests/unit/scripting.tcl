@@ -1422,7 +1422,7 @@ start_server {tags {"scripting"}} {
             } 0
         }
 
-        # clear the cached server.script_oom just to reproduce issue with EVAL_RO
+        # Clear the cached server.script_oom just to reproduce issue with EVAL_RO (#10699)
         r config set maxmemory 100mb
         assert_equal [
             r eval_ro {#!lua flags=no-writes
@@ -1431,16 +1431,33 @@ start_server {tags {"scripting"}} {
         ] 1
         r config set maxmemory 1
 
-        # Fail to execute regardless of RO script content when we use default flags in OOM condition
+        # Fail to execute regardless of RO script content when we use default flags in OOM state
         assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
             r eval_ro {#!lua flags=no-writes
                 return 1
             } 0
         }
 
+        # Script with allow-oom can write despite being in OOM state
         assert_equal [
             r eval {#!lua flags=allow-oom
                 redis.call('set','x',1)
+                return 1
+            } 0
+        ] 1
+
+        # Script with no shebang can read in OOM state
+        assert_equal [
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 0
+        ] 1
+
+        # Script with no shebang can read in OOM state (eval_ro variant)
+        assert_equal [
+            r eval_ro {
+                redis.call('get','x')
                 return 1
             } 0
         ] 1
