@@ -1747,7 +1747,8 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         return C_OK;
     } else {
         if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
-            serverLog(LL_WARNING, "ERROR get peer IP: %s", connGetLastError(link->conn));
+            serverLog(LL_WARNING, "ERROR get peer IP: %s", 
+                link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
         }
         return C_OK;

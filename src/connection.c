@@ -390,7 +390,7 @@ int connGetSocketError(connection *conn) {
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
     if (anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME) == -1) {
-        conn->last_errno = errno;
+        if (conn) conn->last_errno = errno;
         return C_ERR;
     }
     return C_OK;
