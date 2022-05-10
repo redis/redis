@@ -28,14 +28,24 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #include "fmacros.h"
+#include "config.h"
 #include "syscheck.h"
 #include "sds.h"
+#include "anet.h"
+
 #include <time.h>
 #include <sys/resource.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <sys/wait.h>
+
+#ifdef __linux__
+#include <sys/mman.h>
+#endif
+
 
 #ifdef __linux__
 static sds read_sysfs_line(char *path) {
@@ -159,6 +169,7 @@ int checkTHPEnabled(sds *error_msg) {
         return 1;
     }
 }
+
 #ifdef __arm64__
 /* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
  * memory map corresponding to the provided address, or -1 on error. */
@@ -262,12 +273,11 @@ int checkLinuxMadvFreeForkBug(sds *error_msg) {
         else if (ret == -1)     /* Failed to read */
             res = 0;
 
-        if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
-            serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exitFromChild(0);
+        ret = write(pipefd[1], &res, sizeof(res)); /* Assume success, ignore return value*/
+        exit(0);
     } else {
         /* Read the result from the child. */
-        ret = read(pipefd[0], &bug_found, sizeof(bug_found));
+        ret = read(pipefd[0], &res, sizeof(res));
         if (ret < 0) {
             res = 0;
         }
@@ -281,6 +291,11 @@ exit:
     if (pipefd[0] != -1) close(pipefd[0]);
     if (pipefd[1] != -1) close(pipefd[1]);
     if (p != NULL) munmap(p, map_size);
+
+    if (res == -1)
+        *error_msg = sdsnew(
+            "Your kernel has a bug that could lead to data corruption during background save. "
+            "Please upgrade to the latest stable kernel.");
 
     return res;
 }

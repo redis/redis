@@ -31,6 +31,7 @@
 #define __SYSCHECK_H
 
 #include "sds.h"
+#include "config.h"
 
 int syscheck(void);
 #ifdef __linux__
