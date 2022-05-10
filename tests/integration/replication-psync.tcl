@@ -104,19 +104,52 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                 } else {
                     fail "Slave still not connected after some time"
                 }  
-
-                wait_for_condition 100 100 {
-                    [$master debug digest] == [$slave debug digest]
+                if {$::debug_evict_keys} {
+                    wait_for_condition 100 100 {
+                        [$master debug digest-keys] == [$slave debug digest-keys]
+                    } else {
+                        set csv1 [csvdump r]
+                        set csv2 [csvdump {r -1}]
+                        set fd [open /tmp/repldump1.txt w]
+                        puts -nonewline $fd $csv1
+                        close $fd
+                        set fd [open /tmp/repldump2.txt w]
+                        puts -nonewline $fd $csv2
+                        close $fd
+                        fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
+                    }
                 } else {
-                    set csv1 [csvdump r]
-                    set csv2 [csvdump {r -1}]
-                    set fd [open /tmp/repldump1.txt w]
-                    puts -nonewline $fd $csv1
-                    close $fd
-                    set fd [open /tmp/repldump2.txt w]
-                    puts -nonewline $fd $csv2
-                    close $fd
-                    fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
+                    set keyspace_info [$master info keyspace]
+                    set try 3
+                    while {$try > 0} {
+                        after 1000
+                        if {$keyspace_info == [$master info keyspace]} {
+                            $master debug swapout
+                            $slave debug swapout
+                            set try [expr {$try - 1}]    
+                            continue
+                        }
+                        set keyspace_info [$master info keyspace]
+                    }
+                    
+                    wait_for_condition 100 100 {
+                        [$master info keyspace] == [$slave info keyspace]
+                    } else {    
+                         fail "Master - Replica sync fail"
+                    }
+                    wait_for_condition 100 100 {
+                        [$master debug digest-keys] == [$slave debug digest-keys]
+                    } else {
+                        set csv1 [csvdump r]
+                        set csv2 [csvdump {r -1}]
+                        set fd [open /tmp/repldump1.txt w]
+                        puts -nonewline $fd $csv1
+                        close $fd
+                        set fd [open /tmp/repldump2.txt w]
+                        puts -nonewline $fd $csv2
+                        close $fd
+                        fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
+                    }
                 }
                 assert {[$master dbsize] > 0}
                 eval $cond

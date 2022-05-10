@@ -162,7 +162,14 @@ start_server {tags {"expire"}} {
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # one second.
-        after 1000
+        after 600
+        if {$::debug_evict_keys} {
+            wait_for_condition 100 20 {
+                [r dbsize] == 0
+            } else {
+                fail "wait expire fail"
+            }
+        }
         set size2 [r dbsize]
         list $size1 $size2
     } {3 0}
@@ -180,6 +187,13 @@ start_server {tags {"expire"}} {
         after 1000
         set size2 [r dbsize]
         r mget key1 key2 key3
+        if {$::debug_evict_keys} {
+            wait_for_condition 100 20 {
+                [r dbsize] == 0
+            } else {
+                fail "wait expire fail"
+            }
+        }
         set size3 [r dbsize]
         r debug set-active-expire 1
         list $size1 $size2 $size3
@@ -203,6 +217,13 @@ start_server {tags {"expire"}} {
         r set e c
         r set s c
         r set foo b
+        if {$::debug_evict_keys} {
+            wait_for_condition 100 20 {
+                [r dbsize] == 5
+            } else {
+                fail "wait evict fail"
+            }
+        }
         lsort [r keys *]
     } {a e foo s t}
 

@@ -742,6 +742,8 @@ NULL
             decrRefCount(key);
         }
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"swapout")) {
+        debugSwapOutCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"digest") && c->argc == 2) {
         /* DEBUG DIGEST (form without keys specified) */
         unsigned char digest[20];
