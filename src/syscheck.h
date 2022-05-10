@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Redis
+ * Copyright (c) 2022, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,14 @@
 
 #include "sds.h"
 
-void syscheck(void);
+int syscheck(void);
 #ifdef __linux__
-int check_xen(sds *error_msg);
-int check_thp_enabled(sds *error_msg);
-int check_overcommit(sds *error_msg);
+int checkXenClocksource(sds *error_msg);
+int checkTHPEnabled(sds *error_msg);
+int checkOvercommit(sds *error_msg);
+#ifdef __arm64__
+int checkLinuxMadvFreeForkBug(sds *error_msg);
+#endif
 #endif
 
 #endif

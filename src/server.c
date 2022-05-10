@@ -5913,11 +5913,11 @@ int checkIgnoreWarning(const char *warning) {
 #ifdef __linux__
 void linuxMemoryWarnings(void) {
     sds err_msg;
-    if (check_overcommit(&err_msg) < 0) {
+    if (checkOvercommit(&err_msg) < 0) {
         serverLog(LL_WARNING,"WARNING %s", err_msg);
         sdsfree(err_msg);
     }
-    if (check_thp_enabled(&err_msg) < 0) {
+    if (checkTHPEnabled(&err_msg) < 0) {
         server.thp_enabled = 1;
         if (THPDisable() == 0) {
             server.thp_enabled = 0;
@@ -5927,141 +5927,6 @@ void linuxMemoryWarnings(void) {
         sdsfree(err_msg);
     }
 }
-
-#ifdef __arm64__
-
-/* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
- * memory map corresponding to the provided address, or -1 on error. */
-static int smapsGetSharedDirty(unsigned long addr) {
-    int ret, in_mapping = 0, val = -1;
-    unsigned long from, to;
-    char buf[64];
-    FILE *f;
-
-    f = fopen("/proc/self/smaps", "r");
-    if (!f) return -1;
-
-    while (1) {
-        if (!fgets(buf, sizeof(buf), f))
-            break;
-
-        ret = sscanf(buf, "%lx-%lx", &from, &to);
-        if (ret == 2)
-            in_mapping = from <= addr && addr < to;
-
-        if (in_mapping && !memcmp(buf, "Shared_Dirty:", 13)) {
-            sscanf(buf, "%*s %d", &val);
-            /* If parsing fails, we remain with val == -1 */
-            break;
-        }
-    }
-
-    fclose(f);
-    return val;
-}
-
-/* Older arm64 Linux kernels have a bug that could lead to data corruption
- * during background save in certain scenarios. This function checks if the
- * kernel is affected.
- * The bug was fixed in commit ff1712f953e27f0b0718762ec17d0adb15c9fd0b
- * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
- * Return -1 on unexpected test failure, 1 if the kernel seems to be affected,
- * and 0 otherwise. */
-int linuxMadvFreeForkBugCheck(void) {
-    int ret, pipefd[2] = { -1, -1 };
-    pid_t pid;
-    char *p = NULL, *q;
-    int bug_found = 0;
-    long page_size = sysconf(_SC_PAGESIZE);
-    long map_size = 3 * page_size;
-
-    /* Create a memory map that's in our full control (not one used by the allocator). */
-    p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (p == MAP_FAILED) {
-        serverLog(LL_WARNING, "Failed to mmap(): %s", strerror(errno));
-        return -1;
-    }
-
-    q = p + page_size;
-
-    /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
-     * Linux from merging this memory map with adjacent VMAs. */
-    ret = mprotect(q, page_size, PROT_READ | PROT_WRITE);
-    if (ret < 0) {
-        serverLog(LL_WARNING, "Failed to mprotect(): %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Write to the page once to make it resident */
-    *(volatile char*)q = 0;
-
-    /* Tell the kernel that this page is free to be reclaimed. */
-#ifndef MADV_FREE
-#define MADV_FREE 8
-#endif
-    ret = madvise(q, page_size, MADV_FREE);
-    if (ret < 0) {
-        /* MADV_FREE is not available on older kernels that are presumably
-         * not affected. */
-        if (errno == EINVAL) goto exit;
-
-        serverLog(LL_WARNING, "Failed to madvise(): %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Write to the page after being marked for freeing, this is supposed to take
-     * ownership of that page again. */
-    *(volatile char*)q = 0;
-
-    /* Create a pipe for the child to return the info to the parent. */
-    ret = anetPipe(pipefd, 0, 0);
-    if (ret < 0) {
-        serverLog(LL_WARNING, "Failed to create pipe: %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Fork the process. */
-    pid = fork();
-    if (pid < 0) {
-        serverLog(LL_WARNING, "Failed to fork: %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    } else if (!pid) {
-        /* Child: check if the page is marked as dirty, page_size in kb.
-         * A value of 0 means the kernel is affected by the bug. */
-        ret = smapsGetSharedDirty((unsigned long) q);
-        if (!ret)
-            bug_found = 1;
-        else if (ret == -1)     /* Failed to read */
-            bug_found = -1;
-
-        if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
-            serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exitFromChild(0);
-    } else {
-        /* Read the result from the child. */
-        ret = read(pipefd[0], &bug_found, sizeof(bug_found));
-        if (ret < 0) {
-            serverLog(LL_WARNING, "Failed to read from child: %s", strerror(errno));
-            bug_found = -1;
-        }
-
-        /* Reap the child pid. */
-        waitpid(pid, NULL, 0);
-    }
-
-exit:
-    /* Cleanup */
-    if (pipefd[0] != -1) close(pipefd[0]);
-    if (pipefd[1] != -1) close(pipefd[1]);
-    if (p != NULL) munmap(p, map_size);
-
-    return bug_found;
-}
-#endif /* __arm64__ */
 #endif /* __linux__ */
 
 void createPidFile(void) {
@@ -6880,7 +6745,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         } if (strcmp(argv[1], "--check-system") == 0) {
-            syscheck();
+            exit(syscheck() ? 0 : 1);
         }
         /* Parse command line options
          * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
@@ -6951,17 +6816,17 @@ int main(int argc, char **argv) {
     #ifdef __linux__
         linuxMemoryWarnings();
         sds err_msg;
-        if (check_xen(&err_msg) < 0) {
+        if (checkXenClocksource(&err_msg) < 0) {
             serverLog(LL_WARNING, "WARNING %s", err_msg);
             sdsfree(err_msg);
         }
     #if defined (__arm64__)
         int ret;
-        if ((ret = linuxMadvFreeForkBugCheck())) {
-            if (ret == 1)
-                serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. "
-                                     "Please upgrade to the latest stable kernel.");
-            else
+        if ((ret = checkLinuxMadvFreeForkBug(&err_msg)) <= 0) {
+            if (ret < 0) {
+                serverLog(LL_WARNING, "WARNING %s", err_msg);
+                sdsfree(err_msg);
+            } else
                 serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save. "
                                       "Your system could be affected, please report this error.");
             if (!checkIgnoreWarning("ARM64-COW-BUG")) {

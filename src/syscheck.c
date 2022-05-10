@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2022, Redis
+ * Copyright (c) 2022, Redis Ltd.
+ * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,7 +67,7 @@ static sds clocksource_warning_msg(void) {
     return msg;
 }
 
-static int check_clocksource(sds *error_msg) {
+static int checkClocksource(sds *error_msg) {
     unsigned long test_time_us, system_hz;
     struct timespec ts;
     unsigned long long start_us;
@@ -108,7 +109,7 @@ static int check_clocksource(sds *error_msg) {
     }
 }
 
-int check_xen(sds *error_msg) {
+int checkXenClocksource(sds *error_msg) {
     sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
     int res = 1;
     if (curr == NULL) {
@@ -121,7 +122,7 @@ int check_xen(sds *error_msg) {
     return res;
 }
 
-int check_overcommit(sds *error_msg) {
+int checkOvercommit(sds *error_msg) {
     FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
     char buf[64];
 
@@ -140,7 +141,7 @@ int check_overcommit(sds *error_msg) {
     }
 }
 
-int check_thp_enabled(sds *error_msg) {
+int checkTHPEnabled(sds *error_msg) {
     char buf[1024];
 
     FILE *fp = fopen("/sys/kernel/mm/transparent_hugepage/enabled","r");
@@ -158,8 +159,144 @@ int check_thp_enabled(sds *error_msg) {
         return 1;
     }
 }
-#endif
+#ifdef __arm64__
+/* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
+ * memory map corresponding to the provided address, or -1 on error. */
+static int smapsGetSharedDirty(unsigned long addr) {
+    int ret, in_mapping = 0, val = -1;
+    unsigned long from, to;
+    char buf[64];
+    FILE *f;
 
+    f = fopen("/proc/self/smaps", "r");
+    if (!f) return -1;
+
+    while (1) {
+        if (!fgets(buf, sizeof(buf), f))
+            break;
+
+        ret = sscanf(buf, "%lx-%lx", &from, &to);
+        if (ret == 2)
+            in_mapping = from <= addr && addr < to;
+
+        if (in_mapping && !memcmp(buf, "Shared_Dirty:", 13)) {
+            sscanf(buf, "%*s %d", &val);
+            /* If parsing fails, we remain with val == -1 */
+            break;
+        }
+    }
+
+    fclose(f);
+    return val;
+}
+
+/* Older arm64 Linux kernels have a bug that could lead to data corruption
+ * during background save in certain scenarios. This function checks if the
+ * kernel is affected.
+ * The bug was fixed in commit ff1712f953e27f0b0718762ec17d0adb15c9fd0b
+ * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
+ */
+int checkLinuxMadvFreeForkBug(sds *error_msg) {
+    int ret, pipefd[2] = { -1, -1 };
+    pid_t pid;
+    char *p = NULL, *q;
+    int res = 1;
+    long page_size = sysconf(_SC_PAGESIZE);
+    long map_size = 3 * page_size;
+
+    /* Create a memory map that's in our full control (not one used by the allocator). */
+    p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (p == MAP_FAILED) {
+        return 0;
+    }
+
+    q = p + page_size;
+
+    /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
+     * Linux from merging this memory map with adjacent VMAs. */
+    ret = mprotect(q, page_size, PROT_READ | PROT_WRITE);
+    if (ret < 0) {
+        res = 0;
+        goto exit;
+    }
+
+    /* Write to the page once to make it resident */
+    *(volatile char*)q = 0;
+
+    /* Tell the kernel that this page is free to be reclaimed. */
+#ifndef MADV_FREE
+#define MADV_FREE 8
+#endif
+    ret = madvise(q, page_size, MADV_FREE);
+    if (ret < 0) {
+        /* MADV_FREE is not available on older kernels that are presumably
+         * not affected. */
+        if (errno == EINVAL) goto exit;
+
+        res = 0;
+        goto exit;
+    }
+
+    /* Write to the page after being marked for freeing, this is supposed to take
+     * ownership of that page again. */
+    *(volatile char*)q = 0;
+
+    /* Create a pipe for the child to return the info to the parent. */
+    ret = anetPipe(pipefd, 0, 0);
+    if (ret < 0) {
+        res = 0;
+        goto exit;
+    }
+
+    /* Fork the process. */
+    pid = fork();
+    if (pid < 0) {
+        res = 0;
+        goto exit;
+    } else if (!pid) {
+        /* Child: check if the page is marked as dirty, page_size in kb.
+         * A value of 0 means the kernel is affected by the bug. */
+        ret = smapsGetSharedDirty((unsigned long) q);
+        if (!ret)
+            res = -1;
+        else if (ret == -1)     /* Failed to read */
+            res = 0;
+
+        if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
+            serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
+        exitFromChild(0);
+    } else {
+        /* Read the result from the child. */
+        ret = read(pipefd[0], &bug_found, sizeof(bug_found));
+        if (ret < 0) {
+            res = 0;
+        }
+
+        /* Reap the child pid. */
+        waitpid(pid, NULL, 0);
+    }
+
+exit:
+    /* Cleanup */
+    if (pipefd[0] != -1) close(pipefd[0]);
+    if (pipefd[1] != -1) close(pipefd[1]);
+    if (p != NULL) munmap(p, map_size);
+
+    return res;
+}
+#endif /* __arm64__ */
+#endif /* __linux__ */
+
+/*
+ * Standard system check interface:
+ * Each check has a name `name` and a functions pointer `check_fn`.
+ * `check_fn` should return:
+ *   -1 in case the check fails.
+ *   1 in case the check passes.
+ *   0 in case the check should not be completed (usually because of some unexpected failed system call).
+ *   When (and only when) the check fails and -1 is returned and error description is places in a new sds pointer to by
+ *   the singe `sds*` argument to `check_fn`. This message should be freed by the caller via `sdsfree()`.
+ */
 typedef struct {
     const char *name;
     int (*check_fn)(sds*);
@@ -167,17 +304,21 @@ typedef struct {
 
 check checks[] = {
 #ifdef __linux__
-    {.name = "clocksource", .check_fn = check_clocksource},
-    {.name = "xen", .check_fn = check_xen},
-    {.name = "overcommit", .check_fn = check_overcommit},
-    {.name = "THP", .check_fn = check_thp_enabled},
+    {.name = "clocksource", .check_fn = checkClocksource},
+    {.name = "xen", .check_fn = checkXenClocksource},
+    {.name = "overcommit", .check_fn = checkOvercommit},
+    {.name = "THP", .check_fn = checkTHPEnabled},
+#ifdef __arm64__
+    {.name = "madvise-free-fork-bug", .check_fn = checkLinuxMadvFreeForkBug},
+#endif
 #endif
     {.name = NULL, .check_fn = NULL}
 };
 
-void syscheck(void) {
+/* Performs various system checks, returns 0 if any check fails, 1 otherwise. */
+int syscheck(void) {
     check *cur_check = checks;
-    int exit_code = 0;
+    int ret = 1;
     sds err_msg;
     while (cur_check->check_fn) {
         int res = cur_check->check_fn(&err_msg);
@@ -190,10 +331,10 @@ void syscheck(void) {
             printf("WARNING:\n");
             printf("%s\n", err_msg);
             sdsfree(err_msg);
-            exit_code = 1;
+            ret = 0;
         }
         cur_check++;
     }
 
-    exit(exit_code);
+    return ret;
 }
