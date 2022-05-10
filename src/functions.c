@@ -276,11 +276,13 @@ static functionLibInfo* engineLibraryCreate(sds name, engineInfo *ei, sds code) 
         .functions = dictCreate(&libraryFunctionDictType),
         .ei = ei,
         .code = sdsdup(code),
+        .is_linked = 0,
     };
     return li;
 }
 
 static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
+    serverAssert(li->is_linked);
     dictIterator *iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
@@ -300,9 +302,12 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     serverAssert(stats);
     stats->n_lib--;
     stats->n_functions -= dictSize(li->functions);
+
+    li->is_linked = 0;
 }
 
 static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
+    serverAssert(!li->is_linked);
     dictIterator *iter = dictGetIterator(li->functions);
     dictEntry *entry = NULL;
     while ((entry = dictNext(iter))) {
@@ -320,6 +325,8 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     serverAssert(stats);
     stats->n_lib++;
     stats->n_functions += dictSize(li->functions);
+
+    li->is_linked = 1;
 }
 
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
@@ -373,8 +380,10 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
     iter = dictGetIterator(functions_lib_ctx_src->libraries);
     while ((entry = dictNext(iter))) {
         functionLibInfo *li = dictGetVal(entry);
-        libraryLink(functions_lib_ctx_dst, li);
         dictSetVal(functions_lib_ctx_src->libraries, entry, NULL);
+        li->is_linked = 0; /* library is not longer linked to functions_lib_ctx_src */
+        libraryLink(functions_lib_ctx_dst, li);
+
     }
     dictReleaseIterator(iter);
     iter = NULL;
@@ -1009,7 +1018,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
 error:
     if (iter) dictReleaseIterator(iter);
     if (new_li) engineLibraryFree(new_li);
-    if (old_li) libraryLink(lib_ctx, old_li);
+    if (old_li && !old_li->is_linked) libraryLink(lib_ctx, old_li);
     functionFreeLibMetaData(&md);
     return NULL;
 }
