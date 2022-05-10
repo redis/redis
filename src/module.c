@@ -781,7 +781,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 /* This Redis command binds the normal Redis command invocation with commands
  * exported by modules. */
 void RedisModuleCommandDispatcher(client *c) {
-    RedisModuleCommand *cp = (void*)(unsigned long)c->cmd->getkeys_proc;
+    RedisModuleCommand *cp = c->cmd->module_cmd;
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_NONE);
 
@@ -816,7 +816,7 @@ void RedisModuleCommandDispatcher(client *c) {
  * the context in a way that the command can recognize this is a special
  * "get keys" call by calling RedisModule_IsKeysPositionRequest(ctx). */
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_KEYS_POS_REQUEST);
 
@@ -836,7 +836,7 @@ int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, 
  * moduleGetCommandKeysViaAPI, for modules that declare "getchannels-api"
  * during registration. Unlike keys, this is the only way to declare channels. */
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, cp->module, REDISMODULE_CTX_CHANNELS_POS_REQUEST);
 
@@ -1130,10 +1130,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     /* Create a command "proxy", which is a structure that is referenced
      * in the command table, so that the generic command that works as
      * binding between modules and Redis, can know what function to call
-     * and what the module is.
-     *
-     * Note that we use the Redis command table 'getkeys_proc' in order to
-     * pass a reference to the command proxy structure. */
+     * and what the module is. */
     cp = zcalloc(sizeof(*cp));
     cp->module = module;
     cp->func = cmdfunc;
@@ -1143,7 +1140,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->group = COMMAND_GROUP_MODULE;
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->flags = flags | CMD_MODULE;
-    cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
+    cp->rediscmd->module_cmd = cp;
     cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
     cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
@@ -1186,7 +1183,7 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
     if (!cmd || !(cmd->flags & CMD_MODULE))
         return NULL;
 
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     if (cp->module != ctx->module)
         return NULL;
 
@@ -1230,7 +1227,7 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     if (parent_cmd->parent)
         return REDISMODULE_ERR; /* We don't allow more than one level of subcommands */
 
-    RedisModuleCommand *parent_cp = (void*)(unsigned long)parent_cmd->getkeys_proc;
+    RedisModuleCommand *parent_cp = parent_cmd->module_cmd;
     if (parent_cp->func)
         return REDISMODULE_ERR; /* A parent command should be a pure container of subcommands */
 
@@ -1977,7 +1974,7 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd) {
         return 0;
     if (module_handle == NULL)
         return 0;
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     return (cp->module == module_handle);
 }
 
@@ -6088,7 +6085,7 @@ const char *moduleTypeModuleName(moduleType *mt) {
 const char *moduleNameFromCommand(struct redisCommand *cmd) {
     serverAssert(cmd->proc == RedisModuleCommandDispatcher);
 
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     return cp->module->name;
 }
 
@@ -10936,7 +10933,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
     if (cmd->proc != RedisModuleCommandDispatcher)
         return C_ERR;
 
-    RedisModuleCommand *cp = (void*)(unsigned long)cmd->getkeys_proc;
+    RedisModuleCommand *cp = cmd->module_cmd;
     if (cp->module != module)
         return C_ERR;
 
@@ -12020,7 +12017,7 @@ int *RM_GetCommandKeysWithFlags(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
 
     /* Bail out if command has no keys */
-    if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
+    if (!doesCommandHaveKeys(cmd)) {
         errno = 0;
         return NULL;
     }
