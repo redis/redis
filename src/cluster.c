@@ -5071,7 +5071,7 @@ void addShardReplyForClusterShards(client *c, clusterNode *node, uint16_t *slot_
         serverAssert((slot_pairs_count % 2) == 0);
         addReplyArrayLen(c, slot_pairs_count);
         for (int i = 0; i < slot_pairs_count; i++)
-            addReplyBulkLongLong(c, (unsigned long)slot_info_pairs[i]);
+            addReplyLongLong(c, (unsigned long)slot_info_pairs[i]);
     } else {
         /* If no slot info pair is provided, the node owns no slots */
         addReplyArrayLen(c, 0);
