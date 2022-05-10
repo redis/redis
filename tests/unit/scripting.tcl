@@ -1424,12 +1424,16 @@ start_server {tags {"scripting"}} {
 
         # clear the cached server.script_oom just to reproduce issue with EVAL_RO
         r config set maxmemory 100mb
-        assert_equal [r eval {return 1} 0] 1
+        assert_equal [
+            r eval_ro {#!lua flags=no-writes
+                return 1
+            } 0
+        ] 1
         r config set maxmemory 1
 
         # Fail to execute regardless of RO script content when we use default flags in OOM condition
         assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
-            r eval_ro {#!lua flags=
+            r eval_ro {#!lua flags=no-writes
                 return 1
             } 0
         }
