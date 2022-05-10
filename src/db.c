@@ -625,7 +625,11 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushdb should not flush the functions */
     server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+
+    /* Without the forceCommandPropagation, when DB was already empty,
+     * FLUSHDB will not be replicated nor put into the AOF. */
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
     addReply(c,shared.ok);
 
 #if defined(USE_JEMALLOC)
@@ -645,7 +649,11 @@ void flushallCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     /* flushall should not flush the functions */
     flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
+
+    /* Without the forceCommandPropagation, when DBs were already empty,
+     * FLUSHALL will not be replicated nor put into the AOF. */
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
     addReply(c,shared.ok);
 }
 
