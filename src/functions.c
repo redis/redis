@@ -963,6 +963,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
 
     old_li = dictFetchValue(lib_ctx->libraries, md.name);
     if (old_li && !replace) {
+        old_li = NULL;
         *err = sdscatfmt(sdsempty(), "Library '%S' already exists", md.name);
         goto error;
     }

@@ -1141,6 +1141,23 @@ start_server {tags {"scripting"}} {
         r function stats
     } {running_script {} engines {LUA {libraries_count 1 functions_count 1}}}
 
+    test {FUNCTION - test function stats on loading failure} {
+        r FUNCTION FLUSH
+
+        r FUNCTION load {#!lua name=test1
+            redis.register_function('f1', function() return 1 end)
+            redis.register_function('f2', function() return 1 end)
+        }
+
+        catch {r FUNCTION load {#!lua name=test1
+            redis.register_function('f3', function() return 1 end)
+        }} e
+        assert_match "*Library 'test1' already exists*" $e
+        
+
+        r function stats
+    } {running_script {} engines {LUA {libraries_count 1 functions_count 2}}}
+
     test {FUNCTION - function stats cleaned after flush} {
         r function flush
         r function stats
