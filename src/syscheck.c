@@ -77,6 +77,8 @@ static sds clocksource_warning_msg(void) {
     return msg;
 }
 
+/* Verify our clokcsource implementation doesn't go through a system call (uses vdso).
+ * Going through a system call to check the time degrades Redis performance. */
 static int checkClocksource(sds *error_msg) {
     unsigned long test_time_us, system_hz;
     struct timespec ts;
@@ -119,6 +121,9 @@ static int checkClocksource(sds *error_msg) {
     }
 }
 
+/* Verify we're not used the `xen` clocksource. The xen hypervisor's default clocksoruce is slow and affects
+ * Redis's performance. This has been measured on ec2 xen based instances. ec2 recommends using the non-default
+ * tsc clock source for these instances. */
 int checkXenClocksource(sds *error_msg) {
     sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
     int res = 1;
@@ -132,6 +137,10 @@ int checkXenClocksource(sds *error_msg) {
     return res;
 }
 
+/* Verify overcommit is enabled.
+ * When overcommit memory is disabled Linux will kill the forked child of a background save
+ * if we don't have enough free memory to satisfy double the current memory usage even though
+ * the forked child uses copy-on-write to reduce its actual memory usage. */
 int checkOvercommit(sds *error_msg) {
     FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
     char buf[64];
@@ -151,6 +160,8 @@ int checkOvercommit(sds *error_msg) {
     }
 }
 
+/* Make sure transparent huge pages aren't always enabled. When they are this can cause copy-on-write logic
+ * to consume much more memory and reduce performance during forks. */
 int checkTHPEnabled(sds *error_msg) {
     char buf[1024];
 
