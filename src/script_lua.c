@@ -1248,7 +1248,7 @@ void luaSetErrorMetatable(lua_State *lua) {
 static int luaNewIndexAllowList(lua_State *lua) {
     int argc = lua_gettop(lua);
     if (argc != 3) {
-        serverLog(LL_WARNING, "malicious code trying to call luaProtectedTableError with wrong arguments");
+        serverLog(LL_WARNING, "malicious code trying to call luaNewIndexAllowList with wrong arguments");
         luaL_error(lua, "Wrong number of arguments to luaNewIndexAllowList");
     }
     if (!lua_istable(lua, -3)) {
@@ -1527,7 +1527,7 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     if (scriptInterrupt(rctx) == SCRIPT_KILL) {
-        serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+        serverLog(LL_NOTICE,"Lua script killed by user with SCRIPT KILL.");
 
         /*
          * Set the hook to invoke all the time so the user
