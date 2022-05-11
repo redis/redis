@@ -55,7 +55,7 @@ void zlibc_free(void *ptr) {
 #include "zmalloc.h"
 #include "atomicvar.h"
 
-#define UNUSED(x) (void)(x)
+#define UNUSED(x) ((void)(x))
 
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
@@ -756,7 +756,6 @@ size_t zmalloc_get_memory_size(void) {
 }
 
 #ifdef REDIS_TEST
-#define UNUSED(x) ((void)(x))
 int zmalloc_test(int argc, char **argv, int flags) {
     void *ptr;
 
