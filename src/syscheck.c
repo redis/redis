@@ -62,21 +62,6 @@ static sds read_sysfs_line(char *path) {
     return res;
 }
 
-static sds clocksource_warning_msg(void) {
-    sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
-    sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
-    sds msg = sdscatprintf(sdsempty(),
-        "Slow system clocksource detected. This can result in degraded performance. "
-        "Consider changing the system's clocksource. "
-        "Current clocksource: %s. Available clocksources: %s. "
-        "For example: run the command 'echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource' as root. "
-        "To permanently change the system's clocksource you'll need to set the 'clocksource=' kernel command line parameter.",
-        curr ? curr : "", avail ? avail : "");
-    sdsfree(avail);
-    sdsfree(curr);
-    return msg;
-}
-
 /* Verify our clokcsource implementation doesn't go through a system call (uses vdso).
  * Going through a system call to check the time degrades Redis performance. */
 static int checkClocksource(sds *error_msg) {
@@ -114,7 +99,17 @@ static int checkClocksource(sds *error_msg) {
 
     /* If more than 10% of the process time was in system calls we probably have an inefficient clocksource, print a warning */
     if (stime_us * 10 > stime_us + utime_us) {
-        *error_msg = clocksource_warning_msg();
+        sds avail = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/available_clocksource");
+        sds curr = read_sysfs_line("/sys/devices/system/clocksource/clocksource0/current_clocksource");
+        *error_msg = sdscatprintf(sdsempty(),
+           "Slow system clocksource detected. This can result in degraded performance. "
+           "Consider changing the system's clocksource. "
+           "Current clocksource: %s. Available clocksources: %s. "
+           "For example: run the command 'echo tsc > /sys/devices/system/clocksource/clocksource0/current_clocksource' as root. "
+           "To permanently change the system's clocksource you'll need to set the 'clocksource=' kernel command line parameter.",
+           curr ? curr : "", avail ? avail : "");
+        sdsfree(avail);
+        sdsfree(curr);
         return -1;
     } else {
         return 1;
@@ -130,7 +125,10 @@ int checkXenClocksource(sds *error_msg) {
     if (curr == NULL) {
         res = 0;
     } else if (strcmp(curr, "xen") == 0) {
-        *error_msg = clocksource_warning_msg();
+        *error_msg = sdsnew(
+            "Your system is configured to use the 'xen' clocksource which might lead to degraded performance. "
+            "Check the result of the [slow-clocksource] system check: run 'redis-server --check-system' to check if "
+            "the system's clocksource isn't degrading performance.");
         res = -1;
     }
     sdsfree(curr);
@@ -330,8 +328,8 @@ typedef struct {
 
 check checks[] = {
 #ifdef __linux__
-    {.name = "clocksource", .check_fn = checkClocksource},
-    {.name = "xen", .check_fn = checkXenClocksource},
+    {.name = "slow-clocksource", .check_fn = checkClocksource},
+    {.name = "xen-clocksource", .check_fn = checkXenClocksource},
     {.name = "overcommit", .check_fn = checkOvercommit},
     {.name = "THP", .check_fn = checkTHPEnabled},
 #ifdef __arm64__
