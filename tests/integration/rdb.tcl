@@ -278,7 +278,7 @@ start_server {overrides {save ""}} {
 
         set current_save_keys_total [s current_save_keys_total]
         if {$::verbose} {
-            puts "Keys before bgsave start: current_save_keys_total"
+            puts "Keys before bgsave start: $current_save_keys_total"
         }
 
         # on each iteration, we will write some key to the server to trigger copy-on-write, and
