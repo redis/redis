@@ -464,6 +464,70 @@ start_server {tags {"introspection"}} {
         assert {[dict exists $res bind]}  
     }
 
+    test {redis-server command line arguments - error cases} {
+        catch {exec src/redis-server --port} err
+        assert_match {*'port'*wrong number of arguments*} $err
+
+        catch {exec src/redis-server --port 6380 --loglevel} err
+        assert_match {*'loglevel'*wrong number of arguments*} $err
+
+        # Take `6379` and `6380` as the port option value.
+        catch {exec src/redis-server --port 6379 6380} err
+        assert_match {*'port "6379" "6380"'*wrong number of arguments*} $err
+
+        # Take `--loglevel` and `verbose` as the port option value.
+        catch {exec src/redis-server --port --loglevel verbose} err
+        assert_match {*'port "--loglevel" "verbose"'*wrong number of arguments*} $err
+
+        # Take `--bla` as the port option value.
+        catch {exec src/redis-server --port --bla --loglevel verbose} err
+        assert_match {*'port "--bla"'*argument couldn't be parsed into an integer*} $err
+
+        # Take `--bla` as the loglevel option value.
+        catch {exec src/redis-server --logfile --my--log--file --loglevel --bla} err
+        assert_match {*'loglevel "--bla"'*argument(s) must be one of the following*} $err
+
+        # Using MULTI_ARG's own check, empty option value
+        catch {exec src/redis-server --shutdown-on-sigint} err
+        assert_match {*'shutdown-on-sigint'*argument(s) must be one of the following*} $err
+        catch {exec src/redis-server --shutdown-on-sigint "now force" --shutdown-on-sigterm} err
+        assert_match {*'shutdown-on-sigterm'*argument(s) must be one of the following*} $err
+
+        # Something like `redis-server --some-config --config-value1 --config-value2 --loglevel debug` would break,
+        # because if you want to pass a value to a config starting with `--`, it can only be a single value.
+        catch {exec src/redis-server --replicaof 127.0.0.1 abc} err
+        assert_match {*'replicaof "127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 abc} err
+        assert_match {*'replicaof "--127.0.0.1" "abc"'*Invalid master port*} $err
+        catch {exec src/redis-server --replicaof --127.0.0.1 --abc} err
+        assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
+    } {} {external:skip}
+
+    test {redis-server command line arguments - allow option value to use the `--` prefix} {
+        start_server {config "default.conf" args {--proc-title-template --my--title--template --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - save with empty input} {
+        # Take `--loglevel` as the save option value.
+        catch {exec src/redis-server --save --loglevel verbose} err
+        assert_match {*'save "--loglevel" "verbose"'*Invalid save parameters*} $err
+
+        start_server {config "default.conf" args {--save {} --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
+        start_server {config "default.conf" args {--shutdown-on-sigint nosave force now --shutdown-on-sigterm "nosave force"}} {
+            assert_match [r config get shutdown-on-sigint] {shutdown-on-sigint {nosave now force}}
+            assert_match [r config get shutdown-on-sigterm] {shutdown-on-sigterm {nosave force}}
+        }
+    } {} {external:skip}
+
     # Config file at this point is at a weird state, and includes all
     # known keywords. Might be a good idea to avoid adding tests here.
 }

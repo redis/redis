@@ -6959,6 +6959,7 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
+        int handled_last_config_arg = 1;
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
@@ -6967,16 +6968,20 @@ int main(int argc, char **argv) {
             /* All the other options are parsed and conceptually appended to the
              * configuration file. For instance --port 6380 will generate the
              * string "port 6380\n" to be parsed after the actual config file
-             * and stdin input are parsed (if they exist). */
-            else if (argv[j][0] == '-' && argv[j][1] == '-') {
+             * and stdin input are parsed (if they exist).
+             * Only consider that if the last config has at least one argument. */
+            else if (handled_last_config_arg && argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
                 if (sdslen(options)) options = sdscat(options,"\n");
+                /* argv[j]+2 for removing the preceding `--` */
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
+                handled_last_config_arg = 0;
             } else {
                 /* Option argument */
                 options = sdscatrepr(options,argv[j],strlen(argv[j]));
                 options = sdscat(options," ");
+                handled_last_config_arg = 1;
             }
             j++;
         }

@@ -487,9 +487,23 @@ void loadServerConfigFromString(char *config) {
                 err = "wrong number of arguments";
                 goto loaderr;
             }
-            /* Set config using all arguments that follows */
-            if (!config->interface.set(config, &argv[1], argc-1, &err)) {
-                goto loaderr;
+
+            if ((config->flags & MULTI_ARG_CONFIG) && argc == 2 && sdslen(argv[1])) {
+                /* For MULTI_ARG_CONFIGs, if we only have one argument, try to split it by spaces.
+                 * Only if the argument is not empty, otherwise something like --save "" will fail.
+                 * So that we can support something like --config "arg1 arg2 arg3". */
+                sds *new_argv;
+                int new_argc;
+                new_argv = sdssplitargs(argv[1], &new_argc);
+                if (!config->interface.set(config, new_argv, new_argc, &err)) {
+                    goto loaderr;
+                }
+                sdsfreesplitres(new_argv, new_argc);
+            } else {
+                /* Set config using all arguments that follows */
+                if (!config->interface.set(config, &argv[1], argc-1, &err)) {
+                    goto loaderr;
+                }
             }
 
             sdsfreesplitres(argv,argc);
