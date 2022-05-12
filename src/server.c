@@ -122,12 +122,16 @@ void serverLogRaw(int level, const char *msg) {
     char buf[64];
     int rawmode = (level & LL_RAW);
     int log_to_stdout = server.logfile[0] == '\0';
+    static int stdout_isatty = -1;
 
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
     fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
     if (!fp) return;
+
+    if (log_to_stdout && stdout_isatty == -1)
+        stdout_isatty = isatty(fileno(fp));
 
     if (rawmode) {
         fprintf(fp,"%s",msg);
@@ -149,7 +153,7 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        if (isatty(fileno(fp))) {
+        if (log_to_stdout && stdout_isatty) {
             fprintf(fp, ANSI_CYAN"%d"ANSI_BLUE":"ANSI_MAGENTA"%c "ANSI_BLUE"%s %s%c "ANSI_RESET"%s%s\n"ANSI_RESET,
                     (int)getpid(), role_char, buf, level_color[level], c[level], level >= LL_WARNING ? ANSI_BOLD: "", msg);
         } else {
