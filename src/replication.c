@@ -1358,8 +1358,8 @@ void sendBulkToSlave(connection *conn) {
             freeClient(slave);
             return;
         }
-        atomicIncr(server.stat_net_output_bytes, nwritten);
-        atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
+        /* Repl bytes from fullresync. */
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         sdsrange(slave->replpreamble,nwritten,-1);
         if (sdslen(slave->replpreamble) == 0) {
             sdsfree(slave->replpreamble);
@@ -1388,8 +1388,8 @@ void sendBulkToSlave(connection *conn) {
         return;
     }
     slave->repldboff += nwritten;
-    atomicIncr(server.stat_net_output_bytes, nwritten);
-    atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
+    /* Repl bytes from fullresync. */
+    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
@@ -1433,8 +1433,8 @@ void rdbPipeWriteHandler(struct connection *conn) {
         return;
     } else {
         slave->repldboff += nwritten;
-        atomicIncr(server.stat_net_output_bytes, nwritten);
-        atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
+        /* Repl bytes from fullresync. */
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         if (slave->repldboff < server.rdb_pipe_bufflen) {
             slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
@@ -1514,8 +1514,8 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 /* Note: when use diskless replication, 'repldboff' is the offset
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
-                atomicIncr(server.stat_net_output_bytes, nwritten);
-                atomicIncr(server.stat_net_repl_output_bytes, nwritten); /* Repl bytes from fullresync. */
+                /* Repl bytes from fullresync. */
+                atomicIncr(server.stat_net_repl_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
@@ -1831,8 +1831,8 @@ void readSyncBulkPayload(connection *conn) {
             /* nread here is returned by connSyncReadLine(), which would lose 1 byte count
              * for those strings ended with "\r\n". connSyncReadLine() calls syncReadLine(),
              * which would convert "\r\n" to '\0' so 1 byte is lost. */
-            atomicIncr(server.stat_net_input_bytes, nread+1);
-            atomicIncr(server.stat_net_repl_input_bytes, nread+1); /* Repl bytes from fullresync. */
+            /* Repl bytes from fullresync, would be added to stat_net_input_bytes. */
+            atomicIncr(server.stat_net_repl_input_bytes, nread+1);
         }
 
         if (buf[0] == '-') {
@@ -1903,8 +1903,8 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        atomicIncr(server.stat_net_input_bytes, nread);
-        atomicIncr(server.stat_net_repl_input_bytes, nread); /* Repl bytes from fullresync. */
+        /* Repl bytes from fullresync. */
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
