@@ -98,21 +98,13 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
-#define ANSI_BLACK "\033[30m"
-#define ANSI_RED "\033[31m"
-#define ANSI_GREEN "\033[32m"
-#define ANSI_YELLOW "\033[33m"
 #define ANSI_BLUE "\033[34m"
 #define ANSI_MAGENTA "\033[35m"
 #define ANSI_CYAN "\033[36m"
-#define ANSI_WHITE "\033[37m"
 #define ANSI_RESET "\033[0m"
-#define ANSI_BLACK_BOLD "\033[30;1m"
 #define ANSI_RED_BOLD "\033[31;1m"
 #define ANSI_GREEN_BOLD "\033[32;1m"
 #define ANSI_YELLOW_BOLD "\033[33;1m"
-#define ANSI_MAGENTA_BOLD "\033[35;1m"
-#define ANSI_WHITE_BOLD "\033[37;1m"
 #define ANSI_BOLD "\033[1m"
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
