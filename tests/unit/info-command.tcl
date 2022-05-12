@@ -32,6 +32,10 @@ start_server {tags {"info and its relative command"}} {
         set info [r info commandSTATS] ;# test case insensitive compare
         assert { ![string match "*used_memory*" $info] }
         assert { [string match "*rejected_calls*" $info] }
+
+        set info [r info cluster]
+        assert { [string match "*cluster_enabled*" $info] }
+        assert { ![string match "*cluster_state*" $info] }
     }
 
     test "info command with multiple sub-sections" {

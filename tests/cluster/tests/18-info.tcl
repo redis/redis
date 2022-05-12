@@ -43,3 +43,10 @@ test "errorstats: rejected call due to MOVED Redirection" {
     assert_match {*count=1*} [errorstat $perr MOVED]
     assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat $perr set]
 }
+
+test "info command with in cluster mode" {
+    set info [R 1 info cluster]
+    assert { [string match "*cluster_enabled*" $info] }
+    assert { [string match "*cluster_state*" $info] }
+}
+

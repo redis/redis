@@ -397,5 +397,6 @@ void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
+sds genRedisInfoStringCluster(sds info);
 
 #endif /* __CLUSTER_H */
