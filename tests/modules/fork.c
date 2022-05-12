@@ -37,12 +37,13 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_StringToLongLong(argv[1], &code_to_exit_with);
     RedisModule_StringToLongLong(argv[2], &usleep_us);
     exitted_with_code = -1;
-    child_pid = RedisModule_Fork(done_handler, (void*)0xdeadbeef);
-    if (child_pid < 0) {
+    int fork_child_pid = RedisModule_Fork(done_handler, (void*)0xdeadbeef);
+    if (fork_child_pid < 0) {
         RedisModule_ReplyWithError(ctx, "Fork failed");
         return REDISMODULE_OK;
-    } else if (child_pid > 0) {
+    } else if (fork_child_pid > 0) {
         /* parent */
+        child_pid = fork_child_pid;
         RedisModule_ReplyWithLongLong(ctx, child_pid);
         return REDISMODULE_OK;
     }
