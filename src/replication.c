@@ -1421,7 +1421,7 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
 void rdbPipeWriteHandler(struct connection *conn) {
     serverAssert(server.rdb_pipe_bufflen>0);
     client *slave = connGetPrivateData(conn);
-    int nwritten;
+    ssize_t nwritten;
     if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
                               server.rdb_pipe_bufflen - slave->repldboff)) == -1)
     {
@@ -1494,7 +1494,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         int stillAlive = 0;
         for (i=0; i < server.rdb_pipe_numconns; i++)
         {
-            int nwritten;
+            ssize_t nwritten;
             connection *conn = server.rdb_pipe_conns[i];
             if (!conn)
                 continue;
