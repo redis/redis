@@ -195,7 +195,7 @@ int clusterLoadConfig(char *filename) {
                     server.cluster->lastVoteEpoch =
                             strtoull(argv[j+1],NULL,10);
                 } else {
-                    serverLog(LL_NOTICE,
+                    serverLog(LL_WARNING,
                         "Skipping unknown cluster config variable '%s'",
                         argv[j]);
                 }
@@ -4523,11 +4523,11 @@ int verifyClusterConfigWithData(void) {
         update_config++;
         /* Case A: slot is unassigned. Take responsibility for it. */
         if (server.cluster->slots[j] == NULL) {
-            serverLog(LL_NOTICE, "I have keys for unassigned slot %d. "
+            serverLog(LL_WARNING, "I have keys for unassigned slot %d. "
                                     "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
         } else {
-            serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
+            serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
                                     "assigned to another node. "
                                     "Setting it to importing state.",j);
             server.cluster->importing_slots_from[j] = server.cluster->slots[j];

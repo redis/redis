@@ -1554,7 +1554,7 @@ uxeof: /* Unexpected AOF end of file. */
                 serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
                     filename, strerror(errno));
             } else {
-                serverLog(LL_NOTICE,
+                serverLog(LL_WARNING,
                     "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
                 ret = AOF_TRUNCATED;
                 goto loaded_ok;
