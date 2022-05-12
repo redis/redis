@@ -23,7 +23,8 @@ void done_handler(int exitcode, int bysignal, void *user_data) {
 int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     long long code_to_exit_with;
-    if (argc != 2) {
+    long long usleep_us;
+    if (argc != 3) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
@@ -34,6 +35,7 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     RedisModule_StringToLongLong(argv[1], &code_to_exit_with);
+    RedisModule_StringToLongLong(argv[2], &usleep_us);
     exitted_with_code = -1;
     child_pid = RedisModule_Fork(done_handler, (void*)0xdeadbeef);
     if (child_pid < 0) {
@@ -47,7 +49,7 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     /* child */
     RedisModule_Log(ctx, "notice", "fork child started");
-    usleep(500000);
+    usleep(usleep_us);
     RedisModule_Log(ctx, "notice", "fork child exiting");
     RedisModule_ExitFromChild(code_to_exit_with);
     /* unreachable */
