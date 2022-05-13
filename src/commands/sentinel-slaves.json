@@ -7,6 +7,11 @@
         "arity": 3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`SENTINEL REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "command_flags": [
             "ADMIN",
             "SENTINEL",
