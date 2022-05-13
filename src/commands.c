@@ -3987,7 +3987,7 @@ struct redisCommand SENTINEL_Subcommands[] = {
 {"sentinels","List the Sentinel instances","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,SENTINEL_SENTINELS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SENTINELS_Args},
 {"set","Change the configuration of a monitored master","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,SENTINEL_SET_tips,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SET_Args},
 {"simulate-failure","Simulate failover scenarios",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,SENTINEL_SIMULATE_FAILURE_tips,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SIMULATE_FAILURE_Args},
-{"slaves","List the monitored slaves","O(N) where N is the number of slaves","3.0.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,SENTINEL_SLAVES_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SLAVES_Args},
+{"slaves","List the monitored slaves","O(N) where N is the number of slaves","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,SENTINEL_SLAVES_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_SLAVES_Args},
 {0}
 };
 
