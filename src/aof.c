@@ -525,6 +525,7 @@ int writeAofManifestFile(sds buf) {
     int ret = C_OK;
     ssize_t nwritten;
     int len;
+    int dir_fd = -1;
 
     sds am_name = getAofManifestFileName();
     sds am_filepath = makePath(server.aof_dirname, am_name);
@@ -572,10 +573,29 @@ int writeAofManifestFile(sds buf) {
             tmp_am_name, am_name, strerror(errno));
 
         ret = C_ERR;
+        goto cleanup;
+    }
+
+    /* Also sync the AOF directory as new AOF files may be added in the directory */
+    dir_fd = open(server.aof_dirname, O_RDONLY);
+    if (dir_fd == -1) {
+        serverLog(LL_WARNING, "Can't open the AOF directory %s: %s",
+            server.aof_dirname, strerror(errno));
+
+        ret = C_ERR;
+        goto cleanup;
+    }
+    if (redis_fsync(dir_fd) == -1) {
+        serverLog(LL_WARNING, "Fail to fsync the AOF directory %s: %s.",
+            server.aof_dirname, strerror(errno));
+
+        ret = C_ERR;
+        goto cleanup;
     }
 
 cleanup:
     if (fd != -1) close(fd);
+    if (dir_fd != -1) close(dir_fd);
     sdsfree(am_name);
     sdsfree(am_filepath);
     sdsfree(tmp_am_name);
