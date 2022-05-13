@@ -805,7 +805,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
-/* SRANDMEMBER key [<count>] */
+/* SRANDMEMBER <key> [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
