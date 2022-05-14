@@ -238,14 +238,12 @@ void sdsclear(sds s) {
  * by sdslen(), but only the free buffer space we have. */
 sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     void *sh, *newsh;
-    size_t avail = sdsavail(s);
+    /* Return ASAP if there is enough space left. */
+    if (sdsavail(s) >= addlen) return s;
     size_t len, newlen, reqlen;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
     size_t usable;
-
-    /* Return ASAP if there is enough space left. */
-    if (avail >= addlen) return s;
 
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
@@ -308,14 +306,12 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen) {
  * references must be substituted with the new pointer returned by the call. */
 sds sdsRemoveFreeSpace(sds s) {
     void *sh, *newsh;
+    /* Return ASAP if there is no space left. */
+    if (sdsavail(s) == 0) return s;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
-    size_t avail = sdsavail(s);
     sh = (char*)s-oldhdrlen;
-
-    /* Return ASAP if there is no space left. */
-    if (avail == 0) return s;
 
     /* Check what would be the minimum SDS header that is just good enough to
      * fit this string. */
@@ -347,13 +343,12 @@ sds sdsRemoveFreeSpace(sds s) {
  * if the size is smaller than currently used len, the data will be truncated */
 sds sdsResize(sds s, size_t size) {
     void *sh, *newsh;
+    /* Return ASAP if the size is already good. */
+    if (sdsalloc(s) == size) return s;
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen, oldhdrlen = sdsHdrSize(oldtype);
     size_t len = sdslen(s);
     sh = (char*)s-oldhdrlen;
-
-    /* Return ASAP if the size is already good. */
-    if (sdsalloc(s) == size) return s;
 
     /* Truncate len if needed. */
     if (size < len) len = size;
