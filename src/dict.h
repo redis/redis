@@ -95,8 +95,9 @@ struct dict {
  * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    long index;
-    int table, safe;
+    long index; /*hash table index in ht_table[1] or ht_table[2].*/
+    int table; /*hash table number in ht_table[2]. table = 0 or 1.*/
+    int safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
