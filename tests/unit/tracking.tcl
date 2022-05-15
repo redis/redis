@@ -213,19 +213,18 @@ start_server {tags {"tracking network"}} {
         r CLIENT TRACKING on
         $rd_sg MSET key2{t} 1 key2{t} 1
 
-        # If a script calls a read command, track all declared keys
         # If a script doesn't call any read command, don't track any keys
         r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
         $rd_sg MSET key2{t} 2 key1{t} 2
 
+        # If a script calls a read command, track all declared keys
         r EVAL "redis.call('get', 'key3{t}')" 2 key1{t} key2{t} 
         $rd_sg MSET key2{t} 2 key1{t} 2
         assert_equal {invalidate key2{t}} [r read]
         assert_equal {invalidate key1{t}} [r read]
 
         # RO variants work like the normal variants
-        # If a script doesn't call any read command, don't track any keys
-        r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
+        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t} 
         $rd_sg MSET key2{t} 2 key1{t} 2
 
         r EVAL_RO "redis.call('get', 'key1{t}')" 2 key1{t} key2{t} 
