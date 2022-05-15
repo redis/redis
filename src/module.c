@@ -56,6 +56,7 @@
 #include "slowlog.h"
 #include "rdb.h"
 #include "monotonic.h"
+#include "script.h"
 #include "call_reply.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -3485,7 +3486,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         }
     }
 
-    if (server.in_script)
+    if (scriptIsRunning())
         flags |= REDISMODULE_CTX_FLAGS_LUA;
 
     if (server.in_exec)
@@ -7058,7 +7059,7 @@ void unblockClientFromModule(client *c) {
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
     client *c = ctx->client;
-    int islua = server.in_script;
+    int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
