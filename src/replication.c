@@ -2407,7 +2407,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     /* Reading half */
     reply = receiveSynchronousResponse(conn);
-    // Master did not reply to PSYNC
+    /* Master did not reply to PSYNC */
     if (reply == NULL) {
         connSetReadHandler(conn, NULL);
         serverLog(LL_WARNING, "Master did not reply to PSYNC, will try later");
@@ -2573,7 +2573,7 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_RECEIVE_PING_REPLY) {
         err = receiveSynchronousResponse(conn);
 
-        // The master did not reply
+        /* The master did not reply */
         if (err == NULL) goto no_response_error;
 
         /* We accept only two replies as valid, a positive +PONG reply
@@ -2824,8 +2824,9 @@ void syncWithMaster(connection *conn) {
     server.repl_transfer_lastio = server.unixtime;
     return;
 
-no_response_error: // Handle receiveSynchronousResponse() error when master has no reply
-    serverLog(LL_WARNING, "Master did not respond to SYNC"); // Fall through to regular error handling
+no_response_error: /* Handle receiveSynchronousResponse() error when master has no reply */
+    serverLog(LL_WARNING, "Master did not respond to command during SYNC handshake");
+    /* Fall through to regular error handling */
 
 error:
     if (dfd != -1) close(dfd);
