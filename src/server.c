@@ -3385,7 +3385,7 @@ void call(client *c, int flags) {
      * works a bit differently, where if the scripts executes any read command, it
      * remembers all of the declared keys from the script. */
     if ((c->cmd->flags & CMD_READONLY) && (c->cmd->proc != evalRoCommand)
-         && (c->cmd->proc != fcallroCommand))
+        && (c->cmd->proc != evalShaRoCommand) && (c->cmd->proc != fcallroCommand))
     {
         client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
                             server.script_caller : c;
