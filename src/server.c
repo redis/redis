@@ -2704,8 +2704,8 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 void setImplicitACLCategories(struct redisCommand *c) {
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
-    /* RO script commands don't have the read category */
-    if (c->flags & CMD_READONLY && c->proc != evalRoCommand && c->proc != fcallroCommand)
+    /* Exclude scripting commands from the RO category. */
+    if (c->flags & CMD_READONLY && (c->acl_categories & ACL_CATEGORY_SCRIPTING))
         c->acl_categories |= ACL_CATEGORY_READ;
     if (c->flags & CMD_ADMIN)
         c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
