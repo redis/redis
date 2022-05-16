@@ -202,6 +202,8 @@ typedef struct commandArg {
 
     /* How many words of the input have been matched against this argument? */
     int matched;
+    int matched_token;  /* Has the token been matched? */
+    int matched_all;  /* Has the whole argument been matched? */
 } commandArg;
 
 /* Command documentation info used for help output */
@@ -948,8 +950,8 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches);
  * If ignorematches==1, doesn't skip already-matched arguments.
  *
  * This algorithm does sensible things for most common argument patterns, but not all of them.
- * There's still room for improvement. For example, it's not good at handling optional arguments
- * followed by mandatory arguments. But it's a significant improvement over the previous implementation.
+ * There's still room for improvement. For example, it's not good at handling partial matches
+ * of repeated argument blocks. But it's a significant improvement over the previous implementation.
  */
 static sds buildHintForArguments(commandArg *args, int numargs, char *separator, int ignorematches) {
     sds hint = sdsempty();
@@ -969,20 +971,22 @@ static sds buildHintForArguments(commandArg *args, int numargs, char *separator,
          */
         for (j = i, incomplete = -1; j < numargs; j++) {
             if (!args[j].optional) break;
-            if (args[j].matched == 1 && args[j].token != NULL && args[j].type != ARG_TYPE_PURE_TOKEN) {
-                /* User has typed only the token of this arg; show its completion first. */
-                hint = addHintForArgument(hint, &args[j], ignorematches);
+            if (args[j].matched != 0 && args[j].matched_all == 0) {
+                /* User has started typing this arg; show its completion first. */
+                hint = addHintForArgument(hint, &args[j], 0);
                 incomplete = j;
             }
         }
 
-        /* Add hints for remaining optional args in this group. */
-        for (; i < j; i++) {
-            if (incomplete != i) {
-                if (sdslen(hint) != 0 && hint[sdslen(hint) - 1] != separator[0]) {
-                    hint = sdscat(hint, separator);
+        /* If the following non-optional arg has not been matched, add hints for remaining optional args in this group. */
+        if (j == numargs || args[j].matched == 0) {
+            for (; i < j; i++) {
+                if (incomplete != i) {
+                    if (sdslen(hint) != 0 && hint[sdslen(hint) - 1] != separator[0]) {
+                        hint = sdscat(hint, separator);
+                    }
+                    hint = addHintForArgument(hint, &args[i], 0);
                 }
-                hint = addHintForArgument(hint, &args[i], ignorematches);
             }
         }
 
@@ -997,7 +1001,6 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
     sds namePart = sdsempty();
     sds repeatPart = sdsempty();
     sds optionalPart = sdsempty();
-    int skipped = 0; /* Number of words skipped due to matches. */
 
     /* Build the "name part" and "repeating part" of the syntax string.
      * The repeating part is a fixed unit; we don't skip matched elements. */
@@ -1045,15 +1048,11 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
     }
 
     /* Add the token and name parts, if those words aren't matched. */
-    if (arg->matched <= skipped || ignorematches) {
+    if (!arg->matched_token || ignorematches) {
         optionalPart = sdscat(optionalPart, tokenPart);
-    } else if (arg->token != NULL) {
-        ++skipped;
     }
-    if (arg->matched <= skipped || ignorematches) {
+    if (!arg->matched_all || ignorematches) {
         optionalPart = sdscat(optionalPart, namePart);
-    } else {
-        ++skipped;
     }
 
     /* Add "[" and " ...]" around repeated part of syntax string. */
@@ -1070,9 +1069,7 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
     }
 
     /* Add "[" and "]" around optional part, if it's not already matched. */
-    if (arg->optional && optionalPart[0] != '\0' &&
-        !(optionalPart[0] == '[' && optionalPart[sdslen(optionalPart)-1] == ']') &&
-        (!arg->matched || ignorematches)) {
+    if (arg->optional && optionalPart[0] != '\0' && (!arg->matched || ignorematches)) {
         hint = sdscat(hint, "[");
         hint = sdscat(hint, optionalPart);
         hint = sdscat(hint, "]");
@@ -1091,6 +1088,8 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
 static void clearMatchedArgs(commandArg *args, int numargs) {
     for (int i = 0; i != numargs; ++i) {
         args[i].matched = 0;
+        args[i].matched_token = 0;
+        args[i].matched_all = 0;
         if (args[i].subargs) {
             clearMatchedArgs(args[i].subargs, args[i].numsubargs);
         }
@@ -1100,52 +1099,69 @@ static void clearMatchedArgs(commandArg *args, int numargs) {
 static int matchArg(char **nextword, int numwords, commandArg *arg);
 static int matchArgs(char **words, int numwords, commandArg *args, int numargs);
 
-/* Tries to match the next words of the input against a non-token-type argument. */
+/* Tries to match the next words of the input against an argument. */
 static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
     int i;
     if (arg->type == ARG_TYPE_BLOCK) {
-        return matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
+        int matchedWords = matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
+        arg->matched = matchedWords;
+
+        /* Have all the subargs been matched? */
+        arg->matched_all = 1;
+        for (i = 0; i < arg->numsubargs; i++) {
+            if (arg->subargs[i].matched_all == 0) {
+                arg->matched_all = 0;
+            }
+        }
     } else if (arg->type == ARG_TYPE_ONEOF) {
         int matchedWords = 0;
         for (i = 0; i < arg->numsubargs; i++) {
             matchedWords = matchArg(nextword, numwords, &arg->subargs[i]);
             if (matchedWords > 0) {
                 arg->matched = matchedWords;
+                arg->matched_all = arg->subargs[i].matched_all;
                 break;
             }
         }
     } else {
+        /* TODO: Handle multiple matches of a repeated argument. */
         arg->matched = 1;
+        arg->matched_all = 1;
     }
     return arg->matched;
 }
 
-/* Tries to match the next words of the input against a token-type argument. */
-static int matchTokenArg(char **nextword, int numwords, commandArg *arg) {
-    /* First match the token literal. */
+/* Tries to match the next word of the input against a token literal. */
+static int matchToken(char **nextword, commandArg *arg) {
     if (strcasecmp(arg->token, nextword[0]) != 0) {
         return 0;
     }
-
+    arg->matched_token = 1;
     arg->matched = 1;
-    if (arg->type != ARG_TYPE_PURE_TOKEN && numwords > 1) {
-        if (arg->type == ARG_TYPE_BLOCK) {
-            return matchArgs(nextword + 1, numwords - 1, arg->subargs, arg->numsubargs) + 1;
-        } else {
-            arg->matched = 2;
-        }
-    }
-    return arg->matched;
+    return 1;
 }
 
 /* Tries to match the next words of the input against the next argument. */
 static int matchArg(char **nextword, int numwords, commandArg *arg) {
-    int matchedWords;
-    if (arg->token == NULL) {
-        matchedWords = matchNoTokenArg(nextword, numwords, arg);
-    } else {
-        matchedWords = matchTokenArg(nextword, numwords, arg);
+    int matchedWords = 0;
+    if (arg->token != NULL) {
+        matchedWords = matchToken(nextword, arg);
+        if (matchedWords == 0) {
+            return 0;
+        }
+        if (arg->type == ARG_TYPE_PURE_TOKEN) {
+            arg->matched_all = 1;
+            return 1;
+        }
+        if (numwords == 1) {
+            return 1;
+        }
+        nextword++;
+        numwords--;
     }
+
+    matchedWords += matchNoTokenArg(nextword, numwords, arg);
+    arg->matched = matchedWords;
     return matchedWords;
 }
 
