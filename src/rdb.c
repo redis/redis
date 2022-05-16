@@ -2782,6 +2782,10 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
     }
+    if (useDisklessLoad() && server.repl_state == REPL_STATE_TRANSFER) {
+        /* Repl bytes from fullresync while diskless loading, would be added to stat_net_input_bytes. */
+        atomicIncr(server.stat_net_repl_input_bytes, len);
+    }
 }
 
 /* Save the given functions_ctx to the rdb.
