@@ -8220,6 +8220,11 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
     }
 }
 
+static void longStatLoopModeStop(int s) {
+    UNUSED(s);
+    force_cancel_loop = 1;
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -8237,6 +8242,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
 
+    signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
     total_keys = getDbSize();
 
@@ -8315,14 +8321,14 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while(force_cancel_loop == 0 && it != 0);
 
     if(types) zfree(types);
     if(sizes) zfree(sizes);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-
+    if (force_cancel_loop) printf("[%05.2f%%] ", pct);
     printf("Sampled %llu keys in the keyspace!\n", sampled);
     printf("Total key length in bytes is %llu (avg len %.2f)\n\n",
        totlen, totlen ? (double)totlen/sampled : 0);
@@ -8785,11 +8791,6 @@ unsigned long compute_something_fast(void) {
     return output;
 }
 
-static void intrinsicLatencyModeStop(int s) {
-    UNUSED(s);
-    force_cancel_loop = 1;
-}
-
 static void sigIntHandler(int s) {
     UNUSED(s);
 
@@ -8807,7 +8808,7 @@ static void intrinsicLatencyMode(void) {
 
     run_time = (long long)config.intrinsic_latency_duration * 1000000;
     test_end = ustime() + run_time;
-    signal(SIGINT, intrinsicLatencyModeStop);
+    signal(SIGINT, longStatLoopModeStop);
 
     while(1) {
         long long start, end, latency;
