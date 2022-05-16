@@ -157,9 +157,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network. */
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_NET_REPL_INPUT 3    /* Bytes read from network during replication for fullresync and command stream. */
-#define STATS_METRIC_NET_REPL_OUTPUT 4   /* Bytes written to network during replication for fullresync and command stream. */
-#define STATS_METRIC_COUNT 5
+#define STATS_METRIC_COUNT 3
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
