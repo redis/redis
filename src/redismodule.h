@@ -1160,6 +1160,7 @@ REDISMODULE_API void (*RedisModule_SendChildHeartbeat)(double progress) REDISMOD
 REDISMODULE_API int (*RedisModule_ExitFromChild)(int retcode) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KillForkChild)(int child_pid) REDISMODULE_ATTR;
 REDISMODULE_API float (*RedisModule_GetUsedMemoryRatio)() REDISMODULE_ATTR;
+REDISMODULE_API size_t (*RedisModule_GetTotalUsedMemory)() REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_MallocSize)(void* ptr) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_MallocSizeString)(RedisModuleString* str) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_MallocSizeDict)(RedisModuleDict* dict) REDISMODULE_ATTR;
@@ -1493,6 +1494,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ExitFromChild);
     REDISMODULE_GET_API(KillForkChild);
     REDISMODULE_GET_API(GetUsedMemoryRatio);
+    REDISMODULE_GET_API(GetTotalUsedMemory);
     REDISMODULE_GET_API(MallocSize);
     REDISMODULE_GET_API(MallocSizeString);
     REDISMODULE_GET_API(MallocSizeDict);

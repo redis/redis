@@ -9794,6 +9794,13 @@ float RM_GetUsedMemoryRatio(){
     return level;
 }
 
+/* Return the total amount of bytes used */
+size_t RM_GetTotalUsedMemory() {
+    size_t total;
+    getMaxmemoryState(&total, NULL, NULL, NULL);
+    return total;
+}
+
 /* --------------------------------------------------------------------------
  * ## Scanning keyspace and hashes
  * -------------------------------------------------------------------------- */
@@ -12564,6 +12571,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
+    REGISTER_API(GetTotalUsedMemory);
     REGISTER_API(MallocSize);
     REGISTER_API(MallocSizeString);
     REGISTER_API(MallocSizeDict);
