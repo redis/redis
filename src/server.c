@@ -2702,17 +2702,10 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 /* Set implicit ACl categories (see comment above the definition of
  * struct redisCommand). */
 void setImplicitACLCategories(struct redisCommand *c) {
-    /* If it's not @fast is @slow in this binary world. */
-    if (!(c->acl_categories & ACL_CATEGORY_FAST))
-        c->acl_categories |= ACL_CATEGORY_SLOW;
-
-    /* Implicit categories are skipped for scripting commands, since they
-     * need to be explicitly enabled. */
-    if (c->acl_categories & ACL_CATEGORY_SCRIPTING) return;
-
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
-    if (c->flags & CMD_READONLY)
+    /* RO script commands don't have the read category */
+    if (c->flags & CMD_READONLY && c->proc != evalRoCommand && c->proc != fcallroCommand)
         c->acl_categories |= ACL_CATEGORY_READ;
     if (c->flags & CMD_ADMIN)
         c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
@@ -2722,6 +2715,10 @@ void setImplicitACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_FAST;
     if (c->flags & CMD_BLOCKING)
         c->acl_categories |= ACL_CATEGORY_BLOCKING;
+
+    /* If it's not @fast is @slow in this binary world. */
+    if (!(c->acl_categories & ACL_CATEGORY_FAST))
+        c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
 /* Recursively populate the args structure (setting num_args to the number of
