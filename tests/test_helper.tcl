@@ -588,7 +588,7 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute tests that match <test> regexp. This option can be repeated."
+        "--only <test>      Just execute the specified test by test name or tests that match <test> regexp. This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
