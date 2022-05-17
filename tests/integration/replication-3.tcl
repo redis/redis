@@ -16,7 +16,11 @@ start_server {tags {"repl"}} {
             after 4000 ;# Make sure everything expired before taking the digest
             r keys *   ;# Force DEL syntesizing to slave
             after 1000 ;# Wait another second. Now everything should be fine.
-           
+            wait_for_condition 100 50 {
+                [r -1 dbsize] == [r dbsize]
+            } else {
+                fail "wait sync"
+            }
             if {$::debug_evict_keys} {
                 set slave_digest [r -1 debug digest-keys]
                 set master_digest [r -1 debug digest-keys]
@@ -57,7 +61,14 @@ start_server {tags {"repl"}} {
             r -1 set key1 1 ex 5
             r -1 set key2 2 ex 5
             r -1 set key3 3 ex 5
-            assert {[r -1 dbsize] == 3}
+            if {$::debug_evict_keys} {
+                wait_for_condition 100 20 {
+                    [r -1 dbsize] == 3
+                } else {
+                    fail "wait evict fail"
+                }
+            }
+                assert {[r -1 dbsize] == 3}
             after 6000
             r -1 dbsize
         } {0}

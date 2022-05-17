@@ -158,11 +158,18 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
+        if {$::debug_evict_keys} {
+            wait_for_condition 100 20 {
+                [r dbsize] == 3
+            } else {
+                fail "wait evict fail"
+            }
+        }
         set size1 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
         # one second.
-        after 600
+        after 1000
         if {$::debug_evict_keys} {
             wait_for_condition 100 20 {
                 [r dbsize] == 0
@@ -180,6 +187,13 @@ start_server {tags {"expire"}} {
         r psetex key1 500 a
         r psetex key2 500 a
         r psetex key3 500 a
+        if {$::debug_evict_keys} {
+            wait_for_condition 100 20 {
+                [r dbsize] == 3
+            } else {
+                fail "wait evict fail"
+            }
+        }
         set size1 [r dbsize]
         # Redis expires random keys ten times every second so we are
         # fairly sure that all the three keys should be evicted after
@@ -187,12 +201,10 @@ start_server {tags {"expire"}} {
         after 1000
         set size2 [r dbsize]
         r mget key1 key2 key3
-        if {$::debug_evict_keys} {
-            wait_for_condition 100 20 {
-                [r dbsize] == 0
-            } else {
-                fail "wait expire fail"
-            }
+        wait_for_condition 100 20 {
+            [r dbsize] == 0
+        } else {
+            fail "wait expire fail"
         }
         set size3 [r dbsize]
         r debug set-active-expire 1

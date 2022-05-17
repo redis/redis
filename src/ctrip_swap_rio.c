@@ -335,10 +335,9 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq) {
     pthread_mutex_destroy(&cq->lock);
     listRelease(cq->complete_queue);
 }
-static redisAtomic size_t runningTaskCount = 0;
+
 void asyncRIOFinished(RIO *rio, void *pd) {
     UNUSED(pd);
-    atomicDecr(runningTaskCount, 1);
     asyncCompleteQueueAppend(&server.rocks->CQ, rio);
 }
 
@@ -363,7 +362,6 @@ void rocksAsyncSubmit(uint32_t dist, int action, sds rawkey, sds rawval,
     RIO *rio = RIONewKV(action, rawkey, rawval);
     rio->svr.cb = (voidfuncptr)cb;
     rio->svr.pd = pd;
-    atomicIncr(runningTaskCount, 1);
     rocksIOSubmit(dist, rio, asyncRIOFinished, NULL);
 }
 
@@ -389,9 +387,6 @@ static int asyncCompleteQueueDrained(rocks *rocks) {
     pthread_mutex_lock(&rocks->CQ.lock);
     if (listLength(rocks->CQ.complete_queue)) drained = 0;
     pthread_mutex_unlock(&rocks->CQ.lock);
-    size_t um;
-    atomicGet(runningTaskCount,um);
-    serverLog(LL_WARNING,"runningTaskCount %ld", um);
     return drained;
 }
 
