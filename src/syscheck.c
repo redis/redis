@@ -151,7 +151,10 @@ int checkOvercommit(sds *error_msg) {
     fclose(fp);
 
     if (atoi(buf)) {
-        *error_msg = sdsnew("WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
+        *error_msg = sdsnew(
+            "WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. "
+            "To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the "
+            "command 'sysctl vm.overcommit_memory=1' for this to take effect.");
         return -1;
     } else {
         return 1;
@@ -172,7 +175,12 @@ int checkTHPEnabled(sds *error_msg) {
     fclose(fp);
 
     if (strstr(buf,"[always]") != NULL) {
-        *error_msg = sdsnew("You have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
+        *error_msg = sdsnew(
+            "You have Transparent Huge Pages (THP) support enabled in your kernel. "
+            "This will create latency and memory usage issues with Redis. "
+            "To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, "
+            "and add it to your /etc/rc.local in order to retain the setting after a reboot. "
+            "Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
         return -1;
     } else {
         return 1;
@@ -317,7 +325,7 @@ exit:
  * `check_fn` should return:
  *   -1 in case the check fails.
  *   1 in case the check passes.
- *   0 in case the check should not be completed (usually because of some unexpected failed system call).
+ *   0 in case the check could not be completed (usually because of some unexpected failed system call).
  *   When (and only when) the check fails and -1 is returned and error description is places in a new sds pointer to by
  *   the single `sds*` argument to `check_fn`. This message should be freed by the caller via `sdsfree()`.
  */
