@@ -1,7 +1,7 @@
 {
     "SHARDCHANNELS": {
         "summary": "List active shard channels",
-        "complexity": "O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short channels).",
+        "complexity": "O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).",
         "group": "pubsub",
         "since": "7.0.0",
         "arity": -2,
