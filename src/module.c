@@ -1442,7 +1442,7 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *               begin search step. (Usually it's just after `keynumidx`, in
  *               which case it should be set to `keynumidx + 1`.)
  *
- *             * `keystep`: How many argumentss should we skip after finding a
+ *             * `keystep`: How many arguments should we skip after finding a
  *               key, in order to find the next one?
  *
  *     Key-spec flags:
@@ -1767,7 +1767,7 @@ static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info) {
             if (!isPowerOfTwo(spec->flags & key_flags)) {
                 serverLog(LL_WARNING,
                           "Invalid command info: key_specs[%zd].flags: "
-                          "Exactly one of the flags RO, RW, OW, RM reqired", j);
+                          "Exactly one of the flags RO, RW, OW, RM required", j);
                 return 0;
             }
             if ((spec->flags & write_flags) != 0 &&
@@ -2837,7 +2837,7 @@ int RM_ReplyWithSet(RedisModuleCtx *ctx, long len) {
  * actual reply. see https://github.com/antirez/RESP3/blob/master/spec.md#attribute-type
  *
  * After starting an attributes reply, the module must make `len*2` calls to other
- * `ReplyWith*` style functions in order to emit the elements of the attribtute map.
+ * `ReplyWith*` style functions in order to emit the elements of the attribute map.
  * See Reply APIs section for more details.
  *
  * Use RM_ReplySetAttributeLength() to set deferred length.
@@ -3984,7 +3984,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * RM_ListInsert, the internal iterator is invalidated so the next operation
  * will require a linear seek.
  *
- * Modifying a list in any another way, for examle using RM_Call(), while a key
+ * Modifying a list in any another way, for example using RM_Call(), while a key
  * is open will confuse the internal iterator and may cause trouble if the key
  * is used after such modifications. The key must be reopened in this case.
  *
@@ -5666,14 +5666,14 @@ fmterr:
  *              same as the client attached to the given RedisModuleCtx. This will
  *              probably used when you want to pass the reply directly to the client.
  *     * `C` -- Check if command can be executed according to ACL rules.
- *     * 'S' -- Run the command in a script mode, this means that it will raise
+ *     * `S` -- Run the command in a script mode, this means that it will raise
  *              an error if a command which are not allowed inside a script
  *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
  *              In addition, on script mode, write commands are not allowed if there are
  *              not enough good replicas (as configured with `min-replicas-to-write`)
  *              or when the server is unable to persist to the disk.
- *     * 'W' -- Do not allow to run any write command (flagged with the `write` flag).
- *     * 'E' -- Return error as RedisModuleCallReply. If there is an error before
+ *     * `W` -- Do not allow to run any write command (flagged with the `write` flag).
+ *     * `E` -- Return error as RedisModuleCallReply. If there is an error before
  *              invoking the command, the error is returned using errno mechanism.
  *              This flag allows to get the error also as an error CallReply with
  *              relevant error message.
@@ -8661,7 +8661,7 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
  * access flags. See RM_ChannelAtPosWithFlags for more information about the
  * possible flags that can be passed in.
  *
- * If the user is able to acecss the pubsub channel then REDISMODULE_OK is returned, otherwise
+ * If the user is able to access the pubsub channel then REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to one of the following values:
  * 
  * * EINVAL: The provided flags are invalid.
@@ -12052,7 +12052,7 @@ int *RM_GetCommandKeysWithFlags(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return res;
 }
 
-/* Identinal to RM_GetCommandKeysWithFlags when flags are not needed. */
+/* Identical to RM_GetCommandKeysWithFlags when flags are not needed. */
 int *RM_GetCommandKeys(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys) {
     return RM_GetCommandKeysWithFlags(ctx, argv, argc, num_keys, NULL);
 }
