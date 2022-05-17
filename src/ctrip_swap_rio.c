@@ -170,10 +170,11 @@ void *RIOThreadMain (void *arg) {
         pthread_mutex_unlock(&thread->lock);
 
         listRewind(processing_rios, &li);
+        atomic_store(&thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
             doRIO(listNodeValue(ln));
         }
-
+        atomic_store(&thread->is_running_rio, 0);
         listRelease(processing_rios);
     }
 
@@ -191,6 +192,7 @@ int rocksInitThreads(rocks *rocks) {
 
         thread->id = i;
         thread->pending_rios = listCreate();
+        atomic_store(&thread->is_running_rio, 0);
         pthread_mutex_init(&thread->lock, NULL);
         pthread_cond_init(&thread->cond, NULL);
         if (pthread_create(&thread->thread_id, NULL, RIOThreadMain, thread)) {
@@ -227,7 +229,7 @@ int rocksThreadsDrained(rocks *rocks) {
         rt = &server.rocks->threads[i];
 
         pthread_mutex_lock(&rt->lock);
-        if (listLength(rt->pending_rios)) drained = 0;
+        if (listLength(rt->pending_rios) || atomic_load(&rt->is_running_rio)) drained = 0;
         pthread_mutex_unlock(&rt->lock);
     }
     return drained;
@@ -333,9 +335,10 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq) {
     pthread_mutex_destroy(&cq->lock);
     listRelease(cq->complete_queue);
 }
-
+static redisAtomic size_t runningTaskCount = 0;
 void asyncRIOFinished(RIO *rio, void *pd) {
     UNUSED(pd);
+    atomicDecr(runningTaskCount, 1);
     asyncCompleteQueueAppend(&server.rocks->CQ, rio);
 }
 
@@ -360,6 +363,7 @@ void rocksAsyncSubmit(uint32_t dist, int action, sds rawkey, sds rawval,
     RIO *rio = RIONewKV(action, rawkey, rawval);
     rio->svr.cb = (voidfuncptr)cb;
     rio->svr.pd = pd;
+    atomicIncr(runningTaskCount, 1);
     rocksIOSubmit(dist, rio, asyncRIOFinished, NULL);
 }
 
@@ -385,14 +389,15 @@ static int asyncCompleteQueueDrained(rocks *rocks) {
     pthread_mutex_lock(&rocks->CQ.lock);
     if (listLength(rocks->CQ.complete_queue)) drained = 0;
     pthread_mutex_unlock(&rocks->CQ.lock);
-
+    size_t um;
+    atomicGet(runningTaskCount,um);
+    serverLog(LL_WARNING,"runningTaskCount %ld", um);
     return drained;
 }
 
 int asyncCompleteQueueDrain(rocks *rocks, mstime_t time_limit) {
     int result = 0;
     mstime_t start = mstime();
-
     while (!asyncCompleteQueueDrained(rocks)) {
         asyncCompleteQueueProcess(&rocks->CQ);
 

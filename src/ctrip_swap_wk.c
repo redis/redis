@@ -263,7 +263,7 @@ void dbSwapOutWk(redisDb *db, robj *key) {
     robj *value, *evict, *swapout;
     long long expire;
 
-    value = lookupKey(db,key,LOOKUP_NOTOUCH);
+    value = lookupKey(db,key,LOOKUP_NOTOUCH);    
     evict = lookupEvict(db,key);
     expire = getExpire(db,key);
 

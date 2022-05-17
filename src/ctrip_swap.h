@@ -31,6 +31,8 @@
 #include "server.h"
 #include "ctrip_swap.h"
 #include <rocksdb/c.h>
+#include <stdatomic.h>
+#include <threads.h>
 
 /* --- Rocks rio threads(one-req-one-rsp) --- */
 #define RIO_THREADS_DEFAULT     6
@@ -80,6 +82,7 @@ typedef struct {
     pthread_mutex_t lock;
     pthread_cond_t cond;
     list *pending_rios;
+    atomic_int is_running_rio;
 } RIOThread;
 
 int rocksInitThreads(struct rocks *rocks);
