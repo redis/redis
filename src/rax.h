@@ -172,6 +172,8 @@ typedef int (*raxNodeCallback)(raxNode **noderef);
 #define RAX_ITER_EOF (1<<1)    /* End of iteration reached. */
 #define RAX_ITER_SAFE (1<<2)   /* Safe iterator, allows operations while
                                   iterating. But it is slower. */
+#define RAX_ITER_CHILD_STATIC_LEN 32
+
 typedef struct raxIterator {
     int flags;
     rax *rt;                /* Radix tree we are iterating. */
@@ -183,6 +185,11 @@ typedef struct raxIterator {
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
+    size_t child_offset;    /* current child offset */
+    size_t cpos_max;        /* max number of child offsets the current stack can hold */
+    size_t cpos;            /* current position in the stack of child offsets */
+    uint8_t *child_offset_stack; /* stack (vector) of child offsets */
+    uint8_t child_offset_stack_static[RAX_ITER_CHILD_STATIC_LEN];
 } raxIterator;
 
 /* A special pointer returned for not found items. */
