@@ -116,7 +116,7 @@ static int checkClocksource(sds *error_msg) {
     }
 }
 
-/* Verify we're not used the `xen` clocksource. The xen hypervisor's default clocksoruce is slow and affects
+/* Verify we're not using the `xen` clocksource. The xen hypervisor's default clocksource is slow and affects
  * Redis's performance. This has been measured on ec2 xen based instances. ec2 recommends using the non-default
  * tsc clock source for these instances. */
 int checkXenClocksource(sds *error_msg) {
