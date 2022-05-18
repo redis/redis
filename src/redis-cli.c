@@ -8650,7 +8650,7 @@ static void statMode(void) {
 static void scanMode(void) {
     redisReply *reply;
     unsigned long long cur = 0;
-
+    signal(SIGINT, longStatLoopModeStop);
     do {
         reply = sendScan(&cur);
         for (unsigned int j = 0; j < reply->element[1]->elements; j++) {
@@ -8665,7 +8665,7 @@ static void scanMode(void) {
         }
         freeReplyObject(reply);
         if (config.interval) usleep(config.interval);
-    } while(cur != 0);
+    } while(force_cancel_loop == 0 && cur != 0);
 
     exit(0);
 }
