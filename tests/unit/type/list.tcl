@@ -389,12 +389,13 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS RANK (positive and negative rank) option} {
+    test {LPOS RANK (positive, negative and zero rank) option} {
         assert {[r LPOS mylist c RANK 1] == 2}
         assert {[r LPOS mylist c RANK 2] == 6}
         assert {[r LPOS mylist c RANK 4] eq ""}
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
+        assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
     }
 
     test {LPOS COUNT option} {

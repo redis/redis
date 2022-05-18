@@ -4127,7 +4127,7 @@ numargserr:
 
 void addInfoSectionsToDict(dict *section_dict, char **sections);
 
-/* SENTINEL INFO [section] */
+/* INFO [<section> [<section> ...]] */
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;

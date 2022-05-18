@@ -202,8 +202,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         script_client->flags |= CLIENT_MULTI;
     }
 
-    server.in_script = 1;
-
     run_ctx->start_time = getMonotonicUs();
     run_ctx->snapshot_time = mstime();
 
@@ -236,7 +234,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
-    server.in_script = 0;
     server.script_caller = NULL;
 
     if (scriptIsTimedout()) {

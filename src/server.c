@@ -2500,7 +2500,6 @@ void initServer(void) {
     server.pubsub_patterns = dictCreate(&keylistDictType);
     server.pubsubshard_channels = dictCreate(&keylistDictType);
     server.cronloops = 0;
-    server.in_script = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
@@ -3482,11 +3481,8 @@ void afterCommand(client *c) {
  * spec doesn't cover all of them. */
 void populateCommandMovableKeys(struct redisCommand *cmd) {
     int movablekeys = 0;
-    if (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) {
-        /* Redis command with getkeys proc */
-        movablekeys = 1;
-    } else if (cmd->flags & CMD_MODULE_GETKEYS) {
-        /* Module command with getkeys proc */
+    if (cmd->getkeys_proc || (cmd->flags & CMD_MODULE_GETKEYS)) {
+        /* Command with getkeys proc */
         movablekeys = 1;
     } else {
         /* Redis command without getkeys proc, but possibly has
@@ -3569,7 +3565,7 @@ int processCommand(client *c) {
          * That is unless lua_timedout, in which case client may run
          * some commands. */
         serverAssert(!server.in_exec);
-        serverAssert(!server.in_script);
+        serverAssert(!scriptIsRunning());
     }
 
     moduleCallCommandFilters(c);
@@ -4709,7 +4705,7 @@ void getKeysSubcommandImpl(client *c, int with_flags) {
     if (!cmd) {
         addReplyError(c,"Invalid command specified");
         return;
-    } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
+    } else if (!doesCommandHaveKeys(cmd)) {
         addReplyError(c,"The command has no key arguments");
         return;
     } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
@@ -4911,7 +4907,7 @@ void commandInfoCommand(client *c) {
     }
 }
 
-/* COMMAND DOCS [<command-name> ...] */
+/* COMMAND DOCS [command-name [command-name ...]] */
 void commandDocsCommand(client *c) {
     int i;
     if (c->argc == 2) {
@@ -5920,6 +5916,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     return info;
 }
 
+/* INFO [<section> [<section> ...]] */
 void infoCommand(client *c) {
     if (server.sentinel_mode) {
         sentinelInfoCommand(c);
@@ -6962,6 +6959,7 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
+        int handled_last_config_arg = 1;
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
@@ -6970,16 +6968,20 @@ int main(int argc, char **argv) {
             /* All the other options are parsed and conceptually appended to the
              * configuration file. For instance --port 6380 will generate the
              * string "port 6380\n" to be parsed after the actual config file
-             * and stdin input are parsed (if they exist). */
-            else if (argv[j][0] == '-' && argv[j][1] == '-') {
+             * and stdin input are parsed (if they exist).
+             * Only consider that if the last config has at least one argument. */
+            else if (handled_last_config_arg && argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
                 if (sdslen(options)) options = sdscat(options,"\n");
+                /* argv[j]+2 for removing the preceding `--` */
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
+                handled_last_config_arg = 0;
             } else {
                 /* Option argument */
                 options = sdscatrepr(options,argv[j],strlen(argv[j]));
                 options = sdscat(options," ");
+                handled_last_config_arg = 1;
             }
             j++;
         }
