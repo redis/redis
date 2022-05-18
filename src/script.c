@@ -108,6 +108,17 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
     return (run_ctx->flags & SCRIPT_KILLED) ? SCRIPT_KILL : SCRIPT_CONTINUE;
 }
 
+uint64_t scriptFlagsToCmdFlags(uint64_t script_flags) {
+    uint64_t cmd_flags = 0;
+    if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM))
+        cmd_flags |= CMD_DENYOOM;
+    if (!(script_flags & SCRIPT_FLAG_NO_WRITES))
+        cmd_flags |= CMD_WRITE;
+    if (script_flags & SCRIPT_FLAG_ALLOW_STALE)
+        cmd_flags |= CMD_STALE;
+    return cmd_flags;
+}
+
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
@@ -118,18 +129,18 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     int obey_client = mustObeyClient(caller);
 
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
-        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
+        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) { /* unreachable */
             addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
             return C_ERR;
         }
 
-        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
+        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) { /* unreachable */
             addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
                                   "can not run it when used memory > 'maxmemory'");
             return C_ERR;
         }
 
-        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
+        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) { /* unreachable */
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
                              "and 'allow-stale' flag is not set on the script.");
@@ -141,14 +152,14 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 1. we are not a readonly replica
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
-            if (server.masterhost && server.repl_slave_ro && !obey_client) {
+            if (server.masterhost && server.repl_slave_ro && !obey_client) { /* unreachable */
                 addReplyError(caller, "Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
             /* Deny writes if we're unale to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
-            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) { /* unreachable */
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
                     addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
                                      "but it's currently unable to persist to disk. "
@@ -162,7 +173,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             }
 
             if (ro) {
-                addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
+                addReplyError(caller, "Can not execute a script with write flag using *_ro command."); /* reachable!! */
                 return C_ERR;
             }
 
@@ -173,14 +184,14 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 server.repl_min_slaves_to_write &&
                 server.repl_good_slaves_count < server.repl_min_slaves_to_write)
             {
-                addReplyErrorObject(caller, shared.noreplicaserr);
+                addReplyErrorObject(caller, shared.noreplicaserr); /* unreachable */
                 return C_ERR;
             }
         }
     } else {
         /* Special handling for backwards compatibility (no shebang eval[sha]) mode */
         if (running_stale) {
-            addReplyErrorObject(caller, shared.masterdownerr);
+            addReplyErrorObject(caller, shared.masterdownerr); /* reachable!! */
             return C_ERR;
         }
     }
@@ -323,15 +334,22 @@ static int scriptVerifyACL(client *c, sds *err) {
 }
 
 static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
-    if (!(run_ctx->c->cmd->flags & CMD_WRITE)) {
-        return C_OK;
-    }
 
-    if (run_ctx->flags & SCRIPT_READ_ONLY) {
-        /* We know its a write command, on a read only run we do not allow it. */
+    /* A write command, on an RO command or an RO script is rejected ASAP.
+     * Note: For scripts, we consider may-replicate commands as write commands.
+     * This also makes it possible to allow read-only scripts to be run during
+     * CLIENT PAUSE WRITE. */
+    if (run_ctx->flags & SCRIPT_READ_ONLY &&
+        (run_ctx->c->cmd->flags & (CMD_WRITE|CMD_MAY_REPLICATE)))
+    {
         *err = sdsnew("Write commands are not allowed from read-only scripts.");
         return C_ERR;
     }
+
+    /* The other checks below are on the server state and are only relevant for
+     *  write commands, return if this is not a write command. */
+    if (!(run_ctx->c->cmd->flags & CMD_WRITE))
+        return C_OK;
 
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context

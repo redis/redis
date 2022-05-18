@@ -2588,7 +2588,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
 void unwatchAllKeys(client *c);
 void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
-void queueMultiCommand(client *c);
+void queueMultiCommand(client *c, uint64_t cmd_flags);
 size_t multiStateMemOverhead(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
 int isWatchedKeyExpired(client *c);
@@ -3193,6 +3193,8 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
+int evalGetCommandFlags(client *c, uint64_t *flags);
+int fcallGetCommandFlags(client *c, uint64_t *flags);
 
 typedef struct luaScript {
     uint64_t flags;
