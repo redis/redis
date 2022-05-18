@@ -126,6 +126,12 @@ configEnum sanitize_dump_payload_enum[] = {
     {NULL, 0}
 };
 
+configEnum swap_mode_enum[] = {
+    {"memory", SWAP_MODE_MEMMORY},
+    {"disk", SWAP_MODE_DISK},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -2271,6 +2277,14 @@ static int updateGoodSlaves(long long val, long long prev, const char **err) {
     return 1;
 }
 
+static int isValidAppendonly(int val, const char **err) {
+    if (val && server.swap_mode != SWAP_MODE_MEMMORY) {
+        *err = "swap mode is non memory mode, can't open aof";
+        return 0;
+    }
+    return 1;
+}
+
 static int updateAppendonly(int val, int prev, const char **err) {
     UNUSED(prev);
     if (val == 0 && server.aof_state != AOF_OFF) {
@@ -2335,6 +2349,13 @@ static int updateOOMScoreAdj(int val, int prev, const char **err) {
     return 1;
 }
 
+static int isValidSwapMode(int val, const char **err) {
+    if (val != SWAP_MODE_MEMMORY && server.aof_enabled) {
+        *err = "Failed to set current non memory mode, Check aof state.";
+        return 0;
+    } 
+    return 1;
+}
 
 int updateRequirePass(sds val, sds prev, const char **err) {
     UNUSED(prev);
@@ -2432,7 +2453,7 @@ standardConfig configs[] = {
     createBoolConfig("activedefrag", NULL, MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
-    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
+    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, isValidAppendonly, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),
     createBoolConfig("crash-memcheck-enabled", NULL, MODIFIABLE_CONFIG, server.memcheck_enabled, 1, NULL, NULL),
@@ -2473,6 +2494,7 @@ standardConfig configs[] = {
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
+    createEnumConfig("swap-mode", NULL, MODIFIABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMMORY, isValidSwapMode, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

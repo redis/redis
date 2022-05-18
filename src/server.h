@@ -554,6 +554,9 @@ struct RedisModuleDefragCtx;
 /* Note that swap is result of syntax anaysis for redis command, which have
  * nothing to do with keyspace. type can be generic(e.g DEL command), which
  * does not match any kind of OBJ_*; also, type might not match key type. */
+#define SWAP_MODE_MEMMORY 0
+#define SWAP_MODE_DISK 1
+
 typedef struct swap {
     struct redisObject *key; 
     struct redisObject *subkey;
@@ -1738,6 +1741,7 @@ struct redisServer {
     /* rdb swap */
     int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
+    int swap_mode;
 };
 
 #define MAX_KEYS_BUFFER 256
