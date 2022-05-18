@@ -36,7 +36,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <math.h>
-#include <ctype.h>
 #include "rax.h"
 
 #ifndef RAX_MALLOC_INCLUDE
