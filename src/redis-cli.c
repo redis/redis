@@ -704,7 +704,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.args = zcalloc(arguments->elements * sizeof(commandArg));
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
-            help->docs.params = makeHint(NULL, 0, 0, help->docs);
+            // help->docs.params = makeHint(NULL, 0, 0, help->docs);
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
@@ -955,8 +955,7 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches);
  * There's still room for improvement. For example, it's not good at handling partial matches
  * of repeated argument blocks. But it's a significant improvement over the previous implementation.
  */
-static sds buildHintForArguments(commandArg *args, int numargs, char *separator, int ignorematches) {
-    sds hint = sdsempty();
+static sds buildHintForArguments(sds hint, commandArg *args, int numargs, char *separator, int ignorematches) {
     int i, j, incomplete;
     for (i = 0; i < numargs; i++) {
         if (sdslen(hint) != 0 && hint[sdslen(hint) - 1] != separator[0]) {
@@ -1009,7 +1008,7 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
     switch (arg->type) {
      case ARG_TYPE_ONEOF:
         if (arg->matched == 0 || ignorematches) {
-            namePart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", ignorematches);
+            namePart = buildHintForArguments(namePart, arg->subargs, arg->numsubargs, "|", ignorematches);
         } else {
             int i;
             for (i = 0; i < arg->numsubargs; i++) {
@@ -1020,12 +1019,12 @@ static sds addHintForArgument(sds hint, commandArg *arg, int ignorematches) {
                 }
             }
         }
-        repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, "|", 1);
+        repeatPart = buildHintForArguments(repeatPart, arg->subargs, arg->numsubargs, "|", 1);
         break;
 
     case ARG_TYPE_BLOCK:
-        namePart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", ignorematches);
-        repeatPart = buildHintForArguments(arg->subargs, arg->numsubargs, " ", 1);
+        namePart = buildHintForArguments(namePart, arg->subargs, arg->numsubargs, " ", ignorematches);
+        repeatPart = buildHintForArguments(repeatPart, arg->subargs, arg->numsubargs, " ", 1);
         break;
 
     case ARG_TYPE_STRING:
@@ -1233,7 +1232,8 @@ static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandD
          * ones the user did not yet type. */
         clearMatchedArgs(docs.args, docs.numargs);
         matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
-        hint = buildHintForArguments(docs.args, docs.numargs, " ", 0);
+        hint = sdsempty();
+        hint = buildHintForArguments(hint, docs.args, docs.numargs, " ", 0);
         return hint;
     }
 
@@ -9167,20 +9167,23 @@ static sds askPassword(const char *msg) {
 }
 
 sds getHintForInput(char *charinput) {
-    sds input;
-    int inputargc, cmdlen;
+    sds input, hint;
+    int inputargc;
     char **inputargv;
 
     input = sdsnew(charinput);
     inputargv = sdssplitargs(input, &inputargc);
-
+    sdsfree(input);
+    
     helpEntry *entry = findHelpEntry(inputargc, inputargv);
     if (!entry) {
+        sdsfreesplitres(inputargv, inputargc);
         return sdsnew("Command not found!");
     }
-    cmdlen = entry->argc;
 
-    return makeHint(inputargv, inputargc, entry->argc, entry->docs);
+    hint = makeHint(inputargv, inputargc, entry->argc, entry->docs);
+    sdsfreesplitres(inputargv, inputargc);
+    return hint;
 }
 
 /* Prints out the hint completion string for a given input prefix string. */
@@ -9209,7 +9212,7 @@ sds readHintSuiteLine(char buf[], size_t size, FILE *fp) {
 void testHintSuite(char *filename) {
     FILE *fp;
     char buf[256];
-    sds line, input, expected;
+    sds line, input, expected, hint;
     int pass=0, fail=0;
     int argc;
     char **argv;
@@ -9223,9 +9226,14 @@ void testHintSuite(char *filename) {
 
     cliInitHelp();
 
-    for (line = readHintSuiteLine(buf, sizeof(buf), fp); strcmp(line, "EOF") != 0; line = readHintSuiteLine(buf, sizeof(buf), fp)) {
+    for (line = readHintSuiteLine(buf, sizeof(buf), fp); strcmp(line, "EOF") != 0;
+         line = readHintSuiteLine(buf, sizeof(buf), fp)) {
         argv = sdssplitargs(line, &argc);
-        if (argc == 0) continue;
+        sdsfree(line);
+        if (argc == 0) {
+            sdsfreesplitres(argv, argc);
+            continue;
+        }
 
         if (argc == 1) {
             fprintf(stderr,
@@ -9234,10 +9242,9 @@ void testHintSuite(char *filename) {
         }
         input = argv[0];
         expected = argv[1];
+        hint = getHintForInput(input);
 
-        sds hint = getHintForInput(input);
-
-        // Strip trailing spaces from hint - they don't matter.
+        /* Strip trailing spaces from hint - they don't matter. */
         while (sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
             sdssetlen(hint, sdslen(hint) - 1);
             hint[sdslen(hint)] = '\0';
@@ -9251,7 +9258,7 @@ void testHintSuite(char *filename) {
             ++pass;
         }
         sdsfreesplitres(argv, argc);
-        sdsfree(line);
+        sdsfree(hint);
     }
     fclose(fp);
     
