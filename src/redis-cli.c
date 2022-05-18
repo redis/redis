@@ -304,6 +304,8 @@ static struct config {
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
+    char *test_hint;
+    char *test_hint_file;
 } config;
 
 /* User preferences. */
@@ -2475,6 +2477,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
+        } else if (!strcmp(argv[i],"--test_hint") && !lastarg) {
+            config.test_hint = argv[++i];
+        } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
+            config.test_hint_file = argv[++i];
 #ifdef USE_OPENSSL
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
@@ -9160,6 +9166,99 @@ static sds askPassword(const char *msg) {
     return auth;
 }
 
+sds getHintForInput(char *charinput) {
+    sds input;
+    int inputargc, cmdlen;
+    char **inputargv;
+
+    input = sdsnew(charinput);
+    inputargv = sdssplitargs(input, &inputargc);
+
+    helpEntry *entry = findHelpEntry(inputargc, inputargv);
+    if (!entry) {
+        return sdsnew("Command not found!");
+    }
+    cmdlen = entry->argc;
+
+    return makeHint(inputargv, inputargc, entry->argc, entry->docs);
+}
+
+/* Prints out the hint completion string for a given input prefix string. */
+void testHint(char *input) {
+    cliInitHelp();
+
+    sds hint = getHintForInput(input);
+    printf("%s\n", hint);
+    exit(0);
+}
+
+sds readHintSuiteLine(char buf[], size_t size, FILE *fp) {
+    while (fgets(buf, size, fp) != NULL) {
+        if (buf[0] != '#') {
+            sds input = sdsnew(buf);
+
+            /* Strip newline. */
+            input = sdstrim(input, "\n");
+            return input;
+        }
+    }
+    return sdsnew("EOF");
+}
+
+/* Runs a suite of hint completion tests contained in a file. */
+void testHintSuite(char *filename) {
+    FILE *fp;
+    char buf[256];
+    sds line, input, expected;
+    int pass=0, fail=0;
+    int argc;
+    char **argv;
+
+    fp = fopen(filename, "r");
+    if (!fp) {
+        fprintf(stderr,
+            "Can't open file '%s': %s\n", filename, strerror(errno));
+        exit(-1);
+    }
+
+    cliInitHelp();
+
+    for (line = readHintSuiteLine(buf, sizeof(buf), fp); strcmp(line, "EOF") != 0; line = readHintSuiteLine(buf, sizeof(buf), fp)) {
+        argv = sdssplitargs(line, &argc);
+        if (argc == 0) continue;
+
+        if (argc == 1) {
+            fprintf(stderr,
+                "Missing expected hint for input '%s'\n", argv[0]);
+            exit(-1);
+        }
+        input = argv[0];
+        expected = argv[1];
+
+        sds hint = getHintForInput(input);
+
+        // Strip trailing spaces from hint - they don't matter.
+        while (sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
+            sdssetlen(hint, sdslen(hint) - 1);
+            hint[sdslen(hint)] = '\0';
+        }
+
+        if (strcmp(hint, expected) != 0) {
+            printf("Test case '%s' FAILED: expected '%s', got '%s'\n", input, expected, hint);
+            ++fail;
+        }
+        else {
+            ++pass;
+        }
+        sdsfreesplitres(argv, argc);
+        sdsfree(line);
+    }
+    fclose(fp);
+    
+    printf("%s: %d/%d passed\n", fail == 0 ? "SUCCESS" : "FAILURE", pass, pass + fail);
+    exit(fail);
+}
+
 /*------------------------------------------------------------------------------
  * Program main()
  *--------------------------------------------------------------------------- */
@@ -9360,6 +9459,15 @@ int main(int argc, char **argv) {
 
     /* Intrinsic latency mode */
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
+
+    /* Print command-line hint for an input prefix string */
+    if (config.test_hint) {
+        testHint(config.test_hint);
+    }
+    /* Run test suite for command-line hints */
+    if (config.test_hint_file) {
+        testHintSuite(config.test_hint_file);
+    }
 
     /* Start interactive mode when no command is provided */
     if (argc == 0 && !config.eval) {

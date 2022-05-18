@@ -339,6 +339,10 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Test command-line hinting" {
+    	assert_match "*SUCCESS*" [run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt] 
+    }
+
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush
