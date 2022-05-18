@@ -125,27 +125,33 @@
                 "since": "3.0.0"
             },
             {
-                "token": "AUTH",
-                "name": "password",
-                "type": "string",
+                "name": "authentication",
+                "type": "oneof",
                 "optional": true,
-                "since": "4.0.7"
-
-            },
-            {
-                "token": "AUTH2",
-                "name": "username_password",
-                "type": "block",
-                "optional": true,
-                "since": "6.0.0",
                 "arguments": [
                     {
-                        "name": "username",
-                        "type": "string"
+                        "token": "AUTH",
+                        "name": "password",
+                        "type": "string",
+                        "optional": true,
+                        "since": "4.0.7"
                     },
                     {
-                        "name": "password",
-                        "type": "string"
+                        "token": "AUTH2",
+                        "name": "username_password",
+                        "type": "block",
+                        "optional": true,
+                        "since": "6.0.0",
+                        "arguments": [
+                            {
+                                "name": "username",
+                                "type": "string"
+                            },
+                            {
+                                "name": "password",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             },

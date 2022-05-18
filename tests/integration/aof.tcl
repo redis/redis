@@ -632,4 +632,50 @@ tags {"aof external:skip"} {
         } result
         assert_match "*Failed to truncate AOF*to timestamp*because it is not the last file*" $result
     }
+
+    start_server {overrides {appendonly yes appendfsync always}} {
+        test {FLUSHDB / FLUSHALL should persist in AOF} {
+            set aof [get_last_incr_aof_path r]
+
+            r set key value
+            r flushdb
+            r set key value2
+            r flushdb
+
+            # DB is empty
+            r flushdb
+            r flushdb
+            r flushdb
+
+            r set key value
+            r flushall
+            r set key value2
+            r flushall
+
+            # DBs are empty.
+            r flushall
+            r flushall
+            r flushall
+
+            # Assert that each FLUSHDB command is persisted even the DB is empty.
+            # Assert that each FLUSHALL command is persisted even the DBs are empty.
+            assert_aof_content $aof {
+                {select *}
+                {set key value}
+                {flushdb}
+                {set key value2}
+                {flushdb}
+                {flushdb}
+                {flushdb}
+                {flushdb}
+                {set key value}
+                {flushall}
+                {set key value2}
+                {flushall}
+                {flushall}
+                {flushall}
+                {flushall}
+            }
+        }
+    }
 }

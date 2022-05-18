@@ -108,10 +108,16 @@ tags "modules" {
                         {set asdf3 3 PXAT *}
                         {exec}
                         {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
                         {del asdf*}
                         {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
                         {del asdf*}
                         {incr notifications}
+                        {incr notifications}
+                        {incr testkeyspace:expired}
                         {del asdf*}
                     }
                     close_replication_stream $repl

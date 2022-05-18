@@ -416,6 +416,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
+"REPLICATE <string>",
+"    Replicates the provided string to replicas, allowing data divergence.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -848,6 +850,10 @@ NULL
                c->argc == 3)
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
+        replicationFeedSlaves(server.slaves, server.slaveseldb,
+                c->argv + 2, c->argc - 2);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);

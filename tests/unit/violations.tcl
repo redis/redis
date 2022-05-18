@@ -1,5 +1,6 @@
 # One XADD with one huge 5GB field
 # Expected to fail resulting in an empty stream
+run_solo {violations} {
 start_server [list overrides [list save ""] ] {
     test {XADD one huge field} {
         r config set proto-max-bulk-len 10000000000 ;#10gb
@@ -85,7 +86,7 @@ start_server [list overrides [list save ""] ] {
         r object encoding H1
     } {hashtable} {large-memory}
 }
-
+} ;# run_solo
 
 # SORT which stores an integer encoded element into a list.
 # Just for coverage, no news here.

@@ -327,9 +327,6 @@ void feedReplicationBuffer(char *s, size_t len) {
     server.master_repl_offset += len;
     server.repl_backlog->histlen += len;
 
-    /* Install write handler for all replicas. */
-    prepareReplicasToWrite();
-
     size_t start_pos = 0; /* The position of referenced block to start sending. */
     listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
     int add_new_block = 0; /* Create new block if current block is total used. */
@@ -440,6 +437,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
 
+    /* Must install write handler for all replicas first before feeding
+     * replication stream. */
+    prepareReplicasToWrite();
+
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
         robj *selectcmd;
@@ -539,7 +540,12 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
 
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
-    if (server.repl_backlog) feedReplicationBuffer(buf,buflen);
+    if (server.repl_backlog) {
+        /* Must install write handler for all replicas first before feeding
+         * replication stream. */
+        prepareReplicasToWrite();
+        feedReplicationBuffer(buf,buflen);
+    }
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
@@ -1285,7 +1291,7 @@ void replicaStartCommandStream(client *slave) {
         return;
     }
 
-    clientInstallWriteHandler(slave);
+    putClientInPendingWriteQueue(slave);
 }
 
 /* We call this function periodically to remove an RDB file that was
@@ -1969,6 +1975,20 @@ void readSyncBulkPayload(connection *conn) {
     /* We need to stop any AOF rewriting child before flushing and parsing
      * the RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
+    /* Also try to stop save RDB child before flushing and parsing the RDB:
+     * 1. Ensure background save doesn't overwrite synced data after being loaded.
+     * 2. Avoid copy-on-write disaster. */
+    if (server.child_type == CHILD_TYPE_RDB) {
+        if (!use_diskless_load) {
+            serverLog(LL_NOTICE,
+                "Replica is about to load the RDB file received from the "
+                "master, but there is a pending RDB child running. "
+                "Killing process %ld and removing its temp file to avoid "
+                "any race",
+                (long) server.child_pid);
+        }
+        killRDBChild();
+    }
 
     if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
         /* Initialize empty tempDb dictionaries. */
@@ -2100,16 +2120,6 @@ void readSyncBulkPayload(connection *conn) {
         connNonBlock(conn);
         connRecvTimeout(conn,0);
     } else {
-        /* Ensure background save doesn't overwrite synced data */
-        if (server.child_type == CHILD_TYPE_RDB) {
-            serverLog(LL_NOTICE,
-                "Replica is about to load the RDB file received from the "
-                "master, but there is a pending RDB child running. "
-                "Killing process %ld and removing its temp file to avoid "
-                "any race",
-                (long) server.child_pid);
-            killRDBChild();
-        }
 
         /* Make sure the new file (also used for persistence) is fully synced
          * (not covered by earlier calls to rdb_fsync_range). */
@@ -2213,8 +2223,8 @@ char *receiveSynchronousResponse(connection *conn) {
     /* Read the reply from the server. */
     if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000) == -1)
     {
-        return sdscatprintf(sdsempty(),"-Reading from master: %s",
-                strerror(errno));
+        serverLog(LL_WARNING, "Failed to read response from the server: %s", strerror(errno));
+        return NULL;
     }
     server.repl_transfer_lastio = server.unixtime;
     return sdsnew(buf);
@@ -2397,6 +2407,13 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     /* Reading half */
     reply = receiveSynchronousResponse(conn);
+    /* Master did not reply to PSYNC */
+    if (reply == NULL) {
+        connSetReadHandler(conn, NULL);
+        serverLog(LL_WARNING, "Master did not reply to PSYNC, will try later");
+        return PSYNC_TRY_LATER;
+    }
+
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
@@ -2556,6 +2573,9 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_RECEIVE_PING_REPLY) {
         err = receiveSynchronousResponse(conn);
 
+        /* The master did not reply */
+        if (err == NULL) goto no_response_error;
+
         /* We accept only two replies as valid, a positive +PONG reply
          * (we just check for "+") or an authentication error.
          * Note that older versions of Redis replied with "operation not
@@ -2642,6 +2662,7 @@ void syncWithMaster(connection *conn) {
     /* Receive AUTH reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         if (err[0] == '-') {
             serverLog(LL_WARNING,"Unable to AUTH to MASTER: %s",err);
             sdsfree(err);
@@ -2656,6 +2677,7 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF listening-port reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_PORT_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
@@ -2673,6 +2695,7 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF ip-address. */
         if (err[0] == '-') {
@@ -2687,6 +2710,7 @@ void syncWithMaster(connection *conn) {
     /* Receive CAPA reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_CAPA_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
@@ -2799,6 +2823,10 @@ void syncWithMaster(connection *conn) {
     server.repl_transfer_last_fsync_off = 0;
     server.repl_transfer_lastio = server.unixtime;
     return;
+
+no_response_error: /* Handle receiveSynchronousResponse() error when master has no reply */
+    serverLog(LL_WARNING, "Master did not respond to command during SYNC handshake");
+    /* Fall through to regular error handling */
 
 error:
     if (dfd != -1) close(dfd);
