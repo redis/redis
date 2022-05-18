@@ -1361,6 +1361,7 @@ void raxStart(raxIterator *it, rax *rt) {
  * is a low level function used to implement the iterator, not callable by
  * the user. Returns 0 on out of memory, otherwise 1 is returned. */
 int raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
+    if (len == 0) return 1;
     if (it->key_max < it->key_len+len) {
         unsigned char *old = (it->key == it->key_static_string) ? NULL :
                                                                   it->key;
@@ -1473,7 +1474,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                 if (!it->node->iscompr && it->node->size > (old_noup ? 0 : 1)) {
                     debugf("it->node->size: %d\n", it->node->size);
                     if (it->child_offset + (old_noup ? 0 : 1) != it->node->size) {
-                        it->child_offset += (old_noup ? 0 : 1); // set parent offset to current child
+                        it->child_offset += (old_noup ? 0 : 1); /* set parent offset to current child */
                         raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
                         debugf("SCAN found a new node\n");
                         raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
