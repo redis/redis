@@ -3942,8 +3942,8 @@ get_defrag_hint(void* ptr) {
         unsigned binshard = extent_binshard_get(slab);
         bin_t *bin = &arena->bins[binind].bin_shards[binshard];
         malloc_mutex_lock(tsdn, &bin->lock);
-        /* Don't bother moving allocations from the slab currently used for new allocations */
-        if (slab != bin->slabcur) {
+        /* Don't bother moving allocations from full slabs or from the slab currently used for new allocations */
+        if (extent_nfree_get(slab) && slab != bin->slabcur) {
             if (bin->highest_slab_to_retain_inited && extent_snad_comp(slab, &bin->highest_slab_to_retain) > 0) {
                 defrag = 1;
             }
