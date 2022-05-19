@@ -389,7 +389,10 @@ distclean: clean
 .PHONY: distclean
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
-	@(cd ..; ./runtest)
+	@(cd ..; ./runtest --swap-mode memory)
+
+test-disk: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
+	@(cd ..; ./runtest --swap-mode disk)
 
 test-modules: $(REDIS_SERVER_NAME)
 	@(cd ..; ./runtest-moduleapi)

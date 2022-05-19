@@ -21,13 +21,74 @@ set ::swap_failed {
     unit/obuf-limits
     unit/lazyfree
     unit/memefficiency
+    integration/aof
 }
 
 set swap_not_supported {
     unit/sort
 }
 
+set ::disk_tests {   
+    swap/tmp_tests/stream-cgroups
+    swap/tmp_tests/stream
+    swap/tmp_tests/other
+    swap/tmp_tests/replication-3 
+    unit/shutdown
+    unit/printver
+    unit/dump
+    unit/auth
+    unit/protocol
+    unit/keyspace
+    unit/scan
+    unit/info
+    unit/type/string
+    unit/type/incr
+    unit/type/list
+    unit/type/list-2
+    unit/type/list-3
+    unit/type/set
+    unit/type/zset
+    unit/type/hash
+    unit/expire
+    unit/multi
+    unit/quit
+    unit/acl
+    unit/latency-monitor 
+    unit/slowlog
+    unit/introspection-2
+    unit/limits
+    unit/bitops
+    unit/geo
+    unit/hyperloglog
+    unit/wait
+    unit/pendingquerybuf
+    unit/tls
+    unit/oom-score-adj
+    unit/networking
+    unit/introspection
+    unit/bitfield
+    unit/tracking
+    unit/pubsub
+    integration/logging
+    integration/redis-cli
+    integration/replication
+    integration/replication-2
+    integration/replication-4
+    integration/block-repl
+    integration/psync2-reg
+    integration/psync2-pingoff
+    integration/replication-psync
+    integration/failover
+    integration/corrupt-dump
+    integration/corrupt-dump-fuzzer
+    integration/convert-zipmap-hash-on-load
+    integration/redis-benchmark
+    integration/rdb
+    integration/psync2
+}
+
 set ::all_tests {
+    swap/swap_mode
     unit/shutdown
     unit/printver
     unit/dump
@@ -685,8 +746,14 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--swap}} {
         set ::swap 1
         set ::target_db 0
-    } elseif {$opt eq {--debug-evict-keys}} {
-        set ::debug_evict_keys $arg
+    } elseif {$opt eq {--swap-mode}} {
+        set ::swap_mode $arg 
+        set ::swap 1
+        set ::target_db 0
+        if {$::swap_mode == "disk"} {
+            set ::all_tests $::disk_tests
+            set ::debug_evict_keys -1
+        } 
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen

@@ -350,6 +350,10 @@ proc start_server {options {code undefined}} {
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
+    if {$::swap_mode == "disk"} {
+        dict set config "swap-mode" $::swap_mode 
+        dict set config "appendonly" no
+    }
     if {$::tls} {
         dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
         dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]

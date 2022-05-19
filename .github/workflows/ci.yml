@@ -20,7 +20,7 @@ jobs:
           sudo apt-get -y install librocksdb-dev libsnappy-dev zlib1g-dev libgflags-dev libstdc++6
           make
     - name: make test
-      run: ./runtest --swap
+      run: make test
    swap:
     strategy:
       matrix:
@@ -34,5 +34,5 @@ jobs:
           sudo apt-get -y install librocksdb-dev libsnappy-dev zlib1g-dev libgflags-dev libstdc++6
           make
     - name: make test
-      run: ./runtest --swap --debug-evict-keys -1
+      run: make test-disk
 
