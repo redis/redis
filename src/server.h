@@ -70,7 +70,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "ziplist.h" /* Compact list data structure */
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
@@ -86,6 +85,7 @@ typedef long long ustime_t; /* microsecond time type. */
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
+#include "ziplist.h" /* Compact list data structure */
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
