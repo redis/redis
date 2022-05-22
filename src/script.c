@@ -129,18 +129,12 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     int obey_client = mustObeyClient(caller);
 
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)) {
-        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) { /* unreachable */
+        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && server.cluster_enabled) {
             addReplyError(caller, "Can not run script on cluster, 'no-cluster' flag is set.");
             return C_ERR;
         }
 
-        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) { /* unreachable */
-            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
-                                  "can not run it when used memory > 'maxmemory'");
-            return C_ERR;
-        }
-
-        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) { /* unreachable */
+        if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
                              "and 'allow-stale' flag is not set on the script.");
@@ -152,14 +146,14 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 1. we are not a readonly replica
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
-            if (server.masterhost && server.repl_slave_ro && !obey_client) { /* unreachable */
+            if (server.masterhost && server.repl_slave_ro && !obey_client) {
                 addReplyError(caller, "Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
             /* Deny writes if we're unale to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
-            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) { /* unreachable */
+            if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
                     addReplyError(caller, "-MISCONF Redis is configured to save RDB snapshots, "
                                      "but it's currently unable to persist to disk. "
@@ -173,7 +167,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             }
 
             if (ro) {
-                addReplyError(caller, "Can not execute a script with write flag using *_ro command."); /* reachable!! */
+                addReplyError(caller, "Can not execute a script with write flag using *_ro command.");
                 return C_ERR;
             }
 
@@ -184,14 +178,25 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 server.repl_min_slaves_to_write &&
                 server.repl_good_slaves_count < server.repl_min_slaves_to_write)
             {
-                addReplyErrorObject(caller, shared.noreplicaserr); /* unreachable */
+                addReplyErrorObject(caller, shared.noreplicaserr);
                 return C_ERR;
             }
         }
+
+        /* Check OOM state. the no-writes flag imply allow-oom. we tested it
+         * after the no-write error, so no need to mention it in the error reply. */
+        if (server.script_oom && server.maxmemory &&
+            !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES)))
+        {
+            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
+                                  "can not run it when used memory > 'maxmemory'");
+            return C_ERR;
+        }
+
     } else {
         /* Special handling for backwards compatibility (no shebang eval[sha]) mode */
         if (running_stale) {
-            addReplyErrorObject(caller, shared.masterdownerr); /* reachable!! */
+            addReplyErrorObject(caller, shared.masterdownerr);
             return C_ERR;
         }
     }
@@ -213,8 +218,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         script_client->flags |= CLIENT_MULTI;
     }
 
-    server.in_script = 1;
-
     run_ctx->start_time = getMonotonicUs();
     run_ctx->snapshot_time = mstime();
 
@@ -227,6 +230,8 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+        /* Note: we don't need to test the no-writes flag here and set this run_ctx flag,
+         * since only write commands can are deny-oom. */
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 
@@ -247,7 +252,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
-    server.in_script = 0;
     server.script_caller = NULL;
 
     if (scriptIsTimedout()) {

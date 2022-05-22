@@ -805,7 +805,7 @@ void srandmemberWithCountCommand(client *c) {
     }
 }
 
-/* SRANDMEMBER [<count>] */
+/* SRANDMEMBER <key> [<count>] */
 void srandmemberCommand(client *c) {
     robj *set;
     sds ele;
@@ -850,7 +850,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SINTERSTORE / SINTERCARD
+/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.

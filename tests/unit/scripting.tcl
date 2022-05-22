@@ -1422,11 +1422,42 @@ start_server {tags {"scripting"}} {
             } 0
         }
 
+        # Script with allow-oom can write despite being in OOM state
         assert_equal [
             r eval {#!lua flags=allow-oom
                 redis.call('set','x',1)
                 return 1
+            } 1 x
+        ] 1
+
+        # read-only scripts implies allow-oom
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
             } 0
+        ] 1
+        assert_equal [
+            r eval_ro {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state
+        assert_equal [
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state (eval_ro variant)
+        assert_equal [
+            r eval_ro {
+                redis.call('get','x')
+                return 1
+            } 1 x
         ] 1
 
         r config set maxmemory 0
