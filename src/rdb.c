@@ -1445,6 +1445,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
+    if (fsyncFileDir(filename) == -1) goto werr;
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;

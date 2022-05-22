@@ -1678,6 +1678,8 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
     else if (rename(tmp_conffile, configfile) == -1)
         serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
+    else if (fsyncFileDir(configfile) == -1)
+        serverLog(LL_WARNING, "Could not sync config file dir (%s)", strerror(errno));
     else {
         retval = 0;
         serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
