@@ -110,7 +110,8 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 
 uint64_t scriptFlagsToCmdFlags(uint64_t script_flags) {
     uint64_t cmd_flags = 0;
-    if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM))
+    /* NO_WRITES implies ALLOW_OOM */
+    if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES)))
         cmd_flags |= CMD_DENYOOM;
     if (!(script_flags & SCRIPT_FLAG_NO_WRITES))
         cmd_flags |= CMD_WRITE;
