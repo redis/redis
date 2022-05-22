@@ -1064,11 +1064,8 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 1
 
-        catch {r fcall f1 1 k} e
-        assert_match {*can not run it when used memory > 'maxmemory'*} $e
-
-        catch {r fcall_ro f1 1 k} e
-        assert_match {*can not run it when used memory > 'maxmemory'*} $e
+        assert_equal [r fcall f1 1 k] hello
+        assert_equal [r fcall_ro f1 1 k] hello
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}

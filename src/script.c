@@ -123,12 +123,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             return C_ERR;
         }
 
-        if (!(script_flags & SCRIPT_FLAG_ALLOW_OOM) && server.script_oom && server.maxmemory) {
-            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
-                                  "can not run it when used memory > 'maxmemory'");
-            return C_ERR;
-        }
-
         if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "
@@ -177,6 +171,17 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
         }
+
+        /* Check OOM state. the no-writes flag imply allow-oom. we tested it
+         * after the no-write error, so no need to mention it in the error reply. */
+        if (server.script_oom && server.maxmemory &&
+            !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES)))
+        {
+            addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
+                                  "can not run it when used memory > 'maxmemory'");
+            return C_ERR;
+        }
+
     } else {
         /* Special handling for backwards compatibility (no shebang eval[sha]) mode */
         if (running_stale) {
@@ -214,6 +219,8 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
     if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+        /* Note: we don't need to test the no-writes flag here and set this run_ctx flag,
+         * since only write commands can are deny-oom. */
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
     }
 

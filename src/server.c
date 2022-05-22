@@ -3750,7 +3750,9 @@ int processCommand(client *c) {
          * until first write within script, memory used by lua stack and
          * arguments might interfere. */
         if (c->cmd->proc == evalCommand ||
+            c->cmd->proc == evalRoCommand ||
             c->cmd->proc == evalShaCommand ||
+            c->cmd->proc == evalShaRoCommand ||
             c->cmd->proc == fcallCommand ||
             c->cmd->proc == fcallroCommand)
         {
