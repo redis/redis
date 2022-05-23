@@ -43,7 +43,7 @@
 
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
-int je_get_defrag_hint(void* ptr);
+int je_get_defrag_hint(void* ptr, unsigned int *arena_ind);
 void je_init_defrag(void);
 int je_init_defrag_step(long long max_time);
 void je_finish_defrag(void);
@@ -60,7 +60,8 @@ dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, s
 void* activeDefragAlloc(void *ptr) {
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr)) {
+    unsigned int arena_ind;
+    if(!je_get_defrag_hint(ptr, &arena_ind)) {
         server.stat_active_defrag_misses++;
         return NULL;
     }
@@ -68,7 +69,7 @@ void* activeDefragAlloc(void *ptr) {
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
     size = zmalloc_size(ptr);
-    newptr = zmalloc_no_tcache(size);
+    newptr = zmalloc_arena_no_tcache(size, arena_ind);
     memcpy(newptr, ptr, size);
     zfree_no_tcache(ptr);
     return newptr;

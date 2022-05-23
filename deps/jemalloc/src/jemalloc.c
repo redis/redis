@@ -3925,7 +3925,7 @@ jemalloc_postfork_child(void) {
  * returns 1 if the allocation should be moved, and 0 if the allocation be kept.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
-get_defrag_hint(void* ptr) {
+get_defrag_hint(void* ptr, unsigned int *arena_ind) {
 	assert(ptr != NULL);
     tsdn_t *tsdn = TSDN_NULL;
     int defrag = 0;
@@ -3946,6 +3946,7 @@ get_defrag_hint(void* ptr) {
         if (extent_nfree_get(slab) && slab != bin->slabcur) {
             if (bin->highest_slab_to_retain_inited && extent_snad_comp(slab, &bin->highest_slab_to_retain) > 0) {
                 defrag = 1;
+                *arena_ind = extent_arena_ind_get(slab);
             }
         }
         malloc_mutex_unlock(tsdn, &bin->lock);
@@ -3985,75 +3986,99 @@ static void init_defrag_bin_step(bin_t *bin, long long start_time, long long max
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 init_defrag(void) {
-    unsigned long long i;
+    unsigned int i,j;
+    unsigned int narenas = narenas_total_get();
     tsd_t *tsd = tsd_fetch();
-    arena_t *arena = arena_choose(tsd, NULL);
 
-    for (i = 0; i < SC_NBINS; i++) {
-        unsigned binshard;
-        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        const bin_info_t *bin_info = &bin_infos[i];
-        uint64_t used_slabs = bin->stats.nonfull_slabs + (bin->slabcur ? 1 : 0);
-        uint64_t full_slabs = bin->stats.curslabs - bin->stats.nonfull_slabs - (bin->slabcur ? 1 : 0);
-        uint64_t needed_slabs = (bin->stats.curregs - full_slabs * bin_info->nregs) / bin_info->nregs;
-        if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
-        needed_slabs += full_slabs;
-        used_slabs += full_slabs;
-        assert(bin->highest_slab_to_retain_inited == false);
-        assert(extent_heap_empty(&bin->slabs_nonfull_temp));
-        if (used_slabs != needed_slabs) {
-            int64_t nonfull_to_retain = needed_slabs - full_slabs;
-            if (bin->slabcur) nonfull_to_retain--;
-            bin->defrag_slabs_to_retain = nonfull_to_retain;
-            bin->initing_defrag = true;
-        } else {
-            bin->defrag_slabs_to_retain = 0;
-            bin->initing_defrag = false;
+
+    for (j = 0; j < narenas; j++) {
+        arena_t *arena = arena_get(tsd_tsdn(tsd), j, false);
+        if (!arena) {
+            continue;
         }
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+
+        for (i = 0; i < SC_NBINS; i++) {
+            unsigned binshard;
+            bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+            const bin_info_t *bin_info = &bin_infos[i];
+            uint64_t used_slabs = bin->stats.nonfull_slabs + (bin->slabcur ? 1 : 0);
+            uint64_t full_slabs = bin->stats.curslabs - bin->stats.nonfull_slabs - (bin->slabcur ? 1 : 0);
+            uint64_t needed_slabs = (bin->stats.curregs - full_slabs * bin_info->nregs) / bin_info->nregs;
+            if ((bin->stats.curregs - full_slabs * bin_info->nregs) % bin_info->nregs) needed_slabs += 1;
+            needed_slabs += full_slabs;
+            used_slabs += full_slabs;
+            assert(bin->highest_slab_to_retain_inited == false);
+            assert(extent_heap_empty(&bin->slabs_nonfull_temp));
+            if (used_slabs != needed_slabs) {
+                int64_t nonfull_to_retain = needed_slabs - full_slabs;
+                if (bin->slabcur) nonfull_to_retain--;
+                bin->defrag_slabs_to_retain = nonfull_to_retain;
+                bin->initing_defrag = true;
+            } else {
+                bin->defrag_slabs_to_retain = 0;
+                bin->initing_defrag = false;
+            }
+            malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+        }
     }
 }
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
 init_defrag_step(long long max_time) {
-    unsigned long long i;
-    tsd_t * tsd = tsd_fetch();
-    arena_t *arena = arena_choose(tsd, NULL);
+    unsigned int i,j;
+    unsigned narenas = narenas_total_get();
+    tsd_t *tsd = tsd_fetch();
     long long start_time = ustime();
 
-    for (i = 0; i < SC_NBINS; i++) {
-        unsigned binshard;
-        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-        if (bin->initing_defrag) {
-            init_defrag_bin_step(bin, start_time, max_time);
-            /* If we're still initing after the step it means we've timed out but have more work */
-            if (bin->initing_defrag) {
-                malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
-                break;
-            }
+
+    for (j = 0; j < narenas; j++) {
+        arena_t *arena = arena_get(tsd_tsdn(tsd), j, false);
+        if (!arena) {
+            continue;
         }
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+
+        for (i = 0; i < SC_NBINS; i++) {
+            unsigned binshard;
+            bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+            if (bin->initing_defrag) {
+                init_defrag_bin_step(bin, start_time, max_time);
+                /* If we're still initing after the step it means we've timed out but have more work */
+                if (bin->initing_defrag) {
+                    malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+                    break;
+                }
+            }
+            malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+        }
+        if (i < SC_NBINS)
+            break;
     }
-    return i < SC_NBINS;
+    return j < narenas;
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 finish_defrag(void) {
-    unsigned long long i;
+    unsigned int i,j;
     tsd_t *tsd = tsd_fetch();
-    arena_t *arena = arena_choose(tsd, NULL);
+    unsigned narenas = narenas_total_get();
 
-    for (i = 0; i < SC_NBINS; i++) {
-        unsigned binshard;
-        bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
-
-        if (bin->initing_defrag) {
-            extent_heap_merge(&bin->slabs_nonfull, &bin->slabs_nonfull_temp);
-            bin->initing_defrag = false;
-            bin->defrag_slabs_to_retain = 0;
+    for (j = 0; j < narenas; j++) {
+        arena_t *arena = arena_get(tsd_tsdn(tsd), j, false);
+        if (!arena) {
+            continue;
         }
-        bin->highest_slab_to_retain_inited = false;
-        malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+        for (i = 0; i < SC_NBINS; i++) {
+            unsigned binshard;
+            bin_t *bin = arena_bin_choose_lock(tsd_tsdn(tsd), arena, i, &binshard);
+
+            if (bin->initing_defrag) {
+                extent_heap_merge(&bin->slabs_nonfull, &bin->slabs_nonfull_temp);
+                bin->initing_defrag = false;
+                bin->defrag_slabs_to_retain = 0;
+            }
+            bin->highest_slab_to_retain_inited = false;
+            malloc_mutex_unlock(tsd_tsdn(tsd), &bin->lock);
+        }
     }
 }
 
