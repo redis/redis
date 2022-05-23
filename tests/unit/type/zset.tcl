@@ -2089,7 +2089,7 @@ start_server {tags {"zset"}} {
 
         $rd1 close
         $rd2 close
-    } {0} {external:skip}
+    } {0} {cluster:skip}
 
     test {ZSET skiplist order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
