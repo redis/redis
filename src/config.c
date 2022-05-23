@@ -311,18 +311,21 @@ int configEnumGetValue(configEnum *ce, sds *argv, int argc, int bitflags) {
 /* Get enum name/s from value. If no matches are found "unknown" is returned. */
 static sds configEnumGetName(configEnum *ce, int values, int bitflags) {
     sds names = NULL;
-    int matches = 0;
+    int unmatched = values;
     for( ; ce->name != NULL; ce++) {
         if (values == ce->val) { /* Short path for perfect match */
             sdsfree(names);
             return sdsnew(ce->name);
         }
-        if (bitflags && (values & ce->val)) {
+
+        /* Note: for bitflags, we want them sorted from high to low, so that if there are several / partially
+         * overlapping entries, we'll prefer the ones matching more bits. */
+        if (bitflags && ce->val && ce->val == (unmatched & ce->val)) {
             names = names ? sdscatfmt(names, " %s", ce->name) : sdsnew(ce->name);
-            matches |= ce->val;
+            unmatched &= ~ce->val;
         }
     }
-    if (!names || values != matches) {
+    if (!names || unmatched) {
         sdsfree(names);
         return sdsnew("unknown");
     }
@@ -484,9 +487,23 @@ void loadServerConfigFromString(char *config) {
                 err = "wrong number of arguments";
                 goto loaderr;
             }
-            /* Set config using all arguments that follows */
-            if (!config->interface.set(config, &argv[1], argc-1, &err)) {
-                goto loaderr;
+
+            if ((config->flags & MULTI_ARG_CONFIG) && argc == 2 && sdslen(argv[1])) {
+                /* For MULTI_ARG_CONFIGs, if we only have one argument, try to split it by spaces.
+                 * Only if the argument is not empty, otherwise something like --save "" will fail.
+                 * So that we can support something like --config "arg1 arg2 arg3". */
+                sds *new_argv;
+                int new_argc;
+                new_argv = sdssplitargs(argv[1], &new_argc);
+                if (!config->interface.set(config, new_argv, new_argc, &err)) {
+                    goto loaderr;
+                }
+                sdsfreesplitres(new_argv, new_argc);
+            } else {
+                /* Set config using all arguments that follows */
+                if (!config->interface.set(config, &argv[1], argc-1, &err)) {
+                    goto loaderr;
+                }
             }
 
             sdsfreesplitres(argv,argc);
@@ -547,12 +564,15 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (strchr(argv[0], '.')) {
-            if (argc != 2) {
+            if (argc < 2) {
                 err = "Module config specified without value";
                 goto loaderr;
             }
             sds name = sdsdup(argv[0]);
-            if (!dictReplace(server.module_configs_queue, name, sdsdup(argv[1]))) sdsfree(name);
+            sds val = sdsdup(argv[1]);
+            for (int i = 2; i < argc; i++)
+                val = sdscatfmt(val, " %S", argv[i]);
+            if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -1793,7 +1813,7 @@ static int boolConfigSet(standardConfig *config, sds *argv, int argc, const char
         *(config->data.yesno.config) = yn;
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds boolConfigGet(standardConfig *config) {
@@ -1835,7 +1855,7 @@ static int stringConfigSet(standardConfig *config, sds *argv, int argc, const ch
         zfree(prev);
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds stringConfigGet(standardConfig *config) {
@@ -1872,7 +1892,7 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
         return 1;
     }
     if (config->flags & MODULE_CONFIG && prev) sdsfree(prev);
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds sdsConfigGet(standardConfig *config) {
@@ -1956,7 +1976,7 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
         *(config->data.enumd.config) = enumval;
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds enumConfigGet(standardConfig *config) {
@@ -2152,7 +2172,7 @@ static int numericConfigSet(standardConfig *config, sds *argv, int argc, const c
         return setNumericType(config, ll, err);
     }
 
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds numericConfigGet(standardConfig *config) {
@@ -2589,8 +2609,10 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
     int j;
 
     /* Special case: treat single arg "" as zero args indicating empty save configuration */
-    if (argc == 1 && !strcasecmp(argv[0],""))
+    if (argc == 1 && !strcasecmp(argv[0],"")) {
+        resetServerSaveParams();
         argc = 0;
+    }
 
     /* Perform sanity check before setting the new config:
     * - Even number of args
@@ -3075,15 +3097,15 @@ standardConfig static_configs[] = {
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
     createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, applyTlsCfg),
-    createStringConfig("tls-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-key-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-key-file-pass", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file_pass, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-client-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-client-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-client-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-client-key-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-client-key-file-pass", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file_pass, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-dh-params-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-ca-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-ca-cert-dir", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-dh-params-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-ca-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-ca-cert-dir", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),

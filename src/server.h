@@ -91,6 +91,8 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "crc64.h"
 
 /* min/max */
+#undef min
+#undef max
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
@@ -674,6 +676,7 @@ struct redisObject;
 struct RedisModuleDefragCtx;
 struct RedisModuleInfoCtx;
 struct RedisModuleKeyOptCtx;
+struct RedisModuleCommand;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -1473,7 +1476,6 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     size_t initial_memory_usage; /* Bytes used after initialization. */
     int always_show_logo;       /* Show logo even for non-stdout logging. */
-    int in_script;              /* Are we inside EVAL? */
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
@@ -2258,6 +2260,7 @@ struct redisCommand {
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
+    struct RedisModuleCommand *module_cmd; /* A pointer to the module command data (NULL if native command) */
 };
 
 struct redisError {
@@ -3010,6 +3013,10 @@ sds keyspaceEventsFlagsToString(int flags);
 #define DENY_LOADING_CONFIG (1ULL<<6) /* This config is forbidden during loading. */
 #define ALIAS_CONFIG (1ULL<<7) /* For configs with multiple names, this flag is set on the alias. */
 #define MODULE_CONFIG (1ULL<<8) /* This config is a module config */
+#define VOLATILE_CONFIG (1ULL<<9) /* The config is a reference to the config data and not the config data itself (ex.
+                                   * a file name containing more configuration like a tls key). In this case we want
+                                   * to apply the configuration change even if the new config value is the same as
+                                   * the old. */
 
 #define INTEGER_CONFIG 0 /* No flags means a simple integer configuration */
 #define MEMORY_CONFIG (1<<0) /* Indicates if this value can be loaded as a memory value */

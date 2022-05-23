@@ -2517,7 +2517,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         char tmpfile[256];
         long long now = ustime();
-        sds new_base_filename;
+        sds new_base_filepath = NULL;
+        sds new_incr_filepath = NULL;
         aofManifest *temp_am;
         mstime_t latency;
 
@@ -2534,9 +2535,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Get a new BASE file name and mark the previous (if we have)
          * as the HISTORY type. */
-        new_base_filename = getNewBaseFileNameAndMarkPreAsHistory(temp_am);
+        sds new_base_filename = getNewBaseFileNameAndMarkPreAsHistory(temp_am);
         serverAssert(new_base_filename != NULL);
-        sds new_base_filepath = makePath(server.aof_dirname, new_base_filename);
+        new_base_filepath = makePath(server.aof_dirname, new_base_filename);
 
         /* Rename the temporary aof file to 'new_base_filename'. */
         latencyStartMonitor(latency);
@@ -2561,7 +2562,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             sdsfree(temp_incr_aof_name);
             /* Get next new incr aof name. */
             sds new_incr_filename = getNewIncrAofName(temp_am);
-            sds new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
+            new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
             latencyStartMonitor(latency);
             if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
                 serverLog(LL_WARNING,
@@ -2579,7 +2580,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("aof-rename", latency);
             sdsfree(temp_incr_filepath);
-            sdsfree(new_incr_filepath);
         }
 
         /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR
@@ -2591,9 +2591,14 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             bg_unlink(new_base_filepath);
             aofManifestFree(temp_am);
             sdsfree(new_base_filepath);
+            if (new_incr_filepath) {
+                bg_unlink(new_incr_filepath);
+                sdsfree(new_incr_filepath);
+            }
             goto cleanup;
         }
         sdsfree(new_base_filepath);
+        if (new_incr_filepath) sdsfree(new_incr_filepath);
 
         /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
         aofManifestFreeAndUpdate(temp_am);
