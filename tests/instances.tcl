@@ -281,7 +281,7 @@ proc parse_options {} {
             dict set ::global_config $val $val2
             incr j 2
         } elseif {$opt eq "--help"} {
-            puts "--single <pattern>      Only runs tests specified by pattern."
+            puts "--single <pattern>      Only runs tests specified by pattern. Regexp must start with '/'."
             puts "--dont-clean            Keep log files on exit."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."

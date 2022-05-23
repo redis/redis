@@ -130,7 +130,7 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
 proc search_pattern_list {value pattern_list} {
     set n 0
     foreach el $pattern_list {
-        if {[string length $el] > 0 && (([string match /* $el] && [regexp -- $el /$value]) || [string equal $el $value])} {
+        if {[string length $el] > 0 && (([string match /* $el] && [regexp -- [string range $el 1 end] $value]) || [string equal $el $value])} {
             return $n
         }
         incr n
