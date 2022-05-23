@@ -2075,17 +2075,18 @@ start_server {tags {"zset"}} {
         $rd2 bzmpop 0 2 myzset2 myzset3 max count 10
         wait_for_blocked_clients_count 2
 
-        r zadd 0 100 a ;# timeout value
-        r zadd 1 200 b ;# numkeys value
-        r zadd min 300 c ;# min token
-        r zadd max 400 d ;# max token
-        r zadd count 500 e ;# count token
-        r zadd 10 200 b ;# count value
+        # These non-key keys will not unblock the clients.
+        r zadd 0 100 timeout_value
+        r zadd 1 200 numkeys_value
+        r zadd min 300 min_token
+        r zadd max 400 max_token
+        r zadd count 500 count_token
+        r zadd 10 600 count_value
 
-        r zadd myzset 600 f
-        r zadd myzset3 600 f
-        assert_equal {myzset {{f 600}}} [$rd1 read]
-        assert_equal {myzset3 {{f 600}}} [$rd2 read]
+        r zadd myzset 1 zset
+        r zadd myzset3 1 zset3
+        assert_equal {myzset {{zset 1}}} [$rd1 read]
+        assert_equal {myzset3 {{zset3 1}}} [$rd2 read]
 
         $rd1 close
         $rd2 close
