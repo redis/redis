@@ -5599,7 +5599,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_net_repl_output_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
-            "instantaneous_replication_kbps:%.2f\r\n"
+            "instantaneous_repl_total_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
