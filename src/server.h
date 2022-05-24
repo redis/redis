@@ -2702,7 +2702,6 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
-int useDisklessLoad();
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);
