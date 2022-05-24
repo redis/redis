@@ -127,27 +127,36 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
 }
 
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
-proc search_pattern_list {value pattern_list} {
+# The caller can specify to use only sub-string match
+proc search_pattern_list {value pattern_list {substr false}} {
     set n 0
     foreach el $pattern_list {
-        if {[string length $el] > 0 && (([string match /* $el] && [regexp -- [string range $el 1 end] $value]) || [string equal $el $value])} {
-            return $n
+        if {[string length $el] == 0} { continue }
+        if { $substr } {
+            if {[string match $el $value]} {
+                return 1
+            }
+            continue
         }
-        incr n
+        if {[string equal / [string index $el 0]] && [regexp -- [string range $el 1 end] $value]} {
+            return 1
+        } elseif {[string equal $el $value]} {
+            return 1
+        }
     }
-    return -1
+    return 0
 }
 
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
-    if {[search_pattern_list $name $::skiptests] >= 0} {
+    if {[search_pattern_list $name $::skiptests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
     }
 
     # abort if only_tests was set but test name is not included
-    if {[llength $::only_tests] > 0 && [search_pattern_list $name $::only_tests] < 0} {
+    if {[llength $::only_tests] > 0 && ![search_pattern_list $name $::only_tests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return

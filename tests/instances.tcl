@@ -281,7 +281,7 @@ proc parse_options {} {
             dict set ::global_config $val $val2
             incr j 2
         } elseif {$opt eq "--help"} {
-            puts "--single <pattern>      Only runs tests specified by pattern. Regexp must start with '/'."
+            puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
@@ -441,7 +441,7 @@ proc run_tests {} {
             file delete $::leaked_fds_file
         }
 
-        if {[llength $::run_matching] != 0 && [search_pattern_list $test $::run_matching] == -1} {
+        if {[llength $::run_matching] != 0 && ![search_pattern_list $test $::run_matching true]} {
             continue
         }
         if {[file isdirectory $test]} continue
