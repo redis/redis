@@ -1955,7 +1955,6 @@ int writeToClient(client *c, int handler_installed) {
     }
 
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
-        /* Repl bytes from command streams. */
         atomicIncr(server.stat_net_repl_output_bytes, totwritten);
     } else {
         atomicIncr(server.stat_net_output_bytes, totwritten);
@@ -2664,7 +2663,6 @@ void readQueryFromClient(connection *conn) {
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) {
         c->read_reploff += nread;
-        /* Repl bytes from command streams. */
         atomicIncr(server.stat_net_repl_input_bytes, nread);
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);

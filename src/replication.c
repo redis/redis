@@ -1358,7 +1358,6 @@ void sendBulkToSlave(connection *conn) {
             freeClient(slave);
             return;
         }
-        /* Repl bytes from fullresync. */
         atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         sdsrange(slave->replpreamble,nwritten,-1);
         if (sdslen(slave->replpreamble) == 0) {
@@ -1388,7 +1387,6 @@ void sendBulkToSlave(connection *conn) {
         return;
     }
     slave->repldboff += nwritten;
-    /* Repl bytes from fullresync. */
     atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
@@ -1433,7 +1431,6 @@ void rdbPipeWriteHandler(struct connection *conn) {
         return;
     } else {
         slave->repldboff += nwritten;
-        /* Repl bytes from fullresync. */
         atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         if (slave->repldboff < server.rdb_pipe_bufflen) {
             slave->repl_last_partial_write = server.unixtime;
@@ -1514,7 +1511,6 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 /* Note: when use diskless replication, 'repldboff' is the offset
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
-                /* Repl bytes from fullresync. */
                 atomicIncr(server.stat_net_repl_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
@@ -1828,10 +1824,8 @@ void readSyncBulkPayload(connection *conn) {
                 strerror(errno));
             goto error;
         } else {
-            /* nread here is returned by connSyncReadLine(), which would lose 1 byte count
-             * for those strings ended with "\r\n". connSyncReadLine() calls syncReadLine(),
-             * which would convert "\r\n" to '\0' so 1 byte is lost. */
-            /* Repl bytes from fullresync, would be added to stat_net_input_bytes. */
+            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
+             * convert "\r\n" to '\0' so 1 byte is lost. */
             atomicIncr(server.stat_net_repl_input_bytes, nread+1);
         }
 
@@ -1903,7 +1897,6 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        /* Repl bytes from fullresync. */
         atomicIncr(server.stat_net_repl_input_bytes, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
