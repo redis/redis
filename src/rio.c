@@ -438,6 +438,20 @@ void rioSetAutoSync(rio *r, off_t bytes) {
     r->io.file.autosync = bytes;
 }
 
+/* Check the type of rio. */
+uint8_t rioCheckType(rio *r) {
+    if (r->read == rioFileRead) {
+        return RIO_TYPE_FILE;
+    } else if (r->read == rioBufferRead) {
+        return RIO_TYPE_BUFFER;
+    } else if (r->read == rioConnRead) {
+        return RIO_TYPE_CONN;
+    } else {
+        /* r->read == rioFdRead */
+        return RIO_TYPE_FD;
+    }
+}
+
 /* --------------------------- Higher level interface --------------------------
  *
  * The following higher level functions use lower level rio.c functions to help

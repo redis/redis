@@ -2782,7 +2782,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
     }
-    if (useDisklessLoad() && server.repl_state == REPL_STATE_TRANSFER) {
+    if (server.repl_state == REPL_STATE_TRANSFER && rioCheckType(r) == RIO_TYPE_CONN) {
         atomicIncr(server.stat_net_repl_input_bytes, len);
     }
 }
