@@ -2208,6 +2208,16 @@ start_server {tags {"zset"}} {
         assert_match "*syntax*" $err
     }
 
+    test {ZRANGESTORE skiplist} {
+        set original_max [lindex [r config get zset-max-ziplist-entries] 1]
+        r config set zset-max-ziplist-entries 0
+        r flushall
+        r zadd z1{t} 1 a
+        set res [r zrangestore z2{t} z1{t} 0 -1]
+        assert_equal $res 1
+        r config set zset-max-ziplist-entries $original_max
+    }
+
     test {ZRANGE invalid syntax} {
         catch {r zrange z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err

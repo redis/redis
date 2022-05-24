@@ -2952,7 +2952,11 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
     UNUSED(length);
-    handler->dstobj = createZsetListpackObject();
+    if (server.zset_max_listpack_entries > 0) {
+        handler->dstobj = createZsetListpackObject();
+    } else { // Use skiplist if listpack is disabled to avoid redundant conversion on add.
+        handler->dstobj = createZsetObject();
+    }
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
