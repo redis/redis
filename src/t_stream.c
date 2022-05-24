@@ -401,7 +401,7 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
         streamID min_id = {0, 0}, max_id = {UINT64_MAX, UINT64_MAX};
         *edge_id = first ? max_id : min_id;
     }
-
+    streamIteratorStop(&si);
 }
 
 /* Adds a new item into the stream 's' having the specified number of
