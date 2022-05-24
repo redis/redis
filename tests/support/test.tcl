@@ -127,12 +127,11 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
 }
 
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
-# The caller can specify to use only sub-string match
-proc search_pattern_list {value pattern_list {substr false}} {
-    set n 0
+# The caller can specify to use only glob-pattern match
+proc search_pattern_list {value pattern_list {glob_pattern false}} {
     foreach el $pattern_list {
         if {[string length $el] == 0} { continue }
-        if { $substr } {
+        if { $glob_pattern } {
             if {[string match $el $value]} {
                 return 1
             }
