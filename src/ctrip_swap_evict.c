@@ -326,3 +326,27 @@ void debugEvictKeys() {
     }
 }
 
+void debugSwapOutCommand(client *c) {
+    int i, nevict = 0, evict_result;
+    if (c->argc == 2) {
+        int nevict = 0, evict_result;
+        dictEntry* de;
+        dictIterator* di = dictGetSafeIterator(c->db->dict);
+        while((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            evict_result = 0;
+            robj* k = createRawStringObject(key, sdslen(key));
+            nevict += tryEvictKey(c->db, k, &evict_result);
+            serverLog(LL_NOTICE, "debug swapout all %s: %s.", key, evictResultToString(evict_result));
+            decrRefCount(k);
+        }
+        dictReleaseIterator(di);
+    } else {    
+        for (i = 1; i < c->argc; i++) {
+            evict_result = 0;
+            nevict += tryEvictKey(c->db, c->argv[i], &evict_result);
+            serverLog(LL_NOTICE, "debug swapout %s: %s.", (sds)c->argv[i]->ptr, evictResultToString(evict_result));
+        }   
+    }
+    addReplyLongLong(c, nevict);
+}
