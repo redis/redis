@@ -3452,8 +3452,12 @@ void initServer(void) {
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
 void InitServerLast() {
     bioInit();
-    server.rocks = rocksCreate();
     server.rocksdb_disk_used = 0;
+    server.rocksdb_epoch = 0;
+    rocksInit();
+    asyncCompleteQueueInit();
+    parallelSyncInit(server.ps_parallism_rdb);
+    swapThreadsInit();
     swapInit();
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
@@ -4337,25 +4341,28 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        int swap_result = dbSwap(c);
-        if (swap_result > 0) {
-            /* Swapping command parsed but not processed, return C_ERR so that:
-             * 1. repl stream will not propagate to sub-slaves
-             * 2. client will not reset
-             * 3. client will break out process loop. */
-            if (c->swapping_count) c->flags |= CLIENT_SWAPPING;
-            return C_ERR;    
-        } else if (swap_result < 0) {
-            /* Swapping command parsed and dispatched, return C_OK so that:
-             * 1. repl client will skip call
-             * 2. repl client will reset (cmd moved to worker).
-             * 3. repl client will continue parse and dispatch cmd */
-            return C_OK;
+        if (server.swap_mode == SWAP_MODE_MEMMORY) {
+            call(c,CMD_CALL_FULL);
+            c->woff = server.master_repl_offset;
+            if (listLength(server.ready_keys))
+                handleClientsBlockedOnKeys();
+        } else {
+            int submit_num = dbSwap(c);
+            if (submit_num > 0) {
+                /* Swapping command parsed but not processed, return C_ERR so that:
+                 * 1. repl stream will not propagate to sub-slaves
+                 * 2. client will not reset
+                 * 3. client will break out process loop. */
+                if (c->keyrequests_count) c->flags |= CLIENT_SWAPPING;
+                return C_ERR;    
+            } else if (submit_num < 0) {
+                /* Swapping command parsed and dispatched, return C_OK so that:
+                 * 1. repl client will skip call
+                 * 2. repl client will reset (cmd moved to worker).
+                 * 3. repl client will continue parse and dispatch cmd */
+                return C_OK;
+            }
         }
-        call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
-        if (listLength(server.ready_keys))
-            handleClientsBlockedOnKeys();
     }
 
     return C_OK;
@@ -4475,9 +4482,6 @@ int prepareForShutdown(int flags) {
             return C_ERR;
         }
     }
-
-    /* Destroy rocks threads */
-    rocksDestroy(server.rocks);
 
     /* Fire the shutdown modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
@@ -6313,7 +6317,7 @@ struct redisTest {
     {"crc64", crc64Test},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
-    {"dict", dictTest}
+    {"dict", dictTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);

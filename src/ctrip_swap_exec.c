@@ -117,7 +117,7 @@ static int doRIOGet(RIO *rio) {
     size_t vallen;
     char *err = NULL, *val;
 
-    val = rocksdb_get(server.rocks->rocksdb, server.rocks->rocksdb_ropts,
+    val = rocksdb_get(server.rocks->db, server.rocks->ropts,
             rio->get.rawkey, sdslen(rio->get.rawkey), &vallen, &err);
     if (err != NULL) {
         rio->err = err;
@@ -131,7 +131,7 @@ static int doRIOGet(RIO *rio) {
 
 static int doRIOPut(RIO *rio) {
     char *err = NULL;
-    rocksdb_put(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
+    rocksdb_put(server.rocks->db, server.rocks->wopts,
             rio->put.rawkey, sdslen(rio->put.rawkey),
             rio->put.rawval, sdslen(rio->put.rawval), &err);
     if (err != NULL) {
@@ -144,7 +144,7 @@ static int doRIOPut(RIO *rio) {
 
 static int doRIODel(RIO *rio) {
     char *err = NULL;
-    rocksdb_delete(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
+    rocksdb_delete(server.rocks->db, server.rocks->wopts,
             rio->del.rawkey, sdslen(rio->del.rawkey), &err);
     if (err != NULL) {
         rio->err = err;
@@ -156,7 +156,7 @@ static int doRIODel(RIO *rio) {
 
 static int doRIOWrite(RIO *rio) {
     char *err = NULL;
-    rocksdb_write(server.rocks->rocksdb, server.rocks->rocksdb_wopts,
+    rocksdb_write(server.rocks->db, server.rocks->wopts,
             rio->write.wb, &err);
     if (err != NULL) {
         rio->err = err;
@@ -179,7 +179,7 @@ static int doRIOMultiGet(RIO *rio) {
         keys_list_sizes[i] = sdslen(rio->multiget.rawkeys[i]);
     }
 
-    rocksdb_multi_get(server.rocks->rocksdb, server.rocks->rocksdb_ropts,
+    rocksdb_multi_get(server.rocks->db, server.rocks->ropts,
             rio->multiget.numkeys,
             (const char**)keys_list, (const size_t*)keys_list_sizes,
             values_list, values_list_sizes, &err);
@@ -207,8 +207,7 @@ static int doRIOScan(RIO *rio) {
     sds *rawkeys = zmalloc(numalloc*sizeof(sds));
     sds *rawvals = zmalloc(numalloc*sizeof(sds));
 
-    iter = rocksdb_create_iterator(server.rocks->rocksdb,
-            server.rocks->rocksdb_ropts);
+    iter = rocksdb_create_iterator(server.rocks->db, server.rocks->ropts);
     rocksdb_iter_seek(iter,prefix,sdslen(prefix));
 
     while (rocksdb_iter_valid(iter)) {
@@ -488,7 +487,7 @@ int finishRdbSwapRequest(swapRequest *req) {
 
 void submitSwapRequest(int mode, int intention, swapData* data, void *datactx,
         swapRequestFinishedCallback cb, void *pd) {
-    swapRequest *req = swapRequestNew(intention, data, datactx, cb, pd);
+    swapRequest *req = swapRequestNew(intention,data,datactx,cb,pd);
     if (mode == SWAP_MODE_ASYNC) {
         asyncSwapRequestSubmit(req);
     } else {

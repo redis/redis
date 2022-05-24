@@ -124,7 +124,7 @@ int keyIsHolded(redisDb *db, robj *key) {
 
 void evictClientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
     swapCtxFree(ctx);
-    c->swapping_count--;
+    c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
     clientUnholdKey(c, key);
 }
@@ -157,15 +157,15 @@ int evictKeyRequestProceed(void *listeners, redisDb *db, robj *key,
 
 int submitEvictClientRequest(client *c, robj *key, robj *value, robj *evict) {
     void *datactx;
-    int old_swapping_count = c->swapping_count;
+    int old_swapping_count = c->keyrequests_count;
     keyRequest key_request = {key,0,NULL};
     swapData *data = createSwapData(c->db,key,value,evict,&datactx);
     swapCtx *ctx = swapCtxCreate(c,&key_request);
     ctx->data = data;
     ctx->datactx = datactx;
-    c->swapping_count++;
+    c->keyrequests_count++;
     requestWait(c->db,key_request.key,evictKeyRequestProceed,c,ctx);
-    return c->swapping_count > old_swapping_count;
+    return c->keyrequests_count > old_swapping_count;
 }
 
 int tryEvictKey(redisDb *db, robj *key, int *evict_result) {

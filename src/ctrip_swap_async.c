@@ -82,7 +82,7 @@ void asyncCompleteQueueHanlder(aeEventLoop *el, int fd, void *privdata, int mask
 int asyncCompleteQueueInit() {
     int fds[2];
     char anetErr[ANET_ERR_LEN];
-    asyncCompleteQueue *cq = &server.rocks->CQ;
+    asyncCompleteQueue *cq = zcalloc(sizeof(asyncCompleteQueue));
 
     if (pipe(fds)) {
         perror("Can't create notify pipe");
@@ -117,6 +117,7 @@ int asyncCompleteQueueInit() {
         return -1;
     }
 
+    server.CQ = cq;
     return 0;
 }
 
@@ -129,7 +130,7 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq) {
 
 int asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
     UNUSED(pd);
-    return asyncCompleteQueueAppend(&server.rocks->CQ, req);
+    return asyncCompleteQueueAppend(server.CQ, req);
 }
 
 int asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
@@ -158,9 +159,9 @@ static int asyncCompleteQueueDrained() {
     int drained = 1;
 
     if (!swapThreadsDrained()) return 0;
-    pthread_mutex_lock(&server.rocks->CQ.lock);
-    if (listLength(server.rocks->CQ.complete_queue)) drained = 0;
-    pthread_mutex_unlock(&server.rocks->CQ.lock);
+    pthread_mutex_lock(&server.CQ->lock);
+    if (listLength(server.CQ->complete_queue)) drained = 0;
+    pthread_mutex_unlock(&server.CQ->lock);
 
     return drained;
 }
@@ -170,7 +171,7 @@ int asyncCompleteQueueDrain(mstime_t time_limit) {
     mstime_t start = mstime();
 
     while (!asyncCompleteQueueDrained()) {
-        asyncCompleteQueueProcess(&server.rocks->CQ);
+        asyncCompleteQueueProcess(server.CQ);
 
         if (time_limit >= 0 && mstime() - start > time_limit) {
             result = -1;

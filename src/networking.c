@@ -196,12 +196,11 @@ client *createClient(connection *conn) {
     c->auth_callback = NULL;
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
-    c->swapping_count = 0;
+    c->keyrequests_count = 0;
     c->swap_result = 0;
     c->hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
     c->cmd_reploff = -1;
     c->repl_client = NULL;
-    c->swapping_count = 0;
     c->client_hold_mode = CLIENT_HOLD_MODE_CMD;
     c->CLIENT_DEFERED_CLOSING = 0;
     c->CLIENT_REPL_SWAPPING = 0;
@@ -1315,7 +1314,7 @@ void unlinkClient(client *c) {
 
 static void deferFreeClient(client *c) {
     sds client_desc;
-    serverAssert(c->swapping_count);
+    serverAssert(c->keyrequests_count);
 
     client_desc = catClientInfoString(sdsempty(), c);
     serverLog(LL_NOTICE, "Defer client close: %s", client_desc);
@@ -1336,7 +1335,7 @@ void freeClientsInDeferedQueue(void) {
     listRewind(server.clients_to_free, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        if (!c->swapping_count) {
+        if (!c->keyrequests_count) {
             client_desc = catClientInfoString(sdsempty(), c);
             c->CLIENT_DEFERED_CLOSING = 0;
             freeClient(c);
@@ -1397,7 +1396,7 @@ void freeClient(client *c) {
         }
     }
 
-    if (c->swapping_count) {
+    if (c->keyrequests_count) {
         deferFreeClient(c);
         return;
     }

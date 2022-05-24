@@ -33,38 +33,39 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int rocksInitDB() {
-    rocks *rocks = server.rocks;
+int rocksInit() {
+    rocks *rocks = zmalloc(sizeof(struct rocks));
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
     rocksdb_cache_t *block_cache;
-    rocks->rocksdb_snapshot = NULL;
-    rocks->rocksdb_opts = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(rocks->rocksdb_opts, 1); 
-    rocksdb_options_enable_statistics(rocks->rocksdb_opts);
-    rocksdb_options_set_stats_dump_period_sec(rocks->rocksdb_opts, 60);
-    rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 6);
-    rocksdb_options_set_max_bytes_for_level_base(rocks->rocksdb_opts, 512*1024*1024); 
+
+    rocks->snapshot = NULL;
+    rocks->db_opts = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(rocks->db_opts, 1); 
+    rocksdb_options_enable_statistics(rocks->db_opts);
+    rocksdb_options_set_stats_dump_period_sec(rocks->db_opts, 60);
+    rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
+    rocksdb_options_set_max_bytes_for_level_base(rocks->db_opts, 512*1024*1024); 
     struct rocksdb_block_based_table_options_t *block_opts = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_block_size(block_opts, 8192);
     block_cache = rocksdb_cache_create_lru(1*1024*1024);
     rocks->block_cache = block_cache;
     rocksdb_block_based_options_set_block_cache(block_opts, block_cache);
     rocksdb_block_based_options_set_cache_index_and_filter_blocks(block_opts, 0);
-    rocksdb_options_set_block_based_table_factory(rocks->rocksdb_opts, block_opts);
+    rocksdb_options_set_block_based_table_factory(rocks->db_opts, block_opts);
     rocks->block_opts = block_opts;
 
-    rocksdb_options_optimize_for_point_lookup(rocks->rocksdb_opts, 1);
-    rocksdb_options_optimize_level_style_compaction(rocks->rocksdb_opts, 256*1024*1024);
-    rocksdb_options_set_max_background_compactions(rocks->rocksdb_opts, 4); /* default 1 */
-    rocksdb_options_compaction_readahead_size(rocks->rocksdb_opts, 2*1024*1024); /* default 0 */
-    rocksdb_options_set_optimize_filters_for_hits(rocks->rocksdb_opts, 1); /* default false */
+    rocksdb_options_optimize_for_point_lookup(rocks->db_opts, 1);
+    rocksdb_options_optimize_level_style_compaction(rocks->db_opts, 256*1024*1024);
+    rocksdb_options_set_max_background_compactions(rocks->db_opts, 4); /* default 1 */
+    rocksdb_options_compaction_readahead_size(rocks->db_opts, 2*1024*1024); /* default 0 */
+    rocksdb_options_set_optimize_filters_for_hits(rocks->db_opts, 1); /* default false */
 
-    rocks->rocksdb_ropts = rocksdb_readoptions_create();
-    rocksdb_readoptions_set_verify_checksums(rocks->rocksdb_ropts, 0);
-    rocksdb_readoptions_set_fill_cache(rocks->rocksdb_ropts, 0);
+    rocks->ropts = rocksdb_readoptions_create();
+    rocksdb_readoptions_set_verify_checksums(rocks->ropts, 0);
+    rocksdb_readoptions_set_fill_cache(rocks->ropts, 0);
 
-    rocks->rocksdb_wopts = rocksdb_writeoptions_create();
-    rocksdb_writeoptions_disable_WAL(rocks->rocksdb_wopts, 1);
+    rocks->wopts = rocksdb_writeoptions_create();
+    rocksdb_writeoptions_disable_WAL(rocks->wopts, 1);
 
     struct stat statbuf;
     if (!stat(ROCKS_DATA, &statbuf) && S_ISDIR(statbuf.st_mode)) {
@@ -75,73 +76,57 @@ static int rocksInitDB() {
         return -1;
     }
 
-    snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, rocks->rocksdb_epoch);
-    rocks->rocksdb = rocksdb_open(rocks->rocksdb_opts, dir, &err);
+    snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
+    rocks->db = rocksdb_open(rocks->db_opts, dir, &err);
     if (err != NULL) {
         serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: %s", err);
         return -1;
     }
 
     serverLog(LL_NOTICE, "[ROCKS] opened rocks data in (%s).", dir);
-
+    server.rocks = rocks;
     return 0;
 }
 
-static void rocksDeinitDB(rocks *rocks) {
+void rocksRelease() {
+    rocks *rocks = server.rocks;
     rocksdb_cache_destroy(rocks->block_cache);
     rocksdb_block_based_options_destroy(rocks->block_opts);
-    rocksdb_options_destroy(rocks->rocksdb_opts);
-    rocksdb_writeoptions_destroy(rocks->rocksdb_wopts);
-    rocksdb_readoptions_destroy(rocks->rocksdb_ropts);
-    rocksdb_close(rocks->rocksdb);
+    rocksdb_options_destroy(rocks->db_opts);
+    rocksdb_writeoptions_destroy(rocks->wopts);
+    rocksdb_readoptions_destroy(rocks->ropts);
+    rocksdb_close(rocks->db);
+    zfree(rocks);
+    server.rocks = NULL;
 }
 
-struct rocks *rocksCreate() {
-    server.rocks = zmalloc(sizeof(struct rocks));
-    server.rocks->rocksdb_epoch = 0;
-    if (rocksInitDB()) goto err;
-    if (asyncCompleteQueueInit()) goto err;
-    if (parallelSyncInit(server.ps_parallism_rdb))
-        goto err;
-    if (swapThreadsInit()) goto err;
-    return server.rocks;
-err:
-    if (server.rocks != NULL) zfree(server.rocks);
-    return NULL;
-}
-
-void rocksCreateSnapshot(rocks *rocks) {
-    if (rocks->rocksdb_snapshot) {
+void rocksCreateSnapshot() {
+    rocks *rocks = server.rocks;
+    if (rocks->snapshot) {
         serverLog(LL_WARNING, "[rocks] release snapshot before create.");
-        rocksdb_release_snapshot(rocks->rocksdb, rocks->rocksdb_snapshot);
+        rocksdb_release_snapshot(rocks->db, rocks->snapshot);
     }
-    rocks->rocksdb_snapshot = rocksdb_create_snapshot(rocks->rocksdb);
+    rocks->snapshot = rocksdb_create_snapshot(rocks->db);
     serverLog(LL_NOTICE, "[rocks] create rocksdb snapshot ok.");
 }
 
-void rocksUseSnapshot(rocks *rocks) {
-    if (rocks->rocksdb_snapshot) {
-        rocksdb_readoptions_set_snapshot(rocks->rocksdb_ropts, rocks->rocksdb_snapshot);
+void rocksUseSnapshot() {
+    rocks *rocks = server.rocks;
+    if (rocks->snapshot) {
+        rocksdb_readoptions_set_snapshot(rocks->ropts, rocks->snapshot);
         serverLog(LL_NOTICE, "[rocks] use snapshot read ok.");
     } else {
         serverLog(LL_WARNING, "[rocks] use snapshot read failed: snapshot not exists.");
     }
 }
 
-void rocksReleaseSnapshot(rocks *rocks) {
-    if (rocks->rocksdb_snapshot) {
+void rocksReleaseSnapshot() {
+    rocks *rocks = server.rocks;
+    if (rocks->snapshot) {
         serverLog(LL_NOTICE, "[rocks] relase snapshot ok.");
-        rocksdb_release_snapshot(rocks->rocksdb, rocks->rocksdb_snapshot);
-        rocks->rocksdb_snapshot = NULL;
+        rocksdb_release_snapshot(rocks->db, rocks->snapshot);
+        rocks->snapshot = NULL;
     }
-}
-
-void rocksDestroy(rocks *rocks) {
-    swapThreadsDeinit();
-    asyncCompleteQueueDeinit(&rocks->CQ);
-    parallelSyncDeinit();
-    rocksDeinitDB(rocks);
-    zfree(rocks);
 }
 
 static int rmdirRecursive(const char *path) {
@@ -186,32 +171,23 @@ static int rmdirRecursive(const char *path) {
 int rocksFlushAll() {
     char odir[ROCKS_DIR_MAX_LEN];
 
-    snprintf(odir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocks->rocksdb_epoch);
+    snprintf(odir,ROCKS_DIR_MAX_LEN,"%s/%d",ROCKS_DATA,server.rocksdb_epoch);
     asyncCompleteQueueDrain(-1);
-    rocksDeinitDB(server.rocks);
-    server.rocks->rocksdb_epoch++;
-    if (rocksInitDB(server.rocks)) {
-        serverLog(LL_WARNING, "[ROCKS] init new rocksdb failed, trying to resume old one.");
-        server.rocks->rocksdb_epoch--;
-        if (rocksInitDB(server.rocks)) {
-            serverLog(LL_WARNING, "[ROCKS] resume old one failed, oops.");
-        } else {
-            serverLog(LL_WARNING, "[ROCKS] resume old one success.");
-        }
-        return -1;
-    }
+    rocksRelease();
+    server.rocksdb_epoch++;
+    rocksInit();
     rmdirRecursive(odir);
-    serverLog(LL_NOTICE, "[ROCKS] remove rocks data in (%s).", odir);
+    serverLog(LL_NOTICE,"[ROCKS] remove rocks data in (%s).",odir);
     return 0;
 }
 
-rocksdb_t *rocksGetDb(rocks *rocks) {
-    return rocks->rocksdb;
+rocksdb_t *rocksGetDb() {
+    return server.rocks->db;
 }
 
-void rocksCron(void) {
+void rocksCron() {
     uint64_t property_int = 0;
-    if (!rocksdb_property_int(server.rocks->rocksdb,
+    if (!rocksdb_property_int(server.rocks->db,
                 "rocksdb.total-sst-files-size", &property_int)) {
         server.rocksdb_disk_used = property_int;
     }

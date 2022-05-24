@@ -105,18 +105,18 @@ static void getSingleCmdKeyRequsts(client *c, getKeyRequestsResult *result) {
         int i, numkeys;
         getKeysResult keys = GETKEYS_RESULT_INIT;
         /* whole key swaping, swaps defined by command arity. */
-        numkeys = getKeysFromCommand(cmd, c->argv, c->argc, &keys);
-        getKeyRequestsPrepareResult(result, result->num+numkeys);
+        numkeys = getKeysFromCommand(cmd,c->argv,c->argc,&keys);
+        getKeyRequestsPrepareResult(result,result->num+numkeys);
         for (i = 0; i < numkeys; i++) {
             robj *key = c->argv[keys.keys[i]];
             incrRefCount(key);
-            getKeyRequestsAppendResult(result, key, 0, NULL);
+            getKeyRequestsAppendResult(result,key,0,NULL);
         }
         getKeysFreeResult(&keys); 
     } else if (cmd->flags & CMD_MODULE) {
         // TODO support module
     } else {
-        cmd->getkeyrequests_proc(cmd, c->argv, c->argc, result);
+        cmd->getkeyrequests_proc(cmd,c->argv,c->argc,result);
     }
 }
 
@@ -127,9 +127,8 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
             !(c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) &&
             c->cmd->proc == execCommand) {
         /* if current is EXEC, we get swaps for all queue commands. */
-        int i;
         robj **orig_argv;
-        int orig_argc;
+        int i, orig_argc;
         struct redisCommand *orig_cmd;
 
         orig_argv = c->argv;

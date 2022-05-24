@@ -68,11 +68,11 @@ int swapThreadsInit() {
     int i, nthd = SWAP_THREADS_DEFAULT;
 
     if (nthd > SWAP_THREADS_MAX) nthd = SWAP_THREADS_MAX;
-    server.rocks->threads_num = nthd;
+    server.swap_threads_num = nthd;
 
+    server.swap_threads = zcalloc(sizeof(swapThread)*nthd);
     for (i = 0; i < nthd; i++) {
-        swapThread *thread = &server.rocks->threads[i];
-
+        swapThread *thread = server.swap_threads+i;
         thread->id = i;
         thread->pending_reqs = listCreate();
         atomic_store(&thread->is_running_rio, 0);
@@ -90,8 +90,8 @@ int swapThreadsInit() {
 void swapThreadsDeinit() {
     int i, err;
 
-    for (i = 0; i < server.rocks->threads_num; i++) {
-        swapThread *thread = &server.rocks->threads[i];
+    for (i = 0; i < server.swap_threads_num; i++) {
+        swapThread *thread = server.swap_threads+i;
         listRelease(thread->pending_reqs);
         if (thread->thread_id == pthread_self()) continue;
         if (thread->thread_id && pthread_cancel(thread->thread_id) == 0) {
@@ -105,7 +105,7 @@ void swapThreadsDeinit() {
     }
 }
 
-static int swapThreadsDistNext() {
+static inline int swapThreadsDistNext() {
     static int dist;
     dist++;
     if (dist < 0) dist = 0;
@@ -113,10 +113,10 @@ static int swapThreadsDistNext() {
 }
 
 void swapThreadsDispatch(swapRequest *req) {
-    int idx = swapThreadsDistNext() % server.rocks->threads_num;
-    swapThread *t = server.rocks->threads + idx;
+    int idx = swapThreadsDistNext() % server.swap_threads_num;
+    swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
-    listAddNodeTail(t->pending_reqs, req);
+    listAddNodeTail(t->pending_reqs,req);
     pthread_cond_signal(&t->cond);
     pthread_mutex_unlock(&t->lock);
 }
@@ -124,8 +124,8 @@ void swapThreadsDispatch(swapRequest *req) {
 int swapThreadsDrained() {
     swapThread *rt;
     int drained = 1, i;
-    for (i = 0; i < server.rocks->threads_num; i++) {
-        rt = &server.rocks->threads[i];
+    for (i = 0; i < server.swap_threads_num; i++) {
+        rt = server.swap_threads+i;
 
         pthread_mutex_lock(&rt->lock);
         if (listLength(rt->pending_reqs) || atomic_load(&rt->is_running_rio)) drained = 0;

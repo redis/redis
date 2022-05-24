@@ -1097,28 +1097,32 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     }
 
     /* rocksdb stats */
-    if (!rocksdb_property_int(rocksGetDb(server.rocks), "rocksdb.cur-size-all-mem-tables", &mem)) {
+    if (!rocksdb_property_int(rocksGetDb(),
+                "rocksdb.cur-size-all-mem-tables", &mem)) {
         mh->rocks_memtable = mem;
         rocks_total += mem;
     } else {
         mh->rocks_memtable = -1;
     }
 
-    if (!rocksdb_property_int(rocksGetDb(server.rocks), "rocksdb.block-cache-usage", &mem)) {
+    if (!rocksdb_property_int(rocksGetDb(),
+                "rocksdb.block-cache-usage", &mem)) {
         mh->rocks_block_cache = mem;
         rocks_total += mem;
     } else {
         mh->rocks_block_cache = -1;
     }
 
-    if (!rocksdb_property_int(rocksGetDb(server.rocks), "rocksdb.estimate-table-readers-mem", &mem)) {
+    if (!rocksdb_property_int(rocksGetDb(),
+                "rocksdb.estimate-table-readers-mem", &mem)) {
         mh->rocks_index_and_filter = mem;
         rocks_total += mem;
     } else {
         mh->rocks_index_and_filter = -1;
     }
 
-    if (!rocksdb_property_int(rocksGetDb(server.rocks), "rocksdb.block-cache-pinned-usage", &mem)) {
+    if (!rocksdb_property_int(rocksGetDb(),
+                "rocksdb.block-cache-pinned-usage", &mem)) {
         mh->rocks_pinned_blocks = mem;
         rocks_total += mem;
     } else {

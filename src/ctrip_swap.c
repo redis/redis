@@ -48,15 +48,16 @@ static void keyRequestDeinit(keyRequest *key_request) {
     }
 }
 
+/* SwapCtx manages context and data for swapping specific key. Note that:
+ * - key_request copy to swapCtx.key_request
+ * - swapdata moved to swapCtx,
+ * - swapRequest managed by async/sync complete queue (not by swapCtx).
+ * swapCtx released when keyRequest finishes. */
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request) {
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
-    ctx->cmd_intention = c->cmd->swap_action;
-    dupKeyRequest(ctx->key_request, key_request);
-    ctx->listeners = NULL;
-    ctx->swap_intention = SWAP_NOP;
-    ctx->data = NULL;
-    ctx->finish_type = SWAP_NOP;
+    ctx->cmd_intention = c->cmd->intention;
+    dupKeyRequest(ctx->key_request,key_request);
     return ctx;
 }
 
@@ -94,8 +95,8 @@ void continueProcessCommand(client *c) {
 void clientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
     UNUSED(key);
     swapCtxFree(ctx);
-    c->swapping_count--;
-    if (c->swapping_count == 0) {
+    c->keyrequests_count--;
+    if (c->keyrequests_count == 0) {
         if (!c->CLIENT_DEFERED_CLOSING) continueProcessCommand(c);
     }
 }
@@ -119,21 +120,28 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
     /* key not exists, noswap needed. */
     if (!value && !evict) {
         clientKeyRequestFinished(c,key,ctx);
-        return 0;
+        return C_OK;
     }
 
     data = createSwapData(db,key,value,evict,&datactx);
     ctx->listeners = listeners;
     ctx->data = data;
     ctx->datactx = datactx;
-    swapDataAna(data,ctx->cmd_intention,ctx->key_request,&ctx->swap_intention);
+
+    if (swapDataAna(data,ctx->cmd_intention,ctx->key_request,
+                &ctx->swap_intention)) {
+        ctx->errcode = SWAP_ERR_ANA_FAIL;
+        clientKeyRequestFinished(c,key,ctx);
+        return C_ERR;
+    }
+
     if (ctx->swap_intention == SWAP_NOP) {
         clientKeyRequestFinished(c,key,ctx);
     } else {
         submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
                 keyRequestSwapFinished,ctx);
     }
-    return 0;
+    return C_OK;
 }
 
 /* Start swapping or schedule a swapping task for client:
@@ -147,8 +155,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
  * processCommand if swapping needed. */
 int submitNormalClientRequest(client *c) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
-    getKeyRequests(c, &result);
-    c->swapping_count = result.num;
+    getKeyRequests(c,&result);
+    c->keyrequests_count = result.num;
     for (int i = 0; i < result.num; i++) {
         keyRequest *key_request = result.key_requests + i;
         swapCtx *ctx = swapCtxCreate(c,key_request);
@@ -159,27 +167,14 @@ int submitNormalClientRequest(client *c) {
     return result.num;
 }
 
-/* Different from original replication stream process, slave.master client
- * might trigger swap and block untill rocksdb IO finish. because there is
- * only one master client so rocksdb IO will be done sequentially, thus slave
- * can't catch up with master. 
- * In order to speed up replication stream processing, slave.master client
- * dispatches command to multiple worker client and execute commands when 
- * rocks IO finishes. Note that replicated commands swap in-parallel but we
- * still processed in received order. */
 int dbSwap(client *c) {
     int swap_result;
-
     if (!(c->flags & CLIENT_MASTER)) {
-        /* normal client swap */
         swap_result = submitNormalClientRequest(c);
     } else {
-        /* repl client swap */
         swap_result = submitReplClientRequest(c);
     }
-
     if (swap_result) swapRateLimit(c);
-
     return swap_result;
 }
 

@@ -127,7 +127,7 @@ sds requestListenersDump(requestListeners *listeners) {
         client *c = listener->c;
         if (ln != listFirst(listeners->listeners)) result = sdscat(result,",");
         result = sdscat(result,"("); 
-        if (c->cmd) result = sdscat(result,intentions[c->cmd->swap_action]); 
+        if (c->cmd) result = sdscat(result,intentions[c->cmd->intention]); 
         result = sdscat(result,":"); 
         if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY)
             result = sdscatsds(result,listeners->key.key->ptr); 
@@ -249,7 +249,8 @@ int requestBlocked(redisDb *db, robj *key) {
     return listeners->nlisteners > 0;
 }
 
-int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd) {
+int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
+        void *pd) {
     int blocking;
     requestListeners *listeners;
     requestListener *listener;
@@ -258,8 +259,9 @@ int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd) 
     blocking = listeners->nlisteners > 0;
     listener = requestListenerCreate(db,key,cb,c,pd);
     requestListenersPush(listeners, listener);
-    /* Current can proceed right away if request key is not blocking,
-     * otherwise execution is defered. */
+
+    /* Proceed right away if request key is not blocking, otherwise
+     * execution is defered. */
     if (!blocking) proceed(listeners, listener);
     return 0;
 }

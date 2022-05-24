@@ -100,6 +100,8 @@ int swapDataCreateDictObject(swapData *d, robj *decoded, int *finish_type, void 
 int swapDataCleanObject(swapData *d, int *finish_type, void *datactx);
 void swapDataFree(swapData *data, void *datactx);
 
+#define SWAP_ERR_ANA_FAIL -100
+
 typedef struct swapCtx {
   client *c;
   int cmd_intention;
@@ -109,6 +111,7 @@ typedef struct swapCtx {
   swapData *data;
   void *datactx;
   int finish_type;
+  int errcode;
 } swapCtx;
 
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request);
@@ -175,7 +178,7 @@ void submitSwapRequest(int mode, int intention, swapData* data, void *datactx, s
 #define SWAP_THREADS_DEFAULT     6
 #define SWAP_THREADS_MAX         64
 
-typedef struct {
+typedef struct swapThread {
     int id;
     pthread_t thread_id;
     pthread_mutex_t lock;
@@ -243,7 +246,7 @@ void RIOInitScan(RIO *rio, sds prefix);
 /* --- Async --- */
 #define ASYNC_COMPLETE_QUEUE_NOTIFY_READ_MAX  512
 
-typedef struct {
+typedef struct asyncCompleteQueue {
     int notify_recv_fd;
     int notify_send_fd;
     pthread_mutex_t lock;
@@ -312,7 +315,7 @@ typedef struct requestListeners {
   };
 } requestListeners;
 
-requestListeners *serverRequestListenersCreate();
+requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
 int requestBlocked(redisDb *db, robj *key);
 int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd);
@@ -342,40 +345,31 @@ int dbExpire(redisDb *db, robj *key);
 #define ROCKS_DIR_MAX_LEN 512
 #define ROCKS_DATA "data.rocks"
 
+/* Rocksdb engine */
 typedef struct rocks {
-    /* Engine */
-    int rocksdb_epoch;
-    rocksdb_t *rocksdb;
+    rocksdb_t *db;
     rocksdb_cache_t *block_cache;
     rocksdb_block_based_table_options_t *block_opts;
-    rocksdb_options_t *rocksdb_opts;
-    rocksdb_readoptions_t *rocksdb_ropts;
-    rocksdb_writeoptions_t *rocksdb_wopts;
-    const rocksdb_snapshot_t *rocksdb_snapshot;
-    /* Rio threads */
-    int threads_num;
-    swapThread threads[SWAP_THREADS_MAX];
-    /* async */
-    asyncCompleteQueue CQ;
-    /* parallel sync */
-    parallelSync *parallel_sync;
+    rocksdb_options_t *db_opts;
+    rocksdb_readoptions_t *ropts;
+    rocksdb_writeoptions_t *wopts;
+    const rocksdb_snapshot_t *snapshot;
 } rocks;
 
-struct rocks *rocksCreate(void);
-void rocksDestroy(struct rocks *rocks);
-int rocksDelete(redisDb *db, robj *key);
-int rocksFlushAll();
-void rocksCron();
-void rocksCreateSnapshot(struct rocks *rocks);
-void rocksUseSnapshot(struct rocks *rocks);
-void rocksReleaseSnapshot(struct rocks *rocks);
-rocksdb_t *rocksGetDb(struct rocks *rocks);
+int rocksInit(void);
+void rocksRelease(void);
+int rocksFlushAll(void);
+void rocksCron(void);
+void rocksCreateSnapshot(void);
+void rocksUseSnapshot(void);
+void rocksReleaseSnapshot(void);
+rocksdb_t *rocksGetDb(void);
 
 /* --- Repl --- */
 int submitReplClientRequest(client *c);
 
 /* --- Swap --- */
-void swapInit();
+void swapInit(void);
 int dbSwap(client *c);
 int clientSwap(client *c);
 void continueProcessCommand(client *c);
@@ -403,7 +397,7 @@ typedef struct swapStat {
 void updateStatsSwapStart(int type, sds rawkey, sds rawval);
 void updateStatsSwapFinish(int type, sds rawkey, sds rawval);
 
-int swapRateLimitState();
+int swapRateLimitState(void);
 int swapRateLimit(client *c);
 int swapRateLimited(client *c);
 
@@ -470,7 +464,7 @@ typedef struct ctripRdbLoadCtx {
 int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, sds *rawval);
 int ctripDbAddRDBLoad(int vtype, redisDb* db, sds key, robj* val, sds rawval);
 
-void evictStartLoading();
+void evictStartLoading(void);
 void evictStopLoading(int success);
 
 /* --- Util --- */
@@ -481,5 +475,7 @@ int getObjectRdbType(robj *o);
 robj *rocksDecodeValRdb(int rdbtype, sds raw);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
+
+int swapDataTest(int argc, char *argv[], int accurate);
 
 #endif

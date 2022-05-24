@@ -88,7 +88,7 @@ static void replCommandDispatch(client *wc, client *c) {
 
     /* Swapping count is dispatched command count. Note that free repl
      * client would be defered untill swapping count drops to 0. */
-    c->swapping_count++;
+    c->keyrequests_count++;
 }
 
 static void processFinishedReplCommands() {
@@ -104,7 +104,7 @@ static void processFinishedReplCommands() {
         c = wc->repl_client;
 
         wc->flags &= ~CLIENT_SWAPPING;
-        c->swapping_count--;
+        c->keyrequests_count--;
         listDelNode(server.repl_worker_clients_used, ln);
         listAddNodeTail(server.repl_worker_clients_free, wc);
 
@@ -186,8 +186,8 @@ void replWorkerClientKeyRequestFinished(client *wc, robj *key, swapCtx *ctx) {
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */
     swapCtxFree(ctx);
-    wc->swapping_count--;
-    if (wc->swapping_count == 0) wc->CLIENT_REPL_SWAPPING = 0;
+    wc->keyrequests_count--;
+    if (wc->keyrequests_count == 0) wc->CLIENT_REPL_SWAPPING = 0;
 
     processFinishedReplCommands();
 
@@ -275,9 +275,17 @@ int submitReplWorkerClientRequest(client *wc) {
     }
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
-    return wc->swapping_count > 0;
+    return wc->keyrequests_count > 0;
 }
 
+/* Different from original replication stream process, slave.master client
+ * might trigger swap and block untill rocksdb IO finish. because there is
+ * only one master client so rocksdb IO will be done sequentially, thus slave
+ * can't catch up with master. 
+ * In order to speed up replication stream processing, slave.master client
+ * dispatches command to multiple worker client and execute commands when 
+ * rocks IO finishes. Note that replicated commands swap in-parallel but we
+ * still processed in received order. */
 int submitReplClientRequest(client *c) {
     client *wc;
     listNode *ln;

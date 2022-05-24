@@ -203,7 +203,7 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
 
     it->rocks = rocks;
     it->db = db;
-    rocksdb_iter = rocksdb_create_iterator(rocks->rocksdb, rocks->rocksdb_ropts);
+    rocksdb_iter = rocksdb_create_iterator(rocks->db, rocks->ropts);
     if (rocksdb_iter == NULL) {
         serverLog(LL_WARNING, "Create rocksdb iterator failed.");
         goto err;

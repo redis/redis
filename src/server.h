@@ -982,7 +982,7 @@ typedef struct client {
     char buf[PROTO_REPLY_CHUNK_BYTES];
 
     /* swap */
-    int swapping_count;
+    int keyrequests_count;
     int swap_result;
     dict *hold_keys;
     voidfuncptr client_swap_finished_cb;
@@ -1195,7 +1195,6 @@ typedef struct redisTLSContextConfig {
  *----------------------------------------------------------------------------*/
 
 struct clusterState;
-struct swappingClients;
 
 /* AIX defines hz to __hz, we don't use this define and in order to allow
  * Redis build on AIX we need to undef it. */
@@ -1682,8 +1681,18 @@ struct redisServer {
                                 * failover then any replica can be used. */
     int target_replica_port; /* Failover target port */
     int failover_state; /* Failover state */
-		/* rocks */
+
+    int swap_mode;      /* Swap mode: memory/swap/disk */
+		/* rocksdb engine */
+    int rocksdb_epoch;
 		struct rocks *rocks;
+    /* swap threads */
+    int swap_threads_num;
+    struct swapThread *swap_threads;
+    /* async */
+    struct asyncCompleteQueue *CQ;
+    /* parallel sync */
+    struct parallelSync *parallel_sync;
     unsigned long long rocksdb_disk_used; /* rocksd disk usage bytes, updated every 1 minute. */
 		/* swaps */
     int in_swap_cb; /* flag whether call is in swap callback */
@@ -1693,7 +1702,6 @@ struct redisServer {
     client **dummy_clients; /* array of dummy clients (one for each db). */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
-    struct swappingClients *scs; /* global scs for flushdb/flushall */
     /* swap rate limiting */
     size_t swap_memory;     /* swap consumed memory in bytes */
     unsigned long long swap_memory_slowdown; /* swap memory to slowdown swap requests */
@@ -1709,7 +1717,6 @@ struct redisServer {
     /* rdb swap */
     int ps_parallism_rdb;  /* parallel swap parallelism for rdb save & load. */
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
-    int swap_mode;
     /* request wait */
     struct requestListeners *request_listeners; /* server level request listeners */
 };
@@ -1740,7 +1747,7 @@ struct redisCommand {
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
     redisGetKeyRequestsProc getkeyrequests_proc;
-    int swap_action; /* Action type if swap needed (NOP/GET/PUT/DEL). */
+    int intention; /* Action type if swap needed (NOP/GET/PUT/DEL). */
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
@@ -1754,7 +1761,7 @@ struct redisCommand {
     /* Function used to find swap target key (or subkey). Note that:
      * - no need to query keyspace to decide if swap needed , which will
      *   be done later.
-     * - should return key (or subkey) even if swap_action is NOP, otherwise
+     * - should return key (or subkey) even if intention is NOP, otherwise
      *   current command will not block when key is swapping. */
 };
 
@@ -1885,12 +1892,6 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, robj *value);
 int moduleDefragValue(robj *key, robj *obj, long *defragged);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged);
 long moduleDefragGlobals(void);
-struct swappingClients *moduleLookupSwappingClients(moduleValue *mv, client *c, robj *key, robj *subkey);
-void moduleSetupSwappingClients(moduleValue *mv, client *c, robj *key, robj *subkey, struct swappingClients *scs);
-void moduleGetDataKeyRequests(moduleValue *mv, client *c, robj *key, int mode, struct getKeyRequestsResult *result);
-int moduleSwapAna(moduleValue *mv, client *c, robj *key, robj *subkey, int *action, char **rawkey, char **rawval, dataSwapFinishedCallback *cb, void **pd);
-void moduleGetCommandKeyRequests(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
-void moduleSwapFinished(client *c, int action, char *rawkey, char *rawval, dataSwapFinishedCallback cb, void *pd);
 
 
 /* Utils */

@@ -913,8 +913,8 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
-    int swap_action = strflags ? swapActionFromString((char*)strflags) : 0;
-    if (swap_action == -1) return REDISMODULE_ERR;
+    int intention = strflags ? swapActionFromString((char*)strflags) : 0;
+    if (intention == -1) return REDISMODULE_ERR;
 
     struct redisCommand *rediscmd;
     RedisModuleCommandProxy *cp;
@@ -942,7 +942,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->arity = -1;
     cp->rediscmd->flags = flags | CMD_MODULE;
-    cp->rediscmd->swap_action = swap_action;
+    cp->rediscmd->intention = intention;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
     cp->rediscmd->getkeyrequests_proc = getkeyrequests_proc;
     cp->rediscmd->firstkey = firstkey;
@@ -960,7 +960,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
 
 int RM_GetSwapAction(RedisModuleCtx *ctx) {
     if (ctx->client && ctx->client->cmd) {
-        return ctx->client->cmd->swap_action;
+        return ctx->client->cmd->intention;
     } else {
         return REDISMODULE_SWAP_NOP;
     }

@@ -34,7 +34,7 @@
 
 void expireClientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
     swapCtxFree(ctx);
-    c->swapping_count--;
+    c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
     clientUnholdKey(c, key);
 }
@@ -75,12 +75,12 @@ int expireKeyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
  * - continueProcessCommand: same as xxCommand.
  * TODO opt: keys never evicted to rocksdb need not to be deleted from rocksdb. */
 int submitExpireClientRequest(client *c, robj *key) {
-    int old_swapping_count = c->swapping_count;
+    int old_keyrequests_count = c->keyrequests_count;
     keyRequest key_request = {key,0,NULL};
     swapCtx *ctx = swapCtxCreate(c,&key_request);
-    c->swapping_count++;
+    c->keyrequests_count++;
     requestWait(c->db,key_request.key,expireKeyRequestProceed,c,ctx);
-    return c->swapping_count > old_swapping_count;
+    return c->keyrequests_count > old_keyrequests_count;
 }
 
 /* Must make sure expire key or key shell not evicted (propagate needed) */

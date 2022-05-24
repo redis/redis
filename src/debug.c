@@ -959,10 +959,10 @@ NULL
 #endif
     } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-int") && c->argc == 3) {
         uint64_t property_int = -1;
-        rocksdb_property_int(rocksGetDb(server.rocks), c->argv[2]->ptr, &property_int);
+        rocksdb_property_int(rocksGetDb(), c->argv[2]->ptr, &property_int);
         addReplyLongLong(c, property_int);
     } else if (!strcasecmp(c->argv[1]->ptr,"rocksdb-property-value") && c->argc == 3) {
-        char *property_value = rocksdb_property_value(rocksGetDb(server.rocks), c->argv[2]->ptr);
+        char *property_value = rocksdb_property_value(rocksGetDb(), c->argv[2]->ptr);
         addReplyBulkCString(c, property_value);
         zlibc_free(property_value);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-debug-rio-latency") && c->argc == 3) {
