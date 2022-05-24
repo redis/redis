@@ -54,7 +54,6 @@ char typeO2R(int obj_type) {
     }
 }
 
-/* TODO support subkey */
 sds rocksEncodeKey(int obj_type, sds key) {
     sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
     rawkey[0] = typeO2R(obj_type);
@@ -62,15 +61,94 @@ sds rocksEncodeKey(int obj_type, sds key) {
     return rawkey;
 }
 
-/* TODO support subkey */
+sds rocksEncodeValRdb(robj *value) {
+    rio sdsrdb;
+    rioInitWithBuffer(&sdsrdb,sdsempty());
+    rdbSaveObject(&sdsrdb,value,NULL);
+    return sdsrdb.io.buffer.ptr;
+}
+
+robj *rocksDecodeValRdb(int rdbtype, sds raw) {
+    robj *value;
+    rio sdsrdb;
+    rioInitWithBuffer(&sdsrdb,raw);
+    value = rdbLoadObject(rdbtype,&sdsrdb,NULL,NULL);
+    return value;
+}
+
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen) {
     int obj_type;
-
     if (rawlen < 2) return -1;
     if ((obj_type = typeR2O(rawkey[0])) < 0) return -1;
     rawkey++, rawlen--;
     if (key) *key = rawkey;
     if (klen) *klen = rawlen;
     return obj_type;
+}
+
+int getObjectRdbType(robj *o) {
+    switch (o->type) {
+    case OBJ_STRING:
+        return RDB_TYPE_STRING;
+    case OBJ_LIST:
+        if (o->encoding == OBJ_ENCODING_QUICKLIST)
+            return RDB_TYPE_LIST_QUICKLIST;
+        else
+            serverPanic("Unknown list encoding");
+    case OBJ_SET:
+        if (o->encoding == OBJ_ENCODING_INTSET)
+            return RDB_TYPE_SET_INTSET;
+        else if (o->encoding == OBJ_ENCODING_HT)
+            return RDB_TYPE_SET;
+        else
+            serverPanic("Unknown set encoding");
+    case OBJ_ZSET:
+        if (o->encoding == OBJ_ENCODING_ZIPLIST)
+            return RDB_TYPE_ZSET_ZIPLIST;
+        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
+            return RDB_TYPE_ZSET_2;
+        else
+            serverPanic("Unknown sorted set encoding");
+    case OBJ_HASH:
+        if (o->encoding == OBJ_ENCODING_ZIPLIST)
+            return RDB_TYPE_HASH_ZIPLIST;
+        else if (o->encoding == OBJ_ENCODING_HT)
+            return RDB_TYPE_HASH;
+        else
+            serverPanic("Unknown hash encoding");
+    case OBJ_STREAM:
+        return RDB_TYPE_STREAM_LISTPACKS;
+    case OBJ_MODULE:
+        return RDB_TYPE_MODULE_2;
+    default:
+        serverPanic("Unknown object type");
+    }
+    return -1; /* avoid warning */
+}
+
+sds objectDump(robj *o) {
+    sds repr = sdsempty();
+
+    repr = sdscatprintf(repr,"type:%s, ", getObjectTypeName(o));
+    switch (o->encoding) {
+    case OBJ_ENCODING_INT:
+        repr = sdscatprintf(repr, "encoding:int, value:%ld", (long)o->ptr);
+        break;
+    case OBJ_ENCODING_EMBSTR:
+        repr = sdscatprintf(repr, "encoding:emedstr, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
+        break;
+    case OBJ_ENCODING_RAW:
+        repr = sdscatprintf(repr, "encoding:raw, value:%.*s", (int)sdslen(o->ptr), (sds)o->ptr);
+        break;
+    default:
+        repr = sdscatprintf(repr, "encoding:%d, value:nan", o->encoding);
+        break;
+    }
+    return repr;
+}
+
+size_t keyComputeSize(redisDb *db, robj *key) {
+    robj *val = lookupKey(db, key, LOOKUP_NOTOUCH);
+    return val ? objectComputeSize(val, 5): 0;
 }
 

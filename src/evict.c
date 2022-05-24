@@ -680,11 +680,11 @@ int performEvictions(void) {
              * AOF and Output buffer memory will be freed eventually so
              * we only care about memory used by the key space. */
             latencyStartMonitor(eviction_latency);
-            /* Note that dbEvict might directly free key if it's not dirty,
-             * so we need to compute key size before dbEvict. */
+            /* Note that tryEvictKey might directly free key if it's not dirty,
+             * so we need to compute key size before tryEvictKey. */
             mem_freed += keyComputeSize(db, keyobj);
             /* Trigger swap key from memory to rocksdb */
-            swap_trigged += dbEvict(db, keyobj, &evict_result);
+            swap_trigged += tryEvictKey(db, keyobj, &evict_result);
             if (evict_result < 0)
                 evict_failed_inrow++;
             else

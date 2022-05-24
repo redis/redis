@@ -750,82 +750,6 @@ int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, 
  * For examples, see https://redis.io/topics/modules-intro.
  * -------------------------------------------------------------------------- */
 
-struct swappingClients *moduleLookupSwappingClients(moduleValue *mv, client *c, robj *key, robj *subkey) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-
-    if (!mv->type->lookup_swapping_clients) return NULL;
-    ctx.client = c;
-    ctx.module = mv->type->module;
-    struct swappingClients *scs = mv->type->lookup_swapping_clients(&ctx, key, subkey);
-    moduleFreeContext(&ctx);
-    return scs;
-}
-
-void moduleSetupSwappingClients(moduleValue *mv, client *c, robj *key, robj *subkey, struct swappingClients *scs) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-
-    if (!mv->type->setup_swapping_clients) return;
-    ctx.module = mv->type->module;
-    ctx.client = c;
-    mv->type->setup_swapping_clients(&ctx, key, subkey, scs);
-    moduleFreeContext(&ctx);
-}
-
-void moduleGetDataSwaps(moduleValue *mv, client *c, robj *key, int mode, getSwapsResult *result) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-    
-    if (!mv->type->get_data_swaps) return;
-    ctx.module = mv->type->module;
-    ctx.client = c;
-    mv->type->get_data_swaps(&ctx, key, mode, result);
-    moduleFreeContext(&ctx);
-}
-
-void *moduleGetComplementSwaps(moduleValue *mv, client *c, robj *key, int mode, int *type, getSwapsResult *result, complementObjectFunc *comp, void **pd) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-    
-    if (!mv->type->get_complement_swaps) return NULL;
-    ctx.module = mv->type->module;
-    ctx.client = c;
-    void *dup = mv->type->get_complement_swaps(&ctx, key, mode, type, result, comp, pd);
-    moduleFreeContext(&ctx);
-    return dup;
-}
-
-void moduleGetCommandSwaps(struct redisCommand *cmd, robj **argv, int argc, getSwapsResult *result) {
-    RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-    RedisModuleGetSwapsFunc getswapsfunc;
-    
-    ctx.module = cp->module;
-    ctx.client = NULL;
-    getSwapsPrepareResult(result, MAX_SWAPS_BUFFER);
-    getswapsfunc = (RedisModuleGetSwapsFunc)cmd->getswaps_proc;
-    getswapsfunc(&ctx, argv, argc, result);
-    moduleFreeContext(&ctx);
-}
-
-int moduleSwapAna(moduleValue *mv, client *c, robj *key, robj *subkey,
-        int *action, char **rawkey, char **rawval, dataSwapFinishedCallback *cb, void **pd) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-    
-    if (!mv->type->swap_ana) return REDISMODULE_OK;
-    ctx.module = mv->type->module;
-    ctx.client = c;
-    int ret = mv->type->swap_ana(&ctx, key, subkey, action, rawkey, rawval, cb, pd);
-    moduleFreeContext(&ctx);
-    return ret;
-}
-
-void moduleSwapFinished(client *c, int action, char *rawkey, char *rawval,
-        dataSwapFinishedCallback cb, void *pd) {
-    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-
-    ctx.module = NULL;
-    ctx.client = c;
-    cb(&ctx, action, rawkey, rawval, pd);
-    moduleFreeContext(&ctx);
-}
 /* Return non-zero if a module command, that was declared with the
  * flag "getkeys-api", is called in a special way to get the keys positions
  * and not to get executed. Otherwise zero is returned. */
@@ -983,7 +907,7 @@ int swapActionFromString(char *s) {
  * * **"swap-del"**:  The command would trigger swap del action if key
  *                    in command is present or absent.
  */
-int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, RedisModuleGetSwapsFunc getswaps_func, const char *strflags, int firstkey, int lastkey, int keystep) {
+int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, RedisModuleGetSwapsFunc getkeyrequests_func, const char *strflags, int firstkey, int lastkey, int keystep) {
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1002,7 +926,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
         return REDISMODULE_ERR;
     }
 
-    redisGetSwapsProc getswaps_proc = (redisGetSwapsProc)getswaps_func;
+    redisGetKeyRequestsProc getkeyrequests_proc = (redisGetKeyRequestsProc)getkeyrequests_func;
     /* Create a command "proxy", which is a structure that is referenced
      * in the command table, so that the generic command that works as
      * binding between modules and Redis, can know what function to call
@@ -1020,7 +944,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->swap_action = swap_action;
     cp->rediscmd->getkeys_proc = (redisGetKeysProc*)(unsigned long)cp;
-    cp->rediscmd->getswaps_proc = getswaps_proc;
+    cp->rediscmd->getkeyrequests_proc = getkeyrequests_proc;
     cp->rediscmd->firstkey = firstkey;
     cp->rediscmd->lastkey = lastkey;
     cp->rediscmd->keystep = keystep;
@@ -2376,7 +2300,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     int flags = mode & REDISMODULE_OPEN_KEY_NOTOUCH? LOOKUP_NOTOUCH: 0;
 
     /* db.evict */
-    if (mode & REDISMODULE_EVICT) evict = lookupEvict(ctx->client->db,keyname);
+    if (mode & REDISMODULE_EVICT) evict = lookupEvictKey(ctx->client->db,keyname);
 
     /* db.dict */
     if (mode & REDISMODULE_WRITE) {
@@ -4649,11 +4573,6 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeMemUsageFunc mem_usage;
         moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
-        moduleTypeLookupSwappingClientsFunc lookup_swapping_clients;
-        moduleTypeSetupSwappingClientsFunc setup_swapping_clients;
-        moduleTypeGetDataSwapsFunc get_data_swaps;
-        moduleTypeGetComplementSwapsFunc get_complement_swaps;
-        moduleTypeSwapAnaFunc swap_ana;
         struct {
             moduleTypeAuxLoadFunc aux_load;
             moduleTypeAuxSaveFunc aux_save;
@@ -4676,11 +4595,6 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     mt->mem_usage = tms->mem_usage;
     mt->digest = tms->digest;
     mt->free = tms->free;
-    mt->lookup_swapping_clients = tms->lookup_swapping_clients;
-    mt->setup_swapping_clients = tms->setup_swapping_clients;
-    mt->get_data_swaps = tms->get_data_swaps;
-    mt->get_complement_swaps = tms->get_complement_swaps;
-    mt->swap_ana = tms->swap_ana;
     if (tms->version >= 2) {
         mt->aux_load = tms->v2.aux_load;
         mt->aux_save = tms->v2.aux_save;
@@ -4776,12 +4690,6 @@ int RM_ModuleTypeReplaceValue(RedisModuleKey *key, moduleType *mt, void *new_val
     return REDISMODULE_OK;
 }
 
-/* Evict key are used to:
- * - store SCS(swapping clients list)
- * - store EVICTED(evicted key, lru bits are reserved.)
- * Note that evict key could store scs or evicted or both, here we only add
- * an empty evict key(which doest not store anything), module should call
- * SetSCS or SwapOut to store scs or evicted. */
 int RM_ModuleTypeAddEvict(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_EVICT)) return REDISMODULE_ERR;
     if (key->value == NULL || key->value->type != OBJ_MODULE)
@@ -4816,44 +4724,18 @@ int RM_ModuleTypeReplaceEvict(RedisModuleKey *key, moduleType *mt, void *new_evi
 
 /* Note that key->evict have the same module type as key->value, but actually
  * key->evict points to swapping client list which can't free by mt->free, so
- * we set evict->ptr to NULL to avoid deleting evict->ptr(NULL or scs). */
+ * we set evict->ptr to NULL to avoid deleting evict->ptr. */
 int RM_DeleteEvict(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_EVICT)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_MODULE) return REDISMODULE_ERR;
     if (key->evict && key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
     if (key->evict) {
         moduleValue *mv = key->evict->ptr;
-        mv->value = NULL; /* free only robj shell (avoid releasing scs) */
+        mv->value = NULL; /* free only robj shell */
         dictDelete(key->db->evict, key->key->ptr);
         key->evict = NULL;
     }
     return REDISMODULE_OK;
-}
-
-/* -------- Use Evict to store SCS. -------- */
-int RM_ModuleTypeEvictSetSCS(RedisModuleKey *key, void *scs) {
-    if (key == NULL || !(key->mode & REDISMODULE_EVICT)) return REDISMODULE_ERR;
-    if (!key->evict || key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
-
-    moduleValue *mv = key->evict->ptr;
-    if (scs == NULL) {
-        key->evict->scs = 0;
-        mv->value = NULL;
-    } else {
-        key->evict->scs = 1;
-        mv->value = scs;
-    }
-    return REDISMODULE_OK;
-}
-
-void *RM_ModuleTypeEvictGetSCS(RedisModuleKey *key) {
-    if (key == NULL || !(key->mode & REDISMODULE_EVICT)) return NULL;
-    if (!key->evict || key->evict->type != OBJ_MODULE) return NULL;
-    moduleValue *mv = key->evict->ptr;
-    if (!key->evict->scs)
-        return NULL;
-    else 
-        return mv->value;
 }
 
 /* -------- Use Evict to store Evicted. -------- */
@@ -4877,19 +4759,9 @@ int RM_ModuleTypeSwapIn(RedisModuleKey *key, void *new_value) {
     key->evict = NULL;
 
     moduleValue *mv = key->value->ptr;
-
-    /* reserve scs if needed. */
-    if (key->value->scs) {
-        robj *e = createModuleObject(mv->type, mv->value);
-        e->scs = 1;
-        dictAdd(key->db->evict, sdsdup(key->key->ptr), e);
-        key->evict = e;
-    }
-
     /* Set value to new value*/
     mv->value = new_value;
     key->value->evicted = 0;
-    key->value->scs = 0;
     key->value->dirty = 0;
 
     return REDISMODULE_OK;
@@ -4899,20 +4771,14 @@ int RM_ModuleTypeSwapIn(RedisModuleKey *key, void *new_value) {
  * Note that we would overwrite db->evict 'cause db->value has the lru value
  * we need. */
 int RM_ModuleTypeSwapOut(RedisModuleKey *key, void **old_value) {
-    int scsflag = 0;
-    void *scs = NULL;
     moduleValue *mv;
 
     if (!(key->mode & REDISMODULE_EVICT) || key->iter) return REDISMODULE_ERR;
     if (key->value == NULL || key->value->type != OBJ_MODULE)
         return REDISMODULE_ERR;
 
-    /* key->evict might already have swapping clients, in which case we would
-     * free key->evict robj shell but reserve scs and scs flag. */
     if (key->evict) {
         mv = key->evict->ptr;
-        scsflag = key->evict->scs;
-        scs = mv->value; /* reserve scs and scs flag */
         mv->value = NULL; /* free robj shell */
         dictDelete(key->db->evict, key->key->ptr);
     }
@@ -4925,11 +4791,10 @@ int RM_ModuleTypeSwapOut(RedisModuleKey *key, void **old_value) {
         mv->value = NULL;
     }
 
-    mv->value = scs;
+    mv->value = NULL;
     dictEntry *de = dictUnlink(key->db->dict, key->key->ptr);
     dictLink(key->db->evict, de);
     key->evict = key->value;
-    key->evict->scs = scsflag;
     key->evict->evicted = 1;
     key->value = NULL;
 
@@ -4942,10 +4807,6 @@ void RM_ModuleTypeFreeValue(moduleType *mt, void *value) {
 
 char *RM_ModuleTypeGetName(moduleType *mt) {
     return mt->name;
-}
-
-int RM_RocksDelete(RedisModuleCtx *ctx,RedisModuleString *keyname) {
-    return rocksDelete(ctx->client->db,keyname);
 }
 
 /* Assuming RedisModule_KeyType() returned REDISMODULE_KEYTYPE_MODULE on
@@ -9717,9 +9578,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeEvictEvicted);
     REGISTER_API(ModuleTypeEvictExists);
     REGISTER_API(ModuleTypeReplaceEvict);
-    REGISTER_API(ModuleTypeEvictSetSCS);
-    REGISTER_API(ModuleTypeEvictGetSCS);
-    REGISTER_API(RocksDelete);
     REGISTER_API(RdbEncode);
     REGISTER_API(RdbDecode);
     REGISTER_API(IsIOError);

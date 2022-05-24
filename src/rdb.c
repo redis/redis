@@ -2362,7 +2362,7 @@ void startLoading(size_t size, int rdbflags) {
      * be sumitted and processed. if there are async RIO in-flight(e.g.
      * fullresync happend if we are slave and there are clients swapping-in
      * evictted keys), server might crash. */
-    asyncCompleteQueueDrain(server.rocks, -1);
+    asyncCompleteQueueDrain(-1);
     evictStartLoading();
 
     /* Fire the loading modules start event. */

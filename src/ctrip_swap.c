@@ -26,366 +26,51 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "server.h"
+#include "ctrip_swap.h"
 
-#define S2R(s)     (s)
-#define R2S(r)     (r)
-
-/* -------------------------- swapping clients ---------------------------- */
-swapClient *swapClientCreate(client *c, swap *s) {
-    swapClient *sc = zmalloc(sizeof(swapClient));
-    sc->c = c;
-    if (s->key) incrRefCount(s->key);
-    sc->s.key = s->key;
-    if (s->subkey) incrRefCount(s->subkey);
-    sc->s.subkey = s->subkey;
-    if (s->val) incrRefCount(s->val);
-    sc->s.val = s->val;
-    return sc;
-}
-
-void swapClientRelease(swapClient *sc) {
-    if (sc->s.key) decrRefCount(sc->s.key);
-    if (sc->s.subkey) decrRefCount(sc->s.subkey);
-    if (sc->s.val) decrRefCount(sc->s.val);
-    zfree(sc);
-}
-
-static swappingClients *swappingClientsCreate(redisDb *db, robj *key, robj *subkey, swappingClients *parent) {
-    swappingClients *scs = zmalloc(sizeof(struct swappingClients));
-    scs->db = db;
-    if (key) incrRefCount(key);
-    scs->key = key;
-    if (subkey) incrRefCount(subkey);
-    scs->subkey = subkey;
-    scs->swapclients = listCreate();
-    scs->nchild = 0;
-    scs->parent = parent;
-    if (parent) parent->nchild++;
-    return scs;
-}
-
-sds swappingClientsDump(swappingClients *scs) {
-    listIter li;
-    listNode *ln;
-    sds result = sdsempty();
-    char *actions[] = {"NOP", "GET", "PUT", "DEL"};
-
-    result = sdscat(result, "[");
-    listRewind(scs->swapclients,&li);
-    while ((ln = listNext(&li))) {
-        swapClient *sc = listNodeValue(ln);
-        if (ln != listFirst(scs->swapclients)) result = sdscat(result,",");
-        result = sdscat(result,"("); 
-        if (sc->c->cmd) result = sdscat(result,actions[sc->c->cmd->swap_action]); 
-        result = sdscat(result,":"); 
-        if (sc->s.key) result = sdscatsds(result,sc->s.key->ptr); 
-        result = sdscat(result,":"); 
-        if (sc->c->cmd) result = sdscat(result,sc->c->cmd->name); 
-        result = sdscat(result,")"); 
-    }
-    result = sdscat(result, "]");
-    return result;
-}
-
-/* create like mkdir -p */
-swappingClients *swappingClientsCreateP(client *c, robj *key, robj *subkey) {
-    swappingClients *scs = server.scs;
-
-    serverAssert(key == NULL || sdsEncodedObject(key));
-    serverAssert(subkey == NULL || sdsEncodedObject(subkey));
-
-    /* create scs from root down, starting from global level. */
-    if (scs == NULL) {
-        scs = swappingClientsCreate(NULL, NULL, NULL, NULL);
-        server.scs = scs;
-    }
-
-    if (key == NULL) return scs;
-
-    /* then key level */
-    if (!lookupEvictSCS(c->db, key)) {
-        scs = swappingClientsCreate(c->db, key, NULL, scs);
-        setupSwappingClients(c, key, NULL, scs);
-    }
-    if (subkey == NULL) return scs;
-
-    /* TODO support subkey level */
-    return scs;
-}
-
-void swappingClientsRelease(swappingClients *scs) {
-    if (!scs) return;
-    serverAssert(!listLength(scs->swapclients));
-    listRelease(scs->swapclients);
-    if (scs->parent) scs->parent->nchild--;
-    if (scs->key) decrRefCount(scs->key);
-    if (scs->subkey) decrRefCount(scs->subkey);
-    zfree(scs);
-}
-
-void swappingClientsPush(swappingClients *scs, swapClient *sc) {
-    serverAssert(scs);
-    serverAssert(scs->db == NULL || scs->db == sc->c->db);
-    listAddNodeTail(scs->swapclients, sc);
-}
-
-swapClient *swappingClientsPop(swappingClients *scs) {
-    serverAssert(scs);
-    if (!listLength(scs->swapclients)) return NULL;
-    listNode *ln = listFirst(scs->swapclients);
-    swapClient *sc = listNodeValue(ln);
-    listDelNode(scs->swapclients, ln);
-    return sc;
-}
-
-swapClient *swappingClientsPeek(swappingClients *scs) {
-    serverAssert(scs);
-    if (!listLength(scs->swapclients)) return NULL;
-    listNode *ln = listFirst(scs->swapclients);
-    swapClient *sc = listNodeValue(ln);
-    return sc;
-}
-
-/* return true if current or lower level scs not finished (a.k.a treeblocking).
- * - swap should not proceed if current or lower level scs exists. (e.g. flushdb
- *   shoul not proceed if SWAP GET key exits.)
- * - can't release scs if current or lower level scs exists.  */
-static inline int swappingClientsTreeBlocking(swappingClients *scs) {
-    if (scs && (listLength(scs->swapclients) || scs->nchild > 0)) {
-        return 1;
-    } else {
-        return 0;
+static void dupKeyRequest(keyRequest *dst, keyRequest *src) {
+    if (src->key) incrRefCount(src->key);
+    dst->key = src->key;
+    dst->num_subkeys = src->num_subkeys;
+    for (int i = 0; i < src->num_subkeys; i++) {
+        if (src->subkeys[i]) incrRefCount(src->subkeys[i]);
+        dst->subkeys[i] = src->subkeys[i];
     }
 }
 
-/* ----------------------------- swaps result ----------------------------- */
-
-/* Prepare the getSwapsResult struct to hold numswaps, either by using the
- * pre-allocated swaps or by allocating a new array on the heap.
- *
- * This function must be called at least once before starting to populate
- * the result, and can be called repeatedly to enlarge the result array.
- */
-void getSwapsPrepareResult(getSwapsResult *result, int numswaps) {
-	/* GETKEYS_RESULT_INIT initializes keys to NULL, point it to the pre-allocated stack
-	 * buffer here. */
-	if (!result->swaps) {
-		serverAssert(!result->numswaps);
-		result->swaps = result->swapsbuf;
-	}
-
-	/* Resize if necessary */
-	if (numswaps > result->size) {
-		if (result->swaps != result->swapsbuf) {
-			/* We're not using a static buffer, just (re)alloc */
-			result->swaps = zrealloc(result->swaps, numswaps * sizeof(swap));
-		} else {
-			/* We are using a static buffer, copy its contents */
-			result->swaps = zmalloc(numswaps * sizeof(swap));
-			if (result->numswaps)
-				memcpy(result->swaps, result->swapsbuf, result->numswaps * sizeof(swap));
-		}
-		result->size = numswaps;
-	}
-}
-
-void getSwapsAppendResult(getSwapsResult *result, robj *key, robj *subkey, robj *val) {
-    if (result->numswaps == result->size) {
-        int newsize = result->size + (result->size > 8192 ? 8192 : result->size);
-        getSwapsPrepareResult(result, newsize);
-    }
-
-    swap *s = &result->swaps[result->numswaps++];
-    s->key = key;
-    s->subkey = subkey;
-    s->val = val;
-}
-
-void releaseSwaps(getSwapsResult *result) {
-    int i;
-    for (i = 0; i < result->numswaps; i++) {
-        robj *key = result->swaps[i].key, *subkey = result->swaps[i].subkey;
-        if (key) decrRefCount(key);
-        if (subkey) decrRefCount(subkey);
+static void keyRequestDeinit(keyRequest *key_request) {
+    if (key_request->key) decrRefCount(key_request->key);
+    key_request->key = NULL;
+    key_request->num_subkeys = 0;
+    for (int i = 0; i < key_request->num_subkeys; i++) {
+        if (key_request->subkeys[i]) decrRefCount(key_request->subkeys[i]);
+        key_request->subkeys[i] = NULL;
     }
 }
 
-void getSwapsFreeResult(getSwapsResult *result) {
-    if (result && result->swaps != result->swapsbuf) {
-        zfree(result->swaps);
+swapCtx *swapCtxCreate(client *c, keyRequest *key_request) {
+    swapCtx *ctx = zcalloc(sizeof(swapCtx));
+    ctx->c = c;
+    ctx->cmd_intention = c->cmd->swap_action;
+    dupKeyRequest(ctx->key_request, key_request);
+    ctx->listeners = NULL;
+    ctx->swap_intention = SWAP_NOP;
+    ctx->data = NULL;
+    ctx->finish_type = SWAP_NOP;
+    return ctx;
+}
+
+void swapCtxFree(swapCtx *ctx) {
+    if (!ctx) return;
+    keyRequestDeinit(ctx->key_request);
+    if (ctx->data) {
+        swapDataFree(ctx->data,ctx->datactx);
+        ctx->data = NULL;
     }
+    zfree(ctx);
 }
 
 /* ----------------------------- client swap ------------------------------ */
-typedef void (*clientSwapFinishedCallback)(client *c, robj *key, void *pd);
-
-typedef struct {
-    client *c;
-    robj *key;
-    robj *subkey;
-    int cb_type;
-    dataSwapFinishedCallback data_cb;
-    void *data_pd;
-    swappingClients *scs;
-    size_t swap_memory;
-} rocksPrivData;
-
-#define HC_HOLD_BITS        32
-#define HC_HOLD_MASK        ((1L<<HC_HOLD_BITS)-1)
-#define HC_INIT(hold, swap) ((swap << HC_HOLD_BITS) + hold)
-#define HC_HOLD(hc, swap)   (hc + (swap << HC_HOLD_BITS) + 1)
-#define HC_UNHOLD(hc)       (hc - 1)
-#define HC_HOLD_COUNT(hc)   ((hc) & HC_HOLD_MASK)
-#define HC_SWAP_COUNT(hc)   ((hc) >> HC_HOLD_BITS)
-
-void clientHoldKey(client *c, robj *key, int64_t swap) {
-    dictEntry *de;
-    redisDb *db = c->db;
-    int64_t hc;
-
-    /* No need to hold key if it has already been holded */
-    if (dictFind(c->hold_keys, key)) return;
-    incrRefCount(key);
-    dictAdd(c->hold_keys, key, (void*)HC_INIT(1, swap));
-
-    /* Add key to server & client hold_keys */
-    if ((de = dictFind(db->hold_keys, key))) {
-        hc = dictGetSignedIntegerVal(de);
-        dictSetSignedIntegerVal(de, HC_HOLD(hc, swap));
-        serverLog(LL_DEBUG, "h %s (%ld,%ld)", (sds)key->ptr, HC_HOLD_COUNT(hc), HC_SWAP_COUNT(hc));
-    } else {
-        incrRefCount(key);
-        dictAdd(db->hold_keys, key, (void*)HC_INIT(1, swap));
-        serverLog(LL_DEBUG, "h %s (%ld,%ld)", (sds)key->ptr, (int64_t)1, swap);
-    }
-}
-
-void dbEvictAsapLater(redisDb *db, robj *key) {
-    incrRefCount(key);
-    listAddNodeTail(db->evict_asap, key);
-}
-
-static int dbEvictAsap(redisDb *db) {
-    int evicted = 0;
-    listIter li;
-    listNode *ln;
-
-    listRewind(db->evict_asap, &li);
-    while ((ln = listNext(&li))) {
-        int evict_result;
-        robj *key = listNodeValue(ln);
-
-        dbEvict(db, key, &evict_result);
-
-        if (evict_result == EVICT_FAIL_HOLDED ||
-                evict_result == EVICT_FAIL_SWAPPING) {
-            /* Try evict again if key is holded or swapping */
-            listAddNodeHead(db->evict_asap, key);
-        } else {
-            decrRefCount(key);
-            evicted++;
-        }
-        listDelNode(db->evict_asap, ln);
-    }
-    return evicted;
-}
-
-int evictAsap() {
-    static mstime_t stat_mstime;
-    static long stat_evict, stat_scan, stat_loop;
-    int i, evicted = 0;
-
-    for (i = 0; i < server.dbnum; i++) {
-        redisDb *db = server.db+i;
-        if (listLength(db->evict_asap)) {
-            stat_scan += listLength(db->evict_asap);
-            evicted += dbEvictAsap(db);
-        }
-    }
-
-    stat_loop++;
-    stat_evict += evicted;
-
-    if (server.mstime - stat_mstime > 1000) {
-        if (stat_scan > 0) {
-            serverLog(LL_VERBOSE, "EvictAsap loop=%ld,scaned=%ld,swapped=%ld",
-                    stat_loop, stat_scan, stat_evict);
-        }
-        stat_mstime = server.mstime;
-        stat_loop = 0, stat_evict = 0, stat_scan = 0;
-    }
-
-    return evicted;
-}
-
-inline static void dbUnholdKey(redisDb *db, robj *key, int64_t hc) {
-    dictDelete(db->hold_keys, key);
-
-    /* Evict key as soon as command finishs and there is a saving child,
-     * so that keys won't be swapped in and out frequently and causing
-     * copy on write madness. */
-    if (HC_SWAP_COUNT(hc) > 0 && hasActiveChildProcess()) {
-        dbEvictAsapLater(db, key);
-    }
-}
-
-void clientUnholdKey(client *c, robj *key) {
-    dictEntry *de;
-    int64_t hc;
-    redisDb *db = c->db;
-
-    if (dictDelete(c->hold_keys, key) == DICT_ERR) return;
-    serverAssert(de = dictFind(db->hold_keys, key));
-    hc = HC_UNHOLD(dictGetSignedIntegerVal(de));
-
-    if (HC_HOLD_COUNT(hc) > 0) {
-        dictSetSignedIntegerVal(de, hc);
-    } else {
-        dbUnholdKey(db, key, hc);
-    }
-    serverLog(LL_DEBUG, "u %s (%ld,%ld)", (sds)key->ptr, HC_HOLD_COUNT(hc), HC_SWAP_COUNT(hc));
-}
-
-void clientUnholdKeys(client *c) {
-    dictIterator *di;
-    dictEntry *cde, *dde;
-    int64_t hc;
-    redisDb *db = c->db;
-
-    di = dictGetIterator(c->hold_keys);
-    while ((cde = dictNext(di))) {
-        serverAssert(dde = dictFind(db->hold_keys, dictGetKey(cde)));
-        hc = HC_UNHOLD(dictGetSignedIntegerVal(dde));
-        if (HC_HOLD_COUNT(hc) > 0) {
-            dictSetSignedIntegerVal(dde, hc);
-        } else {
-            dbUnholdKey(db, dictGetKey(cde), hc);
-        }
-        serverLog(LL_DEBUG, "u. %s (%ld,%ld)", (sds) ((robj*)dictGetKey(cde))->ptr, HC_HOLD_COUNT(hc), HC_SWAP_COUNT(hc));
-    }
-    dictReleaseIterator(di);
-
-    dictEmpty(c->hold_keys, NULL);
-}
-
-int keyIsHolded(redisDb *db, robj *key) {
-    dictEntry *de;
-
-    if ((de = dictFind(db->hold_keys, key))) {
-        serverAssert(dictGetSignedIntegerVal(de) > 0);
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-void sharedSwapClientUnholdKey(client *c, robj *key, void *pd) {
-    UNUSED(pd);
-    serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, key);
-}
-
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;
@@ -406,235 +91,49 @@ void continueProcessCommand(client *c) {
     processInputBuffer(c);
 }
 
-int clientSwapProceed(client *c, swap *s, swappingClients **scs);
-void rocksSwapFinished(int action, sds rawkey, sds rawval, const char *err, void *privdata) {
-    rocksPrivData *rocks_pd = privdata;
-    client *c = rocks_pd->c;
-    swapClient *sc, *nsc;
-    swappingClients *scs = rocks_pd->scs, *nscs;
-    robj *key = rocks_pd->key, *subkey = rocks_pd->subkey;
-    clientSwapFinishedCallback client_cb = (clientSwapFinishedCallback)c->client_swap_finished_cb;
-    void *client_pd = c->client_swap_finished_pd;
-
-    UNUSED(err);
-    server.swap_memory -= rocks_pd->swap_memory;
-    updateStatsSwapFinish(R2S(action), rawkey, rawval);
-
-    /* Current swapping client should be the head of swapping_clents. */
-    sc = swappingClientsPeek(scs);
-    serverAssert(sc->c == rocks_pd->c);
-
-    /* Call data cb to swap in/out keyspace before client cb. */
-    if (rocks_pd->data_cb) {
-        dataSwapFinished(c, action, rawkey, rawval, rocks_pd->cb_type,
-                rocks_pd->data_cb, rocks_pd->data_pd);
-    }
-
-    /* Note that client_cb might spawned new swap(typically by expire), those
-     * swaps can be appended to scs because PUT will not happend unless scs
-     * is empty. */
-    if (server.verbosity == LL_DEBUG) {
-        sds dump = swappingClientsDump(scs);
-        serverLog(LL_DEBUG, "- client(id=%ld,cmd=%s,key=%s): %s",
-                c->id, c->cmd->name, (sds)key->ptr, dump);
-        sdsfree(dump);
-    }
-    
-
-    if (client_cb)  client_cb(c, key, client_pd);
-
-    swappingClientsPop(scs);
-    swapClientRelease(sc);
-
-    /* Re-evaluate and start swap action(if needed) for subsequent clients in
-     * current scs. if all clients in current level scs are processed, then
-     * we try to process upper level scs. */ 
-    while (scs) {
-        /* Note that we can't Pop client here, because we need to keep client
-         * in front if clientSwapProceed with swap. */
-        while ((nsc = swappingClientsPeek(scs))) {
-            if (clientSwapProceed(nsc->c, &nsc->s, &scs)) {
-                break;
-            } else {
-                client *nc = nsc->c;
-                client_cb = (clientSwapFinishedCallback)nc->client_swap_finished_cb;
-                client_pd = nc->client_swap_finished_pd;
-
-                if (server.verbosity == LL_DEBUG) {
-                    sds dump = swappingClientsDump(scs);
-                    serverLog(LL_DEBUG, "-.client(id=%ld,cmd=%s,key=%s): %s",
-                            nc->id, nc->cmd->name, (sds)key->ptr, dump);
-                    sdsfree(dump);
-                }
-
-                if (client_cb) client_cb(nc, nsc->s.key, client_pd);
-
-                swappingClientsPop(scs);
-                swapClientRelease(nsc);
-            }
-        }
-
-        if (scs->key == NULL) {
-            /* If current scs is the global scs:
-             * - no need to proceed upper level scs (this is the top).
-             * - must not released or reset global scs */
-            break;
-        } else if (!swappingClientsTreeBlocking(scs)) {
-            nscs = scs->parent;
-            setupSwappingClients(c, scs->key, scs->subkey, NULL);
-            swappingClientsRelease(scs); /* Note nchild changed here */
-            if (nscs->nchild > 0)  {
-                /* Can't process parent scs if sibiling scs exists. */
-                break;
-            } else {
-                scs = nscs;
-            }
-        } else {
-            setupSwappingClients(c, scs->key, scs->subkey, scs);
-            break;
-        }
-    }
-
-    sdsfree(rawkey);
-    sdsfree(rawval);
-
-    if (key) decrRefCount(key);
-    if (subkey) decrRefCount(subkey);
-    zfree(rocks_pd);
-}
-
-/* Estimate memory used for one swap action, server will slow down event
- * processing if swap consumed too much memory(i.e. server is generating
- * io requests faster than rocksdb can handle). */
-#define SWAP_MEM_ESTMIATED_ZMALLOC_OVERHEAD   512
-#define SWAP_MEM_INFLIGHT_BASE (                                    \
-        /* db.evict store scs */                                    \
-        sizeof(moduleValue) + sizeof(robj) + sizeof(dictEntry) +    \
-        sizeof(swapClient) + sizeof(swappingClients) +              \
-        sizeof(rocksPrivData) +                                     \
-        sizeof(RIO) +                                               \
-        /* link in scs, pending_rios, processing_rios */            \
-        (sizeof(list) + sizeof(listNode))*3 )
-static inline size_t estimateSwapMemory(sds rawkey, sds rawval, rocksPrivData *pd) {
-    size_t result = 0;
-    if (rawkey) result += sdsalloc(rawkey);
-    if (rawval) result += sdsalloc(rawval);
-    if (pd->key) {
-        result += sizeof(robj);
-        result += sdsalloc(pd->key->ptr);
-        result += keyComputeSize(pd->c->db, pd->key);
-    }
-    if (pd->subkey) {
-        result += sizeof(robj);
-        result += sdsalloc(pd->subkey->ptr);
-    }
-    return SWAP_MEM_INFLIGHT_BASE + SWAP_MEM_ESTMIATED_ZMALLOC_OVERHEAD + result;
-}
-
-/* Called when there are no preceding swapping clients: swap action will be
- * re-evaluated according to keyspace status to decide whether & which swap
- * action should be triggered. */
-int clientSwapProceed(client *c, swap *s, swappingClients **pscs) {
-    int action, cb_type;
-    sds rawkey, rawval = NULL;
-    dataSwapFinishedCallback data_cb;
-    void *data_pd;
-
-    if (swapAna(c, s->key, s->subkey, &action, &rawkey, &rawval,
-                &cb_type, &data_cb, &data_pd) || action == SWAP_NOP) {
-        /* TODO: Something went wrong in swap ana, flag client to abort
-         * process current command and reply with SWAP_FAILED_xx:
-         * c->swap_result = SWAP_FAILED_xx. */ 
-        return 0;
-    }
-
-    /* Async swap is necessary if we reached here. 
-     * scs NULL means that current swap is not blocked and should be blocked
-     * on deepest level of scs */
-    if (*pscs == NULL)  *pscs = swappingClientsCreateP(c, s->key, s->subkey);
-
-    rocksPrivData *rocks_pd = zmalloc(sizeof(rocksPrivData));
-    rocks_pd->c = c;
-    if (s->key) incrRefCount(s->key);
-    rocks_pd->key = s->key;
-    if (s->subkey) incrRefCount(s->subkey);
-    rocks_pd->subkey = s->subkey;
-    rocks_pd->cb_type = cb_type;
-    rocks_pd->data_cb = data_cb;
-    rocks_pd->data_pd = data_pd;
-    rocks_pd->scs = *pscs;
-
-    rocks_pd->swap_memory = estimateSwapMemory(rawkey, rawval, rocks_pd);
-    server.swap_memory += rocks_pd->swap_memory;
-    updateStatsSwapStart(action, rawkey, rawval);
-    rocksAsyncSubmit(crc16(rawkey, sdslen(rawkey)), S2R(action), rawkey,
-           rawval, rocksSwapFinished, rocks_pd);
-    return 1;
-}
-
-/* NOTE: swaps is swap intentions analyzed according to command (without query
- * keyspace). whether to start swap action is determined later in swapAna. */
-int clientSwapSwaps(client *c, getSwapsResult *result, clientSwapFinishedCallback cb, void *pd) {
-    int nswaps = 0, i;
-
-    c->client_swap_finished_cb = (voidfuncptr)cb;
-    c->client_swap_finished_pd = pd;
-
-    for (i = 0; i < result->numswaps; i++) {
-        int oswaps = nswaps;
-        swappingClients *scs;
-        swap *s = &result->swaps[i];
-
-        scs = lookupSwappingClients(c, s->key, s->subkey);
-
-        /* defer command processsing if there are preceeding swap clients. */
-        if (swappingClientsTreeBlocking(scs)) {
-            swappingClientsPush(scs, swapClientCreate(c,s));
-            nswaps++;
-        } else if (clientSwapProceed(c, s, &scs)) {
-            serverAssert(scs); /* Proceed would create scs if swap needed. */
-            swappingClientsPush(scs, swapClientCreate(c, s));
-            nswaps++; 
-        } else {
-            /* no need to swap */
-        }
-
-        /* Hold key if:
-         * - this is a normal client and ANY key swap needed. (note that we hold
-         *   whether swap needed or not for now, will unhold all if no swap needed).
-         * - this is a shared swap client and CURRENT key swap needed
-         * - this is a repl worker client (no matter swap or not, keys will unhold in processFinishedReplCommands)
-         * - Dont' hold if there is no cb (otherwise key will not unhold) */
-        if (cb && s->key && ((c->client_hold_mode == CLIENT_HOLD_MODE_CMD) ||
-                    (c->client_hold_mode == CLIENT_HOLD_MODE_EVICT && nswaps > oswaps) ||
-                    (c->client_hold_mode == CLIENT_HOLD_MODE_REPL))) {
-            clientHoldKey(c, s->key, nswaps - oswaps);
-        }
-
-        char *sign = nswaps > oswaps ? "+" : "=";
-        if (server.verbosity == LL_DEBUG) {
-            sds dump = scs ? swappingClientsDump(scs) : sdsempty();
-            serverLog(LL_DEBUG, "%s client(id=%ld,cmd=%s,key=%s): %s",
-                    sign, c->id, c->cmd->name, s->key ? (sds)s->key->ptr:"", dump);
-            sdsfree(dump);
-        }
-    }
-
-    if (cb && !nswaps && c->client_hold_mode == CLIENT_HOLD_MODE_CMD)
-        clientUnholdKeys(c);
-
-    c->swapping_count = nswaps;
-
-    return nswaps;
-}
-
-void clientSwapFinished(client *c, robj *key, void *pd) {
-    UNUSED(pd);
+void clientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
     UNUSED(key);
+    swapCtxFree(ctx);
     c->swapping_count--;
     if (c->swapping_count == 0) {
         if (!c->CLIENT_DEFERED_CLOSING) continueProcessCommand(c);
     }
+}
+
+int keyRequestSwapFinished(swapData *data, void *pd) {
+    UNUSED(data);
+    swapCtx *ctx = pd;
+    clientKeyRequestFinished(ctx->c,ctx->key_request->key,ctx);
+    requestNotify(ctx->listeners);
+    return 0;
+}
+
+int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
+        void *pd) {
+    void *datactx;
+    swapData *data;
+    swapCtx *ctx = pd;
+    robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
+    robj *evict = lookupEvictKey(db,key);
+
+    /* key not exists, noswap needed. */
+    if (!value && !evict) {
+        clientKeyRequestFinished(c,key,ctx);
+        return 0;
+    }
+
+    data = createSwapData(db,key,value,evict,&datactx);
+    ctx->listeners = listeners;
+    ctx->data = data;
+    ctx->datactx = datactx;
+    swapDataAna(data,ctx->cmd_intention,ctx->key_request,&ctx->swap_intention);
+    if (ctx->swap_intention == SWAP_NOP) {
+        clientKeyRequestFinished(c,key,ctx);
+    } else {
+        submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
+                keyRequestSwapFinished,ctx);
+    }
+    return 0;
 }
 
 /* Start swapping or schedule a swapping task for client:
@@ -646,34 +145,16 @@ void clientSwapFinished(client *c, robj *key, void *pd) {
  *
  * this funcion returns num swapping needed for this client, we should pause
  * processCommand if swapping needed. */
-int clientSwap(client *c) {
-    int swap_count;
-    getSwapsResult result = GETSWAPS_RESULT_INIT;
-    getSwaps(c, &result);
-    swap_count = clientSwapSwaps(c, &result, clientSwapFinished, NULL);
-    releaseSwaps(&result);
-    getSwapsFreeResult(&result);
-    return swap_count;
-}
-
-/* ----------------------------- repl swap ------------------------------ */
-int replClientDiscardDispatchedCommands(client *c) {
-    int discarded = 0, scanned = 0;
-    listIter li;
-    listNode *ln;
-
-    serverAssert(c);
-
-    listRewind(server.repl_worker_clients_used,&li);
-    while ((ln = listNext(&li))) {
-        client *wc = listNodeValue(ln);
-        if (wc->repl_client == c) {
-            wc->CLIENT_REPL_CMD_DISCARDED = 1;
-            discarded++;
-            serverLog(LL_NOTICE, "discarded: cmd_reploff(%lld)", wc->cmd_reploff);
-        }
-        scanned++;
+int submitNormalClientRequest(client *c) {
+    getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+    getKeyRequests(c, &result);
+    c->swapping_count = result.num;
+    for (int i = 0; i < result.num; i++) {
+        keyRequest *key_request = result.key_requests + i;
+        swapCtx *ctx = swapCtxCreate(c,key_request);
+        requestWait(c->db,key_request->key,keyRequestProceed,c,ctx);
     }
+<<<<<<< HEAD
 
     if (discarded) {
         serverLog(LL_NOTICE,
@@ -1243,6 +724,11 @@ int getSwapsGlobal(struct redisCommand *cmd, robj **argv, int argc, getSwapsResu
     UNUSED(argv);
     getSwapsAppendResult(result, NULL, NULL, NULL);
     return 0;
+=======
+    releaseKeyRequests(&result);
+    getKeyRequestsFreeResult(&result);
+    return result.num;
+>>>>>>> refactor: add generic swapdata api.
 }
 
 /* Different from original replication stream process, slave.master client
@@ -1258,10 +744,10 @@ int dbSwap(client *c) {
 
     if (!(c->flags & CLIENT_MASTER)) {
         /* normal client swap */
-        swap_result = clientSwap(c);
+        swap_result = submitNormalClientRequest(c);
     } else {
         /* repl client swap */
-        swap_result = replClientSwap(c);
+        swap_result = submitReplClientRequest(c);
     }
 
     if (swap_result) swapRateLimit(c);
@@ -1321,8 +807,6 @@ void swapInit() {
         server.dummy_clients[i] = c;
     }
 
-    server.scs = swappingClientsCreateP(NULL, NULL, NULL);
-
     server.repl_workers = 256;
     server.repl_swapping_clients = listCreate();
     server.repl_worker_clients_free = listCreate();
@@ -1334,5 +818,6 @@ void swapInit() {
     }
 
     server.rdb_load_ctx = NULL;
+    server.request_listeners = serverRequestListenersCreate();
 }
 

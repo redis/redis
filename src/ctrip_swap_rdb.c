@@ -151,10 +151,72 @@ err:
     return C_ERR;
 }
 
+/* --- rdb load --- */
+typedef struct rdbLoadSwapData {
+    swapData d;
+    redisDb *db;
+    int num;
+    sds *rawkeys;
+    sds *rawvals;
+} rdbLoadSwapData;
+
+/* rawkeys/rawvals moved, ptr array copied. */
+swapData *createRdbLoadSwapData(int num, sds *rawkeys, sds *rawvals) {
+    rdbLoadSwapData *data = zmalloc(sizeof(rdbLoadSwapData));
+    data->num = num;
+    data->rawkeys = zmalloc(sizeof(sds)*data->num);
+    memcpy(data->rawkeys, rawkeys, sizeof(sds)*data->num);
+    data->rawvals = zmalloc(sizeof(sds)*data->num);
+    memcpy(data->rawvals, rawvals, sizeof(sds)*data->num);
+    return (swapData*)data;
+}
+
+void rdbLoadSwapDataFree(swapData *data_, void *datactx) {
+    rdbLoadSwapData *data = (rdbLoadSwapData*)data_;
+    UNUSED(datactx);
+    for (int i = 0; i < data->num; i++) {
+        sdsfree(data->rawkeys[i]);
+        sdsfree(data->rawvals[i]);
+    }
+    zfree(data->rawkeys);
+    zfree(data->rawvals);
+    zfree(data);
+}
+
+int rdbLoadSwapAna(swapData *data, int cmd_intention,
+        struct keyRequest *req, int *intention) {
+    UNUSED(data), UNUSED(cmd_intention), UNUSED(req);
+    *intention = SWAP_OUT;
+    return 0;
+}
+
+int rdbLoadEncodeData(swapData *data_, int intention, int *action,
+        int *numkeys, sds **prawkeys, sds **prawvals, void *datactx) {
+    rdbLoadSwapData *data = (rdbLoadSwapData*)data_;
+    UNUSED(intention), UNUSED(datactx);
+    *action = ROCKS_WRITE;
+    *numkeys = data->num;
+    *prawkeys = data->rawkeys;
+    *prawvals = data->rawvals;
+    return 0;
+}
+
+swapDataType rdbLoadDataType = {
+    .swapAna = rdbLoadSwapAna,
+    .encodeKeys = NULL,
+    .encodeData = rdbLoadEncodeData,
+    .decodeData = NULL,
+    .swapIn =  NULL,
+    .swapOut = NULL,
+    .swapDel = NULL,
+    .createDictObject = NULL,
+    .cleanObject = NULL,
+    .free = rdbLoadSwapDataFree,
+};
+
 ctripRdbLoadCtx *ctripRdbLoadCtxNew() {
     ctripRdbLoadCtx *ctx = zmalloc(sizeof(ctripRdbLoadCtx));
     ctx->errors = 0;
-    ctx->ps = parallelSwapNew(server.ps_parallism_rdb, PARALLEL_SWAP_MODE_CONST);
     ctx->batch.count = RDB_LOAD_BATCH_COUNT;
     ctx->batch.index = 0;
     ctx->batch.capacity = RDB_LOAD_BATCH_CAPACITY;
@@ -164,41 +226,20 @@ ctripRdbLoadCtx *ctripRdbLoadCtxNew() {
     return ctx;
 }
 
-void ctripRdbLoadWriteFinished(int action, sds rawkey, sds rawval,
-        const char *err, void *pd) {
-    UNUSED(action);
-    UNUSED(rawkey);
-    UNUSED(rawval);
-    UNUSED(err);
-    rocksdb_writebatch_t *wb = pd;
-    rocksdb_writebatch_destroy(wb);
+int ctripRdbLoadWriteFinished(swapData *data, void *pd) {
+    UNUSED(pd);
+    rdbLoadSwapDataFree(data,NULL);
+    return 0;
 }
 
 void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
-    size_t i;
-    rocksdb_writebatch_t *wb;
-    sds rawkey, rawval;
-
+    swapData *data;
     if (ctx->batch.index == 0) return;
-
-    wb = rocksdb_writebatch_create();
-    for (i = 0; i < ctx->batch.index; i++) {
-        rawkey = ctx->batch.rawkeys[i];
-        rawval = ctx->batch.rawvals[i];
-        rocksdb_writebatch_put(wb, rawkey, sdslen(rawkey),
-                rawval, sdslen(rawval));
-    }
+    data = createRdbLoadSwapData(ctx->batch.index,ctx->batch.rawkeys,
+            ctx->batch.rawvals);
     /* Submit to rio thread. */
-    if (parallelSwapWrite(ctx->ps, wb, ctripRdbLoadWriteFinished, wb)) {
-        if ( ctx->errors++ < 10)
-            serverLog(LL_WARNING, "Write rocksdb failed on RDBLoad");
-    }
-    for (i = 0; i < ctx->batch.index; i++) {
-        rawkey = ctx->batch.rawkeys[i];
-        rawval = ctx->batch.rawvals[i];
-        sdsfree(rawkey);
-        sdsfree(rawval);
-    }
+    submitSwapRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,data,NULL,
+                ctripRdbLoadWriteFinished,NULL);
 }
 
 void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, sds rawkey, sds rawval) {
@@ -217,7 +258,6 @@ void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, sds rawkey, sds rawval) {
 }
 
 void ctripRdbLoadCtxFree(ctripRdbLoadCtx *ctx) {
-    parallelSwapFree(ctx->ps);
     zfree(ctx->batch.rawkeys);
     zfree(ctx->batch.rawvals);
     zfree(ctx);
@@ -231,13 +271,12 @@ void evictStopLoading(int success) {
     UNUSED(success);
     /* send last buffered batch. */
     ctripRdbLoadSendBatch(server.rdb_load_ctx);
-    asyncCompleteQueueDrain(server.rocks, -1); /* CONFIRM */
-    parallelSwapDrain(server.rdb_load_ctx->ps);
+    asyncCompleteQueueDrain(-1); /* CONFIRM */
+    parallelSyncDrain();
     ctripRdbLoadCtxFree(server.rdb_load_ctx);
     server.rdb_load_ctx = NULL;
 }
 
-/* --- rdb load --- */
 int rdbLoadIntegerVerbatim(rio *rdb, sds *verbatim, int enctype, long long *val) {
     unsigned char enc[4];
 

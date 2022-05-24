@@ -198,7 +198,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAdd(key->ptr);
     /* Newly added key are scheduled to evict asap to reduce cow. */
-    if (hasActiveChildProcess()) dbEvictAsapLater(db, key);
+    if (hasActiveChildProcess()) tryEvictKeyAsapLater(db, key);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -600,27 +600,8 @@ long long dbTotalServerKeyCount() {
 /*-----------------------------------------------------------------------------
  * db.evict related API
  *----------------------------------------------------------------------------*/
-robj *lookupEvictKeyFlags(redisDb *db, robj *key, int flags) {
-    robj *e;
-    dictEntry *de;
-    if ((de = dictFind(db->evict,key->ptr)) == NULL) return NULL;
-    e = dictGetVal(de);
-    if (flags & LOOKUP_EVICT_ALL) return e;
-    if ((flags & LOOKUP_EVICT_VAL) && e->evicted) return e;
-    if ((flags & LOOKUP_EVICT_SCS) && e->scs) return e;
-    return NULL;
-}
-
 robj *lookupEvictKey(redisDb *db, robj *key) {
-    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_VAL);
-}
-
-robj *lookupEvictSCS(redisDb *db, robj *key) {
-    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_SCS);
-}
-
-robj *lookupEvict(redisDb *db, robj *key) {
-    return lookupEvictKeyFlags(db,key,LOOKUP_EVICT_ALL);
+    return dictFetchValue(db->evict,key->ptr);
 }
 
 void dbAddEvict(redisDb *db, robj *key, robj *evict) {

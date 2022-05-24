@@ -33,68 +33,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* unsigned long rocksPendingIOs() { */
-    /* int i; */
-    /* unsigned long pending = 0; */
-    /* for (i = 0; i < server.rocks->threads_num; i++) { */
-        /* RIOThread *rt = &server.rocks->threads[i]; */
-        /* pthread_mutex_lock(&rt->lock); */
-        /* pending += listLength(rt->pending_rios); */
-        /* pthread_mutex_unlock(&rt->lock); */
-    /* } */
-    /* return pending; */
-/* } */
-
-/* static int rocksInitCompleteQueue(rocks *rocks) { */
-    /* int fds[2]; */
-    /* char anetErr[ANET_ERR_LEN]; */
-    /* RIOCompleteQueue *cq = &rocks->CQ; */
-
-    /* if (pipe(fds)) { */
-        /* perror("Can't create notify pipe"); */
-        /* return -1; */
-    /* } */
-
-    /* cq->notify_recv_fd = fds[0]; */
-    /* cq->notify_send_fd = fds[1]; */
-
-    /* pthread_mutex_init(&cq->lock, NULL); */
-
-    /* cq->complete_queue = listCreate(); */
-
-    /* if (anetNonBlock(anetErr, cq->notify_recv_fd) != ANET_OK) { */
-        /* serverLog(LL_WARNING, */
-                /* "Fatal: set notify_recv_fd non-blocking failed: %s", */
-                /* anetErr); */
-        /* return -1; */
-    /* } */
-
-    /* if (anetNonBlock(anetErr, cq->notify_send_fd) != ANET_OK) { */
-        /* serverLog(LL_WARNING, */
-                /* "Fatal: set notify_recv_fd non-blocking failed: %s", */
-                /* anetErr); */
-        /* return -1; */
-    /* } */
-
-    /* if (aeCreateFileEvent(server.el, cq->notify_recv_fd, */
-                /* AE_READABLE, RIOFinished, cq) == AE_ERR) { */
-        /* serverLog(LL_WARNING,"Fatal: create notify recv event failed: %s", */
-                /* strerror(errno)); */
-        /* return -1; */
-    /* } */
-
-    /* return 0; */
-/* } */
-
-/* static void rocksDeinitCompleteQueue(rocks *rocks) { */
-    /* RIOCompleteQueue *cq = &rocks->CQ; */
-    /* close(cq->notify_recv_fd); */
-    /* close(cq->notify_send_fd); */
-    /* pthread_mutex_destroy(&cq->lock); */
-    /* listRelease(cq->complete_queue); */
-/* } */
-
-static int rocksInitDB(rocks *rocks) {
+static int rocksInitDB() {
+    rocks *rocks = server.rocks;
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
     rocksdb_cache_t *block_cache;
     rocks->rocksdb_snapshot = NULL;
@@ -102,7 +42,7 @@ static int rocksInitDB(rocks *rocks) {
     rocksdb_options_set_create_if_missing(rocks->rocksdb_opts, 1); 
     rocksdb_options_enable_statistics(rocks->rocksdb_opts);
     rocksdb_options_set_stats_dump_period_sec(rocks->rocksdb_opts, 60);
-    //rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 6);
+    rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 6);
     rocksdb_options_set_max_bytes_for_level_base(rocks->rocksdb_opts, 512*1024*1024); 
     struct rocksdb_block_based_table_options_t *block_opts = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_block_size(block_opts, 8192);
@@ -118,7 +58,6 @@ static int rocksInitDB(rocks *rocks) {
     rocksdb_options_set_max_background_compactions(rocks->rocksdb_opts, 4); /* default 1 */
     rocksdb_options_compaction_readahead_size(rocks->rocksdb_opts, 2*1024*1024); /* default 0 */
     rocksdb_options_set_optimize_filters_for_hits(rocks->rocksdb_opts, 1); /* default false */
-	rocksdb_options_set_max_write_buffer_number(rocks->rocksdb_opts, 64);
 
     rocks->rocksdb_ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->rocksdb_ropts, 0);
@@ -158,14 +97,16 @@ static void rocksDeinitDB(rocks *rocks) {
 }
 
 struct rocks *rocksCreate() {
-    rocks *rocks = zmalloc(sizeof(struct rocks));
-    rocks->rocksdb_epoch = 0;
-    if (rocksInitDB(rocks)) goto err;
-    if (asyncCompleteQueueInit(rocks)) goto err;
-    if (rocksInitThreads(rocks)) goto err;
-    return rocks;
+    server.rocks = zmalloc(sizeof(struct rocks));
+    server.rocks->rocksdb_epoch = 0;
+    if (rocksInitDB()) goto err;
+    if (asyncCompleteQueueInit()) goto err;
+    if (parallelSyncInit(server.ps_parallism_rdb))
+        goto err;
+    if (swapThreadsInit()) goto err;
+    return server.rocks;
 err:
-    if (rocks != NULL) zfree(rocks);
+    if (server.rocks != NULL) zfree(server.rocks);
     return NULL;
 }
 
@@ -196,8 +137,9 @@ void rocksReleaseSnapshot(rocks *rocks) {
 }
 
 void rocksDestroy(rocks *rocks) {
-    rocksDeinitThreads(rocks);
+    swapThreadsDeinit();
     asyncCompleteQueueDeinit(&rocks->CQ);
+    parallelSyncDeinit();
     rocksDeinitDB(rocks);
     zfree(rocks);
 }
@@ -245,7 +187,7 @@ int rocksFlushAll() {
     char odir[ROCKS_DIR_MAX_LEN];
 
     snprintf(odir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocks->rocksdb_epoch);
-    asyncCompleteQueueDrain(server.rocks, -1);
+    asyncCompleteQueueDrain(-1);
     rocksDeinitDB(server.rocks);
     server.rocks->rocksdb_epoch++;
     if (rocksInitDB(server.rocks)) {

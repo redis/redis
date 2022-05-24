@@ -2118,12 +2118,12 @@ int processPendingCommandsAndResetClient(client *c) {
  * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while (c->qb_pos < sdslen(c->querybuf)) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
         /* Also abort if the client is swapping. */
-        if (swapRateLimited(c) || (c->flags & CLIENT_SWAPPING)) break;
+        if (swapRateLimited(c) || (c->flags&CLIENT_SWAPPING)) break;
 
         /* Don't process more buffers from clients that have already pending
          * commands to execute in c->argv. */

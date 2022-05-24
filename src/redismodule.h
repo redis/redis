@@ -590,11 +590,6 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeUnlinkFunc unlink;
     RedisModuleTypeCopyFunc copy;
     RedisModuleTypeDefragFunc defrag;
-    RedisModuleLookupSwappingClients lookup_swapping_clients;
-    RedisModuleSetupSwappingClients setup_swapping_clients;
-    RedisModuleGetDataSwaps get_data_swaps;
-    RedisModuleGetComplementSwaps get_complement_swaps;
-    RedisModuleSwapAnaFunc swap_ana;
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
@@ -732,8 +727,6 @@ REDISMODULE_API int (*RedisModule_ModuleTypeEvictExists)(RedisModuleKey *key) RE
 REDISMODULE_API int (*RedisModule_ModuleTypeReplaceEvict)(RedisModuleKey *key, RedisModuleType *mt, void *new_evict, void **old_evict) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeSwapIn)(RedisModuleKey *key, void *new_value) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeSwapOut)(RedisModuleKey *key, void **old_value) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ModuleTypeEvictSetSCS)(RedisModuleKey *key, void *scs) REDISMODULE_ATTR;
-REDISMODULE_API void *(*RedisModule_ModuleTypeEvictGetSCS)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RocksDelete)(RedisModuleCtx *ctx,RedisModuleString *name) REDISMODULE_ATTR;
 REDISMODULE_API void *(*RedisModule_RdbEncode)(RedisModuleType *mt, void *value) REDISMODULE_ATTR;
 REDISMODULE_API void *(*RedisModule_RdbDecode)(RedisModuleType *mt, void *raw) REDISMODULE_ATTR;
@@ -1024,8 +1017,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeEvictEvicted);
     REDISMODULE_GET_API(ModuleTypeEvictExists);
     REDISMODULE_GET_API(ModuleTypeReplaceEvict);
-    REDISMODULE_GET_API(ModuleTypeEvictSetSCS);
-    REDISMODULE_GET_API(ModuleTypeEvictGetSCS);
     REDISMODULE_GET_API(RocksDelete);
     REDISMODULE_GET_API(RdbEncode);
     REDISMODULE_GET_API(RdbDecode);
@@ -1203,7 +1194,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 /* Things only defined for the modules core, not exported to modules
  * including this file. */
 #define RedisModuleString robj
-#define RedisModuleGetSwapsResult getSwapsResult
+#define RedisModuleGetSwapsResult getKeyRequestsResult
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMODULE_H */

@@ -44,7 +44,6 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
-    o->scs = 0;
     o->evicted = 0;
     o->dirty = 1;
     o->reserved = 0;
@@ -93,7 +92,6 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    o->scs = 0;
     o->evicted = 0;
     o->dirty = 1;
     o->reserved = 0;
@@ -423,38 +421,6 @@ robj *createEvictObject(int type, moduleType *mt) {
     } else {
         return createModuleObject(mt, NULL);
     }
-}
-
-void evictObjectSetSCS(robj *e, void *scs) {
-    if (e->type != OBJ_MODULE) {
-        if (scs == NULL) {
-            e->scs = 0;
-            e->ptr = NULL;
-        } else {
-            e->scs = 1;
-            e->ptr = scs;
-        }
-    } else {
-        moduleValue *mv = e->ptr;
-        if (scs == NULL) {
-            e->scs = 0;
-            mv->value = NULL;
-        } else {
-            e->scs = 1;
-            mv->value = scs;
-        }
-    }
-}
-
-void *evictObjectGetSCS(robj *e) {
-    if (e == NULL) return NULL;
-
-    if (e->type != OBJ_MODULE) {
-        return e->scs ? e->ptr: NULL;
-    }
-
-    moduleValue *mv = e->ptr;
-    return e->scs ? mv->value: NULL;
 }
 
 int checkType(client *c, robj *o, int type) {
@@ -1025,11 +991,6 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         serverPanic("Unknown object type");
     }
     return asize;
-}
-
-size_t keyComputeSize(redisDb *db, robj *key) {
-    robj *val = lookupKey(db, key, LOOKUP_NOTOUCH);
-    return val ? objectComputeSize(val, 5): 0;
 }
 
 /* Release data obtained with getMemoryOverheadData(). */
