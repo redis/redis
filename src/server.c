@@ -4347,15 +4347,15 @@ int processCommand(client *c) {
             if (listLength(server.ready_keys))
                 handleClientsBlockedOnKeys();
         } else {
-            int submit_num = dbSwap(c);
-            if (submit_num > 0) {
+            int keyrequests_submit = dbSwap(c);
+            if (keyrequests_submit > 0) {
                 /* Swapping command parsed but not processed, return C_ERR so that:
                  * 1. repl stream will not propagate to sub-slaves
                  * 2. client will not reset
                  * 3. client will break out process loop. */
                 if (c->keyrequests_count) c->flags |= CLIENT_SWAPPING;
                 return C_ERR;    
-            } else if (submit_num < 0) {
+            } else if (keyrequests_submit < 0) {
                 /* Swapping command parsed and dispatched, return C_OK so that:
                  * 1. repl client will skip call
                  * 2. repl client will reset (cmd moved to worker).

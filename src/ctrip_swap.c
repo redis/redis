@@ -71,7 +71,6 @@ void swapCtxFree(swapCtx *ctx) {
     zfree(ctx);
 }
 
-/* ----------------------------- client swap ------------------------------ */
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;
@@ -111,6 +110,7 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
 
 int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
         void *pd) {
+    int retval = C_OK;
     void *datactx;
     swapData *data;
     swapCtx *ctx = pd;
@@ -118,10 +118,8 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
     robj *evict = lookupEvictKey(db,key);
 
     /* key not exists, noswap needed. */
-    if (!value && !evict) {
-        clientKeyRequestFinished(c,key,ctx);
-        return C_OK;
-    }
+    if (!value && !evict)
+        goto noswap;
 
     data = createSwapData(db,key,value,evict,&datactx);
     ctx->listeners = listeners;
@@ -131,28 +129,25 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
     if (swapDataAna(data,ctx->cmd_intention,ctx->key_request,
                 &ctx->swap_intention)) {
         ctx->errcode = SWAP_ERR_ANA_FAIL;
-        clientKeyRequestFinished(c,key,ctx);
-        return C_ERR;
+        retval = C_ERR;
+        goto noswap;
     }
 
-    if (ctx->swap_intention == SWAP_NOP) {
-        clientKeyRequestFinished(c,key,ctx);
-    } else {
-        submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
-                keyRequestSwapFinished,ctx);
-    }
+    if (ctx->swap_intention == SWAP_NOP)
+        goto noswap;
+
+    submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
+            keyRequestSwapFinished,ctx);
     return C_OK;
+
+noswap:
+    clientKeyRequestFinished(c,key,ctx);
+    requestNotify(listeners);
+    return retval;
 }
 
-/* Start swapping or schedule a swapping task for client:
- * - if client requires swapping key (some other client is doing rocksdb IO for
- *   this key), we defer and re-evaluate untill all preceding swap finished.
- * - if client requires cold(evicted) key, and there is no preceeding swap
- *   action, we start a new swapping task.
- * - if client requires hot or not-existing key, no swap is needed.
- *
- * this funcion returns num swapping needed for this client, we should pause
- * processCommand if swapping needed. */
+/* Returns submited keyrequest count, if any keyrequest submitted, command
+ * gets called in contiunueProcessCommand instead of normal call(). */
 int submitNormalClientRequest(client *c) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(c,&result);
@@ -168,14 +163,14 @@ int submitNormalClientRequest(client *c) {
 }
 
 int dbSwap(client *c) {
-    int swap_result;
+    int keyrequests_submit;
     if (!(c->flags & CLIENT_MASTER)) {
-        swap_result = submitNormalClientRequest(c);
+        keyrequests_submit = submitNormalClientRequest(c);
     } else {
-        swap_result = submitReplClientRequest(c);
+        keyrequests_submit = submitReplClientRequest(c);
     }
-    if (swap_result) swapRateLimit(c);
-    return swap_result;
+    if (c->keyrequests_count) swapRateLimit(c);
+    return keyrequests_submit;
 }
 
 void swapInit() {
