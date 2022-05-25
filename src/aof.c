@@ -2386,6 +2386,7 @@ int rewriteAppendOnlyFileBackground(void) {
     if (dirCreateIfMissing(server.aof_dirname) == -1) {
         serverLog(LL_WARNING, "Can't open or create append-only dir %s: %s",
             server.aof_dirname, strerror(errno));
+        server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
 
@@ -2393,7 +2394,10 @@ int rewriteAppendOnlyFileBackground(void) {
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
-    if (openNewIncrAofForAppend() != C_OK) return C_ERR;
+    if (openNewIncrAofForAppend() != C_OK) {
+        server.aof_lastbgrewrite_status = C_ERR;
+        return C_ERR;
+    }
     server.stat_aof_rewrites++;
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
