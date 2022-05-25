@@ -2360,8 +2360,6 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     stopSaving(1);
 
-    serverLog(LL_NOTICE,
-        "Successfully created the temporary AOF base file %s", filename);
     return C_OK;
 
 werr:
@@ -2414,6 +2412,8 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
+            serverLog(LL_NOTICE,
+                "Successfully created the temporary AOF base file %s", tmpfile);
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
             exitFromChild(0);
         } else {
