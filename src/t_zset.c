@@ -1186,23 +1186,23 @@ void zsetConvert(robj *zobj, int encoding) {
         zs->zsl = zslCreate();
 
         eptr = lpSeek(zl,0);
-        serverAssertWithInfo(NULL,zobj,eptr != NULL);
-        sptr = lpNext(zl,eptr);
-        serverAssertWithInfo(NULL,zobj,sptr != NULL);
+        if (eptr != NULL) {
+            sptr = lpNext(zl, eptr);
+            serverAssertWithInfo(NULL, zobj, sptr != NULL);
 
-        while (eptr != NULL) {
-            score = zzlGetScore(sptr);
-            vstr = lpGetValue(eptr,&vlen,&vlong);
-            if (vstr == NULL)
-                ele = sdsfromlonglong(vlong);
-            else
-                ele = sdsnewlen((char*)vstr,vlen);
+            while (eptr != NULL) {
+                score = zzlGetScore(sptr);
+                vstr = lpGetValue(eptr, &vlen, &vlong);
+                if (vstr == NULL)
+                    ele = sdsfromlonglong(vlong);
+                else
+                    ele = sdsnewlen((char *) vstr, vlen);
 
-            node = zslInsert(zs->zsl,score,ele);
-            serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
-            zzlNext(zl,&eptr,&sptr);
+                node = zslInsert(zs->zsl, score, ele);
+                serverAssert(dictAdd(zs->dict, ele, &node->score) == DICT_OK);
+                zzlNext(zl, &eptr, &sptr);
+            }
         }
-
         zfree(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;
@@ -2954,7 +2954,8 @@ static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
     UNUSED(length);
     if (server.zset_max_listpack_entries > 0) {
         handler->dstobj = createZsetListpackObject();
-    } else { // Use skiplist if listpack is disabled to avoid redundant conversion on add.
+    } else {
+        /* Use skiplist if listpack is disabled to avoid redundant conversion on add. */
         handler->dstobj = createZsetObject();
     }
 }

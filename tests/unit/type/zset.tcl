@@ -2208,14 +2208,13 @@ start_server {tags {"zset"}} {
         assert_match "*syntax*" $err
     }
 
-    test {ZRANGESTORE skiplist} {
-        set original_max [lindex [r config get zset-max-ziplist-entries] 1]
-        r config set zset-max-ziplist-entries 0
-        r flushall
+    test {ZRANGESTORE with zset-max-listpack-entries 0 dst key should use skiplist encoding} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del z1{t} z2{t}
         r zadd z1{t} 1 a
-        set res [r zrangestore z2{t} z1{t} 0 -1]
-        assert_equal $res 1
-        r config set zset-max-ziplist-entries $original_max
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        r config set zset-max-listpack-entries $original_max
     }
 
     test {ZRANGE invalid syntax} {

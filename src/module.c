@@ -620,7 +620,12 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
                             server.list_compress_depth);
         break;
     case REDISMODULE_KEYTYPE_ZSET:
-        obj = createZsetListpackObject();
+        if (server.zset_max_listpack_entries > 0) {
+            obj = createZsetListpackObject();
+        } else {
+            /* Use skiplist if listpack is disabled to avoid redundant conversion on add. */
+            obj = createZsetObject();
+        }
         break;
     case REDISMODULE_KEYTYPE_HASH:
         obj = createHashObject();
