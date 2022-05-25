@@ -536,7 +536,7 @@ typedef enum {
 #define REDISMODULE_TYPE_ENCVER(id) (id & REDISMODULE_TYPE_ENCVER_MASK)
 #define REDISMODULE_TYPE_SIGN(id) ((id & ~((uint64_t)REDISMODULE_TYPE_ENCVER_MASK)) >>REDISMODULE_TYPE_ENCVER_BITS)
 
-#define SWAP_MODE_MEMMORY 0
+#define SWAP_MODE_MEMORY 0
 #define SWAP_MODE_DISK 1
 
 /* Bit flags for moduleTypeAuxSaveFunc */

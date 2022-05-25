@@ -77,6 +77,7 @@ typedef struct swapData {
  * swapData: key state when swap start.
  * dataCtx: dynamic data when swapping.  */
 typedef struct swapDataType {
+  char *name;
   int (*swapAna)(struct swapData *data, int cmd_intention, struct keyRequest *key_request, int *intention);
   int (*encodeKeys)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys);
   int (*encodeData)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);

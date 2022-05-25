@@ -127,7 +127,7 @@ configEnum sanitize_dump_payload_enum[] = {
 };
 
 configEnum swap_mode_enum[] = {
-    {"memory", SWAP_MODE_MEMMORY},
+    {"memory", SWAP_MODE_MEMORY},
     {"disk", SWAP_MODE_DISK},
     {NULL, 0}
 };
@@ -2278,7 +2278,7 @@ static int updateGoodSlaves(long long val, long long prev, const char **err) {
 }
 
 static int isValidAppendonly(int val, const char **err) {
-    if (val && server.swap_mode != SWAP_MODE_MEMMORY) {
+    if (val && server.swap_mode != SWAP_MODE_MEMORY) {
         *err = "swap mode is non memory mode, can't open aof";
         return 0;
     }
@@ -2350,7 +2350,7 @@ static int updateOOMScoreAdj(int val, int prev, const char **err) {
 }
 
 static int isValidSwapMode(int val, const char **err) {
-    if (val != SWAP_MODE_MEMMORY && server.aof_enabled) {
+    if (val != SWAP_MODE_MEMORY && server.aof_enabled) {
         *err = "Failed to set current non memory mode, Check aof state.";
         return 0;
     } 
@@ -2494,7 +2494,7 @@ standardConfig configs[] = {
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
-    createEnumConfig("swap-mode", NULL, MODIFIABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMMORY, isValidSwapMode, NULL),
+    createEnumConfig("swap-mode", NULL, MODIFIABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMORY, isValidSwapMode, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

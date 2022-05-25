@@ -4341,7 +4341,7 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        if (server.swap_mode == SWAP_MODE_MEMMORY) {
+        if (server.swap_mode == SWAP_MODE_MEMORY) {
             call(c,CMD_CALL_FULL);
             c->woff = server.master_repl_offset;
             if (listLength(server.ready_keys))

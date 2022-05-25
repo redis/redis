@@ -259,6 +259,7 @@ void wholeKeyFree(swapData *data_, void *datactx_) {
 }
 
 swapDataType wholeKeySwapDataType = {
+    .name = "wholekey",
     .swapAna = wholeKeySwapAna,
     .encodeKeys = wholeKeyEncodeKeys,
     .encodeData = wholeKeyEncodeData,

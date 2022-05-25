@@ -459,8 +459,10 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
         return -1;
     }
 
-    if ((rocksFlushAll()))
-        serverLog(LL_WARNING, "[ROCKS] flushd all rocks db failed.");
+    if (server.swap_mode != SWAP_MODE_MEMORY) {
+        if ((rocksFlushAll()))
+            serverLog(LL_WARNING, "[ROCKS] flushd all rocks db failed.");
+    }
 
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
@@ -806,10 +808,12 @@ void selectCommand(client *c) {
         return;
     }
 
-    /* currently only db 0 are supported. */
-    if (id != 0) {
-        addReplyError(c,"DB index is out of range");
-        return;
+    if (server.swap_mode != SWAP_MODE_MEMORY)  {
+        /* currently only db 0 are supported in swap/disk mode. */
+        if (id != 0) {
+            addReplyError(c,"DB index is out of range");
+            return;
+        }
     }
 
     if (selectDb(c,id) == C_ERR) {
@@ -1666,7 +1670,10 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (checkClientPauseTimeoutAndReturnIfPaused()) return 1;
 
     /* Delete the key */
-	dbExpire(db, key);
+    if (server.swap_mode == SWAP_MODE_MEMORY)
+        deleteExpiredKeyAndPropagate(db,key);
+    else
+        dbExpire(db, key);
 
     return 1;
 }

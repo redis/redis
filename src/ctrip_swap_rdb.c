@@ -202,6 +202,7 @@ int rdbLoadEncodeData(swapData *data_, int intention, int *action,
 }
 
 swapDataType rdbLoadDataType = {
+    .name = "rdbload",
     .swapAna = rdbLoadSwapAna,
     .encodeKeys = NULL,
     .encodeData = rdbLoadEncodeData,

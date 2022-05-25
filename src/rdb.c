@@ -2669,8 +2669,13 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
 
-        /* Read value (could be evict or value) */
-		error = ctripRdbLoadObject(type,rdb,key,&vtype,&val,&rawval);
+        /* Read value */
+        if (server.swap_mode == SWAP_MODE_MEMORY) {
+            val = rdbLoadObject(type,rdb,key,&error);
+        } else {
+            /*could be evict or value */
+            error = ctripRdbLoadObject(type,rdb,key,&vtype,&val,&rawval);
+        }
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -2708,7 +2713,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             int added;
 
             initStaticStringObject(keyobj,key);
-            added = ctripDbAddRDBLoad(vtype,db,key,val,rawval);
+            if (server.swap_mode == SWAP_MODE_MEMORY)
+                added = dbAddRDBLoad(db,key,val);
+            else
+                added = ctripDbAddRDBLoad(vtype,db,key,val,rawval);
             keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -2716,7 +2724,11 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    ctripDbAddRDBLoad(vtype,db,key,val,rawval);
+                    if (server.swap_mode == SWAP_MODE_MEMORY)
+                        dbAddRDBLoad(db,key,val);
+                    else
+                        ctripDbAddRDBLoad(vtype,db,key,val,rawval);
+
                 } else {
                     serverLog(LL_WARNING,
                             "RDB has duplicated key '%s' in DB %d",key,db->id);
