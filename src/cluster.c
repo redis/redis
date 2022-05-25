@@ -83,6 +83,7 @@ void removeChannelsInSlot(unsigned int slot);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
+const char *getPreferredEndpoint(clusterNode *n);
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -118,6 +119,10 @@ dictType clusterNodesBlackListDictType = {
         NULL,                       /* val destructor */
         NULL                        /* allow to expand */
 };
+
+/* Special values for server.cluster->moved_slot_since_sleep */
+#define MOVED_SLOT_NONE     -1
+#define MOVED_SLOT_MULTIPLE -2
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -612,6 +617,9 @@ void clusterInit(void) {
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->todo_before_sleep = 0;
+    server.cluster->moved_slot_since_sleep = MOVED_SLOT_NONE;
+    server.cluster->moved_slot_channel =
+        createObject(OBJ_STRING, sdsnew("__redis__:moved"));
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->nodes_black_list =
         dictCreate(&clusterNodesBlackListDictType);
@@ -4181,6 +4189,44 @@ void clusterCron(void) {
         clusterUpdateState();
 }
 
+/* Returns 1 if the client is currently using a plaintext connection in a TLS
+ * cluster, 0 otherwise. (Vice versa is not possible, but it might be in the
+ * future.) */
+static inline int clusterClientUsesAltPort(client *c) {
+    return server.tls_cluster && c->conn &&
+        connGetType(c->conn) != CONN_TYPE_TLS;
+}
+
+/* For redirects, verb must start with a dash, e.g. "-ASK" or "-MOVED". */
+sds clusterFormatRedirect(const char *verb, int slot, clusterNode *n, int use_pport) {
+    const char *endpoint = getPreferredEndpoint(n);
+    int port = use_pport && n->pport ? n->pport : n->port;
+    return sdscatprintf(sdsempty(), "%s %d %s:%d", verb, slot, endpoint, port);
+}
+
+/* Notify clients subscribed to slot moved events. */
+void clusterNotifyMovedSlot(int moved_slot, list *clients) {
+    clusterNode *n = server.cluster->slots[moved_slot];
+    /* As for -MOVED redirects, the port in the message depends on whether the
+     * client is using TLS or not. */
+    robj *messages[2] = {NULL, NULL}; /* Created lazily. */
+    listNode *ln;
+    listIter li;
+    listRewind(clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = ln->value;
+        int use_pport = clusterClientUsesAltPort(c);
+        if (messages[use_pport] == NULL) {
+            sds s = clusterFormatRedirect("MOVED", moved_slot, n, use_pport);
+            messages[use_pport] = createObject(OBJ_STRING, s);
+        }
+        addReplyPubsubMessage(c, server.cluster->moved_slot_channel, messages[use_pport]);
+        updateClientMemUsage(c);
+    }
+    if (messages[0]) decrRefCount(messages[0]);
+    if (messages[1]) decrRefCount(messages[1]);
+}
+
 /* This function is called before the event handler returns to sleep for
  * events. It is useful to perform operations that must be done ASAP in
  * reaction to events fired but that are not safe to perform inside event
@@ -4188,10 +4234,12 @@ void clusterCron(void) {
  * a single time before replying to clients. */
 void clusterBeforeSleep(void) {
     int flags = server.cluster->todo_before_sleep;
+    int moved_slot = server.cluster->moved_slot_since_sleep;
 
     /* Reset our flags (not strictly needed since every single function
      * called for flags set should be able to clear its flag). */
     server.cluster->todo_before_sleep = 0;
+    server.cluster->moved_slot_since_sleep = MOVED_SLOT_NONE;
 
     if (flags & CLUSTER_TODO_HANDLE_MANUALFAILOVER) {
         /* Handle manual failover as soon as possible so that won't have a 100ms
@@ -4210,6 +4258,16 @@ void clusterBeforeSleep(void) {
     /* Update the cluster state. */
     if (flags & CLUSTER_TODO_UPDATE_STATE)
         clusterUpdateState();
+
+    /* Notify clients subscribed to moved slot events. To avoid flooding the
+     * clients, we only publish the moved slot message if exactly one slot has
+     * been migrated. In cases like failover, clients will receive -MOVED
+     * redirects and will need to refresh the full slot mapping with nodes
+     * including replicas. */
+    if (moved_slot >= 0) {
+        list *clients = pubsubGetSubscribers(server.cluster->moved_slot_channel);
+        if (clients) clusterNotifyMovedSlot(moved_slot, clients);
+    }
 
     /* Save the config, possibly using fsync. */
     if (flags & CLUSTER_TODO_SAVE_CONFIG) {
@@ -4311,6 +4369,10 @@ int clusterAddSlot(clusterNode *n, int slot) {
     if (server.cluster->slots[slot]) return C_ERR;
     clusterNodeSetSlotBit(n,slot);
     server.cluster->slots[slot] = n;
+    if (server.cluster->moved_slot_since_sleep == MOVED_SLOT_NONE)
+        server.cluster->moved_slot_since_sleep = slot;
+    else
+       server.cluster->moved_slot_since_sleep = MOVED_SLOT_MULTIPLE;
     return C_OK;
 }
 
@@ -6806,15 +6868,9 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        /* Redirect to IP:port. Include plaintext port if cluster is TLS but
-         * client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && connGetType(c->conn) != CONN_TYPE_TLS);
-        int port = use_pport && n->pport ? n->pport : n->port;
-        addReplyErrorSds(c,sdscatprintf(sdsempty(),
-            "-%s %d %s:%d",
-            (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-            hashslot, getPreferredEndpoint(n), port));
+        const char *verb = (error_code == CLUSTER_REDIR_ASK) ? "-ASK" : "-MOVED";
+        int use_pport = clusterClientUsesAltPort(c);
+        addReplyErrorSds(c, clusterFormatRedirect(verb, hashslot, n, use_pport));
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }

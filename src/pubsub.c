@@ -441,6 +441,14 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
+/* Returns a list of clients subscribed to the given channel or NULL if the
+ * channel has no subscribers. The channel is non-sharded. Pattern subscriptions
+ * are not included. */
+list *pubsubGetSubscribers(robj *channel) {
+    dictEntry *de = dictFind(*pubSubType.serverPubSubChannels, channel);
+    return de ? dictGetVal(de) : NULL;
+}
+
 /*
  * Publish a message to all the subscribers.
  */

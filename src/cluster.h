@@ -197,7 +197,10 @@ typedef struct clusterState {
                                    can start requesting masters vote. */
     /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
-    int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    int todo_before_sleep;      /* Things to do in clusterBeforeSleep(). */
+    int moved_slot_since_sleep; /* Single slot moved since last sleep or
+                                 * -1 for none or -2 for multiple. */
+    robj *moved_slot_channel;   /* Shared robj string object. */
     /* Stats */
     /* Messages received and sent by type. */
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
