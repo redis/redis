@@ -2360,6 +2360,8 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     stopSaving(1);
 
+    serverLog(LL_NOTICE,
+        "Successfully created the temporary AOF base file %s", filename);
     return C_OK;
 
 werr:
@@ -2552,7 +2554,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyStartMonitor(latency);
         if (rename(tmpfile, new_base_filepath) == -1) {
             serverLog(LL_WARNING,
-                "Error trying to rename the temporary AOF file %s into %s: %s",
+                "Error trying to rename the temporary AOF base file %s into %s: %s",
                 tmpfile,
                 new_base_filepath,
                 strerror(errno));
@@ -2562,20 +2564,21 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename", latency);
+        serverLog(LL_NOTICE,
+            "Successfully renamed the temporary AOF base file %s into %s", tmpfile, new_base_filename);
 
         /* Rename the temporary incr aof file to 'new_incr_filename'. */
         if (server.aof_state == AOF_WAIT_REWRITE) {
             /* Get temporary incr aof name. */
             sds temp_incr_aof_name = getTempIncrAofName();
             sds temp_incr_filepath = makePath(server.aof_dirname, temp_incr_aof_name);
-            sdsfree(temp_incr_aof_name);
             /* Get next new incr aof name. */
             sds new_incr_filename = getNewIncrAofName(temp_am);
             new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
             latencyStartMonitor(latency);
             if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
                 serverLog(LL_WARNING,
-                    "Error trying to rename the temporary incr AOF file %s into %s: %s",
+                    "Error trying to rename the temporary AOF incr file %s into %s: %s",
                     temp_incr_filepath,
                     new_incr_filepath,
                     strerror(errno));
@@ -2584,11 +2587,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 aofManifestFree(temp_am);
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
+                sdsfree(temp_incr_aof_name);
                 goto cleanup;
             }
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("aof-rename", latency);
+            serverLog(LL_NOTICE,
+                "Successfully renamed the temporary AOF incr file %s into %s", temp_incr_aof_name, new_incr_filename);
             sdsfree(temp_incr_filepath);
+            sdsfree(temp_incr_aof_name);
         }
 
         /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR
