@@ -4065,7 +4065,8 @@ void clusterCron(void) {
 
         /* Orphaned master check, useful only if the current instance
          * is a slave that may migrate to another master. */
-        if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
+        if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {   //redis这里有一个逻辑nodeIsSlave(myself)在外层if已经判断过了, 里层无需重复判断, 
+									        //可以把里层的这个nodeIsSlave(myself)判断逻辑删掉
             int okslaves = clusterCountNonFailingSlaves(node);
 
             /* A master is orphaned if it is serving a non-zero number of
