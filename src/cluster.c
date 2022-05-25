@@ -4077,8 +4077,6 @@ void clusterCron(void) {
                 orphaned_masters++;
             }
             if (okslaves > max_slaves) max_slaves = okslaves;
-            if (nodeIsSlave(myself) && myself->slaveof == node)
-                this_slaves = okslaves;
         }
 
         /* If we are not receiving any data for more than half the cluster
