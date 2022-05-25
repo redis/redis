@@ -4065,7 +4065,8 @@ void clusterCron(void) {
 
         /* Orphaned master check, useful only if the current instance
          * is a slave that may migrate to another master. */
-        if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
+        if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {  //Redis has a "nodeIsSlave(myself)" logic in the outer layer if it already exists, 
+		                                                              //so you can delete the "nodeIsSlave" (myself) logic in the inner layer 
             int okslaves = clusterCountNonFailingSlaves(node);
 
             /* A master is orphaned if it is serving a non-zero number of
@@ -4077,7 +4078,7 @@ void clusterCron(void) {
                 orphaned_masters++;
             }
             if (okslaves > max_slaves) max_slaves = okslaves;
-            if (nodeIsSlave(myself) && myself->slaveof == node)
+            if (myself->slaveof == node)
                 this_slaves = okslaves;
         }
 
