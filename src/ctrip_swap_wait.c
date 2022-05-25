@@ -46,27 +46,7 @@ void requestListenerRelease(requestListener *listener) {
     zfree(listener);
 }
 
-void requestListenersRelease(requestListeners *listeners) {
-    if (!listeners) return;
-    serverAssert(!listLength(listeners->listeners));
-    listRelease(listeners->listeners);
-
-    switch (listeners->level) {
-    case REQUEST_LISTENERS_LEVEL_SVR:
-        zfree(listeners->svr.dbs);
-        break;
-    case REQUEST_LISTENERS_LEVEL_DB:
-        dictRelease(listeners->db.keys);
-        break;
-    case REQUEST_LISTENERS_LEVEL_KEY:
-        decrRefCount(listeners->key.key);
-        break;
-    default:
-        break;
-    }
-    zfree(listeners);
-}
-
+void requestListenersRelease(requestListeners *listeners);
 void requestListenersDestructor(void *privdata, void *val) {
     DICT_NOTUSED(privdata);
     requestListenersRelease(val);
@@ -112,6 +92,27 @@ static requestListeners *requestListenersCreate(int level, redisDb *db,
     }
 
     return listeners;
+}
+
+void requestListenersRelease(requestListeners *listeners) {
+    if (!listeners) return;
+    serverAssert(!listLength(listeners->listeners));
+    listRelease(listeners->listeners);
+
+    switch (listeners->level) {
+    case REQUEST_LISTENERS_LEVEL_SVR:
+        zfree(listeners->svr.dbs);
+        break;
+    case REQUEST_LISTENERS_LEVEL_DB:
+        dictRelease(listeners->db.keys);
+        break;
+    case REQUEST_LISTENERS_LEVEL_KEY:
+        decrRefCount(listeners->key.key);
+        break;
+    default:
+        break;
+    }
+    zfree(listeners);
 }
 
 sds requestListenersDump(requestListeners *listeners) {
@@ -213,7 +214,8 @@ void serverRequestListenersRelease(requestListeners *s) {
     zfree(s);
 }
 
-static requestListeners *requestBindListeners(redisDb *db, robj *key, int create) {
+static requestListeners *requestBindListeners(redisDb *db, robj *key,
+        int create) {
     requestListeners *svr_listeners, *db_listeners, *key_listeners;
 
     svr_listeners = server.request_listeners;
@@ -270,8 +272,7 @@ int requestNotify(void *listeners_) {
     requestListeners *listeners = listeners_;
     requestListener *current, *next;
 
-    current = requestListenersPeek(listeners);
-    requestListenersPop(listeners);
+    current = requestListenersPop(listeners);
     requestListenerRelease(current);
 
     while (listeners) {
@@ -282,12 +283,14 @@ int requestNotify(void *listeners_) {
             break;
         }
 
-        /* Then, try proceed parent listener. */ 
+        /* If current level drained, try proceed parent listener. */ 
         if (listeners->nlisteners) {
-            /* Child listeners exists, proceed untill all child finished. */
+            /* child listeners exists, wait untill all child finished. */
             break;
         } else {
             if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY) {
+                /* Only key level listeners releases, DB or server level
+                 * key released only when server exit. */
                 requestListenersRelease(listeners);
             }
             listeners = listeners->parent;

@@ -338,8 +338,8 @@ static int executeSwapOutRequest(swapRequest *req) {
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if (swapDataEncodeData(data, req->intention, &numkeys, &action,
-                &rawkeys, &rawvals,req->datactx)) {
+    if (swapDataEncodeData(data,req->intention,&action,&numkeys,
+                &rawkeys,&rawvals,req->datactx)) {
         retval = EXEC_FAIL;
         goto end;
     }

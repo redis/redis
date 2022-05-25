@@ -247,7 +247,7 @@ int wholeKeyCleanObject(swapData *data_, int *swap_type, void *datactx) {
     return 0;
 }
 
-void wholeKeyFree(swapData *data_, void *datactx_) {
+void freeWholeKeySwapData(swapData *data_, void *datactx_) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     wholeKeyDataCtx *datactx = (wholeKeyDataCtx*)datactx_;
     if (data->key) decrRefCount(data->key);
@@ -258,6 +258,7 @@ void wholeKeyFree(swapData *data_, void *datactx_) {
     zfree(datactx);
 }
 
+
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,
@@ -267,9 +268,9 @@ swapDataType wholeKeySwapDataType = {
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
-    .createDictObject = NULL,
-    .cleanObject = NULL,
-    .free = wholeKeyFree,
+    .createDictObject = wholeKeyCreateDictObject,
+    .cleanObject = wholeKeyCleanObject,
+    .free = freeWholeKeySwapData,
 };
 
 swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
@@ -277,17 +278,11 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
     wholeKeySwapData *data = zmalloc(sizeof(wholeKeySwapData));
     data->d.type = &wholeKeySwapDataType;
     data->db = db;
-    if (key != NULL) {
-        incrRefCount(key);
-    }
+    if (key) incrRefCount(key);
     data->key = key;
-    if (value != NULL) {
-        incrRefCount(value);
-    }
+    if (value) incrRefCount(value);
     data->value = value;
-    if (evict != NULL) {
-        incrRefCount(evict);
-    }
+    if (evict) incrRefCount(evict);
     data->evict = evict;
     
     wholeKeyDataCtx *datactx = zmalloc(sizeof(wholeKeyDataCtx));
