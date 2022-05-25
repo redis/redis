@@ -496,8 +496,17 @@ size_t keyComputeSize(redisDb *db, robj *key);
 
 #define TEST(name) printf("test — %s\n", name);
 #define TEST_DESC(name, ...) printf("test — " name "\n", __VA_ARGS__);
+#define test_assert(e) do {							\
+	if (!(e)) {				\
+		printf(						\
+		    "%s:%d: Failed assertion: \"%s\"\n",	\
+		    __FILE__, __LINE__, #e);				\
+		error++;						\
+	}								\
+} while (0)
 /* --- initTest ---*/
 int initTestRedisServer();
+int clearTestRedisDb();
 int clearTestRedisServer();
 /* --- Data --- */
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);

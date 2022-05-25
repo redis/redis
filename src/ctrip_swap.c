@@ -242,8 +242,31 @@ void swapInit() {
 
 
 #ifdef REDIS_TEST
+int clearTestRedisDb() {
+    emptyDbStructure(server.db, -1, 0, NULL);
+    return 1;
+}
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
+    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    server.dbnum = 1;
+    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    /* Create the Redis databases, and initialize other internal state. */
+    for (int j = 0; j < server.dbnum; j++) {
+        server.db[j].dict = dictCreate(&dbDictType,NULL);
+        server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
+        server.db[j].evict = dictCreate(&evictDictType, NULL);
+        server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
+        server.db[j].evict_asap = listCreate();
+        server.db[j].expires_cursor = 0;
+        // server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
+        // server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
+        // server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+        server.db[j].id = j;
+        server.db[j].avg_ttl = 0;
+        server.db[j].defrag_later = listCreate();
+        listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
+    }
     return 1;
 }
 int clearTestRedisServer() {
@@ -251,6 +274,7 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
+  result += swapDataTest(argc, argv, accurate);
   result += swapWaitTest(argc, argv, accurate);
   return result;
 }
