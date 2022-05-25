@@ -311,7 +311,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
         serverAssert(intention == SWAP_NOP);
         
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey SwapAna value != NULL and evict = NULL") {
@@ -328,7 +328,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         serverAssert(intention == SWAP_OUT);
         wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
         serverAssert(intention == SWAP_DEL);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey SwapAna value = NULL and evict != NULL") {
@@ -345,7 +345,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         serverAssert(intention == SWAP_NOP);
         wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
         serverAssert(intention == SWAP_DEL);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey SwapAna value != NULL and evict != NULL") {
@@ -363,7 +363,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         serverAssert(intention == SWAP_NOP);
         wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
         serverAssert(intention == SWAP_DEL);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey EncodeKeys String") {
@@ -379,7 +379,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         serverAssert(numkeys == 1);
         serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
         serverAssert(result == C_OK);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey EncodeKeys String KEY + VALUE") {
@@ -404,7 +404,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
         // serverAssert(numkeys == 0);
         // serverAssert(result == C_ERR);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey EncodeKeys String KEY + EVICT") {
@@ -429,7 +429,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
         // serverAssert(numkeys == 0);
         // serverAssert(result == C_ERR);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey EncodeData + DecodeData") {
@@ -450,7 +450,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         result = wholeKeyDecodeData(data, numkeys, rawkeys, rawvals, &decoded);
         serverAssert(result == C_OK);
         serverAssert(strcmp(decoded->ptr ,"value") == 0);
-        wholeKeyFree(data, ctx);
+        freeWholeKeySwapData(data, ctx);
     }
     
 

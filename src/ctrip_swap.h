@@ -318,7 +318,7 @@ typedef struct requestListeners {
 
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
-int requestBlocked(redisDb *db, robj *key);
+int requestWouldBlock(redisDb *db, robj *key);
 int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd);
 int requestNotify(void *listeners);
 
@@ -502,6 +502,7 @@ int clearTestRedisServer();
 /* --- Data --- */
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char **argv, int accurate);
+int swapWaitTest(int argc, char **argv, int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 #endif

@@ -42,14 +42,8 @@ requestListener *requestListenerCreate(redisDb *db, robj *key,
 
 void requestListenerRelease(requestListener *listener) {
     if (!listener) return;
-    decrRefCount(listener->key);
+    if (listener->key) decrRefCount(listener->key);
     zfree(listener);
-}
-
-void requestListenersRelease(requestListeners *listeners);
-void requestListenersDestructor(void *privdata, void *val) {
-    DICT_NOTUSED(privdata);
-    requestListenersRelease(val);
 }
 
 dictType requestListenersDictType = {
@@ -58,7 +52,7 @@ dictType requestListenersDictType = {
     NULL,                           /* val dup */
     dictSdsKeyCompare,              /* key compare */
     dictSdsDestructor,              /* key destructor */
-    requestListenersDestructor,     /* val destructor */
+    NULL,                           /* val destructor */
     NULL                            /* allow to expand */
 };
 
@@ -84,8 +78,10 @@ static requestListeners *requestListenersCreate(int level, redisDb *db,
         break;
     case REQUEST_LISTENERS_LEVEL_KEY:
         serverAssert(key);
+        serverAssert(parent->level == REQUEST_LISTENERS_LEVEL_DB);
         incrRefCount(key);
         listeners->key.key = key;
+        dictAdd(parent->db.keys,sdsdup(key->ptr),listeners);
         break;
     default:
         break;
@@ -98,6 +94,7 @@ void requestListenersRelease(requestListeners *listeners) {
     if (!listeners) return;
     serverAssert(!listLength(listeners->listeners));
     listRelease(listeners->listeners);
+    listeners->listeners = NULL;
 
     switch (listeners->level) {
     case REQUEST_LISTENERS_LEVEL_SVR:
@@ -107,6 +104,8 @@ void requestListenersRelease(requestListeners *listeners) {
         dictRelease(listeners->db.keys);
         break;
     case REQUEST_LISTENERS_LEVEL_KEY:
+        serverAssert(listeners->parent->level == REQUEST_LISTENERS_LEVEL_DB);
+        dictDelete(listeners->parent->db.keys,listeners->key.key->ptr);
         decrRefCount(listeners->key.key);
         break;
     default:
@@ -128,12 +127,12 @@ sds requestListenersDump(requestListeners *listeners) {
         client *c = listener->c;
         if (ln != listFirst(listeners->listeners)) result = sdscat(result,",");
         result = sdscat(result,"("); 
-        if (c->cmd) result = sdscat(result,intentions[c->cmd->intention]); 
+        if (c && c->cmd) result = sdscat(result,intentions[c->cmd->intention]); 
         result = sdscat(result,":"); 
         if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY)
             result = sdscatsds(result,listeners->key.key->ptr); 
         result = sdscat(result,":"); 
-        if (c->cmd) result = sdscat(result,c->cmd->name); 
+        if (c && c->cmd) result = sdscat(result,c->cmd->name); 
         result = sdscat(result,")"); 
     }
     result = sdscat(result, "]");
@@ -195,12 +194,12 @@ int requestListenersTreeBlocking(requestListeners *listeners) {
 requestListeners *serverRequestListenersCreate() {
     int i;
     requestListeners *s = requestListenersCreate(
-            REQUEST_LISTENERS_LEVEL_SVR, NULL, NULL, NULL);
+            REQUEST_LISTENERS_LEVEL_SVR,NULL,NULL,NULL);
 
     for (i = 0; i < server.dbnum; i++) {
         redisDb *db = server.db + i;
         s->svr.dbs[i] = requestListenersCreate(
-                REQUEST_LISTENERS_LEVEL_DB, db, NULL, s);
+                REQUEST_LISTENERS_LEVEL_DB,db,NULL,s);
     }
     return s;
 }
@@ -228,7 +227,7 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
         return db_listeners;
     }
 
-    key_listeners = dictFetchValue(db_listeners->db.keys,key);
+    key_listeners = dictFetchValue(db_listeners->db.keys,key->ptr);
     if (key_listeners == NULL) {
         if (create) {
             key_listeners = requestListenersCreate(
@@ -245,7 +244,7 @@ static inline int proceed(requestListeners *listeners,
             listener->key,listener->c,listener->pd);
 }
 
-int requestBlocked(redisDb *db, robj *key) {
+int requestWouldBlock(redisDb *db, robj *key) {
     requestListeners *listeners = requestBindListeners(db,key,0);
     if (listeners == NULL) return 0;
     return listeners->nlisteners > 0;
@@ -260,21 +259,22 @@ int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
     listeners = requestBindListeners(db,key,1);
     blocking = listeners->nlisteners > 0;
     listener = requestListenerCreate(db,key,cb,c,pd);
-    requestListenersPush(listeners, listener);
+    requestListenersPush(listeners,listener);
 
     /* Proceed right away if request key is not blocking, otherwise
      * execution is defered. */
-    if (!blocking) proceed(listeners, listener);
+    if (!blocking) proceed(listeners,listener);
     return 0;
 }
 
 int requestNotify(void *listeners_) {
-    requestListeners *listeners = listeners_;
+    requestListeners *listeners = listeners_, *parent;
     requestListener *current, *next;
 
     current = requestListenersPop(listeners);
     requestListenerRelease(current);
 
+    /* Find next proceed-able listeners, then trigger proceed. */
     while (listeners) {
         /* First, try proceed current level listener. */
         if (listLength(listeners->listeners)) {
@@ -288,14 +288,183 @@ int requestNotify(void *listeners_) {
             /* child listeners exists, wait untill all child finished. */
             break;
         } else {
+            parent = listeners->parent;
             if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY) {
                 /* Only key level listeners releases, DB or server level
                  * key released only when server exit. */
                 requestListenersRelease(listeners);
             }
-            listeners = listeners->parent;
+
+            if (parent == NULL) {
+                listeners = NULL;
+                break;
+            }
+
+            /* Parent is not proceed-able if sibling listeners exists. */
+            if (parent->nlisteners > listLength(parent->listeners)) {
+                listeners = NULL;
+                break;
+            }
+
+            listeners = parent;
         }
     }
 
     return 0;
 }
+
+#ifdef REDIS_TEST
+
+static int blocked;
+
+int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    blocked--;
+    return 0;
+}
+
+int proceedNotifyNow(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    blocked--;
+    requestNotify(listeners);
+    return 0;
+}
+
+typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
+
+int swapWaitTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int err = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2, *key3;
+    void *handle1, *handle2, *handle3, *handledb, *handledb2, *handlesvr;
+
+    TEST("wait: init") {
+        int i;
+        server.hz = 10;
+        server.dbnum = 4;
+        server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+        for (i = 0; i < server.dbnum; i++) server.db[i].id = i;
+        db = server.db, db2 = server.db+1;
+        server.request_listeners = serverRequestListenersCreate();
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+        key3 = createStringObject("key-3",5);
+
+        if (!server.request_listeners) ERROR;
+        if (blocked) ERROR;
+    }
+
+   TEST("wait: parallel key") {
+       handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
+       requestWait(db,key1,proceedNotifyLater,NULL,&handle1), blocked++;
+       requestWait(db,key2,proceedNotifyLater,NULL,&handle2), blocked++;
+       requestWait(db,key3,proceedNotifyLater,NULL,&handle3), blocked++;
+       if (blocked) ERROR;
+       if (!requestWouldBlock(db,key1)) ERROR;
+       if (!requestWouldBlock(db,key2)) ERROR;
+       if (!requestWouldBlock(db,key3)) ERROR;
+       if (!requestWouldBlock(db,NULL)) ERROR;
+       requestNotify(handle1);
+       if (requestWouldBlock(db,key1)) ERROR;
+       requestNotify(handle2);
+       if (requestWouldBlock(db,key2)) ERROR;
+       requestNotify(handle3);
+       if (requestWouldBlock(db,key3)) ERROR;
+       if (requestWouldBlock(NULL,NULL)) ERROR;
+   } 
+
+   TEST("wait: pipelined key") {
+       int i;
+       for (i = 0; i < 3; i++) {
+           blocked++;
+           requestWait(db,key1,proceedNotifyLater,NULL,&handle1);
+       }
+       if (!requestWouldBlock(db,key1)) ERROR;
+       /* first one proceeded, others blocked */
+       if (blocked != 2) ERROR;
+       for (i = 0; i < 2; i++) {
+           requestNotify(handle1);
+           if (!requestWouldBlock(db,key1)) ERROR;
+       }
+       if (blocked != 0) ERROR;
+       requestNotify(handle1);
+       if (requestWouldBlock(db,key1)) ERROR;
+   }
+
+   TEST("wait: parallel db") {
+       requestWait(db,NULL,proceedNotifyLater,NULL,&handledb), blocked++;
+       requestWait(db2,NULL,proceedNotifyLater,NULL,&handledb2), blocked++;
+       if (blocked) ERROR;
+       if (!requestWouldBlock(db,NULL)) ERROR;
+       if (!requestWouldBlock(db2,NULL)) ERROR;
+       requestNotify(handledb);
+       requestNotify(handledb2);
+       if (requestWouldBlock(db,NULL)) ERROR;
+       if (requestWouldBlock(db2,NULL)) ERROR;
+   }
+
+    TEST("wait: mixed parallel-key/db/parallel-key") {
+        handle1 = NULL, handle2 = NULL, handle3 = NULL, handledb = NULL;
+        requestWait(db,key1,proceedNotifyLater,NULL,&handle1),blocked++;
+        requestWait(db,key2,proceedNotifyLater,NULL,&handle2),blocked++;
+        requestWait(db,NULL,proceedNotifyLater,NULL,&handledb),blocked++;
+        requestWait(db,key3,proceedNotifyLater,NULL,&handle3),blocked++;
+        /* key1/key2 proceeded, db/key3 blocked */
+        if (!requestWouldBlock(db,NULL)) ERROR;
+        if (blocked != 2) ERROR;
+        /* key1/key2 notify */
+        requestNotify(handle1);
+        if (!requestWouldBlock(db,NULL)) ERROR;
+        requestNotify(handle2);
+        if (!requestWouldBlock(db,NULL)) ERROR;
+        /* db proceeded, key3 still blocked. */
+        if (blocked != 1) ERROR;
+        if (handle3) ERROR;
+        /* db notified, key3 proceeds but still blocked */
+        requestNotify(handledb);
+        if (blocked) ERROR;
+        if (!requestWouldBlock(db,NULL)) ERROR;
+        /* db3 proceed, noting would block */
+        requestNotify(handle3);
+        if (requestWouldBlock(db,NULL)) ERROR;
+    }
+
+    TEST("wait: mixed parallel-key/server/parallel-key") {
+        handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
+        requestWait(db,key1,proceedNotifyLater,NULL,&handle1),blocked++;
+        requestWait(db,key2,proceedNotifyLater,NULL,&handle2),blocked++;
+        requestWait(NULL,NULL,proceedNotifyLater,NULL,&handlesvr),blocked++;
+        requestWait(db,key3,proceedNotifyLater,NULL,&handle3),blocked++;
+        /* key1/key2 proceeded, svr/key3 blocked */
+        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        if (!requestWouldBlock(db,NULL)) ERROR;
+        if (blocked != 2) ERROR;
+        /* key1/key2 notify */
+        requestNotify(handle1);
+        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        requestNotify(handle2);
+        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        /* svr proceeded, key3 still blocked. */
+        if (blocked != 1) ERROR;
+        if (handle3) ERROR;
+        /* svr notified, db3 proceeds but still would block */
+        requestNotify(handlesvr);
+        if (blocked) ERROR;
+        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        /* db3 proceed, noting would block */
+        requestNotify(handle3);
+        if (requestWouldBlock(NULL,NULL)) ERROR;
+    }
+
+    return 0;
+}
+
+#endif

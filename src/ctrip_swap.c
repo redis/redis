@@ -251,7 +251,7 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  result += swapDataTest(argc, argv, accurate);
+  result += swapWaitTest(argc, argv, accurate);
   return result;
 }
 #endif
