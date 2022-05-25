@@ -239,3 +239,19 @@ void swapInit() {
     server.request_listeners = serverRequestListenersCreate();
 }
 
+
+
+#ifdef REDIS_TEST
+int initTestRedisServer() {
+    server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
+    return 1;
+}
+int clearTestRedisServer() {
+    return 1;
+}
+int swapTest(int argc, char **argv, int accurate) {
+  int result = 0;
+  result += swapDataTest(argc, argv, accurate);
+  return result;
+}
+#endif

@@ -92,3 +92,14 @@ inline void swapDataFree(swapData *d, void *datactx) {
     d->type->free(d,datactx);
 }
 
+#ifdef REDIS_TEST
+#include <stdio.h>
+#include <limits.h>
+
+
+int swapDataTest(int argc, char **argv, int accurate) {
+    int result = 0;
+    result += swapDataWholeKeyTest(argc, argv, accurate);
+    return result;
+}
+#endif

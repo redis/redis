@@ -277,12 +277,190 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
     wholeKeySwapData *data = zmalloc(sizeof(wholeKeySwapData));
     data->d.type = &wholeKeySwapDataType;
     data->db = db;
+    if (key != NULL) {
+        incrRefCount(key);
+    }
     data->key = key;
+    if (value != NULL) {
+        incrRefCount(value);
+    }
     data->value = value;
+    if (evict != NULL) {
+        incrRefCount(evict);
+    }
     data->evict = evict;
+    
     wholeKeyDataCtx *datactx = zmalloc(sizeof(wholeKeyDataCtx));
     datactx->decoded = NULL;
     *pdatactx = datactx;
     return (swapData*)data;
 }
 
+#ifdef REDIS_TEST
+#include <stdio.h>
+#include <limits.h>
+int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
+    initTestRedisServer();
+    redisDb* db = server.db + 0;
+    TEST("wholeKey SwapAna value = NULL and evict = NULL") {
+        // value == NULL && evict == NULL
+        void* ctx = NULL;
+        swapData* data = createWholeKeySwapData(db, NULL, NULL, NULL, &ctx);
+        int intention;
+        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey SwapAna value != NULL and evict = NULL") {
+        // value == NULL && evict == NULL
+        void* ctx = NULL;
+        robj* value  = createRawStringObject("value", 5);
+        swapData* data = createWholeKeySwapData(db, NULL, value, NULL, &ctx);
+        int intention;
+        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        serverAssert(intention == SWAP_OUT);
+        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        serverAssert(intention == SWAP_DEL);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey SwapAna value = NULL and evict != NULL") {
+        // value == NULL && evict == NULL
+        void* ctx = NULL;
+        robj* evict  = createRawStringObject("value", 5);
+        swapData* data = createWholeKeySwapData(db, NULL, NULL, evict, &ctx);
+        int intention;
+        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        serverAssert(intention == SWAP_IN);
+        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        serverAssert(intention == SWAP_DEL);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey SwapAna value != NULL and evict != NULL") {
+        // value == NULL && evict == NULL
+        void* ctx = NULL;
+        robj* value  = createRawStringObject("value", 5);
+        robj* evict  = createRawStringObject("evict", 5);
+        swapData* data = createWholeKeySwapData(db, NULL, value, evict, &ctx);
+        int intention;
+        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        serverAssert(intention == SWAP_NOP);
+        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        serverAssert(intention == SWAP_DEL);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey EncodeKeys String") {
+        void* ctx = NULL;
+        robj* key = createRawStringObject("key", 3);
+        robj* value  = createRawStringObject("value", 5);
+        robj* evict  = NULL;
+        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        int intention;
+        int i, numkeys, retval = C_OK, action;
+        sds *rawkeys = NULL;
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
+        serverAssert(result == C_OK);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey EncodeKeys String KEY + VALUE") {
+        void* ctx = NULL;
+        robj* key = createRawStringObject("key", 3);
+        robj* value  = createRawStringObject("value", 5);
+        robj* evict  = NULL;
+        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        int intention;
+        int i, numkeys, retval = C_OK, action;
+        sds *rawkeys = NULL;
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        serverAssert(ROCKS_GET == action);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
+        serverAssert(result == C_OK);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, &action, &numkeys, &rawkeys);
+        serverAssert(ROCKS_DEL == action);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
+        serverAssert(result == C_OK);
+        // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
+        // serverAssert(numkeys == 0);
+        // serverAssert(result == C_ERR);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey EncodeKeys String KEY + EVICT") {
+        void* ctx = NULL;
+        robj* key = createRawStringObject("key", 3);
+        robj* evict  = createRawStringObject("value", 5);
+        robj* value  = NULL;
+        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        int intention;
+        int i, numkeys, retval = C_OK, action;
+        sds *rawkeys = NULL;
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        serverAssert(ROCKS_GET == action);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
+        serverAssert(result == C_OK);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, &action, &numkeys, &rawkeys);
+        serverAssert(ROCKS_DEL == action);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey")== 0);
+        serverAssert(result == C_OK);
+        // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
+        // serverAssert(numkeys == 0);
+        // serverAssert(result == C_ERR);
+        wholeKeyFree(data, ctx);
+    }
+
+    TEST("wholeKey EncodeData + DecodeData") {
+        void* ctx = NULL;
+        robj* key = createRawStringObject("key", 3);
+        robj* value  = createRawStringObject("value", 5);
+        robj* evict  = NULL;
+        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
+        int intention;
+        int i, numkeys = 0, retval = C_OK, action;
+        sds *rawkeys = NULL, *rawvals = NULL;
+        int result = wholeKeyEncodeData(data, SWAP_OUT,  &action, &numkeys, &rawkeys, &rawvals, NULL);
+        serverAssert(result == C_OK);
+        serverAssert(ROCKS_PUT == action);
+        serverAssert(numkeys == 1);
+        serverAssert(strcmp(rawkeys[0], "Kkey") == 0);
+        robj* decoded;
+        result = wholeKeyDecodeData(data, numkeys, rawkeys, rawvals, &decoded);
+        serverAssert(result == C_OK);
+        serverAssert(strcmp(decoded->ptr ,"value") == 0);
+        wholeKeyFree(data, ctx);
+    }
+    
+
+    
+    return 0;
+}
+
+#endif

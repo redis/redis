@@ -477,6 +477,33 @@ robj *rocksDecodeValRdb(int rdbtype, sds raw);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
 
-int swapDataTest(int argc, char *argv[], int accurate);
+
+#ifdef REDIS_TEST
+#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
+
+#define ERROR                                                                  \
+    do {                                                                       \
+        printf("\tERROR!\n");                                                  \
+        err++;                                                                 \
+    } while (0)
+
+#define ERR(x, ...)                                                            \
+    do {                                                                       \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
+        printf("ERROR! " x "\n", __VA_ARGS__);                                 \
+        err++;                                                                 \
+    } while (0)
+
+#define TEST(name) printf("test — %s\n", name);
+#define TEST_DESC(name, ...) printf("test — " name "\n", __VA_ARGS__);
+/* --- initTest ---*/
+int initTestRedisServer();
+int clearTestRedisServer();
+/* --- Data --- */
+int swapDataWholeKeyTest(int argc, char **argv, int accurate);
+int swapDataTest(int argc, char **argv, int accurate);
+
+int swapTest(int argc, char **argv, int accurate);
+#endif
 
 #endif
