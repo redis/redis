@@ -158,7 +158,7 @@ int evictKeyRequestProceed(void *listeners, redisDb *db, robj *key,
 
 int submitEvictClientRequest(client *c, robj *key, robj *value, robj *evict) {
     void *datactx;
-    keyRequest key_request = {key,0,NULL};
+    keyRequest key_request = {REQUEST_LEVEL_KEY,0,key,NULL};
     swapData *data = createSwapData(c->db,key,value,evict,&datactx);
     swapCtx *ctx = swapCtxCreate(c,&key_request);
     ctx->data = data;

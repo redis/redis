@@ -76,7 +76,7 @@ int expireKeyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
  * TODO opt: keys never evicted to rocksdb need not to be deleted from rocksdb. */
 int submitExpireClientRequest(client *c, robj *key) {
     int old_keyrequests_count = c->keyrequests_count;
-    keyRequest key_request = {key,0,NULL};
+    keyRequest key_request = {REQUEST_LEVEL_KEY,0,key,NULL};
     swapCtx *ctx = swapCtxCreate(c,&key_request);
     c->keyrequests_count++;
     requestWait(c->db,key_request.key,expireKeyRequestProceed,c,ctx);

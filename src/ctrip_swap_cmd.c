@@ -62,8 +62,8 @@ void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int num) {
 }
 
 /* Note that key&subkeys ownership moved */
-void getKeyRequestsAppendResult(getKeyRequestsResult *result, robj *key,
-        int num_subkeys, robj **subkeys) {
+void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level,
+        robj *key, int num_subkeys, robj **subkeys) {
     if (result->num == result->size) {
         int newsize = result->size + 
             (result->size > 8192 ? 8192 : result->size);
@@ -71,6 +71,7 @@ void getKeyRequestsAppendResult(getKeyRequestsResult *result, robj *key,
     }
 
     keyRequest *key_request = &result->key_requests[result->num++];
+    key_request->level = level;
     key_request->key = key;
     key_request->num_subkeys = num_subkeys;
     key_request->subkeys = subkeys;
@@ -110,7 +111,7 @@ static void getSingleCmdKeyRequsts(client *c, getKeyRequestsResult *result) {
         for (i = 0; i < numkeys; i++) {
             robj *key = c->argv[keys.keys[i]];
             incrRefCount(key);
-            getKeyRequestsAppendResult(result,key,0,NULL);
+            getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,0,NULL);
         }
         getKeysFreeResult(&keys); 
     } else if (cmd->flags & CMD_MODULE) {
@@ -163,7 +164,7 @@ int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc,
     UNUSED(cmd);
     UNUSED(argc);
     UNUSED(argv);
-    getKeyRequestsAppendResult(result, NULL, 0, NULL);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_SVR,NULL,0,NULL);
     return 0;
 }
 

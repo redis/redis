@@ -67,18 +67,18 @@ static requestListeners *requestListenersCreate(int level, redisDb *db,
     listeners->level = level;
 
     switch (level) {
-    case REQUEST_LISTENERS_LEVEL_SVR:
+    case REQUEST_LEVEL_SVR:
         listeners->svr.dbnum = server.dbnum;
         listeners->svr.dbs = zmalloc(server.dbnum*sizeof(requestListeners));
         break;
-    case REQUEST_LISTENERS_LEVEL_DB:
+    case REQUEST_LEVEL_DB:
         serverAssert(db);
         listeners->db.db = db;
         listeners->db.keys = dictCreate(&requestListenersDictType, NULL);
         break;
-    case REQUEST_LISTENERS_LEVEL_KEY:
+    case REQUEST_LEVEL_KEY:
         serverAssert(key);
-        serverAssert(parent->level == REQUEST_LISTENERS_LEVEL_DB);
+        serverAssert(parent->level == REQUEST_LEVEL_DB);
         incrRefCount(key);
         listeners->key.key = key;
         dictAdd(parent->db.keys,sdsdup(key->ptr),listeners);
@@ -97,14 +97,14 @@ void requestListenersRelease(requestListeners *listeners) {
     listeners->listeners = NULL;
 
     switch (listeners->level) {
-    case REQUEST_LISTENERS_LEVEL_SVR:
+    case REQUEST_LEVEL_SVR:
         zfree(listeners->svr.dbs);
         break;
-    case REQUEST_LISTENERS_LEVEL_DB:
+    case REQUEST_LEVEL_DB:
         dictRelease(listeners->db.keys);
         break;
-    case REQUEST_LISTENERS_LEVEL_KEY:
-        serverAssert(listeners->parent->level == REQUEST_LISTENERS_LEVEL_DB);
+    case REQUEST_LEVEL_KEY:
+        serverAssert(listeners->parent->level == REQUEST_LEVEL_DB);
         dictDelete(listeners->parent->db.keys,listeners->key.key->ptr);
         decrRefCount(listeners->key.key);
         break;
@@ -129,7 +129,7 @@ sds requestListenersDump(requestListeners *listeners) {
         result = sdscat(result,"("); 
         if (c && c->cmd) result = sdscat(result,intentions[c->cmd->intention]); 
         result = sdscat(result,":"); 
-        if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY)
+        if (listeners->level == REQUEST_LEVEL_KEY)
             result = sdscatsds(result,listeners->key.key->ptr); 
         result = sdscat(result,":"); 
         if (c && c->cmd) result = sdscat(result,c->cmd->name); 
@@ -194,12 +194,12 @@ int requestListenersTreeBlocking(requestListeners *listeners) {
 requestListeners *serverRequestListenersCreate() {
     int i;
     requestListeners *s = requestListenersCreate(
-            REQUEST_LISTENERS_LEVEL_SVR,NULL,NULL,NULL);
+            REQUEST_LEVEL_SVR,NULL,NULL,NULL);
 
     for (i = 0; i < server.dbnum; i++) {
         redisDb *db = server.db + i;
         s->svr.dbs[i] = requestListenersCreate(
-                REQUEST_LISTENERS_LEVEL_DB,db,NULL,s);
+                REQUEST_LEVEL_DB,db,NULL,s);
     }
     return s;
 }
@@ -231,7 +231,7 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
     if (key_listeners == NULL) {
         if (create) {
             key_listeners = requestListenersCreate(
-                    REQUEST_LISTENERS_LEVEL_KEY,db,key,db_listeners);
+                    REQUEST_LEVEL_KEY,db,key,db_listeners);
         }
     }
 
@@ -293,7 +293,7 @@ int requestNotify(void *listeners_) {
             break;
         } else {
             parent = listeners->parent;
-            if (listeners->level == REQUEST_LISTENERS_LEVEL_KEY) {
+            if (listeners->level == REQUEST_LEVEL_KEY) {
                 /* Only key level listeners releases, DB or server level
                  * key released only when server exit. */
                 requestListenersRelease(listeners);
@@ -328,8 +328,6 @@ int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void 
     blocked--;
     return 0;
 }
-
-typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
 int swapWaitTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);

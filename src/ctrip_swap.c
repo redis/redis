@@ -108,14 +108,22 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     return 0;
 }
 
+/* Note keyRequestProceed include key/db/svr level request, only key level
+ * requests might need swap. */
 int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
         void *pd) {
     int retval = C_OK;
     void *datactx;
     swapData *data;
     swapCtx *ctx = pd;
-    robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-    robj *evict = lookupEvictKey(db,key);
+    robj *value, *evict;
+    
+    /* no swap needed for db/svr level request */
+    if (db == NULL || key == NULL)
+        goto noswap;
+
+    value = lookupKey(db,key,LOOKUP_NOTOUCH);
+    evict = lookupEvictKey(db,key);
 
     /* key not exists, noswap needed. */
     if (!value && !evict)
@@ -155,7 +163,8 @@ int submitNormalClientRequest(client *c) {
     for (int i = 0; i < result.num; i++) {
         keyRequest *key_request = result.key_requests + i;
         swapCtx *ctx = swapCtxCreate(c,key_request);
-        requestWait(c->db,key_request->key,keyRequestProceed,c,ctx);
+        redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
+        requestWait(db,key_request->key,keyRequestProceed,c,ctx);
     }
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);

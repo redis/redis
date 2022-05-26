@@ -34,9 +34,14 @@
 #include <threads.h>
 
 /* --- Cmd --- */
+#define REQUEST_LEVEL_SVR  0
+#define REQUEST_LEVEL_DB   1
+#define REQUEST_LEVEL_KEY  2
+
 typedef struct keyRequest{
-	robj *key;
+  int level;
 	int num_subkeys;
+	robj *key;
 	robj **subkeys;
 } keyRequest;
 
@@ -56,7 +61,7 @@ typedef struct getKeyRequestsResult {
 } getKeyRequestsResult;
 
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
-void getKeyRequestsAppendResult(getKeyRequestsResult *result, robj *key, int num_subkeys, robj **subkeys);
+void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, robj *key, int num_subkeys, robj **subkeys);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 
 /* --- Data --- */
@@ -275,10 +280,6 @@ int parallelSyncDrain();
 int parallelSyncSwapRequestSubmit(swapRequest *req);
 
 /* --- Wait --- */
-#define REQUEST_LISTENERS_LEVEL_SVR  0
-#define REQUEST_LISTENERS_LEVEL_DB   1
-#define REQUEST_LISTENERS_LEVEL_KEY  2
-
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
 typedef struct requestListener {
