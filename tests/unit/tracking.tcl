@@ -369,7 +369,7 @@ start_server {tags {"tracking network"}} {
         $r CLIENT TRACKING OFF
     }
 
-    test {hdel deliver invlidate message after response in the same connection} {
+    test {hdel deliver invalidate message after response in the same connection} {
         r CLIENT TRACKING off
         r HELLO 3
         r CLIENT TRACKING on
