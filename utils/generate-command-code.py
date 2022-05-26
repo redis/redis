@@ -67,61 +67,58 @@ def get_optional_desc_string(desc, field, force_uppercase=False):
     return ret.replace("\n", "\\n")
 
 
+def check_command_args_key_specs(args, command_key_specs_index_set, command_arg_key_specs_index_set):
+    if not args:
+        return True
+
+    for arg in args:
+        if arg.key_spec_index is not None:
+            assert isinstance(arg.key_spec_index, int)
+
+            if arg.key_spec_index not in command_key_specs_index_set:
+                print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
+                return False
+
+            command_arg_key_specs_index_set.add(arg.key_spec_index)
+
+        if not check_command_args_key_specs(arg.subargs, command_key_specs_index_set, command_arg_key_specs_index_set):
+            return False
+
+    return True
+
 def check_command_key_specs(command):
     if not command.key_specs:
-        return
+        return True
 
     assert isinstance(command.key_specs, list)
 
-    global check_command_error_counter
-
     for cmd_key_spec in command.key_specs:
         if "flags" not in cmd_key_spec:
-            check_command_error_counter += 1
             print("command: %s key_specs missing flags" % command.fullname())
-            return
+            return False
 
         if "NOT_KEY" in cmd_key_spec["flags"]:
             # Like SUNSUBSCRIBE / SPUBLISH / SSUBSCRIBE
-            return
+            return True
 
     command_key_specs_index_set = set(range(len(command.key_specs)))
     command_arg_key_specs_index_set = set()
 
     # Collect key_spec used for each arg, including arg.subarg
-    for arg in command.args:
-        if arg.key_spec_index is not None:
-            assert isinstance(arg.key_spec_index, int)
-
-            if arg.key_spec_index not in command_key_specs_index_set:
-                check_command_error_counter += 1
-                print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
-                return
-
-            command_arg_key_specs_index_set.add(arg.key_spec_index)
-
-        for sub_arg in arg.subargs:
-            if sub_arg.key_spec_index is not None:
-                assert isinstance(sub_arg.key_spec_index, int)
-
-                if sub_arg.key_spec_index not in command_key_specs_index_set:
-                    check_command_error_counter += 1
-                    print("command: %s arg: %s key_spec_index error" % (command.fullname(), sub_arg.name))
-                    return
-
-                command_arg_key_specs_index_set.add(sub_arg.key_spec_index)
+    if not check_command_args_key_specs(command.args, command_key_specs_index_set, command_arg_key_specs_index_set):
+        return False
 
     # Check if we have key_specs not used
     if command_key_specs_index_set != command_arg_key_specs_index_set:
-        check_command_error_counter += 1
         print("command: %s may have unused key_spec" % command.fullname())
-        return
+        return False
+
+    return True
 
 
 # Globals
 subcommands = {}  # container_name -> dict(subcommand_name -> Subcommand) - Only subcommands
 commands = {}  # command_name -> Command - Only commands
-check_command_error_counter = 0  # An error counter is used to count errors in command checking.
 
 
 class KeySpec(object):
@@ -451,12 +448,15 @@ for command in commands.values():
         subcommand.group = command.group
         command.subcommands.append(subcommand)
 
+check_command_error_counter = 0  # An error counter is used to count errors in command checking.
+
 print("Checking all commands...")
 for command in commands.values():
-    check_command_key_specs(command)
+    if not check_command_key_specs(command):
+        check_command_error_counter += 1
 
 if check_command_error_counter != 0:
-    print("Error: There are errors in the command check, please check the above logs.")
+    print("Error: There are errors in the commands check, please check the above logs.")
     exit(1)
 
 print("Generating commands.c...")
