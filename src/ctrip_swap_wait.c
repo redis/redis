@@ -325,15 +325,6 @@ int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void 
     return 0;
 }
 
-int proceedNotifyNow(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
-    UNUSED(db), UNUSED(key), UNUSED(c);
-    void **pd = pd_;
-    *pd = listeners;
-    blocked--;
-    requestNotify(listeners);
-    return 0;
-}
-
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
 int swapWaitTest(int argc, char *argv[], int accurate) {

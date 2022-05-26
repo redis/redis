@@ -177,3 +177,132 @@ void rksgetCommand(client *c) {
     addReply(c, shared.ok);
 }
 
+#ifdef REDIS_TEST
+
+void rewriteResetClientCommandCString(client *c, int argc, ...) {
+    va_list ap;
+    int j;
+    robj **argv; /* The new argument vector */
+
+    argv = zmalloc(sizeof(robj*)*argc);
+    va_start(ap,argc);
+    for (j = 0; j < argc; j++) {
+        char *a = va_arg(ap, char*);
+        argv[j] = createStringObject(a, strlen(a));
+    }
+    replaceClientCommandVector(c, argc, argv);
+    va_end(ap);
+}
+
+void initServerConfig(void);
+int swapCmdTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int err = 0;
+    client *c;
+
+    TEST("cmd: init") {
+        initServerConfig();
+        ACLInit();
+        server.hz = 10;
+        c = createClient(NULL);
+    }
+
+    TEST("cmd: no key") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        rewriteResetClientCommandCString(c,1,"PING");
+        getKeyRequests(c,&result);
+        if (result.num != 0) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+    } 
+
+    TEST("cmd: single key") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        rewriteResetClientCommandCString(c,2,"GET","KEY");
+        getKeyRequests(c,&result);
+        if (result.num != 1) ERROR;
+        if (strcmp(result.key_requests[0].key->ptr, "KEY")) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+    }
+
+    TEST("cmd: multiple keys") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        getKeyRequests(c,&result);
+        if (result.num != 2) ERROR;
+        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
+        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+    }
+
+    TEST("cmd: multi/exec") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,1,"PING");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"HGET","KEY3","F1");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"EXEC");
+        getKeyRequests(c,&result);
+        if (result.num != 3) ERROR;
+        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
+        if (result.key_requests[0].subkeys != NULL) ERROR;
+        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
+        if (result.key_requests[1].subkeys != NULL) ERROR;
+        if (strcmp(result.key_requests[2].key->ptr, "KEY3")) ERROR;
+        if (result.key_requests[2].subkeys != NULL) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
+
+    /* TODO hash support subkeys
+    TEST("cmd: subkeys") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        rewriteResetClientCommandCString(c,5,"HMGET","KEY","F1","F2","F3");
+        getKeyRequests(c,&result);
+        if (result.num != 1) ERROR;
+        if (strcmp(result.key_requests[0].key->ptr, "KEY")) ERROR;
+        if (strcmp(result.key_requests[0].subkeys[0]->ptr, "F1")) ERROR;
+        if (strcmp(result.key_requests[0].subkeys[1]->ptr, "F2")) ERROR;
+        if (strcmp(result.key_requests[0].subkeys[2]->ptr, "F3")) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+    }
+
+    TEST("cmd: multi/exec subkeys") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,1,"PING");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,5,"HMGET","KEY","F1","F2","F3");
+        queueMultiCommand(c);
+        getKeyRequests(c,&result);
+        if (result.num != 3) ERROR;
+        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
+        if (result.key_requests[0].subkeys != NULL) ERROR;
+        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
+        if (result.key_requests[1].subkeys != NULL) ERROR;
+        if (strcmp(result.key_requests[2].key->ptr, "KEY")) ERROR;
+        if (strcmp(result.key_requests[2].subkeys[0]->ptr, "F1")) ERROR;
+        if (strcmp(result.key_requests[2].subkeys[1]->ptr, "F2")) ERROR;
+        if (strcmp(result.key_requests[2].subkeys[2]->ptr, "F3")) ERROR;
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    } */
+
+    return 0;
+}
+
+#endif
+
