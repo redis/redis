@@ -67,14 +67,17 @@ def get_optional_desc_string(desc, field, force_uppercase=False):
     return ret.replace("\n", "\\n")
 
 
-def check_command_key_specs(cmd):
+def check_command_key_specs(command):
     if not command.key_specs:
         return
 
     assert isinstance(command.key_specs, list)
 
+    global check_command_error_counter
+
     for cmd_key_spec in command.key_specs:
         if "flags" not in cmd_key_spec:
+            check_command_error_counter += 1
             print("command: %s key_specs missing flags" % command.fullname())
             return
 
@@ -91,6 +94,7 @@ def check_command_key_specs(cmd):
             assert isinstance(arg.key_spec_index, int)
 
             if arg.key_spec_index not in command_key_specs_index_set:
+                check_command_error_counter += 1
                 print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
                 return
 
@@ -101,6 +105,7 @@ def check_command_key_specs(cmd):
                 assert isinstance(sub_arg.key_spec_index, int)
 
                 if sub_arg.key_spec_index not in command_key_specs_index_set:
+                    check_command_error_counter += 1
                     print("command: %s arg: %s key_spec_index error" % (command.fullname(), sub_arg.name))
                     return
 
@@ -108,6 +113,7 @@ def check_command_key_specs(cmd):
 
     # Check if we have key_specs not used
     if command_key_specs_index_set != command_arg_key_specs_index_set:
+        check_command_error_counter += 1
         print("command: %s may have unused key_spec" % command.fullname())
         return
 
@@ -115,6 +121,7 @@ def check_command_key_specs(cmd):
 # Globals
 subcommands = {}  # container_name -> dict(subcommand_name -> Subcommand) - Only subcommands
 commands = {}  # command_name -> Command - Only commands
+check_command_error_counter = 0  # An error counter is used to count errors in command checking.
 
 
 class KeySpec(object):
@@ -447,6 +454,10 @@ for command in commands.values():
 print("Checking all commands...")
 for command in commands.values():
     check_command_key_specs(command)
+
+if check_command_error_counter != 0:
+    print("Error: There are errors in the command check, please check the above logs.")
+    exit(1)
 
 print("Generating commands.c...")
 with open("%s/commands.c" % srcdir, "w") as f:
