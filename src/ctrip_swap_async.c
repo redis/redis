@@ -46,7 +46,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
     while ((ln = listNext(&li))) {
         swapRequest *req = listNodeValue(ln);
         /* currently async mode are only used by cmd swap. */
-        finishCmdSwapRequest(req);
+        finishSwapRequest(req);
         req->finish_cb(req->data, req->finish_pd);
         swapRequestFree(req);
     }

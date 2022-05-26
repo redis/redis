@@ -274,6 +274,10 @@ int requestNotify(void *listeners_) {
     current = requestListenersPop(listeners);
     requestListenerRelease(current);
 
+    /* serverLog(LL_WARNING, "[xxx] request notify => %d:%s:%ld", */
+            /* listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"), */
+            /* listLength(listeners->listeners)); */
+
     /* Find next proceed-able listeners, then trigger proceed. */
     while (listeners) {
         /* First, try proceed current level listener. */
@@ -301,7 +305,7 @@ int requestNotify(void *listeners_) {
             }
 
             /* Parent is not proceed-able if sibling listeners exists. */
-            if (parent->nlisteners > listLength(parent->listeners)) {
+            if (parent->nlisteners > (int)listLength(parent->listeners)) {
                 listeners = NULL;
                 break;
             }

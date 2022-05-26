@@ -140,14 +140,15 @@ int evictKeyRequestSwapFinished(swapData *data, void *pd) {
 int evictKeyRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
     UNUSED(db);
+    swapCtx *ctx = pd;
     /* Eviction starts only when key is not blocked, so eviction already
      * started in evictKey.*/
-    swapCtx *ctx = pd;
     ctx->listeners = listeners;
     swapDataAna(ctx->data,ctx->cmd_intention,ctx->key_request,
             &ctx->swap_intention);
     if (ctx->swap_intention == SWAP_NOP) {
         evictClientKeyRequestFinished(c,key,ctx);
+        requestNotify(listeners);
     } else {
         submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,ctx->data,
                 ctx->datactx, evictKeyRequestSwapFinished,ctx);
@@ -157,7 +158,6 @@ int evictKeyRequestProceed(void *listeners, redisDb *db, robj *key,
 
 int submitEvictClientRequest(client *c, robj *key, robj *value, robj *evict) {
     void *datactx;
-    int old_swapping_count = c->keyrequests_count;
     keyRequest key_request = {key,0,NULL};
     swapData *data = createSwapData(c->db,key,value,evict,&datactx);
     swapCtx *ctx = swapCtxCreate(c,&key_request);
@@ -165,11 +165,11 @@ int submitEvictClientRequest(client *c, robj *key, robj *value, robj *evict) {
     ctx->datactx = datactx;
     c->keyrequests_count++;
     requestWait(c->db,key_request.key,evictKeyRequestProceed,c,ctx);
-    return c->keyrequests_count > old_swapping_count;
+    return 1;
 }
 
 int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
-    int nswap, dirty;
+    int dirty, old_keyrequests_count;
     robj *o;
     client *evict_client = server.evict_clients[db->id];
 
@@ -189,8 +189,10 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
     }
 
     dirty = o->dirty;
-    nswap = submitEvictClientRequest(evict_client,key,o,NULL);
-    if (!nswap) {
+    old_keyrequests_count = evict_client->keyrequests_count;
+    submitEvictClientRequest(evict_client,key,o,NULL);
+    /* Evit request finished right away, no swap triggered. */
+    if (evict_client->keyrequests_count == old_keyrequests_count) {
         if (dirty) {
             if (evict_result) *evict_result = EVICT_FAIL_UNSUPPORTED;
         } else {
@@ -242,7 +244,7 @@ void evictCommand(client *c) {
 
     for (i = 1; i < c->argc; i++) {
         evict_result = 0;
-        nevict += tryEvictKey(c->db,c->argv[i], &evict_result);
+        nevict += tryEvictKey(c->db,c->argv[i],&evict_result);
         serverLog(LL_NOTICE, "evict %s: %s.", (sds)c->argv[i]->ptr,
                 evictResultToString(evict_result));
     }

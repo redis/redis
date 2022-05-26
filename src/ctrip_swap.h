@@ -29,7 +29,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #include "server.h"
-#include "ctrip_swap.h"
 #include <rocksdb/c.h>
 #include <stdatomic.h>
 #include <threads.h>
@@ -82,11 +81,11 @@ typedef struct swapDataType {
   int (*encodeKeys)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys);
   int (*encodeData)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
   int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, robj **decoded);
-  int (*swapIn)(struct swapData *data, void *datactx);
+  int (*swapIn)(struct swapData *data, robj *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
   int (*swapDel)(struct swapData *data, void *datactx);
-  int (*createDictObject)(struct swapData *data, robj *decoded, int *finish_type, void *datactx);
-  int (*cleanObject)(struct swapData *data, int *finish_type, void *datactx);
+  robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
+  int (*cleanObject)(struct swapData *data, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
 } swapDataType;
 
@@ -94,11 +93,11 @@ int swapDataAna(swapData *d, int cmd_intention, struct keyRequest *key_request, 
 int swapDataEncodeKeys(swapData *d, int intention, int *action, int *num, sds **rawkeys);
 int swapDataEncodeData(swapData *d, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
 int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
-int swapDataSwapIn(swapData *d, void *datactx);
+int swapDataSwapIn(swapData *d, robj *result, void *datactx);
 int swapDataSwapOut(swapData *d, void *datactx);
 int swapDataSwapDel(swapData *d, void *datactx);
-int swapDataCreateDictObject(swapData *d, robj *decoded, int *finish_type, void *datactx);
-int swapDataCleanObject(swapData *d, int *finish_type, void *datactx);
+robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
+int swapDataCleanObject(swapData *d, void *datactx);
 void swapDataFree(swapData *data, void *datactx);
 
 #define SWAP_ERR_ANA_FAIL -100
@@ -111,7 +110,6 @@ typedef struct swapCtx {
   int swap_intention;
   swapData *data;
   void *datactx;
-  int finish_type;
   int errcode;
 } swapCtx;
 
@@ -128,10 +126,6 @@ typedef struct wholeKeySwapData {
   robj *value;
   robj *evict;
 } wholeKeySwapData;
-
-typedef struct wholeKeyDataCtx {
-  robj *decoded;
-} wholeKeyDataCtx;
 
 swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
 
@@ -161,7 +155,7 @@ typedef struct swapRequest {
   int intention;
   swapData *data;
   void *datactx;
-  int swap_type;
+  robj *result;
   swapRequestNotifyCallback notify_cb;
   void *notify_pd;
   swapRequestFinishedCallback finish_cb;
@@ -171,8 +165,7 @@ typedef struct swapRequest {
 swapRequest *swapRequestNew(int intention, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd);
 void swapRequestFree(swapRequest *req);
 int executeSwapRequest(swapRequest *req);
-int finishCmdSwapRequest(swapRequest *req);
-int finishRdbSwapRequest(swapRequest *req);
+int finishSwapRequest(swapRequest *req);
 void submitSwapRequest(int mode, int intention, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd);
 
 /* --- Threads (encode/rio/decode/finish) --- */

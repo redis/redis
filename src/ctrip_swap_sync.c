@@ -85,8 +85,7 @@ static int parallelSwapProcess(swapEntry *e) {
             return C_ERR;
         }
         e->inprogress = 0;
-        /* currently sync mode are only used by rdb swap. */
-        finishRdbSwapRequest(e->req);
+        finishSwapRequest(e->req);
         e->req->finish_cb(e->req->data, e->req->finish_pd);
     }
     return C_OK;

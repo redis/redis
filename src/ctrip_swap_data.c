@@ -28,7 +28,8 @@
 
 #include "ctrip_swap.h"
 
-swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx) {
+swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict,
+        void **datactx) {
     int obj_type;
     swapData *data;
 
@@ -46,46 +47,60 @@ swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void 
     return data;
 }
 
+/* Main-thread: analyze data and command intention & request to decide
+ * final swap intention. e.g. command might want SWAP_IN but data not
+ * evicted, then intention is decided as NOP. */ 
 inline int swapDataAna(swapData *d, int cmd_intention,
         struct keyRequest *key_request, int *intention) {
     return d->type->swapAna(d,cmd_intention,key_request,intention);
 }
 
+/* Swap-thread: decide how to encode keys by data and intention. */
 inline int swapDataEncodeKeys(swapData *d, int intention, int *action,
         int *numkeys, sds **rawkeys) {
     return d->type->encodeKeys(d,intention,action,numkeys,rawkeys);
 }
 
+/* Swap-thread: decode how to encode val/subval by data and intention.
+ * dataactx can be used store context of which subvals are encoded. */
 inline int swapDataEncodeData(swapData *d, int intention, int *action,
         int *numkeys, sds **rawkeys, sds **rawvals, void *datactx) {
     return d->type->encodeData(d,intention,action,numkeys,rawkeys,
             rawvals,datactx);
 }
 
+/* Swap-thread: decode val/subval from rawvalss returned by rocksdb. */
 inline int swapDataDecodeData(swapData *d, int num, sds *rawkeys,
         sds *rawvals, robj **decoded) {
     return d->type->decodeData(d,num,rawkeys,rawvals,decoded);
 }
 
-inline int swapDataSwapIn(swapData *d, void *datactx) {
-    return d->type->swapIn(d,datactx);
+/* Main-thread: swap in created or merged result into keyspace. */
+inline int swapDataSwapIn(swapData *d, robj *result, void *datactx) {
+    return d->type->swapIn(d,result,datactx);
 }
 
+/* Main-thread: swap out data out of keyspace. */
 inline int swapDataSwapOut(swapData *d, void *datactx) {
     return d->type->swapOut(d, datactx);
 }
 
+/* Main-thread: swap del data out of keyspace. */
 inline int swapDataSwapDel(swapData *d, void *datactx) {
     return d->type->swapDel(d, datactx);
 }
 
-inline int swapDataCreateDictObject(swapData *d, robj *decoded,
-        int *finish_type, void *datactx) {
-    return d->type->createDictObject(d,decoded,finish_type,datactx);
+/* Swap-thread: prepare robj to be merged.
+ * - create new object: return newly created object.
+ * - merge fields into robj: subvals merged into db.value, returns NULL */
+inline robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded,
+        void *datactx) {
+    return d->type->createOrMergeObject(d,decoded,datactx);
 }
 
-inline int swapDataCleanObject(swapData *d, int *finish_type, void *datactx) {
-    return d->type->cleanObject(d,finish_type,datactx);
+/* Swap-thread: clean data.value. */
+inline int swapDataCleanObject(swapData *d, void *datactx) {
+    return d->type->cleanObject(d,datactx);
 }
 
 inline void swapDataFree(swapData *d, void *datactx) {

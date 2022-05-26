@@ -318,7 +318,7 @@ static int executeSwapDelRequest(swapRequest *req) {
         goto end;
     }
 
-    if (swapDataCleanObject(data,&req->swap_type,req->datactx)) {
+    if (swapDataCleanObject(data,req->datactx)) {
         retval = EXEC_FAIL;
         goto end;
     }
@@ -368,7 +368,7 @@ static int executeSwapOutRequest(swapRequest *req) {
         goto end;
     }
 
-    if (swapDataCleanObject(data, &req->swap_type,req->datactx)) {
+    if (swapDataCleanObject(data,req->datactx)) {
         retval = EXEC_FAIL;
         goto end;
     }
@@ -448,11 +448,7 @@ static int executeSwapInRequest(swapRequest *req) {
         goto end;
     }
 
-    if (swapDataCreateDictObject(data,decoded,&req->swap_type,req->datactx)) {
-        retval = EXEC_FAIL;
-        goto end;
-    }
-
+    req->result = swapDataCreateOrMergeObject(data,decoded,req->datactx);
     doNotify(req);
 
 end:
@@ -471,18 +467,13 @@ int executeSwapRequest(swapRequest *req) {
 
 /* Called by async-complete-queue or parallel-sync in server thread
  * to swap in/out/del data */
-int finishCmdSwapRequest(swapRequest *req) {
-    switch(req->swap_type) {
-    case SWAP_NOP: return 0;
-    case SWAP_IN: return swapDataSwapIn(req->data,req->datactx);
+int finishSwapRequest(swapRequest *req) {
+    switch(req->intention) {
+    case SWAP_IN: return swapDataSwapIn(req->data,req->result,req->datactx);
     case SWAP_OUT: return swapDataSwapOut(req->data,req->datactx);
     case SWAP_DEL: return swapDataSwapDel(req->data,req->datactx);
     default: return -1;
     }
-}
-
-int finishRdbSwapRequest(swapRequest *req) {
-    return swapDataSwapOut(req->data, req->datactx);
 }
 
 void submitSwapRequest(int mode, int intention, swapData* data, void *datactx,
@@ -501,11 +492,13 @@ swapRequest *swapRequestNew(int intention, swapData *data, void *datactx,
     req->intention = intention;
     req->data = data;
     req->datactx = datactx;
+    req->result = NULL;
     req->finish_cb = cb;
     req->finish_pd = pd;
     return req;
 }
 
 void swapRequestFree(swapRequest *req) {
+    if (req->result) decrRefCount(req->result);
     zfree(req);
 }

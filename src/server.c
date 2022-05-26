@@ -4361,6 +4361,11 @@ int processCommand(client *c) {
                  * 2. repl client will reset (cmd moved to worker).
                  * 3. repl client will continue parse and dispatch cmd */
                 return C_OK;
+            } else {
+                call(c,CMD_CALL_FULL);
+                c->woff = server.master_repl_offset;
+                if (listLength(server.ready_keys))
+                    handleClientsBlockedOnKeys();
             }
         }
     }

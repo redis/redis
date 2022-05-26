@@ -44,8 +44,14 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
         }
         break;
     case SWAP_OUT:
-        if (data->value && !data->evict && data->value->dirty) {
-            *intention = SWAP_OUT;
+        if (data->value && !data->evict) {
+            if (data->value->dirty) {
+                *intention = SWAP_OUT;
+            } else {
+                /* Not dirty: swapout right away without swap. */
+                swapDataSwapOut(data_, NULL);
+                *intention = SWAP_NOP;
+            }
         } else {
             *intention = SWAP_NOP;
         }
@@ -65,6 +71,7 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
 }
 
 static sds wholeKeyEncodeKey(swapData *data_) {
+
     int obj_type = 0;
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     if (data->value) obj_type = data->value->type;
@@ -156,9 +163,10 @@ robj *dupObjectWk(robj *o) {
     }
 }*/
 
-/* NOTE: newval ownership moved */
 static robj *createSwapInObject(robj *newval, robj *evict) {
     robj *swapin = newval;
+    serverAssert(newval);
+    incrRefCount(newval);
     serverAssert(evict);
     serverAssert(evict->type == newval->type);
     /* Copy swapin object before modifing If newval is shared object. */
@@ -169,17 +177,17 @@ static robj *createSwapInObject(robj *newval, robj *evict) {
     return swapin;
 }
 
-int wholeKeySwapIn(swapData *data_, void *datactx_) {
+int wholeKeySwapIn(swapData *data_, robj *result, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    wholeKeyDataCtx *datactx = datactx_;
+    UNUSED(datactx);
     robj *swapin;
     long long expire;
     /* FIXME: left on purpose to detect shared object */
     // serverAssert(data->value->refcount != OBJ_SHARED_REFCOUNT);
     expire = getExpire(data->db,data->key);
-    swapin = createSwapInObject(datactx->decoded, data->evict);
+    swapin = createSwapInObject(result,data->evict);
     if (expire != -1) removeExpire(data->db,data->key);
-    dictDelete(data->db->evict,data->key);
+    dictDelete(data->db->evict,data->key->ptr);
     dbAdd(data->db,data->key,swapin);
     if (expire != -1) setExpire(NULL,data->db,data->key,expire);
     return 0;
@@ -229,32 +237,27 @@ int wholeKeySwapDel(swapData *data_, void *datactx) {
     return 0;
 }
 
-int wholeKeyCreateDictObject(swapData *data_, robj *decoded, int *swap_type, void *datactx) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
+robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
+    UNUSED(data);
     UNUSED(datactx);
     serverAssert(decoded);
-    serverAssert(!data->value);
-    data->value = decoded;
-    *swap_type = SWAP_IN;
-    return 0;
+    return decoded;
 }
 
-int wholeKeyCleanObject(swapData *data_, int *swap_type, void *datactx) {
+int wholeKeyCleanObject(swapData *data_, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
     serverAssert(data->value);
-    *swap_type = SWAP_OUT;
     return 0;
 }
 
-void freeWholeKeySwapData(swapData *data_, void *datactx_) {
+void freeWholeKeySwapData(swapData *data_, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    wholeKeyDataCtx *datactx = (wholeKeyDataCtx*)datactx_;
+    UNUSED(datactx);
     if (data->key) decrRefCount(data->key);
     if (data->value) decrRefCount(data->value);
     if (data->evict) decrRefCount(data->evict);
     zfree(data);
-    if (datactx->decoded) decrRefCount(datactx->decoded);
     zfree(datactx);
 }
 
@@ -268,7 +271,7 @@ swapDataType wholeKeySwapDataType = {
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
-    .createDictObject = wholeKeyCreateDictObject,
+    .createOrMergeObject = wholeKeyCreateOrMergeObject,
     .cleanObject = wholeKeyCleanObject,
     .free = freeWholeKeySwapData,
 };
@@ -284,10 +287,7 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
     data->value = value;
     if (evict) incrRefCount(evict);
     data->evict = evict;
-    
-    wholeKeyDataCtx *datactx = zmalloc(sizeof(wholeKeyDataCtx));
-    datactx->decoded = NULL;
-    *pdatactx = datactx;
+    *pdatactx = NULL;
     return (swapData*)data;
 }
 
