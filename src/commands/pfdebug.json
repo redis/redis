@@ -4,7 +4,7 @@
         "complexity": "N/A",
         "group": "hyperloglog",
         "since": "2.8.9",
-        "arity": -3,
+        "arity": 3,
         "function": "pfdebugCommand",
         "doc_flags": [
             "SYSCMD"
@@ -35,6 +35,17 @@
                         "limit": 0
                     }
                 }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "subcommand",
+                "type": "string"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
             }
         ]
     }
