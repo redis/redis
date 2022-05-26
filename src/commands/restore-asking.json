@@ -6,6 +6,20 @@
         "since": "3.0.0",
         "arity": -4,
         "function": "restoreCommand",
+        "history": [
+            [
+                "3.0.0",
+                "Added the `REPLACE` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `ABSTTL` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `IDLETIME` and `FREQ` options."
+            ]
+        ],
         "doc_flags": [
             "SYSCMD"
         ],
