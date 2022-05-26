@@ -1844,7 +1844,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
 
 /* Look the stream at 'key' and return the corresponding stream object.
  * The function creates a key setting it to an empty stream if needed. */
-robj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
+robj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create, int *newkey) {
     robj *o = lookupKeyWrite(c->db,key);
     if (checkType(c,o,OBJ_STREAM)) return NULL;
     if (o == NULL) {
@@ -1854,6 +1854,7 @@ robj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
         }
         o = createStreamObject();
         dbAdd(c->db,key,o);
+	*newkey = 1; 
     }
     return o;
 }
@@ -2014,14 +2015,19 @@ void xaddCommand(client *c) {
     /* Lookup the stream at key. */
     robj *o;
     stream *s;
-    if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
+    int newkey = 0;
+    if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream, &newkey)) == NULL) return;
     s = o->ptr;
 
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
         addReplyError(c,"The stream has exhausted the last possible ID, "
                         "unable to add more items");
-        return;
+	if(newkey == 1) {
+            signalModifiedKey(c,c->db,c->argv[1]);
+    	    server.dirty++;
+	}
+	return;
     }
 
     /* Append using the low level function and return the ID. */
@@ -2034,6 +2040,10 @@ void xaddCommand(client *c) {
                             "the target stream top item");
         else
             addReplyError(c,"Elements are too large to be stored");
+	if(newkey == 1) {
+	    signalModifiedKey(c,c->db,c->argv[1]);
+    	    server.dirty++;
+	}
         return;
     }
     sds replyid = createStreamIDString(&id);
