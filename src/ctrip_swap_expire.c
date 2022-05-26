@@ -29,69 +29,29 @@
 #include "ctrip_swap.h"
 
 /* ----------------------------- expire ------------------------------ */
-/* Assumming that key is expired and deleted from db, we still need to del
- * from rocksdb. */
-
-void expireClientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
+void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
     swapCtxFree(ctx);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, key);
-}
-
-int expireKeyRequestSwapFinished(swapData *data, void *pd) {
-    UNUSED(data);
-    swapCtx *ctx = pd;
-    expireClientKeyRequestFinished(ctx->c,ctx->key_request->key,ctx);
-    requestNotify(ctx->listeners);
-    return 0;
-}
-
-int expireKeyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
-        void *pd) {
-    void *datactx;
-    swapCtx *ctx = pd;
-    robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-    robj *evict = lookupEvictKey(db,key);
-    swapData *data = createSwapData(db,key,value,evict,&datactx);
-    ctx->listeners = listeners;
-    ctx->data = data;
-    ctx->datactx = datactx;
-    swapDataAna(data,ctx->cmd_intention,ctx->key_request,&ctx->swap_intention);
-    if (ctx->swap_intention == SWAP_NOP) {
-        expireClientKeyRequestFinished(c,key,ctx);
-    } else {
-        submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
-                expireKeyRequestSwapFinished,ctx);
-    }
-    return 0;
+    clientUnholdKey(c, ctx->key_request->key);
 }
 
 /* Cases when submitExpireClientRequest is called:
  * - active-expire: DEL swap will be append as if key is expired by dummy client.
- * - xxCommand: DEL swap will be append to scs of the key, bacause that key is
+ * - command proc: DEL swap will be append to scs of the key, bacause that key is
  *   holded before xxCommand, so scs of key will not have any PUT. so async
  *   DEL swap have the same effect of sync DEL.
- * - continueProcessCommand: same as xxCommand.
- * TODO opt: keys never evicted to rocksdb need not to be deleted from rocksdb. */
+ * - continueProcessCommand: same as command proc. */
 int submitExpireClientRequest(client *c, robj *key) {
-    int old_keyrequests_count = c->keyrequests_count;
-    keyRequest key_request = {REQUEST_LEVEL_KEY,0,key,NULL};
-    swapCtx *ctx = swapCtxCreate(c,&key_request);
+    getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+    getKeyRequestsPrepareResult(&result,1);
+    incrRefCount(key);
+    getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL);
     c->keyrequests_count++;
-    requestWait(c->db,key_request.key,expireKeyRequestProceed,c,ctx);
-    return c->keyrequests_count > old_keyrequests_count;
-}
-
-/* Must make sure expire key or key shell not evicted (propagate needed) */
-void expireKey(client *c, robj *key, void *pd) {
-    UNUSED(pd);
-    redisDb *db = c->db;
-    client *expire_client = server.rksdel_clients[db->id];
-    serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, key);
-    submitExpireClientRequest(expire_client, key);
-	deleteExpiredKeyAndPropagate(db,key);
+    submitClientKeyRequests(c,&result,expireClientKeyRequestFinished);
+    releaseKeyRequests(&result);
+    getKeyRequestsFreeResult(&result);
+    return 1;
 }
 
 /* How key is expired:
@@ -111,17 +71,10 @@ void expireKey(client *c, robj *key, void *pd) {
  * defered untill GET+propagate finished.
  */
 int dbExpire(redisDb *db, robj *key) {
-    int nswap = 0;
-    client *c = server.rksget_clients[db->id];
-
-    /* No need to do SWAP GET if called in swap callback(keys should have already
-     * been swapped in) */
-    if (!server.in_swap_cb) nswap = submitExpireClientRequest(c, key);
-
-    /* when expiring key is in db.dict, we don't need to swapin key, but still
-     * we need to do expireKey to remove key from db and rocksdb. */
-    if (nswap == 0) expireKey(c, key, NULL);
-
-    return nswap;
+    client *c = server.rksdel_clients[db->id];
+    serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
+    submitExpireClientRequest(c, key);
+	deleteExpiredKeyAndPropagate(db,key);
+    return 1;
 }
 

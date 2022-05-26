@@ -173,12 +173,10 @@ static void processFinishedReplCommands() {
     serverLog(LL_DEBUG, "< processFinishedReplCommands");
 }
      
-void replWorkerClientKeyRequestFinished(client *wc, robj *key, swapCtx *ctx) {
+void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     client *c;
     listNode *ln;
     list *repl_swapping_clients;
-
-    UNUSED(key);
 
     serverLog(LL_DEBUG, "> replWorkerClientSwapFinished client(id=%ld,cmd=%s,key=%s)",
         wc->id,wc->cmd->name,wc->argc <= 1 ? "": (sds)wc->argv[1]->ptr);
@@ -217,7 +215,7 @@ void replWorkerClientKeyRequestFinished(client *wc, robj *key, swapCtx *ctx) {
         /* Must make sure swapping clients satistity above constrains. also
          * note that repl client never call(only dispatch). */
         c->flags &= ~CLIENT_SWAPPING;
-        swap_result = submitReplClientRequest(c);
+        swap_result = submitReplClientRequests(c);
         /* replClientSwap return 1 on dispatch fail, -1 on dispatch success,
          * never return 0. */
         if (swap_result > 0) {
@@ -236,46 +234,13 @@ void replWorkerClientKeyRequestFinished(client *wc, robj *key, swapCtx *ctx) {
     serverLog(LL_DEBUG, "< replWorkerClientSwapFinished");
 }
 
-
-int replWorkerKeyRequestSwapFinished(swapData *data, void *pd) {
-    swapCtx *ctx = pd;
-    UNUSED(data);
-    replWorkerClientKeyRequestFinished(ctx->c,ctx->key_request->key,ctx);
-    requestNotify(ctx->listeners);
-    return 0;
-}
-
-int replWorkerKeyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
-        void *pd) {
-    void *datactx;
-    swapCtx *ctx = pd;
-    robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-    robj *evict = lookupEvictKey(db,key);
-    swapData *data = createSwapData(db,key,value,evict,&datactx);
-    ctx->listeners = listeners;
-    ctx->data = data;
-    ctx->datactx = datactx;
-    swapDataAna(data,ctx->cmd_intention,ctx->key_request,&ctx->swap_intention);
-    if (ctx->swap_intention == SWAP_NOP) {
-        replWorkerClientKeyRequestFinished(c,key,ctx);
-    } else {
-        submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
-                replWorkerKeyRequestSwapFinished,ctx);
-    }
-    return 0;
-}
-
 int submitReplWorkerClientRequest(client *wc) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(wc, &result);
-    for (int i = 0; i < result.num; i++) {
-        keyRequest *key_request = result.key_requests + i;
-        swapCtx *ctx = swapCtxCreate(wc,key_request);
-        requestWait(wc->db,key_request->key,replWorkerKeyRequestProceed,wc,ctx);
-    }
+    submitClientKeyRequests(wc,&result,replWorkerClientKeyRequestFinished);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
-    return wc->keyrequests_count > 0;
+    return result.num;
 }
 
 /* Different from original replication stream process, slave.master client
@@ -286,7 +251,7 @@ int submitReplWorkerClientRequest(client *wc) {
  * dispatches command to multiple worker client and execute commands when 
  * rocks IO finishes. Note that replicated commands swap in-parallel but we
  * still processed in received order. */
-int submitReplClientRequest(client *c) {
+int submitReplClientRequests(client *c) {
     client *wc;
     listNode *ln;
 
@@ -321,7 +286,8 @@ int submitReplClientRequest(client *c) {
         /* swap data for replicated commands, note that command will be
          * processed later in processFinishedReplCommands untill all preceeding
          * commands finished. */
-        wc->CLIENT_REPL_SWAPPING = submitReplWorkerClientRequest(wc);
+        submitReplWorkerClientRequest(wc);
+        wc->CLIENT_REPL_SWAPPING = wc->keyrequests_count;
 
         listDelNode(server.repl_worker_clients_free, ln);
         listAddNodeTail(server.repl_worker_clients_used, wc);

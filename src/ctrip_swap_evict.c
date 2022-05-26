@@ -122,49 +122,22 @@ int keyIsHolded(redisDb *db, robj *key) {
     }
 }
 
-void evictClientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
+void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     swapCtxFree(ctx);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, key);
+    clientUnholdKey(c,ctx->key_request->key);
 }
 
-int evictKeyRequestSwapFinished(swapData *data, void *pd) {
-    UNUSED(data);
-    swapCtx *ctx = pd;
-    evictClientKeyRequestFinished(ctx->c,ctx->key_request->key,ctx);
-    requestNotify(ctx->listeners);
-    return 0;
-}
-
-int evictKeyRequestProceed(void *listeners, redisDb *db, robj *key,
-        client *c, void *pd) {
-    UNUSED(db);
-    swapCtx *ctx = pd;
-    /* Eviction starts only when key is not blocked, so eviction already
-     * started in evictKey.*/
-    ctx->listeners = listeners;
-    swapDataAna(ctx->data,ctx->cmd_intention,ctx->key_request,
-            &ctx->swap_intention);
-    if (ctx->swap_intention == SWAP_NOP) {
-        evictClientKeyRequestFinished(c,key,ctx);
-        requestNotify(listeners);
-    } else {
-        submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,ctx->data,
-                ctx->datactx, evictKeyRequestSwapFinished,ctx);
-    }
-    return 0;
-}
-
-int submitEvictClientRequest(client *c, robj *key, robj *value, robj *evict) {
-    void *datactx;
-    keyRequest key_request = {REQUEST_LEVEL_KEY,0,key,NULL};
-    swapData *data = createSwapData(c->db,key,value,evict,&datactx);
-    swapCtx *ctx = swapCtxCreate(c,&key_request);
-    ctx->data = data;
-    ctx->datactx = datactx;
+int submitEvictClientRequest(client *c, robj *key) {
+    getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+    getKeyRequestsPrepareResult(&result,1);
+    incrRefCount(key);
+    getKeyRequestsAppendResult(&result,REQUEST_LEVEL_KEY,key,0,NULL);
     c->keyrequests_count++;
-    requestWait(c->db,key_request.key,evictKeyRequestProceed,c,ctx);
+    submitClientKeyRequests(c,&result,evictClientKeyRequestFinished);
+    releaseKeyRequests(&result);
+    getKeyRequestsFreeResult(&result);
     return 1;
 }
 
@@ -190,7 +163,7 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
 
     dirty = o->dirty;
     old_keyrequests_count = evict_client->keyrequests_count;
-    submitEvictClientRequest(evict_client,key,o,NULL);
+    submitEvictClientRequest(evict_client,key);
     /* Evit request finished right away, no swap triggered. */
     if (evict_client->keyrequests_count == old_keyrequests_count) {
         if (dirty) {
@@ -331,7 +304,6 @@ void debugEvictKeys() {
 void debugSwapOutCommand(client *c) {
     int i, nevict = 0, evict_result;
     if (c->argc == 2) {
-        int nevict = 0, evict_result;
         dictEntry* de;
         dictIterator* di = dictGetSafeIterator(c->db->dict);
         while((de = dictNext(di)) != NULL) {

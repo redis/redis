@@ -53,11 +53,13 @@ static void keyRequestDeinit(keyRequest *key_request) {
  * - swapdata moved to swapCtx,
  * - swapRequest managed by async/sync complete queue (not by swapCtx).
  * swapCtx released when keyRequest finishes. */
-swapCtx *swapCtxCreate(client *c, keyRequest *key_request) {
+swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
+         clientKeyRequestFinished finished) {
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
     ctx->cmd_intention = c->cmd->intention;
     dupKeyRequest(ctx->key_request,key_request);
+    ctx->finished = finished;
     return ctx;
 }
 
@@ -91,8 +93,7 @@ void continueProcessCommand(client *c) {
     processInputBuffer(c);
 }
 
-void clientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
-    UNUSED(key);
+void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     swapCtxFree(ctx);
     c->keyrequests_count--;
     if (c->keyrequests_count == 0) {
@@ -103,15 +104,15 @@ void clientKeyRequestFinished(client *c, robj *key, swapCtx *ctx) {
 int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
-    clientKeyRequestFinished(ctx->c,ctx->key_request->key,ctx);
+    ctx->finished(ctx->c,ctx);
     requestNotify(ctx->listeners);
     return 0;
 }
 
 /* Note keyRequestProceed include key/db/svr level request, only key level
  * requests might need swap. */
-int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
-        void *pd) {
+int genericRequestProceed(void *listeners, redisDb *db, robj *key,
+        client *c, void *pd) {
     int retval = C_OK;
     void *datactx;
     swapData *data;
@@ -130,6 +131,11 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
         goto noswap;
 
     data = createSwapData(db,key,value,evict,&datactx);
+
+    /* swap not supported, no swap needed. */
+    if (data == NULL)
+        goto noswap;
+
     ctx->listeners = listeners;
     ctx->data = data;
     ctx->datactx = datactx;
@@ -146,26 +152,32 @@ int keyRequestProceed(void *listeners, redisDb *db, robj *key, client *c,
 
     submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
             keyRequestSwapFinished,ctx);
+
     return C_OK;
 
 noswap:
-    clientKeyRequestFinished(c,key,ctx);
+    ctx->finished(c,ctx);
     requestNotify(listeners);
     return retval;
 }
 
+void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
+        clientKeyRequestFinished cb) {
+    for (int i = 0; i < result->num; i++) {
+        keyRequest *key_request = result->key_requests + i;
+        swapCtx *ctx = swapCtxCreate(c,key_request,cb);
+        redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
+        requestWait(db,key_request->key,genericRequestProceed,c,ctx);
+    }
+}
+
 /* Returns submited keyrequest count, if any keyrequest submitted, command
  * gets called in contiunueProcessCommand instead of normal call(). */
-int submitNormalClientRequest(client *c) {
+int submitNormalClientRequests(client *c) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(c,&result);
     c->keyrequests_count = result.num;
-    for (int i = 0; i < result.num; i++) {
-        keyRequest *key_request = result.key_requests + i;
-        swapCtx *ctx = swapCtxCreate(c,key_request);
-        redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
-        requestWait(db,key_request->key,keyRequestProceed,c,ctx);
-    }
+    submitClientKeyRequests(c,&result,normalClientKeyRequestFinished);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
     return result.num;
@@ -174,9 +186,9 @@ int submitNormalClientRequest(client *c) {
 int dbSwap(client *c) {
     int keyrequests_submit;
     if (!(c->flags & CLIENT_MASTER)) {
-        keyrequests_submit = submitNormalClientRequest(c);
+        keyrequests_submit = submitNormalClientRequests(c);
     } else {
-        keyrequests_submit = submitReplClientRequest(c);
+        keyrequests_submit = submitReplClientRequests(c);
     }
     if (c->keyrequests_count) swapRateLimit(c);
     return keyrequests_submit;

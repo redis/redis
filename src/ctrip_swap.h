@@ -107,6 +107,10 @@ void swapDataFree(swapData *data, void *datactx);
 
 #define SWAP_ERR_ANA_FAIL -100
 
+struct swapCtx;
+
+typedef void (*clientKeyRequestFinished)(client *c, struct swapCtx *ctx);
+
 typedef struct swapCtx {
   client *c;
   int cmd_intention;
@@ -115,10 +119,11 @@ typedef struct swapCtx {
   int swap_intention;
   swapData *data;
   void *datactx;
+  clientKeyRequestFinished finished;
   int errcode;
 } swapCtx;
 
-swapCtx *swapCtxCreate(client *c, keyRequest *key_request);
+swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
 void swapCtxFree(swapCtx *ctx);
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
@@ -361,7 +366,7 @@ void rocksReleaseSnapshot(void);
 rocksdb_t *rocksGetDb(void);
 
 /* --- Repl --- */
-int submitReplClientRequest(client *c);
+int submitReplClientRequests(client *c);
 
 /* --- Swap --- */
 void swapInit(void);
@@ -371,6 +376,9 @@ void continueProcessCommand(client *c);
 int replClientSwap(client *c);
 int replClientDiscardDispatchedCommands(client *c);
 void replClientDiscardSwappingState(client *c);
+void submitClientKeyRequests(client *c, getKeyRequestsResult *result, clientKeyRequestFinished cb);
+int submitNormalClientRequests(client *c);
+
 
 /* Swap rate limit */
 #define SWAP_RL_NO      0
