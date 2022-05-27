@@ -148,7 +148,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
             if (server.masterhost && server.repl_slave_ro && !obey_client) {
-                addReplyError(caller, "Can not run script with write flag on readonly replica");
+                addReplyError(caller, "-READONLY Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
