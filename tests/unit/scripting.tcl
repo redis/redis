@@ -1501,6 +1501,7 @@ start_server {tags {"scripting"}} {
     }
 
     test "not enough good replicas" {
+        r set x "some value"
         r config set min-replicas-to-write 1
 
         assert_equal [
