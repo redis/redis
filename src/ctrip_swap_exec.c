@@ -290,11 +290,16 @@ static int executeSwapDelRequest(swapRequest *req) {
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = req->finish_pd;
+#endif
 
     if (swapDataEncodeKeys(data,req->intention,&action,&numkeys,&rawkeys)) {
         retval = EXEC_FAIL;
         goto end;
     }
+    DEBUG_APPEND(ctx,"execswap-del-encodekeys","action=%s, numkeys=%d",
+            rocksActionName(action), numkeys);
 
     if (numkeys == 0) goto end;
 
@@ -303,9 +308,11 @@ static int executeSwapDelRequest(swapRequest *req) {
         for (i = 0; i < numkeys; i++) {
             rocksdb_writebatch_delete(wb, rawkeys[i], sdslen(rawkeys[i]));
         }
+        DEBUG_APPEND(ctx,"execswap-del-write","numkeys=%d.",numkeys);
         RIOInitWrite(rio,wb);
     } else if (action == ROCKS_DEL) {
         serverAssert(numkeys == 1 && rawkeys);
+        DEBUG_APPEND(ctx,"execswap-del-del","rawkey=%s",rawkeys[0]);
         RIOInitDel(rio,rawkeys[0]);
         zfree(rawkeys), rawkeys = NULL;
     } else {
@@ -322,6 +329,7 @@ static int executeSwapDelRequest(swapRequest *req) {
         retval = EXEC_FAIL;
         goto end;
     }
+    DEBUG_APPEND(ctx,"execswap-del-cleanobject", "ok");
 
     doNotify(req);
 
@@ -337,26 +345,33 @@ static int executeSwapOutRequest(swapRequest *req) {
     RIO _rio = {0}, *rio = &_rio;
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = req->finish_pd;
+#endif
 
     if (swapDataEncodeData(data,req->intention,&action,&numkeys,
                 &rawkeys,&rawvals,req->datactx)) {
         retval = EXEC_FAIL;
         goto end;
     }
+    DEBUG_APPEND(ctx,"execswap-out-encodedata","action=%s, numkeys=%d",
+            rocksActionName(action), numkeys);
 
     if (numkeys <= 0) goto end;
 
     if (action == ROCKS_PUT) {
         serverAssert(numkeys == 1);
+        DEBUG_APPEND(ctx,"execswap-out-put","rawkey=%s",rawkeys[0]);
         RIOInitPut(rio,rawkeys[0],rawvals[0]);
         zfree(rawkeys), rawkeys = NULL;
         zfree(rawvals), rawvals = NULL;
     } else if (action == ROCKS_WRITE) {
         wb = rocksdb_writebatch_create();
         for (i = 0; i < numkeys; i++) {
-            rocksdb_writebatch_put(wb, rawkeys[i], sdslen(rawkeys[i]),
+            rocksdb_writebatch_put(wb,rawkeys[i],sdslen(rawkeys[i]),
                     rawvals[i], sdslen(rawvals[i]));
         }
+        DEBUG_APPEND(ctx,"execswap-out-write","numkeys=%d",numkeys);
         RIOInitWrite(rio, wb);
     } else {
         retval = EXEC_FAIL;
@@ -372,10 +387,12 @@ static int executeSwapOutRequest(swapRequest *req) {
         retval = EXEC_FAIL;
         goto end;
     }
+    DEBUG_APPEND(ctx,"execswap-out-cleanobject","ok");
 
     doNotify(req);
 
 end:
+    DEBUG_APPEND(ctx,"execswap-out-end","retval=%d",retval);
     if (rawkeys) {
         for (i = 0; i < numkeys; i++) {
             sdsfree(rawkeys[i]);
@@ -398,25 +415,32 @@ static int executeSwapInRequest(swapRequest *req) {
     sds *rawkeys = NULL;
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = req->finish_pd;
+#endif
 
     if (swapDataEncodeKeys(data,req->intention,&action,&numkeys,&rawkeys)) {
         retval = EXEC_FAIL;
         goto end;
     }
+    DEBUG_APPEND(ctx,"execswap-in-encodekeys","action=%s, numkeys=%d",
+            rocksActionName(action),numkeys);
 
-    if (numkeys <= 0) return retval;
+    if (numkeys <= 0) goto end;
 
     if (action == ROCKS_MULTIGET) {
-        RIOInitMultiGet(rio, numkeys, rawkeys);
+        RIOInitMultiGet(rio,numkeys,rawkeys);
         if (doRIO(rio)) {
             retval = EXEC_FAIL;
             goto end;
         }
+        DEBUG_APPEND(ctx,"execswap-in-multiget","numkeys=%d,rio=ok",numkeys);
         if (swapDataDecodeData(data,rio->multiget.numkeys,
                     rio->multiget.rawkeys,rio->multiget.rawvals,&decoded)) {
             retval = EXEC_FAIL;
             goto end;
         }
+        DEBUG_APPEND(ctx,"execswap-in-decodedata","decoded=%p",(void*)decoded);
     } else if (action == ROCKS_GET) {
         serverAssert(numkeys == 1);
         RIOInitGet(rio, rawkeys[0]);
@@ -424,12 +448,14 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
+        DEBUG_APPEND(ctx,"execswap-in-get","rawkey=%s",rawkeys[0]);
         if (swapDataDecodeData(data,1,&rio->get.rawkey,
                     &rio->get.rawval,&decoded)) {
             retval = EXEC_FAIL;
             goto end;
         }
         zfree(rawkeys);
+        DEBUG_APPEND(ctx,"execswap-in-decodedata","decoded=%p",(void*)decoded);
     } else if (action == ROCKS_SCAN) {
         serverAssert(numkeys == 1);
         RIOInitScan(rio, rawkeys[0]);
@@ -437,21 +463,26 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
+        DEBUG_APPEND(ctx,"execswap-in-scan","prefix=%s,rio=ok",rawkeys[0]);
         if (swapDataDecodeData(data,rio->scan.numkeys,rio->scan.rawkeys,
                     rio->scan.rawvals,&decoded)) {
             retval = EXEC_FAIL;
             goto end;
         }
         zfree(rawkeys);
+        DEBUG_APPEND(ctx,"execswap-in-decodedata", "decoded=%p",(void*)decoded);
     } else {
         retval = EXEC_FAIL;
         goto end;
     }
 
     req->result = swapDataCreateOrMergeObject(data,decoded,req->datactx);
+    DEBUG_APPEND(ctx,"execswap-in-createormerge","result=%p",(void*)req->result);
+
     doNotify(req);
 
 end:
+    DEBUG_APPEND(ctx,"execswap-in-end","retval=%d",retval);
     RIODeinit(rio);
     return retval;
 }
@@ -468,6 +499,11 @@ int executeSwapRequest(swapRequest *req) {
 /* Called by async-complete-queue or parallel-sync in server thread
  * to swap in/out/del data */
 int finishSwapRequest(swapRequest *req) {
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = req->finish_pd;
+#endif
+    DEBUG_APPEND(ctx,"execswap-finish","intention=%s",
+            swapIntentionName(req->intention));
     switch(req->intention) {
     case SWAP_IN: return swapDataSwapIn(req->data,req->result,req->datactx);
     case SWAP_OUT: return swapDataSwapOut(req->data,req->datactx);

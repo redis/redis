@@ -60,11 +60,19 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     ctx->cmd_intention = c->cmd->intention;
     dupKeyRequest(ctx->key_request,key_request);
     ctx->finished = finished;
+#ifdef SWAP_DEBUG
+    char *key = key_request->key ? key_request->key->ptr : "(nil)";
+    snprintf(ctx->msgs.identity,MAX_MSG,"[%s:%s:%.*s]",
+            swapIntentionName(ctx->cmd_intention),c->cmd->name,MAX_MSG/2,key);
+#endif
     return ctx;
 }
 
 void swapCtxFree(swapCtx *ctx) {
     if (!ctx) return;
+#ifdef SWAP_DEBUG
+    swapCtxMsgDump(ctx);
+#endif
     keyRequestDeinit(ctx->key_request);
     if (ctx->data) {
         swapDataFree(ctx->data,ctx->datactx);
@@ -72,6 +80,31 @@ void swapCtxFree(swapCtx *ctx) {
     }
     zfree(ctx);
 }
+
+#ifdef SWAP_DEBUG
+
+void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...) {
+    va_list ap;
+    char *name = ctx->msgs.steps[ctx->msgs.index].name;
+    char *info = ctx->msgs.steps[ctx->msgs.index].info;
+    strncpy(name,step,MAX_MSG-1);
+    va_start(ap,fmt);
+    vsnprintf(info,MAX_MSG,fmt,ap);
+    va_end(ap);
+    // serverLog(LL_WARNING, " %02d %16s : %s",ctx->msgs.index,name,info);
+    ctx->msgs.index++;
+}
+
+void swapCtxMsgDump(swapCtx *ctx) {
+    serverLog(LL_NOTICE,"=== %s ===", ctx->msgs.identity);
+    for (int i = 0; i < ctx->msgs.index; i++) {
+        char *name = ctx->msgs.steps[i].name;
+        char *info = ctx->msgs.steps[i].info;
+        serverLog(LL_NOTICE,"%2d %25s : %s",i,name,info);
+    }
+}
+
+#endif
 
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
@@ -94,6 +127,9 @@ void continueProcessCommand(client *c) {
 }
 
 void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
+    robj *key = ctx->key_request->key;
+    DEBUG_APPEND(ctx,"request-finished","key=%s, keyrequests_count=%d",
+            key?(sds)key->ptr:"<nil>", c->keyrequests_count);
     swapCtxFree(ctx);
     c->keyrequests_count--;
     if (c->keyrequests_count == 0) {
@@ -119,23 +155,28 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     swapData *data;
     swapCtx *ctx = pd;
     robj *value, *evict;
+    char *reason;
+    UNUSED(reason);
     
-    /* no swap needed for db/svr level request */
-    if (db == NULL || key == NULL)
+    if (db == NULL || key == NULL) {
+        reason = "noswap needed for db/svr level request";
         goto noswap;
+    }
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     evict = lookupEvictKey(db,key);
 
-    /* key not exists, noswap needed. */
-    if (!value && !evict)
+    if (!value && !evict) {
+        reason = "key not exists";
         goto noswap;
+    }
 
     data = createSwapData(db,key,value,evict,&datactx);
 
-    /* swap not supported, no swap needed. */
-    if (data == NULL)
+    if (data == NULL) {
+        reason = "data not support swap";
         goto noswap;
+    }
 
     ctx->listeners = listeners;
     ctx->data = data;
@@ -145,18 +186,24 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
                 &ctx->swap_intention)) {
         ctx->errcode = SWAP_ERR_ANA_FAIL;
         retval = C_ERR;
+        reason = "swap ana failed";
         goto noswap;
     }
 
-    if (ctx->swap_intention == SWAP_NOP)
+    if (ctx->swap_intention == SWAP_NOP) {
+        reason = "swapana decided no swap";
         goto noswap;
+    }
 
+    DEBUG_APPEND(ctx,"request-proceed","start swap=%s",
+            swapIntentionName(ctx->swap_intention));
     submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
             keyRequestSwapFinished,ctx);
 
     return C_OK;
 
 noswap:
+    DEBUG_APPEND(ctx,"request-proceed","no swap needed: %s", reason);
     ctx->finished(c,ctx);
     requestNotify(listeners);
     return retval;
@@ -168,7 +215,9 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         keyRequest *key_request = result->key_requests + i;
         swapCtx *ctx = swapCtxCreate(c,key_request,cb);
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
-        requestWait(db,key_request->key,genericRequestProceed,c,ctx);
+        robj *key = key_request->key;
+        DEBUG_APPEND(ctx,"request-wait","key=%s",key?(sds)key->ptr:"<nil>");
+        requestWait(db,key,genericRequestProceed,c,ctx);
     }
 }
 

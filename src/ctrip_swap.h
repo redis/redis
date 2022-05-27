@@ -38,6 +38,14 @@
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
 
+static inline char *requestLevelName(int level) {
+  char *name = "?";
+  char *levels[] = {"svr","db","key"};
+  if (level >= 0 && (size_t)level < sizeof(levels)/sizeof(char*))
+    name = levels[level];
+  return name;
+}
+
 typedef struct keyRequest{
   int level;
 	int num_subkeys;
@@ -70,6 +78,14 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 #define SWAP_OUT    2
 #define SWAP_DEL    3
 #define SWAP_TYPES  4
+
+static inline char *swapIntentionName(int intention) {
+  char *name = "?";
+  char *intentions[] = {"NOP", "IN", "OUT", "DEL"};
+  if (intention >= 0 && intention < SWAP_TYPES)
+    name = intentions[intention];
+  return name;
+}
 
 /* SwapData represents key state when swap start. It is stable during
  * key swapping, misc dynamic data are save in dataCtx. */
@@ -121,10 +137,37 @@ typedef struct swapCtx {
   void *datactx;
   clientKeyRequestFinished finished;
   int errcode;
+
+#ifdef SWAP_DEBUG
+#define MAX_MSG    64
+#define MAX_STEPS  16
+  struct {
+    char identity[MAX_MSG];
+    struct swapCtxStep {
+      char name[MAX_MSG];
+      char info[MAX_MSG];
+    } steps[MAX_STEPS];
+    int index;
+  } msgs;
+#endif
+
 } swapCtx;
 
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
 void swapCtxFree(swapCtx *ctx);
+
+#ifdef SWAP_DEBUG
+#ifdef __GNUC__
+void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...)
+  __attribute__((format(printf, 3, 4)));
+#else
+void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...);
+#endif
+void swapCtxMsgDump(swapCtx *ctx);
+#define DEBUG_APPEND(ctx, step, ...) swapCtxMsgAppend(ctx, step, __VA_ARGS__)
+#else
+#define DEBUG_APPEND(ctx, step, ...)
+#endif
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
 
@@ -203,6 +246,14 @@ int swapThreadsDrained();
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
+
+static inline char *rocksActionName(int action) {
+  char *name = "?";
+  char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN"};
+  if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
+    name = actions[action];
+  return name;
+}
 
 typedef struct RIO {
 	int action;

@@ -46,6 +46,15 @@ void requestListenerRelease(requestListener *listener) {
     zfree(listener);
 }
 
+char *requestListenerDump(requestListener *listener) {
+    static char repr[64];
+    char *intention = listener->c->cmd ? swapIntentionName(listener->c->cmd->intention) : "<nil>";
+    char *cmd = (listener->c && listener->c->cmd) ? listener->c->cmd->name : "<nil>";
+    char *key = listener->key ? listener->key->ptr : "<nil>";
+    snprintf(repr,sizeof(repr)-1,"(%s:%s:%s)",intention,cmd,key);
+    return repr;
+}
+
 dictType requestListenersDictType = {
     dictSdsHash,                    /* hash function */
     NULL,                           /* key dup */
@@ -118,22 +127,32 @@ sds requestListenersDump(requestListeners *listeners) {
     listIter li;
     listNode *ln;
     sds result = sdsempty();
-    char *intentions[] = {"NOP", "IN", "OUT", "DEL"};
+    char *key;
+
+    switch (listeners->level) {
+    case REQUEST_LEVEL_SVR:
+        key = "<svr>";
+        break;
+    case REQUEST_LEVEL_DB:
+        key = "<db>";
+        break;
+    case REQUEST_LEVEL_KEY:
+        key = listeners->key.key->ptr;
+        break;
+    default:
+        key = "?";
+        break;
+    }
+    result = sdscatprintf(result,"(level=%s,len=%ld,key=%s):",
+            requestLevelName(listeners->level),
+            listLength(listeners->listeners), key);
 
     result = sdscat(result, "[");
     listRewind(listeners->listeners,&li);
     while ((ln = listNext(&li))) {
         requestListener *listener = listNodeValue(ln);
-        client *c = listener->c;
         if (ln != listFirst(listeners->listeners)) result = sdscat(result,",");
-        result = sdscat(result,"("); 
-        if (c && c->cmd) result = sdscat(result,intentions[c->cmd->intention]); 
-        result = sdscat(result,":"); 
-        if (listeners->level == REQUEST_LEVEL_KEY)
-            result = sdscatsds(result,listeners->key.key->ptr); 
-        result = sdscat(result,":"); 
-        if (c && c->cmd) result = sdscat(result,c->cmd->name); 
-        result = sdscat(result,")"); 
+        result = sdscat(result,requestListenerDump(listener));
     }
     result = sdscat(result, "]");
     return result;
@@ -240,6 +259,8 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
 
 static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
+    DEBUG_APPEND(listener->pd,"wait-proceed","listener=%s",
+            requestListenerDump(listener));
     return listener->proceed(listeners,listener->db,
             listener->key,listener->c,listener->pd);
 }
@@ -261,10 +282,12 @@ int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
     listener = requestListenerCreate(db,key,cb,c,pd);
     requestListenersPush(listeners,listener);
 
-    serverLog(LL_WARNING, "[xxx] request wait => blocking:%d, %d:%s:%ld",
-            blocking,
-            listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"),
-            listLength(listeners->listeners));
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = pd;
+    sds dump = requestListenersDump(listeners);
+    DEBUG_APPEND(ctx,"wait-bind","listener = %s", dump);
+    sdsfree(dump);
+#endif
 
     /* Proceed right away if request key is not blocking, otherwise
      * execution is defered. */
@@ -277,11 +300,15 @@ int requestNotify(void *listeners_) {
     requestListeners *listeners = listeners_, *parent;
     requestListener *current, *next;
 
-    serverLog(LL_WARNING, "[xxx] request notify => %d:%s:%ld",
-            listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"),
-            listeners->listeners ? listLength(listeners->listeners):0);
-
     current = requestListenersPop(listeners);
+
+#ifdef SWAP_DEBUG
+    swapCtx *ctx = current->pd;
+    sds dump = requestListenersDump(listeners);
+    DEBUG_APPEND(ctx,"wait-unbind","listener=%s", dump);
+    sdsfree(dump);
+#endif
+
     requestListenerRelease(current);
 
     /* Find next proceed-able listeners, then trigger proceed. */
