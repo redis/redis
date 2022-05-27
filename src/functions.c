@@ -609,12 +609,9 @@ void functionKillCommand(client *c) {
 int fcallGetCommandFlags(client *c, uint64_t *flags) {
     robj *function_name = c->argv[1];
     functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
-    int ro_cmd = c->cmd->proc == fcallroCommand;
     if (!fi)
         return C_ERR;
     uint64_t script_flags = fi->f_flags;
-    if (ro_cmd)
-        script_flags |= SCRIPT_FLAG_NO_WRITES;
     *flags = scriptFlagsToCmdFlags(script_flags);
     return C_OK;
 }

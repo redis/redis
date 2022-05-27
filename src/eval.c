@@ -383,7 +383,6 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
 int evalGetCommandFlags(client *c, uint64_t *flags) {
     char funcname[43];
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
-    int ro_cmd = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return C_ERR;
     evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
@@ -401,8 +400,6 @@ int evalGetCommandFlags(client *c, uint64_t *flags) {
     }
     if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
         return C_ERR;
-    if (ro_cmd)
-        script_flags |= SCRIPT_FLAG_NO_WRITES;
     *flags = scriptFlagsToCmdFlags(script_flags);
     return C_OK;
 }
