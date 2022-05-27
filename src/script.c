@@ -92,8 +92,8 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
 
     serverLog(LL_WARNING,
             "Slow script detected: still in execution after %lld milliseconds. "
-                    "You can try killing the script using the %s command.",
-            elapsed, (run_ctx->flags & SCRIPT_EVAL_MODE) ? "SCRIPT KILL" : "FUNCTION KILL");
+                    "You can try killing the script using the %s command. Script name is: %s.",
+            elapsed, (run_ctx->flags & SCRIPT_EVAL_MODE) ? "SCRIPT KILL" : "FUNCTION KILL", run_ctx->funcname);
 
     enterScriptTimedoutMode(run_ctx);
     /* Once the script timeouts we reenter the event loop to permit others

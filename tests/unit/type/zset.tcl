@@ -2065,6 +2065,33 @@ start_server {tags {"zset"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test "BZMPOP should not blocks on non key arguments - #10762" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        r del myzset myzset2 myzset3
+
+        $rd1 bzmpop 0 1 myzset min count 10
+        wait_for_blocked_clients_count 1
+        $rd2 bzmpop 0 2 myzset2 myzset3 max count 10
+        wait_for_blocked_clients_count 2
+
+        # These non-key keys will not unblock the clients.
+        r zadd 0 100 timeout_value
+        r zadd 1 200 numkeys_value
+        r zadd min 300 min_token
+        r zadd max 400 max_token
+        r zadd count 500 count_token
+        r zadd 10 600 count_value
+
+        r zadd myzset 1 zset
+        r zadd myzset3 1 zset3
+        assert_equal {myzset {{zset 1}}} [$rd1 read]
+        assert_equal {myzset3 {{zset3 1}}} [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {cluster:skip}
+
     test {ZSET skiplist order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
         r config set zset-max-ziplist-entries 0

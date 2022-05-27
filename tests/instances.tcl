@@ -441,7 +441,7 @@ proc run_tests {} {
             file delete $::leaked_fds_file
         }
 
-        if {[llength $::run_matching] != 0 && [search_pattern_list $test $::run_matching true] == -1} {
+        if {[llength $::run_matching] != 0 && ![search_pattern_list $test $::run_matching true]} {
             continue
         }
         if {[file isdirectory $test]} continue
