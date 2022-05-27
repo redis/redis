@@ -304,7 +304,7 @@ static int executeSwapDelRequest(swapRequest *req) {
             rocksdb_writebatch_delete(wb, rawkeys[i], sdslen(rawkeys[i]));
         }
         RIOInitWrite(rio,wb);
-    } else if (rio->action == ROCKS_DEL) {
+    } else if (action == ROCKS_DEL) {
         serverAssert(numkeys == 1 && rawkeys);
         RIOInitDel(rio,rawkeys[0]);
         zfree(rawkeys), rawkeys = NULL;
