@@ -941,6 +941,11 @@ int fsyncFileDir(const char *filename) {
     char *dname;
     int dir_fd;
 
+    if (strlen(filename) > PATH_MAX) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
     /* In the glibc implementation dirname may modify their argument. */
     memcpy(temp_filename, filename, strlen(filename) + 1);
     dname = dirname(temp_filename);
