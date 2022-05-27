@@ -5820,6 +5820,26 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 goto cleanup;
             }
 
+            if (server.masterhost && server.repl_slave_ro && !obey_client) {
+                errno = ENOSPC;
+                if (error_as_call_replies) {
+                    sds msg = sdsdup(shared.roslaveerr->ptr);
+                    reply = callReplyCreateError(msg, ctx);
+                }
+                goto cleanup;
+            }
+        }
+    }
+
+    if (flags & REDISMODULE_ARGV_SCRIPT_MODE) {
+        if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
+            server.repl_serve_stale_data == 0 && !(cmd->flags & CMD_STALE)) {
+            errno = ENOSPC;
+            if (error_as_call_replies) {
+                sds msg = sdsdup(shared.masterdownerr->ptr);
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
         }
     }
 

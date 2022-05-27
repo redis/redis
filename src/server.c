@@ -3786,6 +3786,8 @@ int processCommand(client *c) {
             }
         } else {
             sds err = writeCommandsGetDiskErrorMessage(deny_write_type);
+            /* remove the newline since rejectCommandSds adds it. */
+            sdssubstr(err, 0, sdslen(err)-2);
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -4225,7 +4227,7 @@ sds writeCommandsGetDiskErrorMessage(int error_code) {
         ret = sdsdup(shared.bgsaveerr->ptr);
     } else {
         ret = sdscatfmt(sdsempty(),
-                "-MISCONF Errors writing to the AOF file: %s",
+                "-MISCONF Errors writing to the AOF file: %s\r\n",
                 strerror(server.aof_last_write_errno));
     }
     return ret;

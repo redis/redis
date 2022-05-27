@@ -133,6 +133,160 @@ start_server {tags {"modules"}} {
         assert { [r test.monotonic_time] >= $x }
     }
 
+    test {rm_call EVAL} {
+        r test.rm_call eval {
+            redis.call('set','x',1)
+            return 1
+        } 1 x
+
+        assert_error {ERR Write commands are not allowed from read-only scripts.*} {
+            r test.rm_call eval {#!lua flags=no-writes
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+    }
+
+    test "not enough good replicas" {
+        r set x "some value"
+        r config set min-replicas-to-write 1
+
+        # rm_call in script mode
+        assert_error {NOREPLICAS *} {r test.rm_call_s set x s}
+
+        assert_equal [
+            r test.rm_call eval {#!lua flags=no-writes
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_equal [
+            r test.rm_call eval {
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_error {NOREPLICAS *} {
+            r test.rm_call eval {#!lua
+                return redis.call('get','x')
+            } 1 x
+        }
+
+        assert_error {NOREPLICAS *} {
+            r test.rm_call eval {
+                return redis.call('set','x', 1)
+            } 1 x
+        }
+
+        r config set min-replicas-to-write 0
+    }
+
+    test {rm_call EVAL - read-only replica} {
+        r replicaof 127.0.0.1 1
+
+        # rm_call in script mode
+        assert_error {READONLY *} {r test.rm_call_s set x 1}
+
+        assert_error {READONLY You can't write against a read only replica. script*} {
+            r test.rm_call eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        r test.rm_call eval {#!lua flags=no-writes
+            redis.call('get','x')
+            return 2
+        } 1 x
+
+        assert_error {ERR Can not run script with write flag on readonly replica} {
+            r test.rm_call eval {#!lua
+                redis.call('get','x')
+                return 3
+            } 1 x
+        }
+
+        r test.rm_call eval {
+            redis.call('get','x')
+            return 4
+        } 1 x
+
+        r replicaof no one
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call EVAL - stale replica} {
+        r replicaof 127.0.0.1 1
+        r config set replica-serve-stale-data no
+
+        # rm_call in script mode
+        assert_error {MASTERDOWN *} {
+            r test.rm_call_s get x
+        }
+
+        assert_error {MASTERDOWN *} {
+            r test.rm_call eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 2
+            } 1 x
+        }
+
+        assert_error {MASTERDOWN *} {
+            r test.rm_call eval {
+                redis.call('get','x')
+                return 4
+            } 1 x
+        }
+
+        r replicaof no one
+        r config set replica-serve-stale-data yes
+    } {OK} {needs:config-maxmemory}
+
+    test "rm_call EVAL - failed bgsave prevents writes" {
+        r config set rdb-key-save-delay 10000000
+        populate 1000
+        r set x x
+        r bgsave
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # make sure a read command succeeds
+        assert_equal [r get x] x
+
+        # make sure a write command fails
+        assert_error {MISCONF *} {r set x y}
+
+        # rm_call in script mode
+        assert_error {MISCONF *} {r test.rm_call_s set x 1}
+
+        # repeate with script
+        assert_error {MISCONF *} {r test.rm_call eval {
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r test.rm_call eval {
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        # again with script using shebang
+        assert_error {MISCONF *} {r test.rm_call eval {#!lua
+            return redis.call('set','x',1)
+            } 1 x
+        }
+        assert_equal {x} [r test.rm_call eval {#!lua flags=no-writes
+            return redis.call('get','x')
+            } 1 x
+        ]
+
+        r config set rdb-key-save-delay 0
+        r bgsave
+        waitForBgsave r
+
+        # server is writable again
+        r set x y
+    } {OK}
+
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]
     }
