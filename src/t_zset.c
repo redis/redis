@@ -1187,21 +1187,21 @@ void zsetConvert(robj *zobj, int encoding) {
 
         eptr = lpSeek(zl,0);
         if (eptr != NULL) {
-            sptr = lpNext(zl, eptr);
-            serverAssertWithInfo(NULL, zobj, sptr != NULL);
+            sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(NULL,zobj,sptr != NULL);
         }
 
         while (eptr != NULL) {
             score = zzlGetScore(sptr);
-            vstr = lpGetValue(eptr, &vlen, &vlong);
+            vstr = lpGetValue(eptr,&vlen,&vlong);
             if (vstr == NULL)
                 ele = sdsfromlonglong(vlong);
             else
-                ele = sdsnewlen((char *) vstr, vlen);
+                ele = sdsnewlen((char*)vstr,vlen);
 
-            node = zslInsert(zs->zsl, score, ele);
-            serverAssert(dictAdd(zs->dict, ele, &node->score) == DICT_OK);
-            zzlNext(zl, &eptr, &sptr);
+            node = zslInsert(zs->zsl,score,ele);
+            serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
+            zzlNext(zl,&eptr,&sptr);
         }
         zfree(zobj->ptr);
         zobj->ptr = zs;
