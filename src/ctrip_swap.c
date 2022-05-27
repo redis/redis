@@ -104,8 +104,9 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
 int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
+    void *listeners = ctx->listeners;
     ctx->finished(ctx->c,ctx);
-    requestNotify(ctx->listeners);
+    requestNotify(listeners);
     return 0;
 }
 

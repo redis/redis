@@ -261,9 +261,15 @@ int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
     listener = requestListenerCreate(db,key,cb,c,pd);
     requestListenersPush(listeners,listener);
 
+    serverLog(LL_WARNING, "[xxx] request wait => blocking:%d, %d:%s:%ld",
+            blocking,
+            listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"),
+            listLength(listeners->listeners));
+
     /* Proceed right away if request key is not blocking, otherwise
      * execution is defered. */
     if (!blocking) proceed(listeners,listener);
+
     return 0;
 }
 
@@ -271,12 +277,12 @@ int requestNotify(void *listeners_) {
     requestListeners *listeners = listeners_, *parent;
     requestListener *current, *next;
 
+    serverLog(LL_WARNING, "[xxx] request notify => %d:%s:%ld",
+            listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"),
+            listeners->listeners ? listLength(listeners->listeners):0);
+
     current = requestListenersPop(listeners);
     requestListenerRelease(current);
-
-    /* serverLog(LL_WARNING, "[xxx] request notify => %d:%s:%ld", */
-            /* listeners->level, (sds)(listeners->level == 2 ? listeners->key.key->ptr : "nil"), */
-            /* listLength(listeners->listeners)); */
 
     /* Find next proceed-able listeners, then trigger proceed. */
     while (listeners) {
