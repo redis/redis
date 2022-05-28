@@ -62,8 +62,10 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     ctx->finished = finished;
 #ifdef SWAP_DEBUG
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
-    snprintf(ctx->msgs.identity,MAX_MSG,"[%s:%s:%.*s]",
+    char identity[MAX_MSG];
+    snprintf(identity,MAX_MSG,"[%s:%s:%.*s]",
             swapIntentionName(ctx->cmd_intention),c->cmd->name,MAX_MSG/2,key);
+    swapDebugMsgsInit(&ctx->msgs, identity);
 #endif
     return ctx;
 }
@@ -71,7 +73,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
 void swapCtxFree(swapCtx *ctx) {
     if (!ctx) return;
 #ifdef SWAP_DEBUG
-    swapCtxMsgDump(ctx);
+    swapDebugMsgsDump(&ctx->msgs);
 #endif
     keyRequestDeinit(ctx->key_request);
     if (ctx->data) {
@@ -83,23 +85,26 @@ void swapCtxFree(swapCtx *ctx) {
 
 #ifdef SWAP_DEBUG
 
-void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...) {
+void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity) {
+    snprintf(msgs->identity,MAX_MSG,"[%s]",identity);
+}
+
+void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...) {
     va_list ap;
-    char *name = ctx->msgs.steps[ctx->msgs.index].name;
-    char *info = ctx->msgs.steps[ctx->msgs.index].info;
+    char *name = msgs->steps[msgs->index].name;
+    char *info = msgs->steps[msgs->index].info;
     strncpy(name,step,MAX_MSG-1);
     va_start(ap,fmt);
     vsnprintf(info,MAX_MSG,fmt,ap);
     va_end(ap);
-    // serverLog(LL_WARNING, " %02d %16s : %s",ctx->msgs.index,name,info);
-    ctx->msgs.index++;
+    msgs->index++;
 }
 
-void swapCtxMsgDump(swapCtx *ctx) {
-    serverLog(LL_NOTICE,"=== %s ===", ctx->msgs.identity);
-    for (int i = 0; i < ctx->msgs.index; i++) {
-        char *name = ctx->msgs.steps[i].name;
-        char *info = ctx->msgs.steps[i].info;
+void swapDebugMsgsDump(swapDebugMsgs *msgs) {
+    serverLog(LL_NOTICE,"=== %s ===", msgs->identity);
+    for (int i = 0; i < msgs->index; i++) {
+        char *name = msgs->steps[i].name;
+        char *info = msgs->steps[i].info;
         serverLog(LL_NOTICE,"%2d %25s : %s",i,name,info);
     }
 }
@@ -128,7 +133,8 @@ void continueProcessCommand(client *c) {
 
 void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
-    DEBUG_APPEND(ctx,"request-finished","key=%s, keyrequests_count=%d",
+    DEBUG_MSGS_APPEND(&ctx->msgs,"request-finished",
+            "key=%s, keyrequests_count=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count);
     c->keyrequests_count--;
     if (c->keyrequests_count == 0) {
@@ -154,6 +160,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     swapCtx *ctx = pd;
     robj *value, *evict;
     char *reason;
+    void *msgs = NULL;
     UNUSED(reason);
     
     if (db == NULL || key == NULL) {
@@ -193,15 +200,21 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
-    DEBUG_APPEND(ctx,"request-proceed","start swap=%s",
+    DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed","start swap=%s",
             swapIntentionName(ctx->swap_intention));
+
+#ifdef SWAP_DEBUG
+    msgs = &ctx->msgs;
+#endif
+
     submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
-            keyRequestSwapFinished,ctx);
+            keyRequestSwapFinished,ctx,msgs);
 
     return C_OK;
 
 noswap:
-    DEBUG_APPEND(ctx,"request-proceed","no swap needed: %s", reason);
+    DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
+            "no swap needed: %s", reason);
     ctx->finished(c,ctx);
     requestNotify(listeners);
     return retval;
@@ -214,8 +227,12 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         swapCtx *ctx = swapCtxCreate(c,key_request,cb);
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
-        DEBUG_APPEND(ctx,"request-wait","key=%s",key?(sds)key->ptr:"<nil>");
-        requestWait(db,key,genericRequestProceed,c,ctx,(freefunc)swapCtxFree);
+        void *msgs = NULL;
+#ifdef SWAP_DEBUG
+        msgs = &ctx->msgs;
+#endif
+        DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait","key=%s",key?(sds)key->ptr:"<nil>");
+        requestWait(db,key,genericRequestProceed,c,ctx,(freefunc)swapCtxFree,msgs);
     }
 }
 

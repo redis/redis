@@ -31,7 +31,8 @@
 /* Normally pd is swapCtx, which should not be freed untill binded listener
  * released. so we pass pdfree to listener to free it. */
 requestListener *requestListenerCreate(redisDb *db, robj *key,
-        requestProceed cb, client *c, void *pd, freefunc pdfree) {
+        requestProceed cb, client *c, void *pd, freefunc pdfree,
+        void *msgs) {
     requestListener *listener = zmalloc(sizeof(requestListener));
     listener->db = db;
     if (key) incrRefCount(key);
@@ -40,6 +41,9 @@ requestListener *requestListenerCreate(redisDb *db, robj *key,
     listener->c = c;
     listener->pd = pd;
     listener->pdfree = pdfree;
+#ifdef SWAP_DEBUG
+    listener->msgs = msgs;
+#endif
     return listener;
 }
 
@@ -263,7 +267,7 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
 
 static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
-    DEBUG_APPEND(listener->pd,"wait-proceed","listener=%s",
+    DEBUG_MSGS_APPEND(listener->msgs,"wait-proceed","listener=%s",
             requestListenerDump(listener));
     return listener->proceed(listeners,listener->db,
             listener->key,listener->c,listener->pd);
@@ -276,20 +280,19 @@ int requestWouldBlock(redisDb *db, robj *key) {
 }
 
 int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
-        void *pd, freefunc pdfree) {
+        void *pd, freefunc pdfree, void *msgs) {
     int blocking;
     requestListeners *listeners;
     requestListener *listener;
 
     listeners = requestBindListeners(db,key,1);
     blocking = listeners->nlisteners > 0;
-    listener = requestListenerCreate(db,key,cb,c,pd,pdfree);
+    listener = requestListenerCreate(db,key,cb,c,pd,pdfree,msgs);
     requestListenersPush(listeners,listener);
 
 #ifdef SWAP_DEBUG
-    swapCtx *ctx = pd;
     sds dump = requestListenersDump(listeners);
-    DEBUG_APPEND(ctx,"wait-bind","listener = %s", dump);
+    DEBUG_MSGS_APPEND(msgs,"wait-bind","listener = %s", dump);
     sdsfree(dump);
 #endif
 
@@ -307,9 +310,8 @@ int requestNotify(void *listeners_) {
     current = requestListenersPop(listeners);
 
 #ifdef SWAP_DEBUG
-    swapCtx *ctx = current->pd;
     sds dump = requestListenersDump(listeners);
-    DEBUG_APPEND(ctx,"wait-unbind","listener=%s", dump);
+    DEBUG_MSGS_APPEND(current->msgs,"wait-unbind","listener=%s", dump);
     sdsfree(dump);
 #endif
 

@@ -261,7 +261,6 @@ void freeWholeKeySwapData(swapData *data_, void *datactx) {
     zfree(datactx);
 }
 
-
 swapDataType wholeKeySwapDataType = {
     .name = "wholekey",
     .swapAna = wholeKeySwapAna,

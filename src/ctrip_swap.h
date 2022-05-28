@@ -121,6 +121,37 @@ robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
 int swapDataCleanObject(swapData *d, void *datactx);
 void swapDataFree(swapData *data, void *datactx);
 
+/* Debug msgs */
+#ifdef SWAP_DEBUG
+#define MAX_MSG    64
+#define MAX_STEPS  16
+
+typedef struct swapDebugMsgs {
+  char identity[MAX_MSG];
+  struct swapCtxStep {
+    char name[MAX_MSG];
+    char info[MAX_MSG];
+  } steps[MAX_STEPS];
+  int index;
+} swapDebugMsgs;
+
+void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity);
+#ifdef __GNUC__
+void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...)
+  __attribute__((format(printf, 3, 4)));
+#else
+void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...);
+#endif
+void swapDebugMsgsDump(swapDebugMsgs *msgs);
+
+#define DEBUG_MSGS_INIT(msgs, identity) swapDebugMsgsInit(msgs, identity)
+#define DEBUG_MSGS_APPEND(msgs, step, ...) swapDebugMsgsAppend(msgs, step, __VA_ARGS__)
+#else
+#define DEBUG_MSGS_INIT(msgs, identity)
+#define DEBUG_MSGS_APPEND(msgs, step, ...)
+#endif
+
+/* Swap context */
 #define SWAP_ERR_ANA_FAIL -100
 
 struct swapCtx;
@@ -137,37 +168,13 @@ typedef struct swapCtx {
   void *datactx;
   clientKeyRequestFinished finished;
   int errcode;
-
 #ifdef SWAP_DEBUG
-#define MAX_MSG    64
-#define MAX_STEPS  16
-  struct {
-    char identity[MAX_MSG];
-    struct swapCtxStep {
-      char name[MAX_MSG];
-      char info[MAX_MSG];
-    } steps[MAX_STEPS];
-    int index;
-  } msgs;
+  swapDebugMsgs msgs;
 #endif
-
 } swapCtx;
 
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
 void swapCtxFree(swapCtx *ctx);
-
-#ifdef SWAP_DEBUG
-#ifdef __GNUC__
-void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...)
-  __attribute__((format(printf, 3, 4)));
-#else
-void swapCtxMsgAppend(swapCtx *ctx, char *step, char *fmt, ...);
-#endif
-void swapCtxMsgDump(swapCtx *ctx);
-#define DEBUG_APPEND(ctx, step, ...) swapCtxMsgAppend(ctx, step, __VA_ARGS__)
-#else
-#define DEBUG_APPEND(ctx, step, ...)
-#endif
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
 
@@ -213,13 +220,16 @@ typedef struct swapRequest {
   void *notify_pd;
   swapRequestFinishedCallback finish_cb;
   void *finish_pd;
+#ifdef SWAP_DEBUG
+  swapDebugMsgs *msgs;
+#endif
 } swapRequest;
 
-swapRequest *swapRequestNew(int intention, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd);
+swapRequest *swapRequestNew(int intention, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 void swapRequestFree(swapRequest *req);
 int executeSwapRequest(swapRequest *req);
 int finishSwapRequest(swapRequest *req);
-void submitSwapRequest(int mode, int intention, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd);
+void submitSwapRequest(int mode, int intention, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* --- Threads (encode/rio/decode/finish) --- */
 #define SWAP_THREADS_DEFAULT     6
@@ -346,6 +356,9 @@ typedef struct requestListener {
   requestProceed proceed;
   void *pd;
   freefunc pdfree;
+#ifdef SWAP_DEBUG
+  swapDebugMsgs *msgs;
+#endif
 } requestListener;
 
 typedef struct requestListeners {
@@ -371,7 +384,7 @@ typedef struct requestListeners {
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
 int requestWouldBlock(redisDb *db, robj *key);
-int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree);
+int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
 int requestNotify(void *listeners);
 
 /* --- Evict --- */
@@ -507,6 +520,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags);
 
 typedef struct ctripRdbLoadCtx {
   size_t errors;
+  size_t idx;
   struct {
     size_t capacity;
     size_t memory;

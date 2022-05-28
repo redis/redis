@@ -177,13 +177,13 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     client *c;
     listNode *ln;
     list *repl_swapping_clients;
+    UNUSED(ctx);
 
     serverLog(LL_DEBUG, "> replWorkerClientSwapFinished client(id=%ld,cmd=%s,key=%s)",
         wc->id,wc->cmd->name,wc->argc <= 1 ? "": (sds)wc->argv[1]->ptr);
 
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */
-    swapCtxFree(ctx);
     wc->keyrequests_count--;
     if (wc->keyrequests_count == 0) wc->CLIENT_REPL_SWAPPING = 0;
 

@@ -155,21 +155,14 @@ err:
 typedef struct rdbLoadSwapData {
     swapData d;
     redisDb *db;
+    size_t idx;
     int num;
     sds *rawkeys;
     sds *rawvals;
+#ifdef SWAP_DEBUG
+  struct swapDebugMsgs msgs;
+#endif
 } rdbLoadSwapData;
-
-/* rawkeys/rawvals moved, ptr array copied. */
-swapData *createRdbLoadSwapData(int num, sds *rawkeys, sds *rawvals) {
-    rdbLoadSwapData *data = zmalloc(sizeof(rdbLoadSwapData));
-    data->num = num;
-    data->rawkeys = zmalloc(sizeof(sds)*data->num);
-    memcpy(data->rawkeys, rawkeys, sizeof(sds)*data->num);
-    data->rawvals = zmalloc(sizeof(sds)*data->num);
-    memcpy(data->rawvals, rawvals, sizeof(sds)*data->num);
-    return (swapData*)data;
-}
 
 void rdbLoadSwapDataFree(swapData *data_, void *datactx) {
     rdbLoadSwapData *data = (rdbLoadSwapData*)data_;
@@ -201,7 +194,7 @@ int rdbLoadEncodeData(swapData *data_, int intention, int *action,
     return 0;
 }
 
-swapDataType rdbLoadDataType = {
+swapDataType rdbLoadSwapDataType = {
     .name = "rdbload",
     .swapAna = rdbLoadSwapAna,
     .encodeKeys = NULL,
@@ -215,9 +208,28 @@ swapDataType rdbLoadDataType = {
     .free = rdbLoadSwapDataFree,
 };
 
+/* rawkeys/rawvals moved, ptr array copied. */
+swapData *createRdbLoadSwapData(size_t idx, int num, sds *rawkeys, sds *rawvals) {
+    rdbLoadSwapData *data = zcalloc(sizeof(rdbLoadSwapData));
+    data->d.type = &rdbLoadSwapDataType;
+    data->idx = idx;
+    data->num = num;
+    data->rawkeys = zmalloc(sizeof(sds)*data->num);
+    memcpy(data->rawkeys,rawkeys,sizeof(sds)*data->num);
+    data->rawvals = zmalloc(sizeof(sds)*data->num);
+    memcpy(data->rawvals,rawvals,sizeof(sds)*data->num);
+#ifdef SWAP_DEBUG
+    char identity[MAX_MSG];
+    snprintf(identity,MAX_MSG,"[rdbload:%ld:%d]",idx,num);
+    swapDebugMsgsInit(&data->msgs,identity);
+#endif
+    return (swapData*)data;
+}
+
 ctripRdbLoadCtx *ctripRdbLoadCtxNew() {
     ctripRdbLoadCtx *ctx = zmalloc(sizeof(ctripRdbLoadCtx));
     ctx->errors = 0;
+    ctx->idx = 0;
     ctx->batch.count = RDB_LOAD_BATCH_COUNT;
     ctx->batch.index = 0;
     ctx->batch.capacity = RDB_LOAD_BATCH_CAPACITY;
@@ -229,18 +241,34 @@ ctripRdbLoadCtx *ctripRdbLoadCtxNew() {
 
 int ctripRdbLoadWriteFinished(swapData *data, void *pd) {
     UNUSED(pd);
+#ifdef SWAP_DEBUG
+    void *msgs = &((rdbLoadSwapData*)data)->msgs;
+    DEBUG_MSGS_APPEND(msgs,"request-finish","ok");
+#endif
     rdbLoadSwapDataFree(data,NULL);
     return 0;
 }
 
 void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
     swapData *data;
-    if (ctx->batch.index == 0) return;
-    data = createRdbLoadSwapData(ctx->batch.index,ctx->batch.rawkeys,
-            ctx->batch.rawvals);
+    void *msgs = NULL;
+
+    if (ctx->batch.index == 0)
+        return;
+
+    data = createRdbLoadSwapData(ctx->idx,ctx->batch.index,
+            ctx->batch.rawkeys, ctx->batch.rawvals);
+
+#ifdef SWAP_DEBUG
+    msgs = &((rdbLoadSwapData*)data)->msgs;
+#endif
+
+    DEBUG_MSGS_APPEND(msgs,"request-start","idx=%ld,num=%ld",ctx->idx,
+            ctx->batch.index);
+
     /* Submit to rio thread. */
     submitSwapRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,data,NULL,
-                ctripRdbLoadWriteFinished,NULL);
+                ctripRdbLoadWriteFinished,NULL,msgs);
 }
 
 void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, sds rawkey, sds rawval) {
