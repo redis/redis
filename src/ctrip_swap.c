@@ -228,11 +228,19 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
         void *msgs = NULL;
+
+        //TODO refactor evict asap: swapdata or swapthread should notify
+        // key swapped in and register those keys to be evict asap.
+        if (key) clientHoldKey(c,key,0);
+
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
 #endif
-        DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait","key=%s",key?(sds)key->ptr:"<nil>");
-        requestWait(db,key,genericRequestProceed,c,ctx,(freefunc)swapCtxFree,msgs);
+        DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
+                key ? (sds)key->ptr : "<nil>");
+
+        requestWait(db,key,genericRequestProceed,c,ctx,
+                (freefunc)swapCtxFree,msgs);
     }
 }
 

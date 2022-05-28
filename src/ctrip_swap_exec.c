@@ -387,6 +387,7 @@ static int executeSwapOutRequest(swapRequest *req) {
 
 end:
     DEBUG_MSGS_APPEND(req->msgs,"execswap-out-end","retval=%d",retval);
+
     if (rawkeys) {
         for (i = 0; i < numkeys; i++) {
             sdsfree(rawkeys[i]);

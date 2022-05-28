@@ -30,7 +30,6 @@
 
 /* ----------------------------- expire ------------------------------ */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
-    swapCtxFree(ctx);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
     clientUnholdKey(c, ctx->key_request->key);
