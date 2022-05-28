@@ -39,6 +39,7 @@ typedef struct pubsubtype {
     dict **serverPubSubChannels;
     robj **subscribeMsg;
     robj **unsubscribeMsg;
+    robj **messageBulk;
 }pubsubtype;
 
 /*
@@ -78,6 +79,7 @@ pubsubtype pubSubType = {
     .serverPubSubChannels = &server.pubsub_channels,
     .subscribeMsg = &shared.subscribebulk,
     .unsubscribeMsg = &shared.unsubscribebulk,
+    .messageBulk = &shared.messagebulk,
 };
 
 /*
@@ -89,7 +91,8 @@ pubsubtype pubSubShardType = {
     .subscriptionCount = clientShardSubscriptionsCount,
     .serverPubSubChannels = &server.pubsubshard_channels,
     .subscribeMsg = &shared.ssubscribebulk,
-    .unsubscribeMsg = &shared.sunsubscribebulk
+    .unsubscribeMsg = &shared.sunsubscribebulk,
+    .messageBulk = &shared.smessagebulk,
 };
 
 /*-----------------------------------------------------------------------------
@@ -101,12 +104,12 @@ pubsubtype pubSubShardType = {
  * message. However if the caller sets 'msg' as NULL, it will be able
  * to send a special message (for instance an Array type) by using the
  * addReply*() API family. */
-void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
+void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk) {
     if (c->resp == 2)
         addReply(c,shared.mbulkhdr[3]);
     else
         addReplyPushLen(c,3);
-    addReply(c,shared.messagebulk);
+    addReply(c,message_bulk);
     addReplyBulk(c,channel);
     if (msg) addReplyBulk(c,msg);
 }
@@ -461,7 +464,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
-            addReplyPubsubMessage(c,channel,message);
+            addReplyPubsubMessage(c,channel,message,*type.messageBulk);
             updateClientMemUsage(c);
             receivers++;
         }
