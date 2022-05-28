@@ -130,7 +130,6 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
     DEBUG_APPEND(ctx,"request-finished","key=%s, keyrequests_count=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count);
-    swapCtxFree(ctx);
     c->keyrequests_count--;
     if (c->keyrequests_count == 0) {
         if (!c->CLIENT_DEFERED_CLOSING) continueProcessCommand(c);
@@ -140,9 +139,8 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
 int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
-    void *listeners = ctx->listeners;
     ctx->finished(ctx->c,ctx);
-    requestNotify(listeners);
+    requestNotify(ctx->listeners);
     return 0;
 }
 
@@ -217,7 +215,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
         DEBUG_APPEND(ctx,"request-wait","key=%s",key?(sds)key->ptr:"<nil>");
-        requestWait(db,key,genericRequestProceed,c,ctx);
+        requestWait(db,key,genericRequestProceed,c,ctx,(freefunc)swapCtxFree);
     }
 }
 

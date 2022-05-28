@@ -38,9 +38,9 @@
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
 
-static inline char *requestLevelName(int level) {
-  char *name = "?";
-  char *levels[] = {"svr","db","key"};
+static inline const char *requestLevelName(int level) {
+  const char *name = "?";
+  const char *levels[] = {"svr","db","key"};
   if (level >= 0 && (size_t)level < sizeof(levels)/sizeof(char*))
     name = levels[level];
   return name;
@@ -79,9 +79,9 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 #define SWAP_DEL    3
 #define SWAP_TYPES  4
 
-static inline char *swapIntentionName(int intention) {
-  char *name = "?";
-  char *intentions[] = {"NOP", "IN", "OUT", "DEL"};
+static inline const char *swapIntentionName(int intention) {
+  const char *name = "?";
+  const char *intentions[] = {"NOP", "IN", "OUT", "DEL"};
   if (intention >= 0 && intention < SWAP_TYPES)
     name = intentions[intention];
   return name;
@@ -247,9 +247,9 @@ int swapThreadsDrained();
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
 
-static inline char *rocksActionName(int action) {
-  char *name = "?";
-  char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN"};
+static inline const char *rocksActionName(int action) {
+  const char *name = "?";
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
@@ -336,6 +336,7 @@ int parallelSyncDrain();
 int parallelSyncSwapRequestSubmit(swapRequest *req);
 
 /* --- Wait --- */
+typedef void (*freefunc)(void *);
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
 typedef struct requestListener {
@@ -344,6 +345,7 @@ typedef struct requestListener {
   client *c;
   requestProceed proceed;
   void *pd;
+  freefunc pdfree;
 } requestListener;
 
 typedef struct requestListeners {
@@ -369,7 +371,7 @@ typedef struct requestListeners {
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
 int requestWouldBlock(redisDb *db, robj *key);
-int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd);
+int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree);
 int requestNotify(void *listeners);
 
 /* --- Evict --- */
