@@ -2268,7 +2268,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             }
 
             /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
