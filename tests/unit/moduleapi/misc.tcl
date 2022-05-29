@@ -147,36 +147,6 @@ start_server {tags {"modules"}} {
         }
     }
 
-    test {rm_call EVAL - OOM} {
-        r config set maxmemory 1
-
-        assert_error {OOM command not allowed when used memory > 'maxmemory'. script*} {
-            r test.rm_call eval {
-                redis.call('set','x',1)
-                return 1
-            } 1 x
-        }
-
-        r test.rm_call eval {#!lua flags=no-writes
-            redis.call('get','x')
-            return 2
-        } 1 x
-
-        assert_error {OOM allow-oom flag is not set on the script,*} {
-            r test.rm_call eval {#!lua
-                redis.call('get','x')
-                return 3
-            } 1 x
-        }
-
-        r test.rm_call eval {
-            redis.call('get','x')
-            return 4
-        } 1 x
-
-        r config set maxmemory 0
-    } {OK} {needs:config-maxmemory}
-
     test "not enough good replicas" {
         r set x "some value"
         r config set min-replicas-to-write 1

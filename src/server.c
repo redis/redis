@@ -3619,10 +3619,12 @@ int processCommand(client *c) {
      * it, in case it declared them. Note this is just an attempt, we don't yet
      * know the script command is well formed.*/
     uint64_t cmd_flags = c->cmd->flags;
+    int script_call = 0;
     if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand ||
         c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand ||
         c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
     {
+        script_call = 1;
         uint64_t fl = 0;
         int res;
         if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
@@ -3773,10 +3775,8 @@ int processCommand(client *c) {
 
         /* Save out_of_memory result at script start, otherwise if we check OOM
          * until first write within script, memory used by lua stack and
-         * arguments might interfere. We need to save it for EXEC and module
-         * calls too, since these can call EVAL, but avoid saving it during an
-         * interrupted busy script. */
-        if (!scriptIsTimedout()) {
+         * arguments might interfere. */
+        if (script_call) {
             server.script_oom = out_of_memory;
         }
     }
