@@ -1533,7 +1533,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         goto uxeof;
     }
 
-loaded_ok: /* DB loaded, cleanup and return AOF_TRUNCATED to the caller. */
+loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
     goto cleanup;
