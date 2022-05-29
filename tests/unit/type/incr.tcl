@@ -62,7 +62,7 @@ start_server {tags {"incr"}} {
         r incr foo
         if {!$::swap} {assert {[r object refcount foo] > 1} }
         r incr foo
-        assert {[r object refcount foo] == 1}
+        if {!$::swap} {assert {[r object refcount foo] == 1} }
     }
 
     if {!$::swap} {
