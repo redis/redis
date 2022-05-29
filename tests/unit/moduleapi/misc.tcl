@@ -133,6 +133,39 @@ start_server {tags {"modules"}} {
         assert { [r test.monotonic_time] >= $x }
     }
 
+    test {rm_call OOM} {
+        r config set maxmemory 1
+        r config set maxmemory-policy volatile-lru
+
+        # sanity test plain call
+        assert_equal {OK} [
+            r test.rm_call set x 1
+        ]
+
+        # add the M flag
+        assert_error {OOM *} {
+            r test.rm_call_flags M set x 1
+
+        }
+
+        # test a non deny-oom command
+        assert_equal {1} [
+            r test.rm_call_flags M get x
+        ]
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call write flag} {
+        # add the W flag
+        assert_error {ERR Write command 'set' was called while write is not allowed.} {
+            r test.rm_call_flags W set x 1
+        }
+
+        # test a non deny-oom command
+        r test.rm_call_flags W get x
+    } {1}
+
     test {rm_call EVAL} {
         r test.rm_call eval {
             redis.call('set','x',1)
@@ -147,12 +180,42 @@ start_server {tags {"modules"}} {
         }
     }
 
+    test {rm_call EVAL - OOM} {
+        r config set maxmemory 1
+
+        assert_error {OOM command not allowed when used memory > 'maxmemory'. script*} {
+            r test.rm_call eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        r test.rm_call eval {#!lua flags=no-writes
+            redis.call('get','x')
+            return 2
+        } 1 x
+
+        assert_error {OOM allow-oom flag is not set on the script,*} {
+            r test.rm_call eval {#!lua
+                redis.call('get','x')
+                return 3
+            } 1 x
+        }
+
+        r test.rm_call eval {
+            redis.call('get','x')
+            return 4
+        } 1 x
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
     test "not enough good replicas" {
         r set x "some value"
         r config set min-replicas-to-write 1
 
         # rm_call in script mode
-        assert_error {NOREPLICAS *} {r test.rm_call_s set x s}
+        assert_error {NOREPLICAS *} {r test.rm_call_flags S set x s}
 
         assert_equal [
             r test.rm_call eval {#!lua flags=no-writes
@@ -185,7 +248,7 @@ start_server {tags {"modules"}} {
         r replicaof 127.0.0.1 1
 
         # rm_call in script mode
-        assert_error {READONLY *} {r test.rm_call_s set x 1}
+        assert_error {READONLY *} {r test.rm_call_flags S set x 1}
 
         assert_error {READONLY You can't write against a read only replica. script*} {
             r test.rm_call eval {
@@ -220,7 +283,7 @@ start_server {tags {"modules"}} {
 
         # rm_call in script mode
         assert_error {MASTERDOWN *} {
-            r test.rm_call_s get x
+            r test.rm_call_flags S get x
         }
 
         assert_error {MASTERDOWN *} {
@@ -257,7 +320,7 @@ start_server {tags {"modules"}} {
         assert_error {MISCONF *} {r set x y}
 
         # rm_call in script mode
-        assert_error {MISCONF *} {r test.rm_call_s set x 1}
+        assert_error {MISCONF *} {r test.rm_call_flags S set x 1}
 
         # repeate with script
         assert_error {MISCONF *} {r test.rm_call eval {
