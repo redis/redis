@@ -1558,6 +1558,7 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
         dbAsyncDelete(db,keyobj);
     else
         dbSyncDelete(db,keyobj);
+    dbDeleteEvict(db,keyobj);
     latencyEndMonitor(expire_latency);
     latencyAddSampleIfNeeded("expire-del",expire_latency);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,"expired",keyobj,db->id);

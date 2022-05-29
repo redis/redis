@@ -28,6 +28,7 @@
 
 #include "ctrip_swap.h"
 
+sds objectDump(robj *o);
 int wholeKeySwapAna(swapData *data_, int cmd_intention,
         struct keyRequest *req, int *intention) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
@@ -146,22 +147,20 @@ int wholeKeyDecodeData(swapData *data, int num, sds *rawkeys,
     return 0;
 }
 
-/*TODO confirm whether we need dup?
-robj *dupObjectWk(robj *o) {
+/* If maxmemory policy is not LRU/LFU, rdbLoadObject might return shared
+ * object, but swap needs individual object to track dirty/evict flags. */
+robj *dupSharedObject(robj *o) {
     switch(o->type) {
     case OBJ_STRING:
         return dupStringObject(o);
     case OBJ_HASH:
-        serverLog(LL_WARNING, "FATAL: hash dupObjectWk not implemented.");
-        incrRefCount(o);
-        return o;
     case OBJ_LIST:
     case OBJ_SET:
     case OBJ_ZSET:
     default:
         return NULL;
     }
-}*/
+}
 
 static robj *createSwapInObject(robj *newval, robj *evict) {
     robj *swapin = newval;
@@ -170,7 +169,8 @@ static robj *createSwapInObject(robj *newval, robj *evict) {
     serverAssert(evict);
     serverAssert(evict->type == newval->type);
     /* Copy swapin object before modifing If newval is shared object. */
-    /* if (newval->refcount > 1) swapin = dupObjectWk(newval); */
+    if (newval->refcount == OBJ_SHARED_REFCOUNT)
+        swapin = dupSharedObject(newval);
     swapin->lru = evict->lru;
     swapin->dirty = 0;
     swapin->evicted = 0;
@@ -182,8 +182,6 @@ int wholeKeySwapIn(swapData *data_, robj *result, void *datactx) {
     UNUSED(datactx);
     robj *swapin;
     long long expire;
-    /* FIXME: left on purpose to detect shared object */
-    // serverAssert(data->value->refcount != OBJ_SHARED_REFCOUNT);
     expire = getExpire(data->db,data->key);
     swapin = createSwapInObject(result,data->evict);
     if (expire != -1) removeExpire(data->db,data->key);
@@ -255,7 +253,6 @@ void freeWholeKeySwapData(swapData *data_, void *datactx) {
     if (data->value) decrRefCount(data->value);
     if (data->evict) decrRefCount(data->evict);
     zfree(data);
-    zfree(datactx);
 }
 
 swapDataType wholeKeySwapDataType = {
@@ -266,8 +263,10 @@ swapDataType wholeKeySwapDataType = {
     .decodeData = wholeKeyDecodeData,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
-    .swapDel = wholeKeySwapDel,
+    .swapDel = NULL,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
+    /* OPT: zset/set/list could clean subkey in cleanObject to reduce
+     * Cpu usage in main thread. */
     .cleanObject = NULL,
     .free = freeWholeKeySwapData,
 };
@@ -275,7 +274,7 @@ swapDataType wholeKeySwapDataType = {
 swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
         robj *evict, void **pdatactx) {
     wholeKeySwapData *data = zmalloc(sizeof(wholeKeySwapData));
-    UNUSED(pdatactx);
+    if (pdatactx) *pdatactx = NULL;
     data->d.type = &wholeKeySwapDataType;
     data->db = db;
     if (key) incrRefCount(key);

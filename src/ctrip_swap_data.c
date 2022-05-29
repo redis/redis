@@ -105,7 +105,7 @@ inline int swapDataSwapOut(swapData *d, void *datactx) {
 
 /* Main-thread: swap del data out of keyspace. */
 inline int swapDataSwapDel(swapData *d, void *datactx) {
-    if (d->type->swapIn)
+    if (d->type->swapDel)
         return d->type->swapDel(d, datactx);
     else
         return 0;
