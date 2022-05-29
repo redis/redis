@@ -514,6 +514,7 @@ void submitSwapRequest(int mode, int intention, swapData* data, void *datactx,
 swapRequest *swapRequestNew(int intention, swapData *data, void *datactx,
         swapRequestFinishedCallback cb, void *pd, void *msgs) {
     swapRequest *req = zcalloc(sizeof(swapRequest));
+    UNUSED(msgs);
     req->intention = intention;
     req->data = data;
     req->datactx = datactx;

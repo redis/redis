@@ -133,6 +133,7 @@ void continueProcessCommand(client *c) {
 
 void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
     robj *key = ctx->key_request->key;
+    UNUSED(key);
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-finished",
             "key=%s, keyrequests_count=%d",
             key?(sds)key->ptr:"<nil>", c->keyrequests_count);

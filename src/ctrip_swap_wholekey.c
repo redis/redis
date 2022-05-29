@@ -244,13 +244,6 @@ robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) 
     return decoded;
 }
 
-int wholeKeyCleanObject(swapData *data_, void *datactx) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    UNUSED(datactx);
-    serverAssert(data->value);
-    return 0;
-}
-
 void freeWholeKeySwapData(swapData *data_, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
@@ -271,7 +264,7 @@ swapDataType wholeKeySwapDataType = {
     .swapOut = wholeKeySwapOut,
     .swapDel = wholeKeySwapDel,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
-    .cleanObject = wholeKeyCleanObject,
+    .cleanObject = NULL,
     .free = freeWholeKeySwapData,
 };
 

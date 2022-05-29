@@ -182,6 +182,8 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
     serverLog(LL_DEBUG, "> replWorkerClientSwapFinished client(id=%ld,cmd=%s,key=%s)",
         wc->id,wc->cmd->name,wc->argc <= 1 ? "": (sds)wc->argv[1]->ptr);
 
+    DEBUG_MSGS_APPEND(&ctx->msgs, "request-finished", "ret=ok");
+
     /* Flag swap finished, note that command processing will be defered to
      * processFinishedReplCommands becasue there might be unfinished preceeding swap. */
     wc->keyrequests_count--;
@@ -237,6 +239,7 @@ void replWorkerClientKeyRequestFinished(client *wc, swapCtx *ctx) {
 int submitReplWorkerClientRequest(client *wc) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequests(wc, &result);
+    wc->keyrequests_count = result.num;
     submitClientKeyRequests(wc,&result,replWorkerClientKeyRequestFinished);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);

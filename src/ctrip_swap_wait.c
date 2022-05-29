@@ -34,6 +34,7 @@ requestListener *requestListenerCreate(redisDb *db, robj *key,
         requestProceed cb, client *c, void *pd, freefunc pdfree,
         void *msgs) {
     requestListener *listener = zmalloc(sizeof(requestListener));
+    UNUSED(msgs);
     listener->db = db;
     if (key) incrRefCount(key);
     listener->key = key;
