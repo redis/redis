@@ -291,7 +291,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_ON 1              /* AOF is on */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
-/* AOF return values for loadAppendOnlyFile() */
+/* AOF return values for loadAppendOnlyFiles() and loadSingleAppendOnlyFile() */
 #define AOF_OK 0
 #define AOF_NOT_EXIST 1
 #define AOF_EMPTY 2

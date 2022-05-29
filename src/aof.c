@@ -1353,7 +1353,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
-    int ret = C_OK;
+    int ret = AOF_OK;
 
     sds aof_filepath = makePath(server.aof_dirname, filename);
     FILE *fp = fopen(aof_filepath, "r");
@@ -1533,7 +1533,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         goto uxeof;
     }
 
-loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
+loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
     goto cleanup;
@@ -1594,7 +1594,7 @@ cleanup:
 /* Load the AOF files according the aofManifest pointed by am. */
 int loadAppendOnlyFiles(aofManifest *am) {
     serverAssert(am != NULL);
-    int status, ret = C_OK;
+    int status, ret = AOF_OK;
     long long start;
     off_t total_size = 0, base_size = 0;
     sds aof_name;
@@ -2268,7 +2268,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             }
 
             /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
