@@ -2,74 +2,87 @@
 # Each test case consists of two strings: a (partial) input command line, and the expected hint string.
 
 # Command with one arg: GET key
-"GET" "key"
-"GET abc" ""
+"GET " "key"
+"GET abc " ""
 
 # Command with two args: DECRBY key decrement
-"DECRBY xyz 2" ""
-"DECRBY xyz" "decrement"
-"DECRBY" "key decrement"
+"DECRBY xyz 2 " ""
+"DECRBY xyz " "decrement"
+"DECRBY " "key decrement"
 
 # Command with optional arg: LPOP key [count]
-"LPOP key" "[count]"
-"LPOP key 3" ""
+"LPOP key " "[count]"
+"LPOP key 3 " ""
 
 # Command with optional token arg: XRANGE key start end [COUNT count]
-"XRANGE" "key start end [COUNT count]"
-"XRANGE k 4 2" "[COUNT count]"
+"XRANGE " "key start end [COUNT count]"
+"XRANGE k 4 2 " "[COUNT count]"
 "XRANGE k 4 2 COU" "[COUNT count]"
-"XRANGE k 4 2 COUNT" "count"
+"XRANGE k 4 2 COUNT" "[COUNT count]"
+"XRANGE k 4 2 COUNT " "count"
 
 # Command with required token block arg: BITFIELD_RO key GET encoding offset [encoding offset ...]
-"BITFIELD_RO k" "GET encoding offset [encoding offset ...]"
+"BITFIELD_RO k " "GET encoding offset [encoding offset ...]"
 "BITFIELD_RO k GE" "GET encoding offset [encoding offset ...]"
-"BITFIELD_RO k GET" "encoding offset [encoding offset ...]"
-"BITFIELD_RO k GET xyz" "offset [encoding offset ...]"
-"BITFIELD_RO k GET xyz abc" "[encoding offset ...]"
+"BITFIELD_RO k GET" "GET encoding offset [encoding offset ...]"
+"BITFIELD_RO k GET " "encoding offset [encoding offset ...]"
+"BITFIELD_RO k GET xyz " "offset [encoding offset ...]"
+"BITFIELD_RO k GET xyz abc " "[encoding offset ...]"
 
 # Two-word command with multiple non-token block args:  CONFIG SET parameter value [parameter value ...]
-"CONFIG SET param" "value [parameter value ...]"
-"CONFIG SET param val" "[parameter value ...]"
-"CONFIG SET param val parm2 val2" "[parameter value ...]"
+"CONFIG SET param " "value [parameter value ...]"
+"CONFIG SET param val " "[parameter value ...]"
+"CONFIG SET param val parm2 val2 " "[parameter value ...]"
 
 # Command with nested optional args:  ZRANDMEMBER key [count [WITHSCORES]]
-"ZRANDMEMBER k" "[count [WITHSCORES]]"
-"ZRANDMEMBER k 3" "[WITHSCORES]"
+"ZRANDMEMBER k " "[count [WITHSCORES]]"
+"ZRANDMEMBER k 3 " "[WITHSCORES]"
 "ZRANDMEMBER k 3 WI" "[WITHSCORES]"
-"ZRANDMEMBER k 3 WITHSCORES" ""
+"ZRANDMEMBER k 3 WITHSCORES " ""
 
 # Command ends with repeated arg: MGET key [key ...]
-"MGET" "key [key ...]"
-"MGET k" "[key ...]"
-"MGET k k" "[key ...]"
+"MGET " "key [key ...]"
+"MGET k " "[key ...]"
+"MGET k k " "[key ...]"
 
 # Optional args can be in any order: SCAN cursor [MATCH pattern] [COUNT count] [TYPE type]
-"SCAN cur MATCH" "pattern [COUNT count] [TYPE type]"
-"SCAN cur COUNT" "count [MATCH pattern] [TYPE type]"
+"SCAN cur MATCH " "pattern [COUNT count] [TYPE type]"
+"SCAN cur COUNT " "count [MATCH pattern] [TYPE type]"
 
 # One-of choices: BLMOVE source destination LEFT|RIGHT LEFT|RIGHT timeout
-"BLMOVE src dst LEFT" "LEFT|RIGHT timeout"
+"BLMOVE src dst LEFT " "LEFT|RIGHT timeout"
 
 # Optional args can be in any order: ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
-"ZRANGE k 1 2" "[BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]"
-"ZRANGE k 1 2 bylex" "[REV] [LIMIT offset count] [WITHSCORES]"
-"ZRANGE k 1 2 bylex rev" "[LIMIT offset count] [WITHSCORES]"
-"ZRANGE k 1 2 bylex rev limit 2 4" "[WITHSCORES]"
-"ZRANGE k 1 2 bylex rev limit 2 4 WITHSCORES" ""
+"ZRANGE k 1 2 " "[BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]"
+"ZRANGE k 1 2 bylex " "[REV] [LIMIT offset count] [WITHSCORES]"
+"ZRANGE k 1 2 bylex rev " "[LIMIT offset count] [WITHSCORES]"
+"ZRANGE k 1 2 limit 2 4 " "[BYSCORE|BYLEX] [REV] [WITHSCORES]"
+"ZRANGE k 1 2 bylex rev limit 2 4 WITHSCORES " ""
+"ZRANGE k 1 2 rev " "[BYSCORE|BYLEX] [LIMIT offset count] [WITHSCORES]"
+"ZRANGE k 1 2 WITHSCORES " "[BYSCORE|BYLEX] [REV] [LIMIT offset count]"
 
 # Optional one-of args with parameters: SET key value [NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]
-"SET key value" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value EX" "seconds [NX|XX] [GET]"
-"SET key value PX" "milliseconds [NX|XX] [GET]"
-"SET key value KEEPTTL" "[NX|XX] [GET]"
-"SET key value XX" "[GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value " "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EX" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EX " "seconds [NX|XX] [GET]"
+"SET key value EXAT" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EXAT " "unix-time-seconds [NX|XX] [GET]"
+"SET key value PX" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value PX " "milliseconds [NX|XX] [GET]"
+"SET key value PXAT" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value PXAT " "unix-time-milliseconds [NX|XX] [GET]"
+"SET key value KEEPTTL " "[NX|XX] [GET]"
+"SET key value XX " "[GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
 
 # Reordering partially-matched optional argument: GEORADIUS key longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]
 "GEORADIUS key " "longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M" "[WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M COUNT" "count [ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
+"GEORADIUS key 1 2 3 M " "[WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT " "count [ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
+# The next case is not working yet - it needs to be fixed:
+# "GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key] [STOREDIST key]"
 
 # Optional parameters followed by mandatory params: ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]
-"ZADD key" "[NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]"
-"ZADD key CH LT" "[NX|XX] [INCR] score member [score member ...]"
-"ZADD key 0" "member [score member ...]"
+"ZADD key " "[NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]"
+"ZADD key CH LT " "[NX|XX] [INCR] score member [score member ...]"
+"ZADD key 0 " "member [score member ...]"

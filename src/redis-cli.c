@@ -704,7 +704,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.args = zcalloc(arguments->elements * sizeof(commandArg));
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
-            // help->docs.params = makeHint(NULL, 0, 0, help->docs);
+            help->docs.params = makeHint(NULL, 0, 0, help->docs);
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
@@ -1220,7 +1220,8 @@ static int matchArgs(char **words, int numwords, commandArg *args, int numargs) 
     return nextword;
 }
 
-/* Compute the linenoise hint for the input prefix.
+/* Compute the linenoise hint for the input prefix in inputargv/inputargc.
+ * cmdlen is the number of words from the start of the input that make up the command.
  * If docs.args exists, dynamically creates a hint string by matching the arg specs
  * against the input words. Otherwise (pre-7.0), does something very primitive.
  */
@@ -1277,42 +1278,50 @@ static helpEntry* findHelpEntry(int argc, char **argv) {
     return entry;
 }
 
+/* Returns the command-line hint string for a given partial input. */
+static sds getHintForInput(const char *charinput) {
+    sds hint;
+    int inputargc, inputlen = strlen(charinput);
+    sds *inputargv = sdssplitargs(charinput, &inputargc);
+    int endspace = inputlen && isspace(charinput[inputlen-1]);
+
+    /* Don't match the last word until the user has typed a space after it. */
+    int matchargc = endspace ? inputargc : inputargc - 1;
+
+    helpEntry *entry = findHelpEntry(matchargc, inputargv);
+    if (!entry) {
+        sdsfreesplitres(inputargv, inputargc);
+        return NULL;
+    }
+
+    hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
+    sdsfreesplitres(inputargv, inputargc);
+    return hint;
+}
+
 /* Linenoise hints callback. */
 static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
-    int argc, buflen = strlen(buf);
-    sds *argv = sdssplitargs(buf,&argc);
-    int endspace = buflen && isspace(buf[buflen-1]);
-    helpEntry *entry = NULL;
-
-    /* Check if the argument list is empty and return ASAP. */
-    if (argc == 0) {
-        sdsfreesplitres(argv,argc);
+    sds hint = getHintForInput(buf);
+    if (hint == NULL) {
         return NULL;
     }
 
-    entry = findHelpEntry(argc, argv);
+    *color = 90;
+    *bold = 0;
 
-    if (entry) {
-        *color = 90;
-        *bold = 0;
-        sds hint = makeHint(argv, argc, entry->argc, entry->docs);
-
-        /* Add an initial space if needed. */
-        if (!endspace) {
-            sds newhint = sdsnewlen(" ",1);
-            newhint = sdscatsds(newhint,hint);
-            sdsfree(hint);
-            hint = newhint;
-        }
-
-        sdsfreesplitres(argv,argc);
-        return hint;
+    /* Add an initial space if needed. */
+    int len = strlen(buf);
+    int endspace = len && isspace(buf[len-1]);
+    if (!endspace) {
+        sds newhint = sdsnewlen(" ",1);
+        newhint = sdscatsds(newhint,hint);
+        sdsfree(hint);
+        hint = newhint;
     }
 
-    sdsfreesplitres(argv,argc);
-    return NULL;
+    return hint;
 }
 
 static void freeHintsCallback(void *ptr) {
@@ -9166,28 +9175,8 @@ static sds askPassword(const char *msg) {
     return auth;
 }
 
-sds getHintForInput(char *charinput) {
-    sds input, hint;
-    int inputargc;
-    char **inputargv;
-
-    input = sdsnew(charinput);
-    inputargv = sdssplitargs(input, &inputargc);
-    sdsfree(input);
-    
-    helpEntry *entry = findHelpEntry(inputargc, inputargv);
-    if (!entry) {
-        sdsfreesplitres(inputargv, inputargc);
-        return sdsnew("Command not found!");
-    }
-
-    hint = makeHint(inputargv, inputargc, entry->argc, entry->docs);
-    sdsfreesplitres(inputargv, inputargc);
-    return hint;
-}
-
 /* Prints out the hint completion string for a given input prefix string. */
-void testHint(char *input) {
+void testHint(const char *input) {
     cliInitHelp();
 
     sds hint = getHintForInput(input);
@@ -9243,14 +9232,17 @@ void testHintSuite(char *filename) {
         input = argv[0];
         expected = argv[1];
         hint = getHintForInput(input);
+        if (config.verbose) {
+            printf("Input: '%s', Expected: '%s', Hint: '%s'\n", input, expected, hint);
+        }
 
         /* Strip trailing spaces from hint - they don't matter. */
-        while (sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
+        while (hint != NULL && sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
             sdssetlen(hint, sdslen(hint) - 1);
             hint[sdslen(hint)] = '\0';
         }
 
-        if (strcmp(hint, expected) != 0) {
+        if (hint == NULL || strcmp(hint, expected) != 0) {
             printf("Test case '%s' FAILED: expected '%s', got '%s'\n", input, expected, hint);
             ++fail;
         }
