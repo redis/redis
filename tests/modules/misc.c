@@ -312,9 +312,6 @@ int test_monotonic_time(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 /* wrapper for RM_Call */
 int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
-    UNUSED(argv);
-    UNUSED(argc);
-
     if(argc < 2){
         return RedisModule_WrongArity(ctx);
     }
@@ -334,9 +331,6 @@ int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
 /* wrapper for RM_Call with flags */
 int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
-    UNUSED(argv);
-    UNUSED(argc);
-
     if(argc < 3){
         return RedisModule_WrongArity(ctx);
     }

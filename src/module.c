@@ -356,7 +356,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_SCRIPT_MODE (1<<6)
 #define REDISMODULE_ARGV_NO_WRITES (1<<7)
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
-#define REDISMODULE_ARGV_NO_DENY_OOM (1<<9)
+#define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5627,7 +5627,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         } else if (*p == 'W') {
             if (flags) (*flags) |= REDISMODULE_ARGV_NO_WRITES;
         } else if (*p == 'M') {
-            if (flags) (*flags) |= REDISMODULE_ARGV_NO_DENY_OOM;
+            if (flags) (*flags) |= REDISMODULE_ARGV_RESPECT_DENY_OOM;
         } else if (*p == 'E') {
             if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
         } else {
@@ -5787,7 +5787,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     }
 
-    if ((flags & REDISMODULE_ARGV_NO_DENY_OOM) && (cmd->flags & CMD_DENYOOM)) {
+    if ((flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) && (cmd->flags & CMD_DENYOOM)) {
         if (server.pre_command_oom_state) {
             errno = ENOSPC;
             if (error_as_call_replies) {
