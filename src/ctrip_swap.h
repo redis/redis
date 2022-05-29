@@ -574,17 +574,20 @@ size_t keyComputeSize(redisDb *db, robj *key);
 		error++;						\
 	}								\
 } while (0)
-/* --- initTest ---*/
-int initTestRedisServer();
-int clearTestRedisDb();
-int clearTestRedisServer();
-/* --- Data --- */
+
+int initTestRedisDb(void);
+int initTestRedisServer(void);
+int clearTestRedisDb(void);
+int clearTestRedisServer(void);
+
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
+int swapExecTest(int argc, char **argv, int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
+
 #endif
 
 #endif

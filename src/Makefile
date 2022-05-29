@@ -431,6 +431,10 @@ valgrind:
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
+unit-test:
+	$(MAKE) CFLAGS="-DREDIS_TEST"
+	@(./$(REDIS_SERVER_NAME) test swap)
+
 src/help.h:
 	@../utils/generate-command-help.rb > help.h
 

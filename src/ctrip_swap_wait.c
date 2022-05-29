@@ -397,9 +397,9 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
    TEST("wait: parallel key") {
        handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-       requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL), blocked++;
-       requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL), blocked++;
-       requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL), blocked++;
+       requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
+       requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
+       requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
        if (blocked) ERROR;
        if (!requestWouldBlock(db,key1)) ERROR;
        if (!requestWouldBlock(db,key2)) ERROR;
@@ -418,7 +418,7 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
        int i;
        for (i = 0; i < 3; i++) {
            blocked++;
-           requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL);
+           requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
        }
        if (!requestWouldBlock(db,key1)) ERROR;
        /* first one proceeded, others blocked */
@@ -433,8 +433,8 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
    }
 
    TEST("wait: parallel db") {
-       requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL), blocked++;
-       requestWait(db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL), blocked++;
+       requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
+       requestWait(db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
        if (blocked) ERROR;
        if (!requestWouldBlock(db,NULL)) ERROR;
        if (!requestWouldBlock(db2,NULL)) ERROR;
@@ -446,10 +446,10 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
     TEST("wait: mixed parallel-key/db/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handledb = NULL;
-        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL),blocked++;
-        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL),blocked++;
-        requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL),blocked++;
-        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL),blocked++;
+        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
+        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, db/key3 blocked */
         if (!requestWouldBlock(db,NULL)) ERROR;
         if (blocked != 2) ERROR;
@@ -472,10 +472,10 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
     TEST("wait: mixed parallel-key/server/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL),blocked++;
-        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL),blocked++;
-        requestWait(NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL),blocked++;
-        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL),blocked++;
+        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestWait(NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
+        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, svr/key3 blocked */
         if (!requestWouldBlock(NULL,NULL)) ERROR;
         if (!requestWouldBlock(db,NULL)) ERROR;

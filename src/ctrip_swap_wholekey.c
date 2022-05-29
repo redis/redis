@@ -240,7 +240,11 @@ int wholeKeySwapDel(swapData *data_, void *datactx) {
 robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
     UNUSED(data);
     UNUSED(datactx);
-    serverAssert(decoded);
+    // FIXME core on purpose
+    int decoded_type;
+    UNUSED(decoded_type);
+    decoded_type = decoded->type;
+    //serverAssert(decoded);
     return decoded;
 }
 
@@ -271,6 +275,7 @@ swapDataType wholeKeySwapDataType = {
 swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
         robj *evict, void **pdatactx) {
     wholeKeySwapData *data = zmalloc(sizeof(wholeKeySwapData));
+    UNUSED(pdatactx);
     data->d.type = &wholeKeySwapDataType;
     data->db = db;
     if (key) incrRefCount(key);
@@ -279,7 +284,6 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
     data->value = value;
     if (evict) incrRefCount(evict);
     data->evict = evict;
-    *pdatactx = NULL;
     return (swapData*)data;
 }
 
@@ -447,49 +451,41 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     }
     
     TEST("wholeKey swapIn (not exist expire)") {
-        
-
-        void* ctx = NULL;
+        robj *decoded;
         robj* key = createRawStringObject("key", 3);
         robj* value  = NULL;
         robj* evict  = createRawStringObject("value", 5);
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(ctx != NULL);
-        wholeKeyDataCtx* wctx = (wholeKeyDataCtx*)ctx;
-        wctx->decoded = createRawStringObject("value", 5);
-        test_assert(wholeKeySwapIn(data, wctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        decoded = createRawStringObject("value", 5);
+        test_assert(wholeKeySwapIn(data, decoded, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) != NULL);    
-        wctx->decoded = NULL;
-        freeWholeKeySwapData(data, ctx);
+        decoded = NULL;
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
         
     }
 
     TEST("WHoleKey swapIn (exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
-        robj* value  = NULL;
         robj* evict  = createRawStringObject("value", 5);
+        robj* value  = NULL, *decoded = NULL;
         test_assert(dictFind(db->dict, key->ptr) == NULL);   
         //mock 
         dbAddEvict(db, key, evict);
         setExpire(NULL,db, key, 1000000);
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(ctx != NULL);
-        wholeKeyDataCtx* wctx = (wholeKeyDataCtx*)ctx;
-        wctx->decoded = createRawStringObject("value", 5);
-        test_assert(wholeKeySwapIn(data, wctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        decoded = createRawStringObject("value", 5);
+        test_assert(wholeKeySwapIn(data,decoded,NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) != NULL);    
         test_assert(getExpire(db, key) > 0);
-        wctx->decoded = NULL;
-        freeWholeKeySwapData(data, ctx);
+        decoded = NULL;
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
 
     }
 
     TEST("wholeKey swapout (not exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
         robj* evict  = NULL;
@@ -500,17 +496,16 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
         test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapOut(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) != NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
 
     TEST("wholeKey swapout (exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
         robj* evict  = NULL;
@@ -522,17 +517,16 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
         test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapOut(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapOut(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) != NULL);    
         test_assert(getExpire(db, key) > 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
     
     TEST("wholeKey swapdelete (value and not exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
         robj* evict  = NULL;
@@ -543,18 +537,17 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->dict, key->ptr) != NULL); 
         test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapDel(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapDel(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
 
 
     TEST("wholeKey swapdelete (value and exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* value  = createRawStringObject("value", 5);
         robj* evict  = NULL;
@@ -567,17 +560,16 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->evict, key->ptr) == NULL);   
         test_assert(getExpire(db, key) > 0); 
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapDel(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapDel(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
 
     TEST("wholeKey swapdelete (evict and not exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* evict  = createRawStringObject("value", 5);
         robj* value  = NULL;
@@ -588,18 +580,17 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->dict, key->ptr) == NULL); 
         test_assert(dictFind(db->evict, key->ptr) != NULL);   
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapDel(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapDel(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
 
 
     TEST("wholeKey swapdelete (evict and exist expire)") {
-        void* ctx = NULL;
         robj* key = createRawStringObject("key", 3);
         robj* evict  = createRawStringObject("value", 5);
         robj* value  = NULL;
@@ -612,12 +603,12 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->evict, key->ptr) != NULL);   
         test_assert(getExpire(db, key) > 0); 
 
-        swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
-        test_assert(wholeKeySwapDel(data, ctx) == 0);
+        swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
+        test_assert(wholeKeySwapDel(data, NULL) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
-        freeWholeKeySwapData(data, ctx);
+        freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
     }
     return error;

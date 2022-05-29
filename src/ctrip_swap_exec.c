@@ -190,6 +190,13 @@ static int doRIOMultiGet(RIO *rio) {
         goto end;
     }
 
+    rio->multiget.rawvals = zmalloc(rio->multiget.numkeys*sizeof(sds));
+    for (i = 0; i < rio->multiget.numkeys; i++) {
+        rio->multiget.rawvals[i] = sdsnewlen(values_list[i],
+                values_list_sizes[i]);
+        zlibc_free(values_list[i]);
+    }
+
 end:
     zfree(keys_list);
     zfree(values_list);
@@ -207,8 +214,9 @@ static int doRIOScan(RIO *rio) {
     sds *rawkeys = zmalloc(numalloc*sizeof(sds));
     sds *rawvals = zmalloc(numalloc*sizeof(sds));
 
-    iter = rocksdb_create_iterator(server.rocks->db, server.rocks->ropts);
-    rocksdb_iter_seek(iter,prefix,sdslen(prefix));
+    iter = rocksdb_create_iterator(server.rocks->db,server.rocks->ropts);
+    rocksdb_iter_seek_to_first(iter);
+    //rocksdb_iter_seek(iter,"raw",4); //FIXME rocksdb iter not working if seek
 
     while (rocksdb_iter_valid(iter)) {
         size_t klen, vlen;
@@ -231,8 +239,10 @@ static int doRIOScan(RIO *rio) {
         }
 
         rawval = rocksdb_iter_value(iter, &vlen);
-        rawkeys[numkeys] = sdsnewlen(rawkey, klen);
-        rawvals[numkeys] = sdsnewlen(rawval, vlen);
+        rawkeys[numkeys-1] = sdsnewlen(rawkey, klen);
+        rawvals[numkeys-1] = sdsnewlen(rawval, vlen);
+
+        rocksdb_iter_next(iter);
     }
 
     rocksdb_iter_get_error(iter, &err);
@@ -531,3 +541,110 @@ void swapRequestFree(swapRequest *req) {
     if (req->result) decrRefCount(req->result);
     zfree(req);
 }
+
+#ifdef REDIS_TEST
+
+int mockNotifyCallback(swapRequest *req, void *pd) {
+    UNUSED(req),UNUSED(pd);
+    return 0;
+}
+
+void initServer(void);
+void initServerConfig(void);
+void InitServerLast();
+int swapExecTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    server.hz = 10;
+    sds rawkey1 = sdsnew("rawkey1"), rawkey2 = sdsnew("rawkey2");
+    sds rawval1 = sdsnew("rawval1"), rawval2 = sdsnew("rawval2");
+    sds prefix = sdsnew("rawkey");
+    robj *key1 = createStringObject("key1",4);
+    robj *val1 = createStringObject("val1",4);
+    initTestRedisDb();
+    redisDb *db = server.db;
+
+    TEST("exec: init") {
+        initServerConfig();
+        dbAdd(db,key1,val1);
+        rocksInit();
+    }
+
+   TEST("exec: rio") {
+       rocksdb_writebatch_t *wb;
+       RIO _rio, *rio = &_rio;
+
+       RIOInitPut(rio,rawkey1,rawval1);
+       test_assert(doRIO(rio) == C_OK);
+
+       RIOInitGet(rio,rawkey1);
+       test_assert(doRIO(rio) == C_OK);
+       test_assert(sdscmp(rio->get.rawval, rawval1) == 0);
+
+       RIOInitDel(rio,rawkey1);
+       test_assert(doRIO(rio) == C_OK);
+
+       wb = rocksdb_writebatch_create();
+       rocksdb_writebatch_put(wb,rawkey1,sdslen(rawkey1),rawval1,sdslen(rawval1));
+       rocksdb_writebatch_put(wb,rawkey2,sdslen(rawkey2),rawval2,sdslen(rawval2));
+       RIOInitWrite(rio,wb);
+       test_assert(doRIO(rio) == C_OK);
+
+       sds rawkeys[] = {rawkey1, rawkey2};
+       RIOInitMultiGet(rio,2,rawkeys);
+       test_assert(doRIO(rio) == C_OK);
+       test_assert(rio->multiget.numkeys == 2);
+       test_assert(sdscmp(rio->multiget.rawvals[0],rawval1) == 0);
+       test_assert(sdscmp(rio->multiget.rawvals[1],rawval2) == 0);
+
+       RIOInitScan(rio,prefix);
+       test_assert(doRIO(rio) == C_OK);
+       test_assert(rio->scan.numkeys == 2);
+       test_assert(sdscmp(rio->scan.rawvals[0],rawval1) == 0);
+       test_assert(sdscmp(rio->scan.rawvals[1],rawval2) == 0);
+   } 
+
+   TEST("exec: swap-out") {
+       val1 = lookupKey(db,key1,LOOKUP_NOTOUCH);
+       swapData *data = createWholeKeySwapData(db,key1,val1,NULL,NULL);
+       swapRequest *req = swapRequestNew(SWAP_OUT,data,NULL,NULL,NULL,NULL);
+       req->notify_cb = mockNotifyCallback;
+       req->notify_pd = NULL;
+       test_assert(executeSwapRequest(req) == 0);
+       test_assert(finishSwapRequest(req) == 0);
+       test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
+       test_assert(lookupEvictKey(db,key1) != NULL);
+   }
+
+   TEST("exec: swap-in") {
+       robj *evict1 = lookupEvictKey(db,key1);
+       swapData *data = createWholeKeySwapData(db,key1,NULL,evict1,NULL);
+       swapRequest *req = swapRequestNew(SWAP_IN,data,NULL,NULL,NULL,NULL);
+       req->notify_cb = mockNotifyCallback;
+       req->notify_pd = NULL;
+       test_assert(executeSwapRequest(req) == 0);
+       test_assert(finishSwapRequest(req) == 0);
+       test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) != NULL);
+       test_assert(lookupEvictKey(db,key1) == NULL);
+   } 
+
+   TEST("exec: swap-del") {
+       val1 = lookupKey(db,key1,LOOKUP_NOTOUCH);
+       swapData *data = createWholeKeySwapData(db,key1,val1,NULL,NULL);
+       swapRequest *req = swapRequestNew(SWAP_DEL,data,NULL,NULL,NULL,NULL);
+       req->notify_cb = mockNotifyCallback;
+       req->notify_pd = NULL;
+       test_assert(executeSwapRequest(req) == 0);
+       test_assert(finishSwapRequest(req) == 0);
+       test_assert(lookupKey(db,key1,LOOKUP_NOTOUCH) == NULL);
+       test_assert(lookupEvictKey(db,key1) == NULL);
+   }
+
+   return 0;
+}
+
+#endif
+
