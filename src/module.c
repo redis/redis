@@ -502,6 +502,11 @@ char *RM_Strdup(const char *str) {
     return zstrdup(str);
 }
 
+/* Use like zmalloc_usable_size(), returns usable size of given ptr. */
+size_t RM_AllocUsableSize(void *ptr) {
+    return zmalloc_usable_size(ptr);
+}
+
 /* --------------------------------------------------------------------------
  * Pool allocator
  * -------------------------------------------------------------------------- */
