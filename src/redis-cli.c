@@ -1280,7 +1280,7 @@ static helpEntry* findHelpEntry(int argc, char **argv) {
 
 /* Returns the command-line hint string for a given partial input. */
 static sds getHintForInput(const char *charinput) {
-    sds hint;
+    sds hint = NULL;
     int inputargc, inputlen = strlen(charinput);
     sds *inputargv = sdssplitargs(charinput, &inputargc);
     int endspace = inputlen && isspace(charinput[inputlen-1]);
@@ -1289,12 +1289,9 @@ static sds getHintForInput(const char *charinput) {
     int matchargc = endspace ? inputargc : inputargc - 1;
 
     helpEntry *entry = findHelpEntry(matchargc, inputargv);
-    if (!entry) {
-        sdsfreesplitres(inputargv, inputargc);
-        return NULL;
+    if (entry) {
+       hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
     }
-
-    hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
     sdsfreesplitres(inputargv, inputargc);
     return hint;
 }
