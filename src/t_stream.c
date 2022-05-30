@@ -2176,6 +2176,7 @@ void xreadCommand(client *c) {
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
+    int nomkgroup = 0;          /* True if NOMKGROUP option for XREADGROUP was specified. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     streamCG **groups = NULL;
@@ -2231,6 +2232,13 @@ void xreadCommand(client *c) {
                 return;
             }
             noack = 1;
+        } else if (!strcasecmp(o,"NOMKGROUP")) {
+            if (!xreadgroup) {
+                addReplyError(c,"The NOACK option is only supported by "
+                                "XREADGROUP or XPENDING. You called XREAD instead.");
+                return;
+            }
+            nomkgroup = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -2271,22 +2279,28 @@ void xreadCommand(client *c) {
             if (o == NULL) {
                 addReplyErrorFormat(c, "No such key '%s'",
                                      (char*)key->ptr);
-                goto cleanup;                
-            }
-            group = streamLookupCG(o->ptr,groupname->ptr);
-            if(group == NULL) {                 
-                streamID id;
-                id.ms = 0;
-                id.seq = 0;
-                group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
-                if(group) {
-                    server.dirty++;
-                    notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
-                } else {
-                    addReplyErrorFormat(c, "Create consumer group '%s' in XREADGROUP failed" , (char*)groupname->ptr);
-                }
-            }
-            groups[id_idx] = group;               
+                goto cleanup;
+	    }
+	    group = streamLookupCG(o->ptr,groupname->ptr);
+	    if (group == NULL) {
+	       if (!nomkgroup) {
+	          addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                       "group '%s' in XREADGROUP with GROUP "
+                                       "option",(char*)groupname->ptr);
+                  goto cleanup;
+	       } 
+	       streamID id;
+               id.ms = 0;
+               id.seq = 0;
+               group = streamCreateCG(o->ptr,groupname->ptr,strlen(groupname->ptr),&id,SCG_INVALID_ENTRIES_READ);
+               if(group) {
+                 server.dirty++;
+                 notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",key,c->db->id);
+               } else {
+                 addReplyErrorFormat(c, "Create consumer group '%s' in XREADGROUP failed" , (char*)groupname->ptr);
+               }
+           }
+	   groups[id_idx] = group;               
         }
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
