@@ -660,7 +660,7 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->type = CLI_HELP_COMMAND;
 
     help->docs.name = help->full;
-    help->docs.params = sdsempty();
+    help->docs.params = NULL;
     help->docs.args = NULL;
     help->docs.numargs = 0;
     help->docs.since = NULL;
