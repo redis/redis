@@ -154,6 +154,13 @@
                         "optional": true
                     }
                 ]
+            },
+	    {
+                "name": "nomkgroup",
+                "token": "NOMKGROUP",
+                "type": "pure-token",
+                "optional": true,
+		"since":"7.2.0"
             }
         ]
     }

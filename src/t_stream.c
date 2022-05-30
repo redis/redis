@@ -2920,17 +2920,20 @@ void xpendingCommand(client *c) {
     long long count = 0;
     long long minidle = 0;
     int startex = 0, endex = 0;
+    int nomkgroup = 0;     /* True if NOMKGROUP option for XREADGROUP was specified. */
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
-    if (c->argc != 3 && (c->argc < 6 || c->argc > 9)) {
+    if (c->argc == 5 || c->argc > 10) {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
-    /* Parse start/end/count arguments ASAP if needed, in order to report
-     * syntax errors before any other error. */
-    if (c->argc >= 6) {
-        int startidx = 3; /* Without IDLE */
+    if(c->argc == 4) {
+	nomkgroup = 1;
+    } if (c->argc >= 6) {
+	int totalOption = c->argc-1;
+        serverLog(LL_WARNING,"-------------- initial option is %d", totalOption);
+	int startidx = 3; /* Without IDLE */
 
         if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
             if (getLongLongFromObjectOrReply(c, c->argv[4], &minidle, NULL) == C_ERR)
@@ -2943,6 +2946,9 @@ void xpendingCommand(client *c) {
             /* Search for rest of arguments after 'IDLE <idle>' */
             startidx += 2;
         }
+	totalOption -= startidx+2;
+	serverLog(LL_WARNING,"-------------- after count option is %d", totalOption);
+
 
         /* count argument. */
         if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
@@ -2963,10 +2969,18 @@ void xpendingCommand(client *c) {
             return;
         }
 
-        if (startidx+3 < c->argc) {
-            /* 'consumer' was provided */
-            consumername = c->argv[startidx+3];
-        }
+	serverLog(LL_WARNING,"-------------- before consumer remaining eoption is %d", totalOption);
+	if (totalOption == 2) {
+	    consumername = c->argv[startidx+3];
+	    nomkgroup = 1;
+	} else if(totalOption == 1) {
+	    if(!strcasecmp(c->argv[startidx+3]->ptr, "NOMKGROUP"))
+	        nomkgroup = 1;
+	    else
+		consumername = c->argv[startidx+3];
+	}
+
+	serverLog(LL_WARNING,"-------------- now left option is %d", totalOption);
     }
 
     /* Lookup the key and the group inside the stream. */
@@ -2980,7 +2994,13 @@ void xpendingCommand(client *c) {
         return;
     }
     group = streamLookupCG(o->ptr,groupname->ptr);
-    if(group == NULL) {                 
+    if(group == NULL) {
+	if (!nomkgroup) {
+	          addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                       "group '%s' in XREADGROUP with GROUP "
+                                       "option",(char*)groupname->ptr);
+                 return;
+	} 
         streamID id;
         id.ms = 0;
         id.seq = 0;
