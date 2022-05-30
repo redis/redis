@@ -2716,7 +2716,8 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 void setImplicitACLCategories(struct redisCommand *c) {
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
-    if (c->flags & CMD_READONLY)
+    /* Exclude scripting commands from the RO category. */
+    if (c->flags & CMD_READONLY && !(c->acl_categories & ACL_CATEGORY_SCRIPTING))
         c->acl_categories |= ACL_CATEGORY_READ;
     if (c->flags & CMD_ADMIN)
         c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
@@ -3392,8 +3393,12 @@ void call(client *c, int flags) {
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command. */
-    if (c->cmd->flags & CMD_READONLY) {
+     * make sure to remember the keys it fetched via this command. Scripting
+     * works a bit differently, where if the scripts executes any read command, it
+     * remembers all of the declared keys from the script. */
+    if ((c->cmd->flags & CMD_READONLY) && (c->cmd->proc != evalRoCommand)
+        && (c->cmd->proc != evalShaRoCommand) && (c->cmd->proc != fcallroCommand))
+    {
         client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
                             server.script_caller : c;
         if (caller->flags & CLIENT_TRACKING &&

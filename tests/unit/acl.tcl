@@ -529,6 +529,13 @@ start_server {tags {"acl external:skip"}} {
         assert_equal [lsearch [r acl cat stream] "get"] -1
     }
 
+    test "ACL requires explicit permission for scripting for EVAL_RO, EVALSHA_RO and FCALL_RO" {
+        r ACL SETUSER scripter on nopass +readonly
+        assert_equal "This user has no permissions to run the 'eval_ro' command" [r ACL DRYRUN scripter EVAL_RO "" 0]
+        assert_equal "This user has no permissions to run the 'evalsha_ro' command" [r ACL DRYRUN scripter EVALSHA_RO "" 0]
+        assert_equal "This user has no permissions to run the 'fcall_ro' command" [r ACL DRYRUN scripter FCALL_RO "" 0]
+    }
+
     test {ACL #5998 regression: memory leaks adding / removing subcommands} {
         r AUTH default ""
         r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c
