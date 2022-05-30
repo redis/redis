@@ -308,8 +308,10 @@ int clusterLoadConfig(char *filename) {
         if (atoi(argv[4])) n->ping_sent = mstime();
         if (atoi(argv[5])) n->pong_received = mstime();
 
-        /* Set configEpoch for this node. */
-        n->configEpoch = strtoull(argv[6],NULL,10);
+        /* Set configEpoch for this node.
+         * If the node is a replica, set its config epoch to 0.
+         * If it's a primary, load the config epoch from the configuration file. */
+        n->configEpoch = (nodeIsSlave(n) && n->slaveof) ? 0 : strtoull(argv[6],NULL,10);
 
         /* Populate hash slots served by this instance. */
         for (j = 8; j < argc; j++) {
@@ -5531,6 +5533,12 @@ NULL
             (unsigned long long) server.cluster->currentEpoch,
             (unsigned long long) myepoch
         );
+
+        if (nodeIsSlave(myself) && myself->slaveof) {
+            info = sdscatprintf(info,
+                                "cluster_my_replica_epoch:%llu\r\n",
+                                (unsigned long long) myself->configEpoch);
+        }
 
         /* Show stats about messages sent and received. */
         long long tot_msg_sent = 0;
