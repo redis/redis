@@ -952,10 +952,19 @@ int fsyncFileDir(const char *filename) {
 
     dir_fd = open(dname, O_RDONLY);
     if (dir_fd == -1) {
+        /* Some OSs don't allow us to open directories at all (Windows returns
+	     * EACCES), just ignore the error in that case */
+        if (errno == EISDIR || errno == EACCES) {
+		    return 0;
+        }
         return -1;
     }
-    if (redis_fsync(dir_fd) == -1) {
+    /* Some OSs don't allow us to fsync directories at all, so we can ignore
+	 * those errors. */
+    if (redis_fsync(dir_fd) == -1 && !(errno == EBADF || errno == EINVAL)) {
+        int	save_errno = errno;
         close(dir_fd);
+        errno = save_errno;
         return -1;
     }
     
