@@ -300,6 +300,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         r flushdb
         populate 1000 key: 1
 
+        if {$::swap} { r info keyspace}; # trigger evict all
         # basic use
         assert_equal 1000 [llength [split [run_cli --scan]]]
 

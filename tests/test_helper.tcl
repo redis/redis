@@ -28,14 +28,12 @@ set swap_not_supported {
     unit/sort
 }
 
-set ::disk_failed_tests {   
-    swap/tmp_tests/other # hang
-}
 
-set ::disk_tests {   
+set ::disk_tests {
     swap/tmp_tests/stream-cgroups
     swap/tmp_tests/stream
     swap/tmp_tests/replication-3 
+    swap/tmp_tests/other
     unit/shutdown
     unit/printver
     unit/dump

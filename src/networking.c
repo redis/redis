@@ -2059,10 +2059,11 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (!(c->flags & CLIENT_BLOCKED) && !(c->flags & CLIENT_SWAPPING)) {
         resetClient(c);
-        /* To reuse test cases with extensive swap actions, we try to evict
-         * configured num of key after executing command. */
-        if (server.debug_evict_keys) debugEvictKeys();
     }
+
+    /* To reuse test cases with extensive swap actions, we try to evict
+     * configured num of key after executing command. */
+    if (server.debug_evict_keys) debugEvictKeys();
 
     serverLog(LL_DEBUG, "< commandProcessed");
 }

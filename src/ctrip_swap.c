@@ -121,11 +121,11 @@ void continueProcessCommand(client *c) {
     c->woff = server.master_repl_offset;
     if (listLength(server.ready_keys))
         handleClientsBlockedOnKeys();
-    /* post command */
-    commandProcessed(c);
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
     clientUnholdKeys(c);
+    /* post command */
+    commandProcessed(c);
     /* pipelined command might already read into querybuf, if process not
      * restarted, pending commands would not be processed again. */
     processInputBuffer(c);
