@@ -177,7 +177,7 @@ start_server {tags {"pause network"}} {
         $rd2 close
     }
 
-    test "Test may-replicate commands are rejected in ro script RO scripts" {
+    test "Test may-replicate commands are rejected in RO scripts" {
         # that's specifically important for CLIENT PAUSE WRITE
         assert_error {ERR Write commands are not allowed from read-only scripts. script:*} {
             r EVAL_RO "return redis.call('publish','ch','msg')" 0

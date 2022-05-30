@@ -378,30 +378,29 @@ int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_
     return C_OK;
 }
 
-/* Try to extract command flags if we can, returns C_ERR if we can't predict the flags.
+/* Try to extract command flags if we can, returns the modified flags.
  * Note that it does not guarantee the command arguments are right. */
-int evalGetCommandFlags(client *c, uint64_t *flags) {
+uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     char funcname[43];
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
-        return C_ERR;
+        return cmd_flags;
     evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
     char *lua_cur_script = funcname + 2;
     dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
     uint64_t script_flags;
     if (!de) {
         if (evalsha)
-            return C_ERR;
+            return cmd_flags;
         if (evalExtractShebangFlags(c->argv[1]->ptr, &script_flags, NULL, NULL) == C_ERR)
-            return C_ERR;
+            return cmd_flags;
     } else {
         luaScript *l = dictGetVal(de);
         script_flags = l->flags;
     }
     if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
-        return C_ERR;
-    *flags = scriptFlagsToCmdFlags(script_flags);
-    return C_OK;
+        return cmd_flags;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
 
 /* Define a Lua function with the specified body.

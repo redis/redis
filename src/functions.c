@@ -604,16 +604,15 @@ void functionKillCommand(client *c) {
     scriptKill(c, 0);
 }
 
-/* Try to extract command flags if we can, returns C_ERR if we can't predict the flags.
+/* Try to extract command flags if we can, returns the modified flags.
  * Note that it does not guarantee the command arguments are right. */
-int fcallGetCommandFlags(client *c, uint64_t *flags) {
+uint64_t fcallGetCommandFlags(client *c, uint64_t cmd_flags) {
     robj *function_name = c->argv[1];
     functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
     if (!fi)
-        return C_ERR;
+        return cmd_flags;
     uint64_t script_flags = fi->f_flags;
-    *flags = scriptFlagsToCmdFlags(script_flags);
-    return C_OK;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
 
 static void fcallCommandGeneric(client *c, int ro) {

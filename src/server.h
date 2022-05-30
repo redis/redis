@@ -3198,8 +3198,8 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
-int evalGetCommandFlags(client *c, uint64_t *flags);
-int fcallGetCommandFlags(client *c, uint64_t *flags);
+uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
+uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 
 typedef struct luaScript {
     uint64_t flags;

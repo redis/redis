@@ -108,8 +108,10 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
     return (run_ctx->flags & SCRIPT_KILLED) ? SCRIPT_KILL : SCRIPT_CONTINUE;
 }
 
-uint64_t scriptFlagsToCmdFlags(uint64_t script_flags) {
-    uint64_t cmd_flags = 0;
+uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
+    /* If the script declared flags, clear the ones from the command and use the ones it declared.*/
+    cmd_flags &= ~(CMD_STALE | CMD_DENYOOM | CMD_WRITE);
+
     /* NO_WRITES implies ALLOW_OOM */
     if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES)))
         cmd_flags |= CMD_DENYOOM;
@@ -117,6 +119,11 @@ uint64_t scriptFlagsToCmdFlags(uint64_t script_flags) {
         cmd_flags |= CMD_WRITE;
     if (script_flags & SCRIPT_FLAG_ALLOW_STALE)
         cmd_flags |= CMD_STALE;
+
+    /* In addition the MAY_REPLICATE flag is set for these commands, but
+     * if we have flags we know if it's gonna do any writes or not. */
+    cmd_flags &= ~CMD_MAY_REPLICATE;
+
     return cmd_flags;
 }
 

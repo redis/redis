@@ -3623,20 +3623,10 @@ int processCommand(client *c) {
         c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand ||
         c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
     {
-        uint64_t fl = 0;
-        int res;
         if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
-            res = fcallGetCommandFlags(c, &fl);
+            cmd_flags = fcallGetCommandFlags(c, cmd_flags);
         else
-            res = evalGetCommandFlags(c, &fl);
-        if (res == C_OK) {
-            /* If the script declared flags, clear the ones from the command,
-             * specifically STALE, and use the ones it declared.
-             * In addition the MAY_REPLICATE flag is set for these commands, but
-             * if we have flags we know if it's gonna do any writes or not. */
-            cmd_flags &= ~(CMD_MAY_REPLICATE | CMD_STALE | CMD_DENYOOM | CMD_WRITE);
-            cmd_flags |= fl;
-        }
+            cmd_flags = evalGetCommandFlags(c, cmd_flags);
     }
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
