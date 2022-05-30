@@ -502,11 +502,6 @@ char *RM_Strdup(const char *str) {
     return zstrdup(str);
 }
 
-/* Use like zmalloc_usable_size(), returns usable size of given ptr. */
-size_t RM_AllocUsableSize(void *ptr) {
-    return zmalloc_usable_size(ptr);
-}
-
 /* --------------------------------------------------------------------------
  * Pool allocator
  * -------------------------------------------------------------------------- */
@@ -9767,6 +9762,12 @@ size_t RM_MallocSize(void* ptr) {
     return zmalloc_size(ptr);
 }
 
+/* Similar to RM_MallocSize, the difference is that RM_MallocUsableSize
+ * returns the usable size of memory by the module. */
+size_t RM_MallocUsableSize(void *ptr) {
+    return zmalloc_usable_size(ptr);
+}
+
 /* Same as RM_MallocSize, except it works on RedisModuleString pointers.
  */
 size_t RM_MallocSizeString(RedisModuleString* str) {
@@ -12571,6 +12572,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
     REGISTER_API(MallocSize);
+    REGISTER_API(MallocUsableSize);
     REGISTER_API(MallocSizeString);
     REGISTER_API(MallocSizeDict);
     REGISTER_API(ScanCursorCreate);
