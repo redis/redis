@@ -5787,19 +5787,21 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     }
 
-    if ((flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) && (cmd->flags & CMD_DENYOOM)) {
-        if (server.pre_command_oom_state) {
-            errno = ENOSPC;
-            if (error_as_call_replies) {
-                sds msg = sdsdup(shared.oomerr->ptr);
-                reply = callReplyCreateError(msg, ctx);
+    if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) {
+        if (cmd->flags & CMD_DENYOOM) {
+            if (server.pre_command_oom_state) {
+                errno = ENOSPC;
+                if (error_as_call_replies) {
+                    sds msg = sdsdup(shared.oomerr->ptr);
+                    reply = callReplyCreateError(msg, ctx);
+                }
+                goto cleanup;
             }
-            goto cleanup;
         }
     }
 
-    if (cmd->flags & CMD_WRITE) {
-        if (flags & REDISMODULE_ARGV_NO_WRITES) {
+    if (flags & REDISMODULE_ARGV_NO_WRITES) {
+        if (cmd->flags & CMD_WRITE) {
             errno = ENOSPC;
             if (error_as_call_replies) {
                 sds msg = sdscatfmt(sdsempty(), "Write command '%S' was "

@@ -3753,13 +3753,11 @@ int processCommand(client *c) {
         }
 
         /* Save out_of_memory result at command start, otherwise if we check OOM
-         * until first write within script, memory used by lua stack and
+         * in the first write within script, memory used by lua stack and
          * arguments might interfere. We need to save it for EXEC and module
          * calls too, since these can call EVAL, but avoid saving it during an
-         * interrupted busy script / module. */
-        if (!isYieldingLongCommand()) {
-            server.pre_command_oom_state = out_of_memory;
-        }
+         * interrupted / yielding busy script / module. */
+        server.pre_command_oom_state = out_of_memory;
     }
 
     /* Make sure to use a reasonable amount of memory for client side
