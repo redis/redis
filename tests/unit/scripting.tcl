@@ -1444,6 +1444,14 @@ start_server {tags {"scripting"}} {
             } 1 x
         ] 1
 
+        # no-increase-memory scripts can be executed in OOM state
+        assert_equal [
+            r eval {#!lua flags=no-increase-memory
+                redis.call('del','no-one')
+                return 1
+            } 0
+        ] 1
+
         # Script with no shebang can read in OOM state
         assert_equal [
             r eval {
@@ -1462,6 +1470,24 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
+
+    test "no-increase-memory shebang flag" {
+        assert_error {ERR Deny-OOM commands are not allowed from no-increase-memory scripts*} {
+            r eval {#!lua flags=no-increase-memory
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        # Script with no-increase-memory flag can execute read and non deny-oom write command
+        assert_equal [
+            r eval {#!lua flags=no-increase-memory
+                redis.call('get','x')
+                redis.call('del','x')
+                return 1
+            } 0
+        ] 1
+    }
 
     test "no-writes shebang flag" {
         assert_error {ERR Write commands are not allowed from read-only scripts*} {
