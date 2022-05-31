@@ -1188,14 +1188,19 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
+        atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                stat_net_input_bytes);
+                stat_net_input_bytes + stat_net_repl_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                stat_net_output_bytes);
+                stat_net_output_bytes + stat_net_repl_output_bytes);
+        trackInstantaneousMetric(STATS_METRIC_NET_TOTAL_REPLICATION,
+                                 stat_net_repl_input_bytes + stat_net_repl_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -2356,6 +2361,8 @@ void resetServerStats(void) {
     server.stat_aofrw_consecutive_failures = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
+    atomicSet(server.stat_net_repl_input_bytes, 0);
+    atomicSet(server.stat_net_repl_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
@@ -5576,6 +5583,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5584,6 +5592,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
+        atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5593,8 +5603,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_ops_per_sec:%lld\r\n"
             "total_net_input_bytes:%lld\r\n"
             "total_net_output_bytes:%lld\r\n"
+            "total_net_repl_input_bytes:%lld\r\n"
+            "total_net_repl_output_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
+            "instantaneous_repl_total_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
@@ -5636,10 +5649,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
-            stat_net_input_bytes,
-            stat_net_output_bytes,
+            stat_net_input_bytes + stat_net_repl_input_bytes,
+            stat_net_output_bytes + stat_net_repl_output_bytes,
+            stat_net_repl_input_bytes,
+            stat_net_repl_output_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
+            (float)getInstantaneousMetric(STATS_METRIC_NET_TOTAL_REPLICATION)/1024,
             server.stat_rejected_conn,
             server.stat_sync_full,
             server.stat_sync_partial_ok,

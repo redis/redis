@@ -1953,7 +1953,13 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    atomicIncr(server.stat_net_output_bytes, totwritten);
+
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        atomicIncr(server.stat_net_repl_output_bytes, totwritten);
+    } else {
+        atomicIncr(server.stat_net_output_bytes, totwritten);
+    }
+
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
@@ -2655,8 +2661,13 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    atomicIncr(server.stat_net_input_bytes, nread);
+    if (c->flags & CLIENT_MASTER) {
+        c->read_reploff += nread;
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
+    } else {
+        atomicIncr(server.stat_net_input_bytes, nread);
+    }
+
     if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
