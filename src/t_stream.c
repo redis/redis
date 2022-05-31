@@ -946,7 +946,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
             args->approx_trim = 0;
             char *next = c->argv[i+1]->ptr;
-            /* Check for the form MINID ~ <id>|<age>. */
+            /* Check for the form MINID ~ <id> */
             if (moreargs >= 2 && next[0] == '~' && next[1] == '\0') {
                 args->approx_trim = 1;
                 i++;
