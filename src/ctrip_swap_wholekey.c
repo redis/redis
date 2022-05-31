@@ -129,26 +129,13 @@ int wholeKeyEncodeData(swapData *data, int intention, int *action,
     return C_OK;
 }
 
-static int wholeKeyGetRdbtype(swapData *data_) {
-    wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    if (data->value) return getObjectRdbType(data->value);
-    if (data->evict) return getObjectRdbType(data->evict);
-    return C_ERR;
-}
-
 int wholeKeyDecodeData(swapData *data, int num, sds *rawkeys,
         sds *rawvals, robj **pdecoded) {
     serverAssert(num == 1);
+    UNUSED(data);
     UNUSED(rawkeys);
     sds rawval = rawvals[0];
-    int rdbtype = wholeKeyGetRdbtype(data);
-
-    sds valrepr = sdscatrepr(sdsempty(),rawval,sdslen(rawval));
-    serverLog(LL_NOTICE, "[xxx] rdbtype=%d,rawkey=%s,rawva=%s",
-            rdbtype,rawkeys[0],valrepr);
-    sdsfree(valrepr);
-
-    *pdecoded = rocksDecodeValRdb(rdbtype, rawval);
+    *pdecoded = rocksDecodeValRdb(rawval);
     return 0;
 }
 
@@ -211,7 +198,6 @@ robj *createSwapOutObject(robj *value, robj *evict) {
 
     swapout->lru = value->lru;
     swapout->type = value->type;
-    swapout->encoding = value->encoding;
     swapout->evicted = 1;
 
     return swapout;
@@ -243,11 +229,7 @@ int wholeKeySwapDel(swapData *data_, void *datactx) {
 robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
     UNUSED(data);
     UNUSED(datactx);
-    // FIXME core on purpose
-    int decoded_type;
-    UNUSED(decoded_type);
-    decoded_type = decoded->type;
-    //serverAssert(decoded);
+    serverAssert(decoded);
     return decoded;
 }
 

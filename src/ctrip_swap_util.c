@@ -64,14 +64,17 @@ sds rocksEncodeKey(int obj_type, sds key) {
 sds rocksEncodeValRdb(robj *value) {
     rio sdsrdb;
     rioInitWithBuffer(&sdsrdb,sdsempty());
+    rdbSaveObjectType(&sdsrdb,value) ;
     rdbSaveObject(&sdsrdb,value,NULL);
     return sdsrdb.io.buffer.ptr;
 }
 
-robj *rocksDecodeValRdb(int rdbtype, sds raw) {
+robj *rocksDecodeValRdb(sds raw) {
     robj *value;
     rio sdsrdb;
+    int rdbtype;
     rioInitWithBuffer(&sdsrdb,raw);
+    rdbtype = rdbLoadObjectType(&sdsrdb);
     value = rdbLoadObject(rdbtype,&sdsrdb,NULL,NULL);
     return value;
 }
@@ -84,46 +87,6 @@ int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *
     if (key) *key = rawkey;
     if (klen) *klen = rawlen;
     return obj_type;
-}
-
-int getObjectRdbType(robj *o) {
-    switch (o->type) {
-    case OBJ_STRING:
-        return RDB_TYPE_STRING;
-    case OBJ_LIST:
-        if (o->encoding == OBJ_ENCODING_QUICKLIST)
-            return RDB_TYPE_LIST_QUICKLIST;
-        else
-            serverPanic("Unknown list encoding");
-    case OBJ_SET:
-        if (o->encoding == OBJ_ENCODING_INTSET)
-            return RDB_TYPE_SET_INTSET;
-        else if (o->encoding == OBJ_ENCODING_HT)
-            return RDB_TYPE_SET;
-        else
-            serverPanic("Unknown set encoding");
-    case OBJ_ZSET:
-        if (o->encoding == OBJ_ENCODING_ZIPLIST)
-            return RDB_TYPE_ZSET_ZIPLIST;
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
-            return RDB_TYPE_ZSET_2;
-        else
-            serverPanic("Unknown sorted set encoding");
-    case OBJ_HASH:
-        if (o->encoding == OBJ_ENCODING_ZIPLIST)
-            return RDB_TYPE_HASH_ZIPLIST;
-        else if (o->encoding == OBJ_ENCODING_HT)
-            return RDB_TYPE_HASH;
-        else
-            serverPanic("Unknown hash encoding");
-    case OBJ_STREAM:
-        return RDB_TYPE_STREAM_LISTPACKS;
-    case OBJ_MODULE:
-        return RDB_TYPE_MODULE_2;
-    default:
-        serverPanic("Unknown object type");
-    }
-    return -1; /* avoid warning */
 }
 
 sds objectDump(robj *o) {

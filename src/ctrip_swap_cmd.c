@@ -201,7 +201,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    int err = 0;
+    int error = 0;
     client *c;
 
     TEST("cmd: init") {
@@ -215,7 +215,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,1,"PING");
         getKeyRequests(c,&result);
-        if (result.num != 0) ERROR;
+        test_assert(result.num == 0);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     } 
@@ -224,8 +224,8 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,2,"GET","KEY");
         getKeyRequests(c,&result);
-        if (result.num != 1) ERROR;
-        if (strcmp(result.key_requests[0].key->ptr, "KEY")) ERROR;
+        test_assert(result.num == 1);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -234,9 +234,9 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
         getKeyRequests(c,&result);
-        if (result.num != 2) ERROR;
-        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
-        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
+        test_assert(result.num == 2);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -252,13 +252,13 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         queueMultiCommand(c);
         rewriteResetClientCommandCString(c,1,"EXEC");
         getKeyRequests(c,&result);
-        if (result.num != 3) ERROR;
-        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
-        if (result.key_requests[0].subkeys != NULL) ERROR;
-        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
-        if (result.key_requests[1].subkeys != NULL) ERROR;
-        if (strcmp(result.key_requests[2].key->ptr, "KEY3")) ERROR;
-        if (result.key_requests[2].subkeys != NULL) ERROR;
+        test_assert(result.num == 3);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
+        test_assert(result.key_requests[2].subkeys == NULL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);

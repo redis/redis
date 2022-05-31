@@ -539,11 +539,12 @@ void evictStartLoading(void);
 void evictStopLoading(int success);
 
 /* --- Util --- */
+#define ROCKS_VAL_TYPE_LEN 1
+
 sds rocksEncodeKey(int type, sds key);
 sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
-int getObjectRdbType(robj *o);
-robj *rocksDecodeValRdb(int rdbtype, sds raw);
+robj *rocksDecodeValRdb(sds raw);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
 
@@ -585,6 +586,7 @@ int swapDataTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
+int swapRdbTest(int argc, char **argv, int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 

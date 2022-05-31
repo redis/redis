@@ -379,6 +379,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapWaitTest(argc, argv, accurate);
   result += swapCmdTest(argc, argv, accurate);
   result += swapExecTest(argc, argv, accurate);
+  result += swapRdbTest(argc, argv, accurate);
   return result;
 }
 #endif

@@ -374,7 +374,7 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    int err = 0;
+    int error = 0;
     redisDb *db, *db2;
     robj *key1, *key2, *key3;
     void *handle1, *handle2, *handle3, *handledb, *handledb2, *handlesvr;
@@ -391,8 +391,8 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         key2 = createStringObject("key-2",5);
         key3 = createStringObject("key-3",5);
 
-        if (!server.request_listeners) ERROR;
-        if (blocked) ERROR;
+        test_assert(server.request_listeners);
+        test_assert(!blocked);
     }
 
    TEST("wait: parallel key") {
@@ -400,18 +400,18 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
-       if (blocked) ERROR;
-       if (!requestWouldBlock(db,key1)) ERROR;
-       if (!requestWouldBlock(db,key2)) ERROR;
-       if (!requestWouldBlock(db,key3)) ERROR;
-       if (!requestWouldBlock(db,NULL)) ERROR;
+       test_assert(!blocked);
+       test_assert(requestWouldBlock(db,key1));
+       test_assert(requestWouldBlock(db,key2));
+       test_assert(requestWouldBlock(db,key3));
+       test_assert(requestWouldBlock(db,NULL));
        requestNotify(handle1);
-       if (requestWouldBlock(db,key1)) ERROR;
+       test_assert(!requestWouldBlock(db,key1));
        requestNotify(handle2);
-       if (requestWouldBlock(db,key2)) ERROR;
+       test_assert(!requestWouldBlock(db,key2));
        requestNotify(handle3);
-       if (requestWouldBlock(db,key3)) ERROR;
-       if (requestWouldBlock(NULL,NULL)) ERROR;
+       test_assert(!requestWouldBlock(db,key3));
+       test_assert(!requestWouldBlock(NULL,NULL));
    } 
 
    TEST("wait: pipelined key") {
@@ -420,28 +420,28 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
            blocked++;
            requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
        }
-       if (!requestWouldBlock(db,key1)) ERROR;
+       test_assert(requestWouldBlock(db,key1));
        /* first one proceeded, others blocked */
-       if (blocked != 2) ERROR;
+       test_assert(blocked == 2);
        for (i = 0; i < 2; i++) {
            requestNotify(handle1);
-           if (!requestWouldBlock(db,key1)) ERROR;
+           test_assert(requestWouldBlock(db,key1));
        }
-       if (blocked != 0) ERROR;
+       test_assert(blocked == 0);
        requestNotify(handle1);
-       if (requestWouldBlock(db,key1)) ERROR;
+       test_assert(!requestWouldBlock(db,key1));
    }
 
    TEST("wait: parallel db") {
        requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
        requestWait(db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
-       if (blocked) ERROR;
-       if (!requestWouldBlock(db,NULL)) ERROR;
-       if (!requestWouldBlock(db2,NULL)) ERROR;
+       test_assert(!blocked);
+       test_assert(requestWouldBlock(db,NULL));
+       test_assert(requestWouldBlock(db2,NULL));
        requestNotify(handledb);
        requestNotify(handledb2);
-       if (requestWouldBlock(db,NULL)) ERROR;
-       if (requestWouldBlock(db2,NULL)) ERROR;
+       test_assert(!requestWouldBlock(db,NULL));
+       test_assert(!requestWouldBlock(db2,NULL));
    }
 
     TEST("wait: mixed parallel-key/db/parallel-key") {
@@ -451,23 +451,23 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
         requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, db/key3 blocked */
-        if (!requestWouldBlock(db,NULL)) ERROR;
-        if (blocked != 2) ERROR;
+        test_assert(requestWouldBlock(db,NULL));
+        test_assert(blocked == 2);
         /* key1/key2 notify */
         requestNotify(handle1);
-        if (!requestWouldBlock(db,NULL)) ERROR;
+        test_assert(requestWouldBlock(db,NULL));
         requestNotify(handle2);
-        if (!requestWouldBlock(db,NULL)) ERROR;
+        test_assert(requestWouldBlock(db,NULL));
         /* db proceeded, key3 still blocked. */
-        if (blocked != 1) ERROR;
-        if (handle3) ERROR;
+        test_assert(blocked == 1);
+        test_assert(handle3 == NULL);
         /* db notified, key3 proceeds but still blocked */
         requestNotify(handledb);
-        if (blocked) ERROR;
-        if (!requestWouldBlock(db,NULL)) ERROR;
+        test_assert(!blocked);
+        test_assert(requestWouldBlock(db,NULL));
         /* db3 proceed, noting would block */
         requestNotify(handle3);
-        if (requestWouldBlock(db,NULL)) ERROR;
+        test_assert(!requestWouldBlock(db,NULL));
     }
 
     TEST("wait: mixed parallel-key/server/parallel-key") {
@@ -477,24 +477,24 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         requestWait(NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
         requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, svr/key3 blocked */
-        if (!requestWouldBlock(NULL,NULL)) ERROR;
-        if (!requestWouldBlock(db,NULL)) ERROR;
-        if (blocked != 2) ERROR;
+        test_assert(requestWouldBlock(NULL,NULL));
+        test_assert(requestWouldBlock(db,NULL));
+        test_assert(blocked == 2);
         /* key1/key2 notify */
         requestNotify(handle1);
-        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        test_assert(requestWouldBlock(NULL,NULL));
         requestNotify(handle2);
-        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        test_assert(requestWouldBlock(NULL,NULL));
         /* svr proceeded, key3 still blocked. */
-        if (blocked != 1) ERROR;
-        if (handle3) ERROR;
+        test_assert(blocked == 1);
+        test_assert(handle3 == NULL);
         /* svr notified, db3 proceeds but still would block */
         requestNotify(handlesvr);
-        if (blocked) ERROR;
-        if (!requestWouldBlock(NULL,NULL)) ERROR;
+        test_assert(!blocked);
+        test_assert(requestWouldBlock(NULL,NULL));
         /* db3 proceed, noting would block */
         requestNotify(handle3);
-        if (requestWouldBlock(NULL,NULL)) ERROR;
+        test_assert(!requestWouldBlock(NULL,NULL));
     }
 
     return 0;

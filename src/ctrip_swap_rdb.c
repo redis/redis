@@ -128,9 +128,14 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
             continue;
         }
 
+        if (sdslen(rawval) < ROCKS_VAL_TYPE_LEN) {
+            continue;
+        }
 
         expire = getExpire(db, &keyobj);
-        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,rawval,expire);
+        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,
+                rawval+ROCKS_VAL_TYPE_LEN,expire);
+
         if (key != cached_key) sdsfree(key);
 
         if (retval == -1) {
@@ -449,6 +454,10 @@ int ctripDbAddRDBLoad(int vtype, redisDb* db, sds key, robj* val, sds rawval) {
         return dbAddRDBLoad(db,key,val);
 }
 
+static inline sds rdbVerbatimNew(unsigned char rdbtype) {
+    return sdsnewlen(&rdbtype,1);
+}
+
 int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, sds *rawval) {
     robj *evict;
     int error = 0;
@@ -458,7 +467,7 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, s
     *val = NULL;
     if (rdbtype == RDB_TYPE_STRING) {
         *vtype = RDB_LOAD_VTYPE_VERBATIM;
-        sds verbatim = sdsempty();
+        sds verbatim = rdbVerbatimNew((unsigned char)rdbtype);
         if (rdbLoadStringVerbatim(rdb,&verbatim)) {
             sdsfree(verbatim);
             error = RDB_LOAD_ERR_OTHER;
@@ -468,7 +477,7 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, s
         }
     } else if (rdbtype == RDB_TYPE_HASH) {
         *vtype = RDB_LOAD_VTYPE_VERBATIM;
-        sds verbatim = sdsempty();
+        sds verbatim = rdbVerbatimNew((unsigned char)rdbtype);
         if (rdbLoadHashVerbatim(rdb,&verbatim)) {
             sdsfree(verbatim);
             error = RDB_LOAD_ERR_OTHER;
@@ -480,7 +489,7 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, s
         }
     } else if (rdbtype == RDB_TYPE_HASH_ZIPLIST) {
         *vtype = RDB_LOAD_VTYPE_VERBATIM;
-        sds verbatim = sdsempty();
+        sds verbatim = rdbVerbatimNew((unsigned char)rdbtype);
         if (rdbLoadStringVerbatim(rdb,&verbatim)) {
             sdsfree(verbatim);
             error = RDB_LOAD_ERR_OTHER;
@@ -498,3 +507,54 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, s
 
     return error;
 }
+
+#ifdef REDIS_TEST
+
+void initServerConfig(void);
+int swapRdbTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    robj *myhash;
+
+    TEST("rdb: init") {
+        initServerConfig();
+        ACLInit();
+        server.hz = 10;
+
+        myhash = createHashObject();
+        hashTypeSet(myhash,"f1","v1",HASH_SET_COPY);
+        hashTypeSet(myhash,"f2","v2",HASH_SET_COPY);
+        hashTypeSet(myhash,"f3","v3",HASH_SET_COPY);
+        hashTypeConvert(myhash, OBJ_ENCODING_HT);
+    }
+
+    TEST("rdb: encode & decode ok in rocks format") {
+        sds rawval = rocksEncodeValRdb(myhash);
+        robj *decoded = rocksDecodeValRdb(rawval);
+        test_assert(myhash->encoding != decoded->encoding);
+        test_assert(hashTypeLength(myhash) == hashTypeLength(decoded));
+
+    } 
+
+    TEST("rdb: save&load ok in rocks format") {
+        rio sdsrdb;
+        int rdbtype, vtype;
+        robj *evict = NULL;
+        sds decoded_rawval;
+        sds rawval = rocksEncodeValRdb(myhash);
+        rioInitWithBuffer(&sdsrdb, rawval);
+        rdbtype = rdbLoadObjectType(&sdsrdb);
+        ctripRdbLoadObject(rdbtype,&sdsrdb,NULL,&vtype,&evict,&decoded_rawval);
+        test_assert(vtype == RDB_LOAD_VTYPE_VERBATIM);
+        test_assert(evict != NULL && evict->type == myhash->type);
+        test_assert(sdscmp(decoded_rawval,rawval) == 0);
+    }
+
+    return 0;
+}
+
+#endif
+
