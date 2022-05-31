@@ -30,7 +30,7 @@
  */
 #include "server.h"
 #include <rocksdb/c.h>
-#include <stdatomic.h>
+#include "atomicvar.h"
 #include <threads.h>
 
 /* --- Cmd --- */
@@ -241,7 +241,7 @@ typedef struct swapThread {
     pthread_mutex_t lock;
     pthread_cond_t cond;
     list *pending_reqs;
-    atomic_int is_running_rio;
+    redisAtomic unsigned long is_running_rio;
 } swapThread;
 
 int swapThreadsInit();

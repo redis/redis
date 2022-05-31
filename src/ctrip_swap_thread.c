@@ -52,12 +52,12 @@ void *swapThreadMain (void *arg) {
         pthread_mutex_unlock(&thread->lock);
 
         listRewind(processing_reqs, &li);
-        atomic_store(&thread->is_running_rio, 1);
+        atomicSetWithSync(thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
             executeSwapRequest(listNodeValue(ln));
         }
 
-        atomic_store(&thread->is_running_rio, 0);
+        atomicSetWithSync(thread->is_running_rio, 0);
         listRelease(processing_reqs);
     }
 
@@ -75,7 +75,7 @@ int swapThreadsInit() {
         swapThread *thread = server.swap_threads+i;
         thread->id = i;
         thread->pending_reqs = listCreate();
-        atomic_store(&thread->is_running_rio, 0);
+        atomicSetWithSync(thread->is_running_rio, 0);
         pthread_mutex_init(&thread->lock, NULL);
         pthread_cond_init(&thread->cond, NULL);
         if (pthread_create(&thread->thread_id, NULL, swapThreadMain, thread)) {
@@ -128,7 +128,9 @@ int swapThreadsDrained() {
         rt = server.swap_threads+i;
 
         pthread_mutex_lock(&rt->lock);
-        if (listLength(rt->pending_reqs) || atomic_load(&rt->is_running_rio)) drained = 0;
+        unsigned long count = 0;
+        atomicGetWithSync(rt->is_running_rio, count);
+        if (listLength(rt->pending_reqs) || count) drained = 0;
         pthread_mutex_unlock(&rt->lock);
     }
     return drained;
