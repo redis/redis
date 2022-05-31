@@ -2911,7 +2911,7 @@ cleanup:
  * with information about the current owner, number of deliveries and last
  * delivery time and so forth. */
 void xpendingCommand(client *c) {
-    int justinfo = c->argc == 3; /* Without the range just outputs general
+    int justinfo = c->argc <= 4; /* Without the range just outputs general
                                     information about the PEL. */
     robj *key = c->argv[1];
     robj *groupname = c->argv[2];
@@ -2932,7 +2932,6 @@ void xpendingCommand(client *c) {
 	nomkgroup = 1;
     } if (c->argc >= 6) {
 	int totalOption = c->argc-1;
-        serverLog(LL_WARNING,"-------------- initial option is %d", totalOption);
 	int startidx = 3; /* Without IDLE */
 
         if (!strcasecmp(c->argv[3]->ptr, "IDLE")) {
@@ -2947,8 +2946,6 @@ void xpendingCommand(client *c) {
             startidx += 2;
         }
 	totalOption -= startidx+2;
-	serverLog(LL_WARNING,"-------------- after count option is %d", totalOption);
-
 
         /* count argument. */
         if (getLongLongFromObjectOrReply(c,c->argv[startidx+2],&count,NULL) == C_ERR)
@@ -2969,7 +2966,6 @@ void xpendingCommand(client *c) {
             return;
         }
 
-	serverLog(LL_WARNING,"-------------- before consumer remaining eoption is %d", totalOption);
 	if (totalOption == 2) {
 	    consumername = c->argv[startidx+3];
 	    nomkgroup = 1;
@@ -2979,8 +2975,6 @@ void xpendingCommand(client *c) {
 	    else
 		consumername = c->argv[startidx+3];
 	}
-
-	serverLog(LL_WARNING,"-------------- now left option is %d", totalOption);
     }
 
     /* Lookup the key and the group inside the stream. */
