@@ -91,6 +91,7 @@ start_server {tags {"pause network"}} {
     }
 
     test "Test RO scripts are not blocked by pause RO" {
+        r set x y
         # create a function for later
         r FUNCTION load replace {#!lua name=f1
             redis.register_function{
@@ -103,16 +104,23 @@ start_server {tags {"pause network"}} {
         r client PAUSE 6000000 WRITE
         set rr [redis_client]
 
+        # test an eval that's for sure not in the script cache
         assert_equal [$rr EVAL {#!lua flags=no-writes
-                return 12
+                return 'unique script'
             } 0
-        ] 12
+        ] "unique script"
 
         # for sanity, repeat that EVAL on a script that's already cached
         assert_equal [$rr EVAL {#!lua flags=no-writes
-                return 12
+                return 'unique script'
             } 0
-        ] 12
+        ] "unique script"
+
+        # test EVAL_RO on a unique script that's for sure not in the cache
+        assert_equal [$rr EVAL_RO {
+            return redis.call('GeT', 'x')..' unique script'
+            } 1 x
+        ] "y unique script"
 
         # test with evalsha
         set sha [$rr script load {#!lua flags=no-writes
