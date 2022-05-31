@@ -607,10 +607,10 @@ void pubsubCommand(client *c) {
 "    Return number of subscriptions to patterns.",
 "NUMSUB [<channel> ...]",
 "    Return the number of subscribers for the specified channels, excluding",
-"    pattern subscriptions(default: no channels)."
+"    pattern subscriptions(default: no channels).",
 "SHARDCHANNELS [<pattern>]",
 "    Return the currently active shard level channels matching a <pattern> (default: '*').",
-"SHARDNUMSUB [<channel> ...]",
+"SHARDNUMSUB [<shardchannel> ...]",
 "    Return the number of subscribers for the specified shard level channel(s)",
 NULL
         };
@@ -642,7 +642,7 @@ NULL
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
         channelList(c,pat,server.pubsubshard_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
-        /* PUBSUB SHARDNUMSUB [Channel_1 ... Channel_N] */
+        /* PUBSUB SHARDNUMSUB [ShardChannel_1 ... ShardChannel_N] */
         int j;
 
         addReplyArrayLen(c, (c->argc-2)*2);
@@ -679,7 +679,7 @@ void channelList(client *c, sds pat, dict *pubsub_channels) {
     setDeferredArrayLen(c,replylen,mblen);
 }
 
-/* SPUBLISH <channel> <message> */
+/* SPUBLISH <shardchannel> <message> */
 void spublishCommand(client *c) {
     int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],1);
     if (!server.cluster_enabled)
@@ -687,7 +687,7 @@ void spublishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
-/* SSUBSCRIBE channel [channel ...] */
+/* SSUBSCRIBE shardchannel [shardchannel ...] */
 void ssubscribeCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /* A client that has CLIENT_DENY_BLOCKING flag on
@@ -711,7 +711,7 @@ void ssubscribeCommand(client *c) {
 }
 
 
-/* SUNSUBSCRIBE [channel [channel ...]] */
+/* SUNSUBSCRIBE [shardchannel [shardchannel ...]] */
 void sunsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeShardAllChannels(c, 1);
