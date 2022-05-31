@@ -1687,7 +1687,12 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 
 cleanup:
     close(fd);
-    if (retval) unlink(tmp_conffile);
+    if (retval) {
+        /* try to unlink the temp, ignoring possible errors */
+        int old_errno = errno;
+        unlink(tmp_conffile);
+        errno = old_errno;
+    }
     return retval;
 }
 
