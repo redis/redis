@@ -260,6 +260,42 @@ static int doRIOScan(RIO *rio) {
     return ret;
 }
 
+static void dumpRIO(RIO *rio) {
+    sds repr = sdsnew("[ROCKS] ");
+    switch (rio->action) {
+    case ROCKS_GET:
+        repr = sdscat(repr, "GET rawkey=");
+        repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
+        repr = sdscat(repr, ", rawval=");
+        repr = sdscatrepr(repr, rio->get.rawval, sdslen(rio->get.rawval));
+        break;
+    case ROCKS_PUT:
+        repr = sdscat(repr, "PUT rawkey=");
+        repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
+        repr = sdscat(repr, ", rawval=");
+        repr = sdscatrepr(repr, rio->get.rawval, sdslen(rio->get.rawval));
+        break;
+    case ROCKS_DEL:
+        repr = sdscat(repr, "DEL ");
+        repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
+        break;
+    case ROCKS_WRITE:
+        repr = sdscat(repr, "WRITE ");
+        break;
+    case ROCKS_MULTIGET:
+        repr = sdscat(repr, "MULTIGET ");
+        break;
+    case ROCKS_SCAN:
+        repr = sdscat(repr, "MULTIGET ");
+        break;
+    default:
+        serverPanic("[rocks] Unknown io action: %d", rio->action);
+        break;
+    }
+    serverLog(LL_NOTICE, "%s", repr);
+    sdsfree(repr);
+}
+
 static int doRIO(RIO *rio) {
     int ret;
     if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
@@ -287,6 +323,11 @@ static int doRIO(RIO *rio) {
         serverPanic("[rocks] Unknown io action: %d", rio->action);
         return -1;
     }
+
+#ifdef ROCKS_DEBUG
+    dumpRIO(rio);
+#endif
+
     return ret;
 }
 
@@ -365,7 +406,14 @@ static int executeSwapOutRequest(swapRequest *req) {
 
     if (action == ROCKS_PUT) {
         serverAssert(numkeys == 1);
-        DEBUG_MSGS_APPEND(req->msgs,"execswap-out-put","rawkey=%s",rawkeys[0]);
+
+#ifdef SWAP_DEBUG
+        sds rawval_repr = sdscatrepr(sdsempty(), rawvals[0], sdslen(rawvals[0]));
+        DEBUG_MSGS_APPEND(req->msgs,"execswap-out-put","rawkey=%s,rawval=%s",
+                rawkeys[0], rawval_repr);
+        sdsfree(rawval_repr);
+#endif
+
         RIOInitPut(rio,rawkeys[0],rawvals[0]);
         zfree(rawkeys), rawkeys = NULL;
         zfree(rawvals), rawvals = NULL;
@@ -450,7 +498,14 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
-        DEBUG_MSGS_APPEND(req->msgs,"execswap-in-get","rawkey=%s",rawkeys[0]);
+
+#ifdef SWAP_DEBUG
+        sds rawval_repr = sdscatrepr(sdsempty(),rio->get.rawval,
+                sdslen(rio->get.rawval));
+        DEBUG_MSGS_APPEND(req->msgs,"execswap-in-get","rawkey=%s,rawval=%s",rawkeys[0],rawval_repr);
+        sdsfree(rawval_repr);
+#endif
+
         if (swapDataDecodeData(data,1,&rio->get.rawkey,
                     &rio->get.rawval,&decoded)) {
             retval = EXEC_FAIL;

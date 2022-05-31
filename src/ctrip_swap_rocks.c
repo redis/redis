@@ -89,7 +89,10 @@ int rocksInit() {
 }
 
 void rocksRelease() {
+    char dir[ROCKS_DIR_MAX_LEN];
+    snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
     rocks *rocks = server.rocks;
+    serverLog(LL_NOTICE, "[ROCKS] releasing rocksdb in (%s).",dir);
     rocksdb_cache_destroy(rocks->block_cache);
     rocksdb_block_based_options_destroy(rocks->block_opts);
     rocksdb_options_destroy(rocks->db_opts);

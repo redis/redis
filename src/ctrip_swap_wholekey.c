@@ -72,7 +72,6 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
 }
 
 static sds wholeKeyEncodeKey(swapData *data_) {
-
     int obj_type = 0;
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     if (data->value) obj_type = data->value->type;
@@ -143,6 +142,12 @@ int wholeKeyDecodeData(swapData *data, int num, sds *rawkeys,
     UNUSED(rawkeys);
     sds rawval = rawvals[0];
     int rdbtype = wholeKeyGetRdbtype(data);
+
+    sds valrepr = sdscatrepr(sdsempty(),rawval,sdslen(rawval));
+    serverLog(LL_NOTICE, "[xxx] rdbtype=%d,rawkey=%s,rawva=%s",
+            rdbtype,rawkeys[0],valrepr);
+    sdsfree(valrepr);
+
     *pdecoded = rocksDecodeValRdb(rdbtype, rawval);
     return 0;
 }
@@ -265,8 +270,8 @@ swapDataType wholeKeySwapDataType = {
     .swapOut = wholeKeySwapOut,
     .swapDel = NULL,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
-    /* OPT: zset/set/list could clean subkey in cleanObject to reduce
-     * Cpu usage in main thread. */
+    /* TODO OPT: zset/set/list could clean subkey in cleanObject to reduce
+     * cpu usage in main thread. */
     .cleanObject = NULL,
     .free = freeWholeKeySwapData,
 };
