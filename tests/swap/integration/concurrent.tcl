@@ -5,7 +5,7 @@ start_server {tags {"swap string"}} {
     set host [srv 0 host]
     set port [srv 0 port]
     test {swap out string} {
-        set load_handler [start_run_load  $host $port 5 {
+        set load_handler [start_run_load  $host $port 0 10 {
             randpath {
                 $r set k v
             } {
@@ -14,9 +14,11 @@ start_server {tags {"swap string"}} {
                 $r evict k
             } {
                 $r del k
-            }
+            } {
+                $r flushdb
+            } 
         }]
-        set load_handler2 [start_run_load  $host $port 5 {
+        set load_handler2 [start_run_load  $host $port 0 10 {
             randpath {
                 $r set k v2
             } {
@@ -25,6 +27,8 @@ start_server {tags {"swap string"}} {
                 $r evict k
             } {
                 $r del k
+            } {
+                $r flushdb
             }
         }]
         after 5000
@@ -43,7 +47,7 @@ start_server {tags {"swap string"}} {
     set host [srv 0 host]
     set port [srv 0 port]
     test {swap out string} {
-        set load_handler [start_run_load  $host $port 5 {
+        set load_handler [start_run_load  $host $port 0 10 {
             randpath {
                 $r hset h k1 v1 
             } {
@@ -54,9 +58,12 @@ start_server {tags {"swap string"}} {
                 $r del k
             } {
                 $r hdel h k1
+            } {
+                $r flushdb
             }
+            after 100
         }]
-        set load_handler2 [start_run_load  $host $port 5 {
+        set load_handler2 [start_run_load  $host $port 0 10 {
             randpath {
                 $r hset h k1 v2 
             } {
@@ -67,7 +74,10 @@ start_server {tags {"swap string"}} {
                 $r del h
             } {
                 $r hdel h k1
-            }
+            } {
+                $r flushdb
+            } 
+            after 100
         }]
         after 5000
         stop_write_load $load_handler

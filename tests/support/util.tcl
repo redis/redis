@@ -495,9 +495,9 @@ proc find_valgrind_errors {stderr on_termination} {
 }
 
 
-proc start_run_load {host port seconds code} {
+proc start_run_load {host port seconds counter code} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_run_load.tcl $host $port $seconds $::tls $::target_db $code &
+    exec $tclsh tests/helpers/gen_run_load.tcl $host $port $seconds $counter $::tls $::target_db $code &
 }
 
 # Execute a background process writing random data for the specified number

@@ -2066,6 +2066,28 @@ void commandProcessed(client *c) {
     if (server.debug_evict_keys) debugEvictKeys();
 
     serverLog(LL_DEBUG, "< commandProcessed");
+    if (server.swap_mode == SWAP_MODE_MEMORY) {
+        long long prev_offset = c->reploff;
+        if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
+            /* Update the applied replication offset of our master. */
+            c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        }
+
+        /* If the client is a master we need to compute the difference
+        * between the applied offset before and after processing the buffer,
+        * to understand how much of the replication stream was actually
+        * applied to the master state: this quantity, and its corresponding
+        * part of the replication stream, will be propagated to the
+        * sub-replicas and to the replication backlog. */
+        if (c->flags & CLIENT_MASTER) {
+            long long applied = c->reploff - prev_offset;
+            if (applied) {
+                replicationFeedSlavesFromMasterStream(server.slaves,
+                        c->pending_querybuf, applied);
+                sdsrange(c->pending_querybuf,applied,-1);
+            }
+        }
+    }
 }
 
 /* This function calls processCommand(), but also performs a few sub tasks

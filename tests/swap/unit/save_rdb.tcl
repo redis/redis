@@ -16,7 +16,7 @@ start_server {tags {"swap string"} keep_persistence true} {
         set dir [lindex [r config get dir] 1]
         set file $dir/dump.rdb
         assert_equal [file exists $file] 1
-        r reload
+        r debug reload
         assert_equal [r get k] v
     }
 } 

@@ -30,11 +30,10 @@ start_server {tags {"swap  small hash"}} {
         } else {
             fail "evict fail"
         } 
-        assert_match "*keys=0,evicts=1*" [r info keyspace] 
     }
 
     test {swap in hash} {
         r del h
-        assert_match "*keys=1,evicts=0*" [r info keyspace] 
+        assert_equal {# Keyspace} [string trim [r info keyspace]]
     }
 } 

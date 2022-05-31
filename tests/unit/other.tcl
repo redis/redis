@@ -61,9 +61,6 @@ start_server {overrides {save ""} tags {"other"}} {
                 r flushdb
                 createComplexDataset r $numops
                 set dump [csvdump r]
-                if {!$::debug_evict_keys} {
-                    r debug swapout
-                }
                 set sha1 [r debug digest]
                 r debug reload
                 set sha1_after [r debug digest]

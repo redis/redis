@@ -49,7 +49,7 @@ start_server {tags {"cli"}} {
 
     proc test_interactive_cli {name code} {
         set ::env(FAKETTY) 1
-        set fd [open_cli]
+        set fd [open_cli "-n $::target_db"]
         test "Interactive CLI: $name" $code
         close_cli $fd
         unset ::env(FAKETTY)
