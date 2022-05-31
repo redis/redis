@@ -494,6 +494,12 @@ proc find_valgrind_errors {stderr on_termination} {
     return ""
 }
 
+
+proc start_run_load {host port seconds code} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/gen_run_load.tcl $host $port $seconds $::tls $::target_db $code &
+}
+
 # Execute a background process writing random data for the specified number
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {

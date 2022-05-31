@@ -28,8 +28,14 @@ set swap_not_supported {
     unit/sort
 }
 
-
-set ::disk_tests {
+set ::disk_tests {   
+    swap/integration/concurrent
+    swap/integration/expire_evict
+    swap/unit/expire
+    swap/unit/load_rdb
+    swap/unit/save_rdb
+    swap/unit/swap_out+del
+    swap/unit/swap_out+in
     swap/tmp_tests/stream-cgroups
     swap/tmp_tests/stream
     swap/tmp_tests/replication-3 

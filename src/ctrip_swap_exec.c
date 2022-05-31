@@ -160,7 +160,7 @@ static int doRIOWrite(RIO *rio) {
             rio->write.wb, &err);
     if (err != NULL) {
         rio->err = err;
-        serverLog(LL_WARNING,"[rocks] do rocksdb del failed: %s", err);
+        serverLog(LL_WARNING,"[rocks] do rocksdb write failed: %s", err);
         return -1;
     }
     return 0;
@@ -356,7 +356,7 @@ static int executeSwapDelRequest(swapRequest *req) {
         for (i = 0; i < numkeys; i++) {
             rocksdb_writebatch_delete(wb, rawkeys[i], sdslen(rawkeys[i]));
         }
-        DEBUG_MSGS_APPEND(req->msgs,"execswap-del-write","numkeys=%d.",numkeys);
+        DEBUG_MSGS_APPEND(req->msgs,"execswap-write","numkeys=%d.",numkeys);
         RIOInitWrite(rio,wb);
     } else if (action == ROCKS_DEL) {
         serverAssert(numkeys == 1 && rawkeys);
