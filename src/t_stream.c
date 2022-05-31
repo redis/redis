@@ -2176,7 +2176,7 @@ void xreadCommand(client *c) {
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
-    int nomkgroup = 0;          /* True if NOMKGROUP option for XREADGROUP was specified. */
+    int mkgroup = 0;          /* True if MKGROUP option for XREADGROUP was specified. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     streamCG **groups = NULL;
@@ -2232,13 +2232,13 @@ void xreadCommand(client *c) {
                 return;
             }
             noack = 1;
-        } else if (!strcasecmp(o,"NOMKGROUP")) {
+        } else if (!strcasecmp(o,"MKGROUP")) {
             if (!xreadgroup) {
-                addReplyError(c,"The NOACK option is only supported by "
+                addReplyError(c,"The MKGROUP option is only supported by "
                                 "XREADGROUP or XPENDING. You called XREAD instead.");
                 return;
             }
-            nomkgroup = 1;
+            mkgroup = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -2283,7 +2283,7 @@ void xreadCommand(client *c) {
 	    }
 	    group = streamLookupCG(o->ptr,groupname->ptr);
 	    if (group == NULL) {
-	       if (!nomkgroup) {
+	       if (!mkgroup) {
 	          addReplyErrorFormat(c, "-NOGROUP No consumer "
                                        "group '%s' in XREADGROUP with GROUP "
                                        "option",(char*)groupname->ptr);
@@ -2920,7 +2920,7 @@ void xpendingCommand(client *c) {
     long long count = 0;
     long long minidle = 0;
     int startex = 0, endex = 0;
-    int nomkgroup = 0;     /* True if NOMKGROUP option for XREADGROUP was specified. */
+    int mkgroup = 0;     /* True if MKGROUP option for XREADGROUP was specified. */
 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
     if (c->argc == 5 || c->argc > 10) {
@@ -2929,7 +2929,7 @@ void xpendingCommand(client *c) {
     }
 
     if(c->argc == 4) {
-	nomkgroup = 1;
+	mkgroup = 1;
     } if (c->argc >= 6) {
 	int totalOption = c->argc-1;
 	int startidx = 3; /* Without IDLE */
@@ -2968,10 +2968,10 @@ void xpendingCommand(client *c) {
 
 	if (totalOption == 2) {
 	    consumername = c->argv[startidx+3];
-	    nomkgroup = 1;
+	    mkgroup = 1;
 	} else if(totalOption == 1) {
-	    if(!strcasecmp(c->argv[startidx+3]->ptr, "NOMKGROUP"))
-	        nomkgroup = 1;
+	    if(!strcasecmp(c->argv[startidx+3]->ptr, "MKGROUP"))
+	        mkgroup = 1;
 	    else
 		consumername = c->argv[startidx+3];
 	}
@@ -2989,7 +2989,7 @@ void xpendingCommand(client *c) {
     }
     group = streamLookupCG(o->ptr,groupname->ptr);
     if(group == NULL) {
-	if (!nomkgroup) {
+	if (!mkgroup) {
 	          addReplyErrorFormat(c, "-NOGROUP No consumer "
                                        "group '%s' in XREADGROUP with GROUP "
                                        "option",(char*)groupname->ptr);

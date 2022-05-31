@@ -156,8 +156,8 @@
                 ]
             },
 	    {
-                "name": "nomkgroup",
-                "token": "NOMKGROUP",
+                "name": "mkgroup",
+                "token": "MKGROUP",
                 "type": "pure-token",
                 "optional": true,
 		"since":"7.2.0"
