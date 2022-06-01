@@ -222,6 +222,28 @@ int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele) {
     return setobj->encoding;
 }
 
+/* Remove random element from a non empty set.
+ *
+ * A robj of the element removed is returned to the caller for
+ * the benefit of replicating the removal. The caller is responsible
+ * for the lifecycle of the robj returned. */
+robj *setTypeRemoveRandom(robj *set) {
+    int encoding;
+    sds sdsele;
+    int64_t llele;
+    robj *objele;
+
+    encoding = setTypeRandomElement(set,&sdsele,&llele);
+    if (encoding == OBJ_ENCODING_INTSET) {
+        objele = createStringObjectFromLongLong(llele);
+        set->ptr = intsetRemove(set->ptr,llele,NULL);
+    } else {
+        objele = createStringObject(sdsele,sdslen(sdsele));
+        setTypeRemove(set,sdsele);
+    }
+    return objele;
+}
+
 unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
         return dictSize((const dict*)subject->ptr);
@@ -523,16 +545,8 @@ void spopWithCountCommand(client *c) {
     if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         while(count--) {
             /* Emit and remove. */
-            encoding = setTypeRandomElement(set,&sdsele,&llele);
-            if (encoding == OBJ_ENCODING_INTSET) {
-                addReplyBulkLongLong(c,llele);
-                objele = createStringObjectFromLongLong(llele);
-                set->ptr = intsetRemove(set->ptr,llele,NULL);
-            } else {
-                addReplyBulkCBuffer(c,sdsele,sdslen(sdsele));
-                objele = createStringObject(sdsele,sdslen(sdsele));
-                setTypeRemove(set,sdsele);
-            }
+            objele = setTypeRemoveRandom(set);
+            addReplyBulk(c, objele);
 
             /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
@@ -597,9 +611,6 @@ void spopWithCountCommand(client *c) {
 
 void spopCommand(client *c) {
     robj *set, *ele;
-    sds sdsele;
-    int64_t llele;
-    int encoding;
 
     if (c->argc == 3) {
         spopWithCountCommand(c);
@@ -614,17 +625,8 @@ void spopCommand(client *c) {
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
          == NULL || checkType(c,set,OBJ_SET)) return;
 
-    /* Get a random element from the set */
-    encoding = setTypeRandomElement(set,&sdsele,&llele);
-
-    /* Remove the element from the set */
-    if (encoding == OBJ_ENCODING_INTSET) {
-        ele = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
-    } else {
-        ele = createStringObject(sdsele,sdslen(sdsele));
-        setTypeRemove(set,ele->ptr);
-    }
+    /* Remove a random element from the set */
+    ele = setTypeRemoveRandom(set);
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 

@@ -2957,7 +2957,7 @@ void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
-unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
+robj *setTypeRemoveRandom(robj *set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
 robj *setTypeDup(robj *o);
