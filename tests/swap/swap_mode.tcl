@@ -26,14 +26,13 @@ test "start swap disk aof + mode" {
     }
 }
 
-
-test "runing server when open aof ,change swap_mode to disk fail" {
-    start_server {overrides {appendonly {yes}}} {
-        catch {r config set swap-mode disk} error 
-        puts $error
-        assert_equal [string match {*ERR Invalid argument 'disk' for CONFIG SET 'swap-mode'*} $error] 1
-    }
-}
+# # swap-mode can't change
+# test "runing server when open aof ,change swap_mode to disk fail" {
+#     start_server {overrides {appendonly {yes}}} {
+#         catch {r config set swap-mode disk} error 
+#         assert_equal [string match {*ERR Invalid argument 'disk' for CONFIG SET 'swap-mode'*} $error] 1
+#     }
+# }
 
 test "runing server when swap_mode == disk ,open aof fail" {
     start_server {overrides {appendonly {no} swap-mode {disk} }} {
@@ -42,3 +41,20 @@ test "runing server when swap_mode == disk ,open aof fail" {
         assert_equal [r dbsize] 0
     }
 }
+
+
+test "runing server swap-mode disk=>memory fail" {
+    start_server {overrides {swap-mode {memory} }} {
+        catch {r config set swap-mode disk} error 
+        assert_match "ERR Unsupported CONFIG parameter: swap-mode" $error 
+        assert_equal [lindex [r config get swap-mode] 1] {memory}
+    }
+}
+
+test "runing server swap-mode memory=>disk fail" {
+    start_server {overrides {swap-mode {disk} }} {
+        catch {r config set swap-mode memory} error 
+        assert_match "ERR Unsupported CONFIG parameter: swap-mode" $error 
+        assert_equal [lindex [r config get swap-mode] 1] {disk}
+    }
+} 
