@@ -31,8 +31,8 @@
 /* ------------------------------ rdb save -------------------------------- */
 /* Whole key encoding in rocksdb is the same as in rdb, so we skip encoding
  * and decoding to reduce cpu usage. */ 
-int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw, 
-                        long long expiretime) {
+int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, unsigned char rdbtype,
+        sds raw, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
@@ -63,7 +63,7 @@ int rdbSaveKeyRawPair(rio *rdb, robj *key, robj *evict, sds raw,
     }
 
     /* Save type, key, value */
-    if (rdbSaveObjectType(rdb,evict) == -1) return -1;
+    if (rdbSaveType(rdb,rdbtype) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
     if (rdbWriteRaw(rdb,raw,sdslen(raw)) == -1) return -1;
 
@@ -96,10 +96,11 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         int obj_type;
         const char *keyptr;
         size_t klen;
+        unsigned char rdbtype;
         sds key;
         int retval;
 
-        rocksIterKeyValue(it, &rawkey, &rawval);
+        rocksIterKeyTypeValue(it, &rawkey, &rdbtype, &rawval);
 
         obj_type = rocksDecodeKey(rawkey, sdslen(rawkey), &keyptr, &klen);
         if (klen > ITER_CACHED_MAX_KEY_LEN) {
@@ -128,13 +129,8 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
             continue;
         }
 
-        if (sdslen(rawval) < ROCKS_VAL_TYPE_LEN) {
-            continue;
-        }
-
         expire = getExpire(db, &keyobj);
-        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,
-                rawval+ROCKS_VAL_TYPE_LEN,expire);
+        retval = rdbSaveKeyRawPair(rdb,&keyobj,evict,rdbtype,rawval,expire);
 
         if (key != cached_key) sdsfree(key);
 
@@ -539,7 +535,7 @@ int swapRdbTest(int argc, char *argv[], int accurate) {
 
     } 
 
-    TEST("rdb: save&load ok in rocks format") {
+    TEST("rdb: save&load object ok in rocks format") {
         rio sdsrdb;
         int rdbtype, vtype;
         robj *evict = NULL;

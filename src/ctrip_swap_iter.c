@@ -125,6 +125,13 @@ void *rocksIterIOThreadMain(void *arg) {
 
             rawkey = rocksdb_iter_key(it->rocksdb_iter,&rklen);
             rawval = rocksdb_iter_value(it->rocksdb_iter,&rvlen);
+            if (rvlen < ROCKS_VAL_TYPE_LEN) {
+                continue;
+            } else {
+                cur->type = rawval[0];
+                rawval++;
+                rvlen--;
+            }
             itered++;
 
             if (rklen > ITER_CACHED_MAX_KEY_LEN) {
@@ -228,13 +235,14 @@ int rocksIterSeekToFirst(rocksIter *it) {
     return rocksIterWaitReady(it);
 }
 
-void rocksIterKeyValue(rocksIter *it, sds *rawkey, sds *rawval) {
+void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds *rawval) {
     int idx;
     iterResult *cur;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
     if (rawkey) *rawkey = cur->rawkey;
+    if (type) *type = cur->type;
     if (rawval) *rawval = cur->rawval;
 }
 

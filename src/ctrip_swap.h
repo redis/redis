@@ -482,6 +482,7 @@ typedef struct iterResult {
     sds cached_key;
     sds cached_val;
     sds rawkey;
+    unsigned char type;
     sds rawval;
 } iterResult;
 
@@ -507,7 +508,7 @@ typedef struct rocksIter{
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);
 int rocksIterSeekToFirst(rocksIter *it);
 int rocksIterNext(rocksIter *it);
-void rocksIterKeyValue(rocksIter *it, sds *rawkey, sds *rawval);
+void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds *rawval);
 void rocksReleaseIter(rocksIter *it);
 void rocksIterGetError(rocksIter *it, char **error);
 
