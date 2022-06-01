@@ -640,7 +640,7 @@ int isMutuallyExclusiveChildType(int type) {
 }
 
 /* Returns true when we're inside a long command that yielded to the event loop. */
-int isYieldingLongCommand() {
+int isInsideYieldingLongCommand() {
     return scriptIsTimedout() || server.busy_module_yield_flags;
 }
 
@@ -3720,7 +3720,7 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
-    if (server.maxmemory && !isYieldingLongCommand()) {
+    if (server.maxmemory && !isInsideYieldingLongCommand()) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
@@ -3859,7 +3859,7 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if (isYieldingLongCommand() && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+    if (isInsideYieldingLongCommand() && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
         if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
             rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
         } else if (server.busy_module_yield_flags) {

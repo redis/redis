@@ -3198,7 +3198,7 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
-int isYieldingLongCommand();
+int isInsideYieldingLongCommand();
 
 typedef struct luaScript {
     uint64_t flags;
