@@ -31,6 +31,8 @@ set swap_not_supported {
 set ::disk_tests {   
     swap/integration/concurrent
     swap/integration/expire_evict
+    swap/integration/pipeline
+    swap/unit/dirty
     swap/unit/expire
     swap/unit/load_rdb
     swap/unit/save_rdb
