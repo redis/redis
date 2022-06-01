@@ -1416,7 +1416,7 @@ start_server {tags {"scripting"}} {
         ] {123}
 
         # Fail to execute regardless of script content when we use default flags in OOM condition
-        assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
+        assert_error {OOM *} {
             r eval {#!lua flags=
                 return 1
             } 0
@@ -1489,14 +1489,53 @@ start_server {tags {"scripting"}} {
                 } 1 x
             ] "some value"
 
-            assert_error {ERR Can not run script with write flag on readonly replica} {
+            assert_error {READONLY You can't write against a read only replica.} {
                 r eval {#!lua
                     return redis.call('get','x')
                 } 1 x
             }
 
-            # sanity check on protocol after error reply
-            assert_equal [r ping] PONG
+            # test no-write inside multi-exec
+            r multi
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # test no shebang without write inside multi-exec
+            r multi
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # temporarily set the server to master, so it doesn't block the queuing
+            # and we can test the evaluation of the flags on exec
+            r replicaof no one
+            set rr [redis_client]
+            set rr2 [redis_client]
+            $rr multi
+            $rr2 multi
+
+            # test write inside multi-exec
+            # we don't need to do any actual write
+            $rr eval {#!lua
+                return 1
+            } 0
+
+            # test no shebang with write inside multi-exec
+            $rr2 eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+
+            r replicaof [srv -1 host] [srv -1 port]
+            assert_error {EXECABORT Transaction discarded because of: READONLY *} {$rr exec}
+            assert_error {READONLY You can't write against a read only replica. script: *} {$rr2 exec}
+            $rr close
+            $rr2 close
         }
     }
 
@@ -1541,7 +1580,7 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
 
-        assert_error {*'allow-stale' flag is not set on the script*} {
+        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
             r eval {#!lua flags=no-writes
                 return 1
             } 0
@@ -1582,7 +1621,7 @@ start_server {tags {"scripting"}} {
     test "reject script do not cause a Lua stack leak" {
         r config set maxmemory 1
         for {set i 0} {$i < 50} {incr i} {
-            assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {r eval {#!lua
+            assert_error {OOM *} {r eval {#!lua
                 return 1
             } 0}
         }

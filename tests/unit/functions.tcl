@@ -424,7 +424,7 @@ start_server {tags {"scripting repl external:skip"}} {
                 r -1 fcall test 0
             } e
             set _ $e
-        } {*Can not run script with write flag on readonly replica*}
+        } {READONLY You can't write against a read only replica.}
     }
 }
 
@@ -1052,7 +1052,7 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 1
 
         catch {[r fcall f1 1 k]} e
-        assert_match {*can not run it when used memory > 'maxmemory'*} $e
+        assert_match {OOM *when used memory > 'maxmemory'*} $e
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
@@ -1082,12 +1082,12 @@ start_server {tags {"scripting"}} {
         r replicaof 127.0.0.1 1
 
         catch {[r fcall f1 0]} e
-        assert_match {*'allow-stale' flag is not set on the script*} $e
+        assert_match {MASTERDOWN *} $e
 
         assert_equal {hello} [r fcall f2 0]
 
         catch {[r fcall f3 0]} e
-        assert_match {*Can not execute the command on a stale replica*} $e
+        assert_match {ERR *Can not execute the command on a stale replica*} $e
 
         assert_match {*redis_version*} [r fcall f4 0]
 

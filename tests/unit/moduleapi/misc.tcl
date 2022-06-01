@@ -262,7 +262,7 @@ start_server {tags {"modules"}} {
             return 2
         } 1 x
 
-        assert_error {ERR Can not run script with write flag on readonly replica} {
+        assert_error {READONLY Can not run script with write flag on readonly replica*} {
             r test.rm_call eval {#!lua
                 redis.call('get','x')
                 return 3

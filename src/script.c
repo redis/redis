@@ -108,6 +108,25 @@ int scriptInterrupt(scriptRunCtx *run_ctx) {
     return (run_ctx->flags & SCRIPT_KILLED) ? SCRIPT_KILL : SCRIPT_CONTINUE;
 }
 
+uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
+    /* If the script declared flags, clear the ones from the command and use the ones it declared.*/
+    cmd_flags &= ~(CMD_STALE | CMD_DENYOOM | CMD_WRITE);
+
+    /* NO_WRITES implies ALLOW_OOM */
+    if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES)))
+        cmd_flags |= CMD_DENYOOM;
+    if (!(script_flags & SCRIPT_FLAG_NO_WRITES))
+        cmd_flags |= CMD_WRITE;
+    if (script_flags & SCRIPT_FLAG_ALLOW_STALE)
+        cmd_flags |= CMD_STALE;
+
+    /* In addition the MAY_REPLICATE flag is set for these commands, but
+     * if we have flags we know if it's gonna do any writes or not. */
+    cmd_flags &= ~CMD_MAY_REPLICATE;
+
+    return cmd_flags;
+}
+
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
@@ -136,7 +155,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
              * 2. no disk error detected
              * 3. command is not `fcall_ro`/`eval[sha]_ro` */
             if (server.masterhost && server.repl_slave_ro && !obey_client) {
-                addReplyError(caller, "Can not run script with write flag on readonly replica");
+                addReplyError(caller, "-READONLY Can not run script with write flag on readonly replica");
                 return C_ERR;
             }
 
@@ -327,15 +346,22 @@ static int scriptVerifyACL(client *c, sds *err) {
 }
 
 static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
-    if (!(run_ctx->c->cmd->flags & CMD_WRITE)) {
-        return C_OK;
-    }
 
-    if (run_ctx->flags & SCRIPT_READ_ONLY) {
-        /* We know its a write command, on a read only run we do not allow it. */
+    /* A write command, on an RO command or an RO script is rejected ASAP.
+     * Note: For scripts, we consider may-replicate commands as write commands.
+     * This also makes it possible to allow read-only scripts to be run during
+     * CLIENT PAUSE WRITE. */
+    if (run_ctx->flags & SCRIPT_READ_ONLY &&
+        (run_ctx->c->cmd->flags & (CMD_WRITE|CMD_MAY_REPLICATE)))
+    {
         *err = sdsnew("Write commands are not allowed from read-only scripts.");
         return C_ERR;
     }
+
+    /* The other checks below are on the server state and are only relevant for
+     *  write commands, return if this is not a write command. */
+    if (!(run_ctx->c->cmd->flags & CMD_WRITE))
+        return C_OK;
 
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
@@ -360,16 +386,6 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
      * scriptPrepareForRun */
     if (!checkGoodReplicasStatus()) {
         *err = sdsdup(shared.noreplicaserr->ptr);
-        return C_ERR;
-    }
-
-    return C_OK;
-}
-
-static int scriptVerifyMayReplicate(scriptRunCtx *run_ctx, char **err) {
-    if (run_ctx->c->cmd->flags & CMD_MAY_REPLICATE &&
-        server.client_pause_type == CLIENT_PAUSE_WRITE) {
-        *err = sdsnew("May-replicate commands are not allowed when client pause write.");
         return C_ERR;
     }
 
@@ -527,10 +543,6 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
     }
 
     if (scriptVerifyWriteCommandAllow(run_ctx, err) != C_OK) {
-        goto error;
-    }
-
-    if (scriptVerifyMayReplicate(run_ctx, err) != C_OK) {
         goto error;
     }
 
