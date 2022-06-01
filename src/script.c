@@ -174,7 +174,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
         /* Check OOM state. the no-writes flag imply allow-oom. we tested it
          * after the no-write error, so no need to mention it in the error reply. */
-        if (server.script_oom && server.maxmemory &&
+        if (server.pre_command_oom_state && server.maxmemory &&
             !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES)))
         {
             addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
@@ -389,8 +389,8 @@ static int scriptVerifyOOM(scriptRunCtx *run_ctx, char **err) {
 
     if (server.maxmemory &&                            /* Maxmemory is actually enabled. */
         !mustObeyClient(run_ctx->original_client) &&   /* Don't care about mem for replicas or AOF. */
-        !(run_ctx->flags & SCRIPT_WRITE_DIRTY) &&        /* Script had no side effects so far. */
-        server.script_oom &&                           /* Detected OOM when script start. */
+        !(run_ctx->flags & SCRIPT_WRITE_DIRTY) &&      /* Script had no side effects so far. */
+        server.pre_command_oom_state &&                /* Detected OOM when script start. */
         (run_ctx->c->cmd->flags & CMD_DENYOOM))
     {
         *err = sdsdup(shared.oomerr->ptr);

@@ -1889,7 +1889,7 @@ struct redisServer {
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
-    int script_oom;                    /* OOM detected when script start */
+    int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
@@ -3201,6 +3201,7 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory();
 dict* evalScriptsDict();
 unsigned long evalScriptsMemory();
+int isInsideYieldingLongCommand();
 
 typedef struct luaScript {
     uint64_t flags;
