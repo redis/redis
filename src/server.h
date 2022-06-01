@@ -1081,6 +1081,7 @@ typedef struct {
 
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
+    uint64_t flags;         /* Client flags: CLIENT_* macros. */
     connection *conn;
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
@@ -1114,7 +1115,6 @@ typedef struct client {
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_start_cmd_stream_on_ack; /* Install slave write handler on first ACK. */
