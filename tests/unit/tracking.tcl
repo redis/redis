@@ -208,6 +208,33 @@ start_server {tags {"tracking network"}} {
         assert {$res eq {key1}}
     }
 
+    test {Tracking only occurs for scripts when a command calls a read-only command} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on
+        $rd_sg MSET key2{t} 1 key2{t} 1
+
+        # If a script doesn't call any read command, don't track any keys
+        r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+
+        # If a script calls a read command, track all declared keys
+        r EVAL "redis.call('get', 'key3{t}')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal {invalidate key2{t}} [r read]
+        assert_equal {invalidate key1{t}} [r read]
+
+        # RO variants work like the normal variants
+        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 2 key1{t} 2
+
+        r EVAL_RO "redis.call('get', 'key1{t}')" 2 key1{t} key2{t} 
+        $rd_sg MSET key2{t} 3 key1{t} 3
+        assert_equal {invalidate key2{t}} [r read]
+        assert_equal {invalidate key1{t}} [r read]
+
+        assert_equal "PONG" [r ping]
+    }
+
     test {RESP3 Client gets tracking-redir-broken push message after cached key changed when rediretion client is terminated} {
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1

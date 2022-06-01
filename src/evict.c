@@ -481,7 +481,7 @@ void startEvictionTimeProc(void) {
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (scriptIsTimedout() || server.loading) return 0;
+    if (isInsideYieldingLongCommand() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */

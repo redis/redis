@@ -1539,6 +1539,37 @@ start_server {tags {"scripting"}} {
         }
     }
 
+    test "not enough good replicas" {
+        r set x "some value"
+        r config set min-replicas-to-write 1
+
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_equal [
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_error {NOREPLICAS *} {
+            r eval {#!lua
+                return redis.call('get','x')
+            } 1 x
+        }
+
+        assert_error {NOREPLICAS *} {
+            r eval {
+                return redis.call('set','x', 1)
+            } 1 x
+        }
+
+        r config set min-replicas-to-write 0
+    }
+
     test "allow-stale shebang flag" {
         r config set replica-serve-stale-data no
         r replicaof 127.0.0.1 1

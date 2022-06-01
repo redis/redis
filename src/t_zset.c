@@ -1186,9 +1186,10 @@ void zsetConvert(robj *zobj, int encoding) {
         zs->zsl = zslCreate();
 
         eptr = lpSeek(zl,0);
-        serverAssertWithInfo(NULL,zobj,eptr != NULL);
-        sptr = lpNext(zl,eptr);
-        serverAssertWithInfo(NULL,zobj,sptr != NULL);
+        if (eptr != NULL) {
+            sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(NULL,zobj,sptr != NULL);
+        }
 
         while (eptr != NULL) {
             score = zzlGetScore(sptr);

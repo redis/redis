@@ -293,7 +293,7 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     entry = dictUnlink(lib_ctx->libraries, li->name);
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
-    lib_ctx->cache_memory += libraryMallocSize(li);
+    lib_ctx->cache_memory -= libraryMallocSize(li);
 
     /* update stats */
     functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
