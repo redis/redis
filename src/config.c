@@ -1142,11 +1142,19 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL || (!server.sentinel_mode && !lookupConfig(argv[0]) &&
-                             !strcasecmp(argv[0],"user") && !strcasecmp(argv[0],"loadmodule"))) {
-            /* Apparently the line is unparsable for some reason, for
-             * instance it may have unbalanced quotes, or may contain a
-             * config that doesn't exist anymore. Load it as a comment. */
+
+        if (argv == NULL ||
+            (!lookupConfig(argv[0]) &&
+             strcasecmp(argv[0],"include") &&
+             strcasecmp(argv[0],"rename-command") &&
+             strcasecmp(argv[0],"user") &&
+             strcasecmp(argv[0],"loadmodule") &&
+             strcasecmp(argv[0],"sentinel")))
+        {
+            /* The line is either unparsable for some reason, for
+             * instance it may have unbalanced quotes, may contain a
+             * config that doesn't exist anymore, for instance a module that got
+             * unloaded. Load it as a comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
             if (argv) sdsfreesplitres(argv, argc);
