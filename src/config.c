@@ -1145,6 +1145,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         if (argv == NULL ||
             (!lookupConfig(argv[0]) &&
+             /* The following is a list of config features that are only supported in
+              * config file parsing and are not recognized by lookupConfig */
              strcasecmp(argv[0],"include") &&
              strcasecmp(argv[0],"rename-command") &&
              strcasecmp(argv[0],"user") &&
