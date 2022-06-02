@@ -933,3 +933,13 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
         assert_match {*Duplicate user*} $err
     } {} {external:skip}
 }
+
+start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl external:skip}} {
+    test {ACL from config file and config rewrite} {
+        assert_error {NOPERM *} {r flushdb}
+        r config rewrite
+        restart_server 0 true false
+        assert_error {NOPERM *} {r flushdb}
+    }
+}
+

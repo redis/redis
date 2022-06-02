@@ -582,3 +582,15 @@ test {config during loading} {
         exec kill [srv 0 pid]
     }
 } {} {external:skip}
+
+test {CONFIG REWRITE handles rename-command properly} {
+    start_server {tags {"introspection"} overrides {rename-command {flushdb badger}}} {
+        assert_error {ERR unknown command*} {r flushdb}
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_error {ERR unknown command*} {r flushdb}
+    }
+} {} {external:skip}
+
