@@ -1171,18 +1171,13 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
          * Append the line and populate the option -> line numbers map. */
         rewriteConfigAppendLine(state,line);
 
-        /* Translate options using the word "slave" to the corresponding name
-         * "replica", before adding such option to the config name -> lines
-         * mapping. */
-        char *p = strstr(argv[0],"slave");
-        if (p) {
-            sds alt = sdsempty();
-            alt = sdscatlen(alt,argv[0],p-argv[0]);
-            alt = sdscatlen(alt,"replica",7);
-            alt = sdscatlen(alt,p+5,strlen(p+5));
+        /* If this is a alias config, replace it with the original name. */
+        standardConfig *s_conf = lookupConfig(argv[0]);
+        if (s_conf && s_conf->flags & ALIAS_CONFIG) {
             sdsfree(argv[0]);
-            argv[0] = alt;
+            argv[0] = sdsnew(s_conf->alias);
         }
+
         /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
             to avoid messing up the sequence. */
         if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
