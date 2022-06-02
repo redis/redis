@@ -594,3 +594,26 @@ test {CONFIG REWRITE handles rename-command properly} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE handles alias config properly} {
+    start_server {tags {"introspection"} overrides {hash-max-listpack-entries 20 hash-max-ziplist-entries 21}} {
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 21}
+        assert_equal [r config get hash-max-ziplist-entries] {hash-max-ziplist-entries 21}
+        r config set hash-max-listpack-entries 100
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 100}
+    }
+    # test the order doesn't matter
+    start_server {tags {"introspection"} overrides {hash-max-ziplist-entries 20 hash-max-listpack-entries 21}} {
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 21}
+        assert_equal [r config get hash-max-ziplist-entries] {hash-max-ziplist-entries 21}
+        r config set hash-max-listpack-entries 100
+
+        r config rewrite
+        restart_server 0 true false
+
+        assert_equal [r config get hash-max-listpack-entries] {hash-max-listpack-entries 100}
+    }
+} {} {external:skip}
