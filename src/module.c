@@ -2303,7 +2303,7 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
 }
 
 
-/* Like RedisModule_CreatString(), but creates a string starting from a long long
+/* Like RedisModule_CreatString(), but creates a string starting from a `long long`
  * integer instead of taking a buffer and its length.
  *
  * The returned string must be released with RedisModule_FreeString() or by
@@ -2516,9 +2516,9 @@ const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len) {
  * Higher level string operations
  * ------------------------------------------------------------------------- */
 
-/* Convert the string into a long long integer, storing it at `*ll`.
+/* Convert the string into a `long long` integer, storing it at `*ll`.
  * Returns REDISMODULE_OK on success. If the string can't be parsed
- * as a valid, strict long long (no spaces before/after), REDISMODULE_ERR
+ * as a valid, strict `long long` (no spaces before/after), REDISMODULE_ERR
  * is returned. */
 int RM_StringToLongLong(const RedisModuleString *str, long long *ll) {
     return string2ll(str->ptr,sdslen(str->ptr),ll) ? REDISMODULE_OK :
@@ -2691,7 +2691,7 @@ client *moduleGetReplyClient(RedisModuleCtx *ctx) {
     }
 }
 
-/* Send an integer reply to the client, with the specified long long value.
+/* Send an integer reply to the client, with the specified `long long` value.
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
     client *c = moduleGetReplyClient(ctx);
@@ -2837,7 +2837,7 @@ int RM_ReplyWithSet(RedisModuleCtx *ctx, long len) {
 /* Add attributes (metadata) to the reply. Should be done before adding the
  * actual reply. see https://github.com/antirez/RESP3/blob/master/spec.md#attribute-type
  *
- * After starting an attributes reply, the module must make `len*2` calls to other
+ * After starting an attribute's reply, the module must make `len*2` calls to other
  * `ReplyWith*` style functions in order to emit the elements of the attribute map.
  * See Reply APIs section for more details.
  *
@@ -3621,7 +3621,7 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
     }
 }
 
-/* Return an handle representing a Redis key, so that it is possible
+/* Return a handle representing a Redis key, so that it is possible
  * to call other APIs with the key handle as argument to perform
  * operations on the key.
  *
@@ -4839,7 +4839,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     return count;
 }
 
-/* Get fields from an hash value. This function is called using a variable
+/* Get fields from a hash value. This function is called using a variable
  * number of arguments, alternating a field name (as a RedisModuleString
  * pointer) with a pointer to a RedisModuleString pointer, that is set to the
  * value of the field if the field exists, or NULL if the field does not exist.
@@ -4873,7 +4873,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *      RedisModule_HashGet(mykey,REDISMODULE_HASH_EXISTS,argv[1],&exists,NULL);
  *
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
- * the key is not an hash value.
+ * the key is not a hash value.
  *
  * Memory management:
  *
@@ -5450,7 +5450,7 @@ RedisModuleCallReply *RM_CallReplyArrayElement(RedisModuleCallReply *reply, size
     return callReplyGetArrayElement(reply, idx);
 }
 
-/* Return the long long of an integer reply. */
+/* Return the `long long` of an integer reply. */
 long long RM_CallReplyInteger(RedisModuleCallReply *reply) {
     return callReplyGetLongLong(reply);
 }
@@ -5465,7 +5465,7 @@ const char *RM_CallReplyBigNumber(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetBigNumber(reply, len);
 }
 
-/* Return the value of an verbatim string reply,
+/* Return the value of a verbatim string reply,
  * An optional output argument can be given to get verbatim reply format. */
 const char *RM_CallReplyVerbatim(RedisModuleCallReply *reply, size_t *len, const char **format) {
     return callReplyGetVerbatim(reply, len, format);
@@ -5502,7 +5502,7 @@ RedisModuleCallReply *RM_CallReplyAttribute(RedisModuleCallReply *reply) {
     return callReplyGetAttribute(reply);
 }
 
-/* Retrieve the 'idx'-th key and value of a attribute reply.
+/* Retrieve the 'idx'-th key and value of an attribute reply.
  *
  * Returns:
  * - REDISMODULE_OK on success.
@@ -5657,7 +5657,7 @@ fmterr:
  *     * `b` -- The argument is a buffer and is immediately followed by another
  *              argument that is the buffer's length.
  *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
- *     * `l` -- The argument is long long integer.
+ *     * `l` -- The argument is a `long long` integer.
  *     * `s` -- The argument is a RedisModuleString.
  *     * `v` -- The argument(s) is a vector of RedisModuleString.
  *     * `!` -- Sends the Redis command and its arguments to replicas and AOF.
@@ -6567,7 +6567,7 @@ RedisModuleString *RM_LoadString(RedisModuleIO *io) {
     return moduleLoadString(io,0,NULL);
 }
 
-/* Like RedisModule_LoadString() but returns an heap allocated string that
+/* Like RedisModule_LoadString() but returns a heap allocated string that
  * was allocated with RedisModule_Alloc(), and can be resized or freed with
  * RedisModule_Realloc() or RedisModule_Free().
  *
@@ -6729,7 +6729,7 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
  *
  * Because Sets are not ordered, so every element added has a position that
  * does not depend from the other. However if instead our elements are
- * ordered in pairs, like field-value pairs of an Hash, then one should
+ * ordered in pairs, like field-value pairs of a Hash, then one should
  * use:
  *
  *     foreach key,value {
@@ -6753,7 +6753,7 @@ void RM_DigestAddStringBuffer(RedisModuleDigest *md, const char *ele, size_t len
     mixDigest(md->o,ele,len);
 }
 
-/* Like `RedisModule_DigestAddStringBuffer()` but takes a long long as input
+/* Like `RedisModule_DigestAddStringBuffer()` but takes a `long long` as input
  * that gets converted into a string before adding it to the digest. */
 void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
     char buf[LONG_STR_SIZE];
@@ -7170,7 +7170,7 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
     return served;
 }
 
-/* Block a client in the context of a blocking command, returning an handle
+/* Block a client in the context of a blocking command, returning a handle
  * which will be used, later, in order to unblock the client with a call to
  * RedisModule_UnblockClient(). The arguments specify callback functions
  * and a timeout after which the client is unblocked.
@@ -8092,7 +8092,7 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
 /* --------------------------------------------------------------------------
  * ## Modules Timers API
  *
- * Module timers are an high precision "green timers" abstraction where
+ * Module timers are a high precision "green timers" abstraction where
  * every module can register even millions of timers without problems, even if
  * the actual event loop will just have a single timer that is used to awake the
  * module timers subsystem in order to process the next event.
@@ -8819,7 +8819,7 @@ int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size
 }
 
 /* Deauthenticate and close the client. The client resources will not be
- * be immediately freed, but will be cleaned up in a background job. This is
+ * immediately freed, but will be cleaned up in a background job. This is
  * the recommended way to deauthenticate a client since most clients can't
  * handle users becoming deauthenticated. Returns REDISMODULE_ERR when the
  * client doesn't exist and REDISMODULE_OK when the operation was successful.
@@ -9036,7 +9036,7 @@ int RM_DictIteratorReseekC(RedisModuleDictIter *di, const char *op, void *key, s
     return raxSeek(&di->ri,op,key,keylen);
 }
 
-/* Like RedisModule_DictIteratorReseekC() but takes the key as as a
+/* Like RedisModule_DictIteratorReseekC() but takes the key as a
  * RedisModuleString. */
 int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
     return RM_DictIteratorReseekC(di,op,key->ptr,sdslen(key->ptr));
@@ -9620,7 +9620,7 @@ int moduleUnregisterFilters(RedisModule *module) {
  *
  * 1. Invocation by a client.
  * 2. Invocation through `RedisModule_Call()` by any module.
- * 3. Invocation through Lua 'redis.call()`.
+ * 3. Invocation through Lua `redis.call()`.
  * 4. Replication of a command from a master.
  *
  * The filter executes in a special filter context, which is different and more
