@@ -28,19 +28,14 @@
 
 #include "ctrip_swap.h"
 
-/* ----------------------------- expire ------------------------------ */
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
+    robj *key = ctx->key_request->key;
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, ctx->key_request->key);
+    clientUnholdKey(c, key);
+    deleteExpiredKeyAndPropagate(c->db,key);
 }
 
-/* Cases when submitExpireClientRequest is called:
- * - active-expire: DEL swap will be append as if key is expired by dummy client.
- * - command proc: DEL swap will be append to scs of the key, bacause that key is
- *   holded before xxCommand, so scs of key will not have any PUT. so async
- *   DEL swap have the same effect of sync DEL.
- * - continueProcessCommand: same as command proc. */
 int submitExpireClientRequest(client *c, robj *key) {
     getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
     getKeyRequestsPrepareResult(&result,1);
@@ -53,27 +48,4 @@ int submitExpireClientRequest(client *c, robj *key) {
     return 1;
 }
 
-/* How key is expired:
- * 1. SWAP GET if expiring key is EVICTED (submitExpireClientRequest), note that
- *    this expire key evicted would only happend for active expire, because
- *    key have already been loaded before cmd->proc, so xxCommand won't trigger
- *    SWAP GET.
- * 2. Do dbDelete & propagate & notify  (expireKey) 
- * 3. Delete expired key from rocksdb (rocksDelete). NOTE that although
- *    DEL swap appended to scs tail rather than scs head, but because PUT
- *    will not happend if scs is not empty, so PUT will not happen if DEL
- *    append to tail, thus key would not be evicted to before DEL. so DEL
- *    is started right away.
- *
- * Note that currently we can only generate ONE action for each swap, so we
- * can't do both GET+propagate & DEL+nop in step 1, so rocks DEL+nop is
- * defered untill GET+propagate finished.
- */
-int dbExpire(redisDb *db, robj *key) {
-    client *c = server.rksdel_clients[db->id];
-    serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    submitExpireClientRequest(c, key);
-	deleteExpiredKeyAndPropagate(db,key);
-    return 1;
-}
 

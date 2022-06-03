@@ -54,14 +54,28 @@
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        int expired = 0;
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-        if (server.swap_mode == SWAP_MODE_MEMORY)
+        if (server.swap_mode == SWAP_MODE_MEMORY) {
             deleteExpiredKeyAndPropagate(db,keyobj);
-        else
-            dbExpire(db, keyobj);
+            expired = 1;
+        } else {
+            if (requestWouldBlock(db,keyobj)) {
+                /* If there are preceeding request on the key we are about
+                 * to expire, most likely it's the in-progress expire request.
+                 * on which case, we don't try to expire the key, otherwise
+                 * the same we might submit expire request continuesly on the
+                 * same key. */
+                expired = 0;
+            } else {
+                client *c = server.rksdel_clients[db->id];
+                submitExpireClientRequest(c, keyobj);
+                expired = 1;
+            }
+        }
         decrRefCount(keyobj);
-        return 1;
+        return expired;
     } else {
         return 0;
     }

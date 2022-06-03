@@ -51,9 +51,11 @@ swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict,
  * final swap intention. e.g. command might want SWAP_IN but data not
  * evicted, then intention is decided as NOP. */ 
 inline int swapDataAna(swapData *d, int cmd_intention,
-        struct keyRequest *key_request, int *intention) {
+        uint32_t cmd_intention_flags, struct keyRequest *key_request,
+        int *intention, uint32_t *intention_flags) {
     if (d->type->swapAna)
-        return d->type->swapAna(d,cmd_intention,key_request,intention);
+        return d->type->swapAna(d,cmd_intention,cmd_intention_flags,
+                key_request, intention,intention_flags);
     else
         return 0;
 }

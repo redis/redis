@@ -58,6 +58,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
     ctx->cmd_intention = c->cmd->intention;
+    ctx->cmd_intention_flags = c->cmd->intention_flags;
     dupKeyRequest(ctx->key_request,key_request);
     ctx->finished = finished;
 #ifdef SWAP_DEBUG
@@ -151,8 +152,15 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
     return 0;
 }
 
-/* Note keyRequestProceed include key/db/svr level request, only key level
- * requests might need swap. */
+/* Expired key should delete only if server is master, check expireIfNeeded
+ * for more details. */
+int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
+    if (!keyIsExpired(db,key)) return 0;
+    if (server.masterhost != NULL) return 0;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
+    return 1;
+}
+
 int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
     int retval = C_OK;
@@ -163,6 +171,8 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     char *reason;
     void *msgs = NULL;
     UNUSED(reason);
+    int cmd_intention = ctx->cmd_intention;
+    uint32_t cmd_intention_flags = ctx->cmd_intention_flags;
     
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";
@@ -188,8 +198,15 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     ctx->data = data;
     ctx->datactx = datactx;
 
-    if (swapDataAna(data,ctx->cmd_intention,ctx->key_request,
-                &ctx->swap_intention)) {
+    /* Expired key will be delete before execute command proc. */
+    if (keyExpiredAndShouldDelete(db,key)) {
+        cmd_intention = SWAP_DEL;
+        cmd_intention_flags &= ~INTENTION_DEL_ASYNC;
+    }
+
+    if (swapDataAna(data,cmd_intention,cmd_intention_flags,
+                ctx->key_request, &ctx->swap_intention,
+                &ctx->swap_intention_flags)) {
         ctx->errcode = SWAP_ERR_ANA_FAIL;
         retval = C_ERR;
         reason = "swap ana failed";
@@ -208,8 +225,9 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     msgs = &ctx->msgs;
 #endif
 
-    submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,data,datactx,
-            keyRequestSwapFinished,ctx,msgs);
+    submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,
+            ctx->swap_intention_flags,
+            data,datactx,keyRequestSwapFinished,ctx,msgs);
 
     return C_OK;
 

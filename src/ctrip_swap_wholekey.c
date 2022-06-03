@@ -30,22 +30,34 @@
 
 sds objectDump(robj *o);
 int wholeKeySwapAna(swapData *data_, int cmd_intention,
-        struct keyRequest *req, int *intention) {
+        uint32_t cmd_intention_flags, struct keyRequest *req,
+        int *intention, uint32_t *intention_flags) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(req);
+    if (intention_flags) *intention_flags = cmd_intention_flags;
     switch(cmd_intention) {
     case SWAP_NOP:
         *intention = SWAP_NOP;
         break;
     case SWAP_IN:
-        if (data->evict && !data->value) {
+        if (data->evict) {
+            serverAssert(!data->value);
             *intention = SWAP_IN;
+        } else if (data->value) {
+            serverAssert(!data->evict);
+            if (cmd_intention_flags & INTENTION_IN_DEL) {
+                *intention = SWAP_DEL;
+                *intention_flags = INTENTION_DEL_ASYNC;
+            } else {
+                *intention = SWAP_NOP;
+            }
         } else {
             *intention = SWAP_NOP;
         }
         break;
     case SWAP_OUT:
-        if (data->value && !data->evict) {
+        if (data->value) {
+            serverAssert(!data->evict);
             if (data->value->dirty) {
                 *intention = SWAP_OUT;
             } else {
@@ -250,7 +262,7 @@ swapDataType wholeKeySwapDataType = {
     .decodeData = wholeKeyDecodeData,
     .swapIn = wholeKeySwapIn,
     .swapOut = wholeKeySwapOut,
-    .swapDel = NULL,
+    .swapDel = wholeKeySwapDel,
     .createOrMergeObject = wholeKeyCreateOrMergeObject,
     /* TODO OPT: zset/set/list could clean subkey in cleanObject to reduce
      * cpu usage in main thread. */
@@ -285,71 +297,65 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     redisDb* db = server.db + 0;
     int error = 0;
     TEST("wholeKey SwapAna value = NULL and evict = NULL") {
-        // value == NULL && evict == NULL
         void* ctx = NULL;
         swapData* data = createWholeKeySwapData(db, NULL, NULL, NULL, &ctx);
         int intention;
-        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        uint32_t intention_flags;
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
         
         freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey SwapAna value != NULL and evict = NULL") {
-        // value == NULL && evict == NULL
         void* ctx = NULL;
         robj* value  = createRawStringObject("value", 5);
         swapData* data = createWholeKeySwapData(db, NULL, value, NULL, &ctx);
         int intention;
-        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        uint32_t intention_flags;
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
-        test_assert(intention == SWAP_OUT);
-        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_DEL);
+        test_assert(intention_flags == INTENTION_DEL_ASYNC);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
+        test_assert(intention == SWAP_OUT);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
+        test_assert(intention == SWAP_DEL);
+        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags);
+        test_assert(intention == SWAP_DEL);
+        test_assert(intention_flags == INTENTION_DEL_ASYNC);
         freeWholeKeySwapData(data, ctx);
     }
 
     TEST("wholeKey SwapAna value = NULL and evict != NULL") {
-        // value == NULL && evict == NULL
         void* ctx = NULL;
         robj* evict  = createRawStringObject("value", 5);
         swapData* data = createWholeKeySwapData(db, NULL, NULL, evict, &ctx);
         int intention;
-        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
+        uint32_t intention_flags;
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_IN);
-        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags);
+        test_assert(intention == SWAP_IN);
+        test_assert(intention_flags == INTENTION_IN_DEL);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_DEL);
-        freeWholeKeySwapData(data, ctx);
-    }
-
-    TEST("wholeKey SwapAna value != NULL and evict != NULL") {
-        // value == NULL && evict == NULL
-        void* ctx = NULL;
-        robj* value  = createRawStringObject("value", 5);
-        robj* evict  = createRawStringObject("evict", 5);
-        swapData* data = createWholeKeySwapData(db, NULL, value, evict, &ctx);
-        int intention;
-        wholeKeySwapAna(data, SWAP_NOP, NULL, &intention);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, NULL, &intention);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_OUT, NULL, &intention);
-        test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, NULL, &intention);
+        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags);
         test_assert(intention == SWAP_DEL);
+        test_assert(intention_flags == INTENTION_DEL_ASYNC);
         freeWholeKeySwapData(data, ctx);
     }
 
@@ -596,6 +602,9 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(getExpire(db, key) < 0);
         freeWholeKeySwapData(data, NULL);
         clearTestRedisDb();
+    }
+
+    TEST("wholeKey swapdelete (evict and exist expire)") {
     }
     return error;
 }

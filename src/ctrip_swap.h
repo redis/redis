@@ -38,6 +38,11 @@
 #define REQUEST_LEVEL_DB   1
 #define REQUEST_LEVEL_KEY  2
 
+/* Delete key in rocksdb after right after swap in. */
+#define INTENTION_IN_DEL (1<<0)
+/* Delete key in rocksdb without touching keyspace. */
+#define INTENTION_DEL_ASYNC (1<<1)
+
 static inline const char *requestLevelName(int level) {
   const char *name = "?";
   const char *levels[] = {"svr","db","key"};
@@ -98,7 +103,7 @@ typedef struct swapData {
  * dataCtx: dynamic data when swapping.  */
 typedef struct swapDataType {
   char *name;
-  int (*swapAna)(struct swapData *data, int cmd_intention, struct keyRequest *key_request, int *intention);
+  int (*swapAna)(struct swapData *data, int cmd_intention, uint32_t cmd_intention_flags, struct keyRequest *key_request, int *intention, uint32_t *intention_flags);
   int (*encodeKeys)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys);
   int (*encodeData)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
   int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, robj **decoded);
@@ -110,7 +115,7 @@ typedef struct swapDataType {
   void (*free)(struct swapData *data, void *datactx);
 } swapDataType;
 
-int swapDataAna(swapData *d, int cmd_intention, struct keyRequest *key_request, int *intention);
+int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flag, struct keyRequest *key_request, int *intention, uint32_t *intention_flag);
 int swapDataEncodeKeys(swapData *d, int intention, int *action, int *num, sds **rawkeys);
 int swapDataEncodeData(swapData *d, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
 int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
@@ -161,9 +166,11 @@ typedef void (*clientKeyRequestFinished)(client *c, struct swapCtx *ctx);
 typedef struct swapCtx {
   client *c;
   int cmd_intention;
+  uint32_t cmd_intention_flags;
   keyRequest key_request[1];
   void *listeners;
   int swap_intention;
+  uint32_t swap_intention_flags;
   swapData *data;
   void *datactx;
   clientKeyRequestFinished finished;
@@ -213,6 +220,7 @@ typedef int (*swapRequestFinishedCallback)(swapData *data, void *pd);
 
 typedef struct swapRequest {
   int intention;
+  uint32_t intention_flags;
   swapData *data;
   void *datactx;
   robj *result;
@@ -225,11 +233,11 @@ typedef struct swapRequest {
 #endif
 } swapRequest;
 
-swapRequest *swapRequestNew(int intention, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+swapRequest *swapRequestNew(int intention, uint32_t intention_flags, swapData *data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 void swapRequestFree(swapRequest *req);
 int executeSwapRequest(swapRequest *req);
 int finishSwapRequest(swapRequest *req);
-void submitSwapRequest(int mode, int intention, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* --- Threads (encode/rio/decode/finish) --- */
 #define SWAP_THREADS_DEFAULT     6
@@ -406,7 +414,7 @@ void clientUnholdKeys(client *c);
 void clientUnholdKey(client *c, robj *key);
 
 /* --- Expire --- */
-int dbExpire(redisDb *db, robj *key);
+int submitExpireClientRequest(client *c, robj *key);
 
 /* --- Rocks --- */
 #define ROCKS_DIR_MAX_LEN 512
@@ -551,20 +559,6 @@ size_t keyComputeSize(redisDb *db, robj *key);
 
 
 #ifdef REDIS_TEST
-#define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
-
-#define ERROR                                                                  \
-    do {                                                                       \
-        printf("\tERROR!\n");                                                  \
-        err++;                                                                 \
-    } while (0)
-
-#define ERR(x, ...)                                                            \
-    do {                                                                       \
-        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
-        printf("ERROR! " x "\n", __VA_ARGS__);                                 \
-        err++;                                                                 \
-    } while (0)
 
 #define TEST(name) printf("test — %s\n", name);
 #define TEST_DESC(name, ...) printf("test — " name "\n", __VA_ARGS__);

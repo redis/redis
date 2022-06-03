@@ -195,722 +195,722 @@ struct redisServer server; /* Server global state */
 struct redisCommand redisCommandTable[] = {
     {"module",moduleCommand,-2,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"get",getCommand,2,
      "read-only fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"getex",getexCommand,-2,
      "write fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"getdel",getdelCommand,2,
      "write fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,1,1,0,0,0},
 
     /* Note that we can't flag set as fast, since it may perform an
      * implicit DEL of a large key. */
     {"set",setCommand,-3,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"setnx",setnxCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"setex",setexCommand,4,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"psetex",psetexCommand,4,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"append",appendCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"strlen",strlenCommand,2,
      "read-only fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"del",delCommand,-2,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"setbit",setbitCommand,4,
      "write use-memory @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"getbit",getbitCommand,3,
      "read-only fast @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bitfield",bitfieldCommand,-2,
      "write use-memory @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bitfield_ro",bitfieldroCommand,-2,
      "read-only fast @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"setrange",setrangeCommand,4,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"getrange",getrangeCommand,4,
      "read-only @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"substr",getrangeCommand,4,
      "read-only @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"incr",incrCommand,2,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"decr",decrCommand,2,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"mget",mgetCommand,-2,
      "read-only fast @string",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"rpush",rpushCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpush",lpushCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"rpushx",rpushxCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpushx",lpushxCommand,-3,
      "write use-memory fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"linsert",linsertCommand,5,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"rpop",rpopCommand,-2,
      "write fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpop",lpopCommand,-2,
      "write fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"brpop",brpopCommand,-3,
      "write no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
      "write use-memory no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
      "write use-memory no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
      "write no-script @list @blocking",
-     0,NULL,NULL,SWAP_IN,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"llen",llenCommand,2,
      "read-only fast @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lindex",lindexCommand,3,
      "read-only @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lset",lsetCommand,4,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lrange",lrangeCommand,4,
      "read-only @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"ltrim",ltrimCommand,4,
      "write @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lpos",lposCommand,-3,
      "read-only @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"lrem",lremCommand,4,
      "write @list",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"rpoplpush",rpoplpushCommand,3,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"lmove",lmoveCommand,5,
      "write use-memory @list",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sadd",saddCommand,-3,
      "write use-memory fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"srem",sremCommand,-3,
      "write fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"smove",smoveCommand,4,
      "write fast @set",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sismember",sismemberCommand,3,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"smismember",smismemberCommand,-3,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"scard",scardCommand,2,
      "read-only fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"spop",spopCommand,-2,
      "write random fast @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"srandmember",srandmemberCommand,-2,
      "read-only random @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"sinter",sinterCommand,-2,
      "read-only to-sort @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sinterstore",sinterstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunion",sunionCommand,-2,
      "read-only to-sort @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunionstore",sunionstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiff",sdiffCommand,-2,
      "read-only to-sort @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiffstore",sdiffstoreCommand,-3,
      "write use-memory @set",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"smembers",sinterCommand,2,
      "read-only to-sort @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"sscan",sscanCommand,-3,
      "read-only random @set",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zadd",zaddCommand,-4,
      "write use-memory fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zincrby",zincrbyCommand,4,
      "write use-memory fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrem",zremCommand,-3,
      "write fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zremrangebyscore",zremrangebyscoreCommand,4,
      "write @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zremrangebyrank",zremrangebyrankCommand,4,
      "write @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zremrangebylex",zremrangebylexCommand,4,
      "write @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zunionstore",zunionstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zdiffstore",zdiffstoreCommand,-4,
      "write use-memory @sortedset",
-     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zunion",zunionCommand,-3,
      "read-only @sortedset",
-     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
      "read-only @sortedset",
-     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zdiff",zdiffCommand,-3,
      "read-only @sortedset",
-     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrangestore",zrangestoreCommand,-5,
      "write use-memory @sortedset",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrangebyscore",zrevrangebyscoreCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrangebylex",zrangebylexCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrangebylex",zrevrangebylexCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zcount",zcountCommand,4,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zlexcount",zlexcountCommand,4,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrange",zrevrangeCommand,-4,
      "read-only @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zcard",zcardCommand,2,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zscore",zscoreCommand,3,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zmscore",zmscoreCommand,-3,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrank",zrankCommand,3,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrevrank",zrevrankCommand,3,
      "read-only fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zscan",zscanCommand,-3,
      "read-only random @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zpopmin",zpopminCommand,-2,
      "write fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zpopmax",zpopmaxCommand,-2,
      "write fast @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
-     0,NULL,NULL,SWAP_IN,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking",
-     0,NULL,NULL,SWAP_IN,1,-2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"zrandmember",zrandmemberCommand,-2,
      "read-only random @sortedset",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hsetnx",hsetnxCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hget",hgetCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmset",hsetCommand,-4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmget",hmgetCommand,-3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrby",hincrbyCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrbyfloat",hincrbyfloatCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hkeys",hkeysCommand,2,
      "read-only to-sort @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hvals",hvalsCommand,2,
      "read-only to-sort @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hgetall",hgetallCommand,2,
      "read-only random @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hexists",hexistsCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hrandfield",hrandfieldCommand,-2,
      "read-only random @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hscan",hscanCommand,-3,
      "read-only random @hash",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"incrby",incrbyCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"decrby",decrbyCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"incrbyfloat",incrbyfloatCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"getset",getsetCommand,3,
      "write use-memory fast @string",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"mset",msetCommand,-3,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,-1,2,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,2,0,0,0},
 
     {"msetnx",msetnxCommand,-3,
      "write use-memory @string",
-     0,NULL,NULL,SWAP_IN,1,-1,2,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,2,0,0,0},
 
     {"randomkey",randomkeyCommand,1,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"select",selectCommand,2,
      "ok-loading fast ok-stale @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"swapdb",swapdbCommand,3,
      "write fast @keyspace @dangerous",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"move",moveCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"copy",copyCommand,-3,
      "write use-memory @keyspace",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     /* Like for SET, we can't mark rename as a fast command because
      * overwriting the target key may result in an implicit slow DEL. */
     {"rename",renameCommand,3,
      "write @keyspace",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"renamenx",renamenxCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"expire",expireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"expireat",expireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"pexpire",pexpireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"pexpireat",pexpireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"keys",keysCommand,2,
      "read-only to-sort @keyspace @dangerous",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"scan",scanCommand,-2,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"dbsize",dbsizeCommand,1,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"auth",authCommand,-2,
      "no-auth no-script ok-loading ok-stale fast @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     /* We don't allow PING during loading since in Redis PING is used as
      * failure detection, and a loading server is considered to be
      * not available. */
     {"ping",pingCommand,-1,
      "ok-stale fast @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"echo",echoCommand,2,
      "fast @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"save",saveCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"bgsave",bgsaveCommand,-1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"refullsync",refullsyncCommand,1,
      "admin read-only",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"bgrewriteaof",bgrewriteaofCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"shutdown",shutdownCommand,-1,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"lastsave",lastsaveCommand,1,
      "random fast ok-loading ok-stale @admin @dangerous",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"type",typeCommand,2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"multi",multiCommand,1,
      "no-script fast ok-loading ok-stale @transaction",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
      "no-script no-slowlog ok-loading ok-stale @transaction",
-     0,NULL,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
      "no-script fast ok-loading ok-stale @transaction",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"sync",syncCommand,1,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"psync",syncCommand,-3,
      "admin no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"replconf",replconfCommand,-1,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"flushdb",flushdbCommand,-1,
      "write @keyspace @dangerous",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"flushall",flushallCommand,-1,
      "write @keyspace @dangerous",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"sort",sortCommand,-2,
      "write use-memory @list @set @sortedset @dangerous",
-     0,sortGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,sortGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"info",infoCommand,-1,
      "ok-loading ok-stale random @dangerous",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"monitor",monitorCommand,1,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"ttl",ttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"persist",persistCommand,2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"slaveof",replicaofCommand,3,
      "admin no-script ok-stale",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"xslaveof",xslaveofCommand,3,
      "admin no-script ok-stale",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"replicaof",replicaofCommand,3,
      "admin no-script ok-stale",
-     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,getKeyRequestsGlobal,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"role",roleCommand,1,
      "ok-loading ok-stale no-script fast @dangerous",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"debug",debugCommand,-2,
      "admin no-script ok-loading ok-stale",
-     0,debugGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,debugGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"config",configCommand,-2,
      "admin ok-loading ok-stale no-script",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"subscribe",subscribeCommand,-2,
      "pub-sub no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"unsubscribe",unsubscribeCommand,-1,
      "pub-sub no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"psubscribe",psubscribeCommand,-2,
      "pub-sub no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"punsubscribe",punsubscribeCommand,-1,
      "pub-sub no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"publish",publishCommand,3,
      "pub-sub ok-loading ok-stale fast may-replicate",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"pubsub",pubsubCommand,-2,
      "pub-sub ok-loading ok-stale random",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"watch",watchCommand,-2,
      "no-script fast ok-loading ok-stale @transaction",
-     0,NULL,NULL,SWAP_NOP,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
 
     {"unwatch",unwatchCommand,1,
      "no-script fast ok-loading ok-stale @transaction",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"cluster",clusterCommand,-2,
      "admin ok-stale random",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"restore",restoreCommand,-4,
      "write use-memory @keyspace @dangerous",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"restore-asking",restoreCommand,-4,
      "write use-memory cluster-asking @keyspace @dangerous",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"migrate",migrateCommand,-6,
      "write random @keyspace @dangerous",
-     0,migrateGetKeys,NULL,SWAP_IN,3,3,1,0,0,0},
+     0,migrateGetKeys,NULL,SWAP_IN,0,3,3,1,0,0,0},
 
     {"asking",askingCommand,1,
      "fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"readonly",readonlyCommand,1,
      "fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"readwrite",readwriteCommand,1,
      "fast @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"dump",dumpCommand,2,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"object",objectCommand,-2,
      "read-only random @keyspace",
-     0,NULL,NULL,SWAP_IN,2,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,2,2,1,0,0,0},
 
     {"memory",memoryCommand,-2,
      "random read-only",
-     0,memoryGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,memoryGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"client",clientCommand,-2,
      "admin no-script random ok-loading ok-stale @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"hello",helloCommand,-1,
      "no-auth no-script fast ok-loading ok-stale @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     /* EVAL can modify the dataset, however it is not flagged as a write
      * command since we do the check while running commands from Lua.
@@ -920,92 +920,92 @@ struct redisCommand redisCommandTable[] = {
       */
     {"eval",evalCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     0,evalGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,evalGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"evalsha",evalShaCommand,-3,
      "no-script no-monitor may-replicate @scripting",
-     0,evalGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,evalGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"slowlog",slowlogCommand,-2,
      "admin random ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"script",scriptCommand,-2,
      "no-script may-replicate @scripting",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
      "random fast ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
      "write use-memory @bitmap",
-     0,NULL,NULL,SWAP_IN,2,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,2,-1,1,0,0,0},
 
     {"bitcount",bitcountCommand,-2,
      "read-only @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bitpos",bitposCommand,-3,
      "read-only @bitmap",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
      "no-script @keyspace",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"command",commandCommand,-1,
      "ok-loading ok-stale random @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"geoadd",geoaddCommand,-5,
      "write use-memory @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     /* GEORADIUS has store options that may write. */
     {"georadius",georadiusCommand,-6,
      "write use-memory @geo",
-     0,georadiusGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,georadiusGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"georadius_ro",georadiusroCommand,-6,
      "read-only @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"georadiusbymember",georadiusbymemberCommand,-5,
      "write use-memory @geo",
-     0,georadiusGetKeys,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,georadiusGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
      "read-only @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geohash",geohashCommand,-2,
      "read-only @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geopos",geoposCommand,-2,
      "read-only @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geodist",geodistCommand,-4,
      "read-only @geo",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geosearch",geosearchCommand,-7,
      "read-only @geo",
-      0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geosearchstore",geosearchstoreCommand,-8,
      "write use-memory @geo",
-      0,NULL,NULL,SWAP_IN,1,2,1,0,0,0},
+      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"pfselftest",pfselftestCommand,1,
      "admin @hyperloglog",
-      0,NULL,NULL,SWAP_IN,0,0,0,0,0,0},
+      0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"pfadd",pfaddCommand,-2,
      "write use-memory fast @hyperloglog",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     /* Technically speaking PFCOUNT may change the key since it changes the
      * final bytes in the HyperLogLog representation. However in this case
@@ -1013,124 +1013,125 @@ struct redisCommand redisCommandTable[] = {
      * affair, and the command is semantically read only. */
     {"pfcount",pfcountCommand,-2,
      "read-only may-replicate @hyperloglog",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"pfmerge",pfmergeCommand,-2,
      "write use-memory @hyperloglog",
-     0,NULL,NULL,SWAP_IN,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     /* Unlike PFCOUNT that is considered as a read-only command (although
      * it changes a bit), PFDEBUG may change the entire key when converting
      * from sparse to dense representation */
     {"pfdebug",pfdebugCommand,-3,
      "admin write use-memory @hyperloglog",
-     0,NULL,NULL,SWAP_IN,2,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,2,2,1,0,0,0},
 
     {"xadd",xaddCommand,-5,
      "write use-memory fast random @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xrange",xrangeCommand,-4,
      "read-only @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xrevrange",xrevrangeCommand,-4,
      "read-only @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xlen",xlenCommand,2,
      "read-only fast @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xread",xreadCommand,-4,
      "read-only @stream @blocking",
-     0,xreadGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,xreadGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"xreadgroup",xreadCommand,-7,
      "write @stream @blocking",
-     0,xreadGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,xreadGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"xgroup",xgroupCommand,-2,
      "write use-memory @stream",
-     0,NULL,NULL,SWAP_NOP,2,2,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,2,2,1,0,0,0},
 
     {"xsetid",xsetidCommand,3,
      "write use-memory fast @stream",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"xack",xackCommand,-4,
      "write fast random @stream",
-     0,NULL,NULL,SWAP_NOP,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"xpending",xpendingCommand,-3,
      "read-only random @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},//TODO
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xclaim",xclaimCommand,-6,
      "write random fast @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xautoclaim",xautoclaimCommand,-6,
      "write random fast @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xinfo",xinfoCommand,-2,
      "read-only random @stream",
-     0,NULL,NULL,SWAP_IN,2,2,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,2,2,1,0,0,0},
 
     {"xdel",xdelCommand,-3,
      "write fast @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"xtrim",xtrimCommand,-4,
      "write random @stream",
-     0,NULL,NULL,SWAP_IN,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"post",securityWarningCommand,-1,
      "ok-loading ok-stale read-only",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"host:",securityWarningCommand,-1,
      "ok-loading ok-stale read-only",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"latency",latencyCommand,-2,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"lolwut",lolwutCommand,-1,
      "read-only fast",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
      "admin no-script ok-loading ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"stralgo",stralgoCommand,-2,
      "read-only @string",
-     0,lcsGetKeys,NULL,SWAP_IN,0,0,0,0,0,0},
+     0,lcsGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"reset",resetCommand,1,
      "no-script ok-stale ok-loading fast @connection",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"failover",failoverCommand,-1,
      "admin no-script ok-stale",
-     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     /* evict/rksdel/rksget command used by shared fake to identify swap does
      * not need any swap before command proc, but triggers swap in proc. */
 	{"evict",evictCommand,-2,
 	 "read-only fast",
-     0,NULL,getKeyRequestsNone,SWAP_OUT,1,-1,1,0,0,0},
+     0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
+    /* delete key in rocksdb async. */
 	{"rksdel",rksdelCommand,-2,
 	 "read-only fast",
-	 0,NULL,getKeyRequestsNone,SWAP_DEL,1,-1,1,0,0,0},
+	 0,NULL,getKeyRequestsNone,SWAP_DEL,INTENTION_DEL_ASYNC,1,-1,1,0,0,0},
 
 	{"rksget",rksgetCommand,-2,
 	 "read-only fast",
-	 0,NULL,getKeyRequestsNone,SWAP_IN,1,-1,1,0,0,0},
+	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
 
 };
 

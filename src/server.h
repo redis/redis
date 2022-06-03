@@ -1748,6 +1748,7 @@ struct redisCommand {
     redisGetKeysProc *getkeys_proc;
     redisGetKeyRequestsProc getkeyrequests_proc;
     int intention; /* Action type if swap needed (NOP/GET/PUT/DEL). */
+    uint32_t intention_flags; /* extended swap intention flags */
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */

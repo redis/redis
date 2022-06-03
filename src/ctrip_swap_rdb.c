@@ -178,8 +178,10 @@ void rdbLoadSwapDataFree(swapData *data_, void *datactx) {
 }
 
 int rdbLoadSwapAna(swapData *data, int cmd_intention,
-        struct keyRequest *req, int *intention) {
-    UNUSED(data), UNUSED(cmd_intention), UNUSED(req);
+        uint32_t cmd_intention_flags, struct keyRequest *req,
+        int *intention, uint32_t *intention_flags) {
+    UNUSED(data), UNUSED(cmd_intention), UNUSED(cmd_intention_flags),
+    UNUSED(req), UNUSED(intention_flags);
     *intention = SWAP_OUT;
     return 0;
 }
@@ -268,7 +270,7 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
             ctx->batch.index);
 
     /* Submit to rio thread. */
-    submitSwapRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,data,NULL,
+    submitSwapRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,data,NULL,
                 ctripRdbLoadWriteFinished,NULL,msgs);
 }
 

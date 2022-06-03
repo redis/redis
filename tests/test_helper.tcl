@@ -34,6 +34,8 @@ set ::disk_tests {
     swap/integration/pipeline
     swap/unit/dirty
     swap/unit/expire
+    swap/unit/rdb
+    swap/unit/del
     swap/unit/load_rdb
     swap/unit/save_rdb
     swap/unit/swap_out+del

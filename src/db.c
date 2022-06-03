@@ -1673,8 +1673,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Delete the key */
     if (server.swap_mode == SWAP_MODE_MEMORY)
         deleteExpiredKeyAndPropagate(db,key);
-    else
-        dbExpire(db, key);
 
     return 1;
 }
