@@ -147,12 +147,19 @@ void normalClientKeyRequestFinished(client *c, swapCtx *ctx) {
 int keyRequestSwapFinished(swapData *data, void *pd) {
     UNUSED(data);
     swapCtx *ctx = pd;
+    redisDb *db = ctx->c->db;
+    robj *key = ctx->key_request->key;
 
-    if (ctx->expired && ctx->key_request->key) {
-        deleteExpiredKeyAndPropagate(ctx->c->db,ctx->key_request->key);
+    if (ctx->expired && key) {
+        deleteExpiredKeyAndPropagate(db,key);
+        DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
+                "expired=%s", (sds)key->ptr);
+    }
 
-        DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
-                "expired=%s", (sds)ctx->key_request->key->ptr);
+    if (ctx->set_dirty) {
+        dbSetDirty(db, key);
+        DEBUG_MSGS_APPEND(&ctx->msgs,"swap-finished",
+                "set_dirty=%s", (sds)key->ptr);
     }
 
     ctx->finished(ctx->c,ctx);
@@ -225,6 +232,11 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     if (ctx->swap_intention == SWAP_NOP) {
         reason = "swapana decided no swap";
         goto noswap;
+    }
+
+    if ((ctx->swap_intention_flags & INTENTION_DEL_ASYNC) ||
+            ctx->swap_intention_flags & INTENTION_IN_DEL) {
+        ctx->set_dirty = 1;
     }
 
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed","start swap=%s",

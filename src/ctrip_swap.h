@@ -167,7 +167,9 @@ typedef struct swapCtx {
   int cmd_intention;
   uint32_t cmd_intention_flags;
   keyRequest key_request[1];
-  int expired;
+  unsigned int expired:1;
+  unsigned int set_dirty:1;
+  unsigned int reserved:32;
   void *listeners;
   int swap_intention;
   uint32_t swap_intention_flags;
