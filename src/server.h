@@ -1026,7 +1026,7 @@ struct sharedObjectsStruct {
     *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
-    *busykeyerr, *oomerr, *outofdiskerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
+    *busykeyerr, *oomerr, *outofdiskerr, *rocksdbdiskerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
@@ -1685,6 +1685,8 @@ struct redisServer {
     int swap_mode;      /* Swap mode: memory/swap/disk */
 		/* rocksdb engine */
     int rocksdb_epoch;
+    int rocksdb_disk_error;
+    int rocksdb_disk_error_since;
 		struct rocks *rocks;
     /* swap threads */
     int swap_threads_num;

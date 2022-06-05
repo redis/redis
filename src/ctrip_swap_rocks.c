@@ -32,6 +32,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 
 int rocksInit() {
     rocks *rocks = zmalloc(sizeof(struct rocks));
@@ -188,14 +190,48 @@ rocksdb_t *rocksGetDb() {
     return server.rocks->db;
 }
 
+#define ROCKSDB_DISK_USED_UPDATE_PERIOD 60
+#define ROCKSDB_DISK_HEALTH_DETECT_PERIOD 1
+
 void rocksCron() {
-    uint64_t property_int = 0;
-    if (!rocksdb_property_int(server.rocks->db,
-                "rocksdb.total-sst-files-size", &property_int)) {
-        server.rocksdb_disk_used = property_int;
+    static long long rocks_cron_loops = 0;
+    char path[ROCKS_DIR_MAX_LEN] = {0};
+
+    if (rocks_cron_loops % ROCKSDB_DISK_USED_UPDATE_PERIOD == 0) {
+        uint64_t property_int = 0;
+        if (!rocksdb_property_int(server.rocks->db,
+                    "rocksdb.total-sst-files-size", &property_int)) {
+            server.rocksdb_disk_used = property_int;
+        }
+        if (server.maxdisk && server.rocksdb_disk_used > server.maxdisk) {
+            serverLog(LL_WARNING, "Rocksdb disk usage exceeds maxdisk %lld > %lld.",
+                    server.rocksdb_disk_used, server.maxdisk);
+        }
     }
-    if (server.maxdisk && server.rocksdb_disk_used > server.maxdisk) {
-        serverLog(LL_WARNING, "Rocksdb disk usage exceeds maxdisk %lld > %lld.",
-                server.rocksdb_disk_used, server.maxdisk);
+
+    if (rocks_cron_loops % ROCKSDB_DISK_HEALTH_DETECT_PERIOD == 0) {
+        snprintf(path,ROCKS_DIR_MAX_LEN,"%s/%s",
+                ROCKS_DATA,ROCKS_DISK_HEALTH_DETECT_FILE);
+        int disk_error = 0;
+        FILE *fp = fopen(path,"w");
+        if (fp == NULL) disk_error = 1;
+        if (!disk_error && fprintf(fp,"%lld",server.mstime) < 0) disk_error = 1;
+        if (!disk_error && fflush(fp)) disk_error = 1;
+        if (disk_error) {
+            if (!server.rocksdb_disk_error) {
+                server.rocksdb_disk_error = 1;
+                server.rocksdb_disk_error_since = server.mstime;
+                serverLog(LL_WARNING,"Detected rocksdb disk failed: %s, %s",
+                        path, strerror(errno));
+            }
+        } else {
+            if (server.rocksdb_disk_error) {
+                server.rocksdb_disk_error = 0;
+                server.rocksdb_disk_error_since = 0;
+                serverLog(LL_WARNING,"Detected rocksdb disk recovered.");
+            }
+        }
     }
+
+    rocks_cron_loops++;
 }

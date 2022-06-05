@@ -422,6 +422,7 @@ int submitExpireClientRequest(client *c, robj *key);
 /* --- Rocks --- */
 #define ROCKS_DIR_MAX_LEN 512
 #define ROCKS_DATA "data.rocks"
+#define ROCKS_DISK_HEALTH_DETECT_FILE "disk_health_detect"
 
 /* Rocksdb engine */
 typedef struct rocks {

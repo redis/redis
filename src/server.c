@@ -2594,6 +2594,8 @@ void createSharedObjects(void) {
         "-NOAUTH Authentication required.\r\n"));
     shared.outofdiskerr = createObject(OBJ_STRING,sdsnew(
         "-ERR command not allowed when used disk > 'maxdisk'.\r\n"));
+    shared.rocksdbdiskerr = createObject(OBJ_STRING,sdsnew(
+        "-ERR command not allowed when rocksdb disk error.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
         "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(OBJ_STRING,sdsnew(
@@ -3458,6 +3460,8 @@ void InitServerLast() {
     bioInit();
     server.rocksdb_disk_used = 0;
     server.rocksdb_epoch = 0;
+    server.rocksdb_disk_error = 0;
+    server.rocksdb_disk_error_since = 0;
     rocksInit();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
@@ -4224,6 +4228,13 @@ int processCommand(client *c) {
             rejectCommandFormat(c,
                 "-MISCONF Errors writing to the AOF file: %s",
                 strerror(server.aof_last_write_errno));
+        return C_OK;
+    }
+
+    if ((server.swap_mode != SWAP_MODE_MEMORY) &&
+         server.rocksdb_disk_error &&
+         (is_write_command || c->cmd->proc == pingCommand)) {
+        rejectCommand(c, shared.rocksdbdiskerr);
         return C_OK;
     }
 
