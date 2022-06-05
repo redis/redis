@@ -6,6 +6,7 @@ start_server {tags "del"} {
         r psetex foo 100 bar
         assert_match {*keys=1,evicts=0*} [r info keyspace]
         r del foo
+        after 110
         assert_equal [r dbsize] 0
     }
 
@@ -18,16 +19,18 @@ start_server {tags "del"} {
             fail "evict key failed."
         }
         r del foo
+        after 100
         assert_equal [r dbsize] 0
     }
 
     test {del expired hot key} {
         r debug set-active-expire 0
         r psetex foo 100 bar
-        after 100
+        after 110
         assert_equal [r dbsize] 1
         assert_match {*keys=1,evicts=0*} [r info keyspace] 
         assert_equal [r del foo] 0
+        after 100
         assert_equal [r dbsize] 0
         r debug set-active-expire 1
     }
@@ -40,6 +43,7 @@ start_server {tags "del"} {
         assert_equal [r dbsize] 1
         assert_match {*keys=0,evicts=1*} [r info keyspace] 
         assert_equal [r del foo] 0
+        after 100
         assert_equal [r dbsize] 0
         r debug set-active-expire 1
     }
