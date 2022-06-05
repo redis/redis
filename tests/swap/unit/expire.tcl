@@ -10,7 +10,7 @@ start_server {tags {"swap string"}} {
         } else {
             fail "evict fail"
         } 
-        after 250
+        after 500
         assert_equal {# Keyspace} [string trim [r info keyspace]]
         assert_match [r get k] {}
     }
