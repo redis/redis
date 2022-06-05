@@ -31,7 +31,6 @@
 #include "server.h"
 #include <rocksdb/c.h>
 #include "atomicvar.h"
-#include <threads.h>
 
 /* --- Cmd --- */
 #define REQUEST_LEVEL_SVR  0
@@ -168,6 +167,7 @@ typedef struct swapCtx {
   int cmd_intention;
   uint32_t cmd_intention_flags;
   keyRequest key_request[1];
+  int expired;
   void *listeners;
   int swap_intention;
   uint32_t swap_intention_flags;

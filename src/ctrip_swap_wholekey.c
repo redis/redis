@@ -233,6 +233,8 @@ int wholeKeySwapOut(swapData *data_, void *datactx) {
 int wholeKeySwapDel(swapData *data_, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
+    if (dictSize(data->db->expires) > 0)
+        dictDelete(data->db->expires,data->key->ptr);
     if (data->value) dbDelete(data->db,data->key);
     if (data->evict) dbDeleteEvict(data->db,data->key);
     return 0;
