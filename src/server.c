@@ -1133,6 +1133,9 @@ struct redisCommand redisCommandTable[] = {
 	 "read-only fast",
 	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
 
+	{"swap",swapCommand,-2,
+	 "read-only fast",
+	 0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
 };
 
 /*============================ Utility functions ============================ */

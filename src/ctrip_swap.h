@@ -148,8 +148,8 @@ void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...);
 #endif
 void swapDebugMsgsDump(swapDebugMsgs *msgs);
 
-#define DEBUG_MSGS_INIT(msgs, identity) swapDebugMsgsInit(msgs, identity)
-#define DEBUG_MSGS_APPEND(msgs, step, ...) swapDebugMsgsAppend(msgs, step, __VA_ARGS__)
+#define DEBUG_MSGS_INIT(msgs, identity) do { if (msgs) swapDebugMsgsInit(msgs, identity); } while (0)
+#define DEBUG_MSGS_APPEND(msgs, step, ...) do { if (msgs) swapDebugMsgsAppend(msgs, step, __VA_ARGS__); } while (0)
 #else
 #define DEBUG_MSGS_INIT(msgs, identity)
 #define DEBUG_MSGS_APPEND(msgs, step, ...)
@@ -314,6 +314,7 @@ void RIOInitDel(RIO *rio, sds rawkey);
 void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
 void RIOInitMultiGet(RIO *rio, int numkeys, sds *rawkeys);
 void RIOInitScan(RIO *rio, sds prefix);
+void RIODeinit(RIO *rio);
 
 #define SWAP_MODE_ASYNC 0
 #define SWAP_MODE_PARALLEL_SYNC 1
@@ -553,11 +554,14 @@ void evictStopLoading(int success);
 #define ROCKS_VAL_TYPE_LEN 1
 
 sds rocksEncodeKey(int type, sds key);
+sds rocksEncodeSubkey(int type, sds key, sds subkey);
 sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
+int rocksDecodeSubkey(const char *raw, size_t rawlen, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
+void swapCommand(client *c);
 
 
 #ifdef REDIS_TEST

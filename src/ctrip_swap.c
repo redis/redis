@@ -84,34 +84,6 @@ void swapCtxFree(swapCtx *ctx) {
     zfree(ctx);
 }
 
-#ifdef SWAP_DEBUG
-
-void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity) {
-    snprintf(msgs->identity,MAX_MSG,"[%s]",identity);
-}
-
-void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...) {
-    va_list ap;
-    char *name = msgs->steps[msgs->index].name;
-    char *info = msgs->steps[msgs->index].info;
-    strncpy(name,step,MAX_MSG-1);
-    va_start(ap,fmt);
-    vsnprintf(info,MAX_MSG,fmt,ap);
-    va_end(ap);
-    msgs->index++;
-}
-
-void swapDebugMsgsDump(swapDebugMsgs *msgs) {
-    serverLog(LL_NOTICE,"=== %s ===", msgs->identity);
-    for (int i = 0; i < msgs->index; i++) {
-        char *name = msgs->steps[i].name;
-        char *info = msgs->steps[i].info;
-        serverLog(LL_NOTICE,"%2d %25s : %s",i,name,info);
-    }
-}
-
-#endif
-
 void continueProcessCommand(client *c) {
 	c->flags &= ~CLIENT_SWAPPING;
     server.current_client = c;

@@ -301,7 +301,7 @@ void dumpRIO(RIO *rio) {
     sdsfree(repr);
 }
 
-static int doRIO(RIO *rio) {
+int doRIO(RIO *rio) {
     int ret;
     if (server.debug_rio_latency) usleep(server.debug_rio_latency*1000);
 

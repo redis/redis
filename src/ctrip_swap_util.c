@@ -28,13 +28,16 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-static int typeR2O(char rocks_type) {
+typedef unsigned int keylen_t;
+
+int typeR2O(char rocks_type) {
     switch (rocks_type) {
     case 'K': return OBJ_STRING;
     case 'L': return OBJ_LIST;
     case 'S': return OBJ_SET;
     case 'Z': return OBJ_ZSET;
     case 'H': return OBJ_HASH;
+    case 'h': return OBJ_HASH;
     case 'M': return OBJ_MODULE;
     case 'X': return OBJ_STREAM;
     default: return -1;
@@ -54,10 +57,35 @@ char typeO2R(int obj_type) {
     }
 }
 
+char typeO2S(int obj_type) {
+    switch (obj_type) {
+    case OBJ_STRING : return 'k';
+    case OBJ_LIST   : return 'l'; 
+    case OBJ_SET    : return 's'; 
+    case OBJ_ZSET   : return 'z'; 
+    case OBJ_HASH   : return 'h'; 
+    case OBJ_MODULE : return 'm'; 
+    case OBJ_STREAM : return 'x'; 
+    default         : return '?';
+    }
+}
+
 sds rocksEncodeKey(int obj_type, sds key) {
     sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
     rawkey[0] = typeO2R(obj_type);
     memcpy(rawkey+1, key, sdslen(key));
+    return rawkey;
+}
+
+sds rocksEncodeSubkey(int obj_type, sds key, sds subkey) {
+    sds rawkey = sdsnewlen(SDS_NOINIT,
+            1+sizeof(keylen_t)+sdslen(key)+sdslen(subkey));
+    char *ptr = rawkey;
+    keylen_t keylen = (keylen_t)sdslen(key);
+    ptr[0] = typeO2S(obj_type), ptr++;
+    memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
+    memcpy(ptr, key, sdslen(key)), ptr += sdslen(key);
+    memcpy(ptr, subkey, sdslen(subkey)), ptr += sdslen(subkey);
     return rawkey;
 }
 
@@ -79,13 +107,34 @@ robj *rocksDecodeValRdb(sds raw) {
     return value;
 }
 
-int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen) {
+int rocksDecodeKey(const char *raw, size_t rawlen, const char **key,
+        size_t *klen) {
     int obj_type;
     if (rawlen < 2) return -1;
-    if ((obj_type = typeR2O(rawkey[0])) < 0) return -1;
-    rawkey++, rawlen--;
-    if (key) *key = rawkey;
+    if ((obj_type = typeR2O(raw[0])) < 0) return -1;
+    raw++, rawlen--;
+    if (key) *key = raw;
     if (klen) *klen = rawlen;
+    return obj_type;
+}
+
+int rocksDecodeSubkey(const char *raw, size_t rawlen, const char **key,
+        size_t *klen, const char **sub, size_t *slen) {
+    int obj_type;
+    keylen_t _klen;
+    if (rawlen <= 1+sizeof(keylen_t)) return -1;
+    if ((obj_type = typeR2O(raw[0])) < 0) return -1;
+    raw++, rawlen--;
+    _klen = *(keylen_t*)raw;
+    if (klen) *klen = (size_t)_klen;
+    raw += sizeof(keylen_t);
+    rawlen -= sizeof(keylen_t);
+    if (key) *key = raw;
+    raw += _klen;
+    rawlen-= _klen;
+    if (rawlen <= 0) return -1;
+    if (sub) *sub = raw;
+    if (slen) *slen = rawlen;
     return obj_type;
 }
 

@@ -25,6 +25,7 @@ start_server {tags "expire"} {
         r evict foo
         after 400
         assert_equal [r dbsize] 0
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
     }
 
     test {cold key passive expire} {
@@ -33,6 +34,7 @@ start_server {tags "expire"} {
         r evict foo
         after 150
         assert_equal [r ttl foo] -2
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
         r debug set-active-expire 1
     }
 
@@ -54,11 +56,47 @@ start_server {tags "expire"} {
         assert_equal [r dbsize] 0
     }
 
+    test {hot key(non-dirty) active expire} {
+        r psetex foo 500 bar
+        r evict foo
+        wait_for_condition 4 100 {
+            [string match {*keys=0,evicts=1*} [r info keyspace]]
+        } else {
+            fail "evict key failed."
+        }
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert_equal [r get foo] bar
+        # wait active expire cycle to do it's job
+        after 800
+        assert_equal [r dbsize] 0
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+    }
+
     test {hot key passive expire} {
         r debug set-active-expire 0
         r psetex foo 100 bar
         after 150
         assert_equal [r ttl foo] -2
+        r debug set-active-expire 1
+    }
+
+    test {hot key(non-dirty) passive expire} {
+        r debug set-active-expire 0
+
+        r psetex foo 500 bar
+        r evict foo
+        wait_for_condition 4 100 {
+            [string match {*keys=0,evicts=1*} [r info keyspace]]
+        } else {
+            fail "evict key failed."
+        }
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert_equal [r get foo] bar
+        after 600
+        # trigger passive expire
+        assert_equal [r ttl foo] -2
+        assert_equal [r dbsize] 0
+        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
         r debug set-active-expire 1
     }
 
