@@ -8,6 +8,8 @@ start_server {tags {"swap string"}} {
             after 999
             r evict k 
             after 1
+            r get k
+            after 10
             assert_equal [r get k] {}
         }
     }

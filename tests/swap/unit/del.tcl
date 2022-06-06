@@ -62,12 +62,12 @@ start_server {tags "del"} {
         r debug set-active-expire 0
         r psetex foo 100 bar
         r evict foo
-        after 100
+        after 110
         assert_equal [r dbsize] 1
         assert_match {*keys=0,evicts=1*} [r info keyspace] 
         assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
         assert_equal [r del foo] 0
-        after 100
+        after 110
         assert_equal [r dbsize] 0
         assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
         r debug set-active-expire 1
