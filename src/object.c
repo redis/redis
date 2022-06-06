@@ -44,7 +44,6 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
-    o->evicted = 0;
     o->dirty = 1;
     o->reserved = 0;
 
@@ -92,7 +91,6 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    o->evicted = 0;
     o->dirty = 1;
     o->reserved = 0;
 
@@ -409,10 +407,6 @@ void decrRefCountVoid(void *o) {
 
 int objectIsDirty(robj *o) {
     return o->dirty;
-}
-
-int objectIsEvicted(robj *o) {
-    return o->evicted;
 }
 
 robj *createEvictObject(int type, moduleType *mt) {

@@ -4738,17 +4738,10 @@ int RM_DeleteEvict(RedisModuleKey *key) {
     return REDISMODULE_OK;
 }
 
-/* -------- Use Evict to store Evicted. -------- */
-int RM_ModuleTypeEvictEvicted(RedisModuleKey *key) {
-    if (key == NULL || !(key->mode & REDISMODULE_EVICT)) return 0;
-    if (key->evict == NULL) return 0;
-    return key->evict->evicted;
-}
-
 /* Only robj shell(excluding ptr) would be swapped into keyspace */
 int RM_ModuleTypeSwapIn(RedisModuleKey *key, void *new_value) {
     if (!(key->mode & REDISMODULE_EVICT) || key->iter) return REDISMODULE_ERR;
-    if (key->evict == NULL || !key->evict->evicted || key->value != NULL)
+    if (key->evict == NULL || key->value != NULL)
         return REDISMODULE_ERR;
     if (key->evict->type != OBJ_MODULE) return REDISMODULE_ERR;
 
@@ -4761,7 +4754,6 @@ int RM_ModuleTypeSwapIn(RedisModuleKey *key, void *new_value) {
     moduleValue *mv = key->value->ptr;
     /* Set value to new value*/
     mv->value = new_value;
-    key->value->evicted = 0;
     key->value->dirty = 0;
 
     return REDISMODULE_OK;
@@ -4795,7 +4787,6 @@ int RM_ModuleTypeSwapOut(RedisModuleKey *key, void **old_value) {
     dictEntry *de = dictUnlink(key->db->dict, key->key->ptr);
     dictLink(key->db->evict, de);
     key->evict = key->value;
-    key->evict->evicted = 1;
     key->value = NULL;
 
     return REDISMODULE_OK;
@@ -9575,7 +9566,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeReplaceValue);
     REGISTER_API(DeleteEvict);
     REGISTER_API(ModuleTypeAddEvict);
-    REGISTER_API(ModuleTypeEvictEvicted);
     REGISTER_API(ModuleTypeEvictExists);
     REGISTER_API(ModuleTypeReplaceEvict);
     REGISTER_API(RdbEncode);

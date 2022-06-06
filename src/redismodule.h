@@ -722,7 +722,6 @@ REDISMODULE_API void (*RedisModule_ModuleTypeFreeValue)(RedisModuleType *mt, voi
 REDISMODULE_API char *(*RedisModule_ModuleTypeGetName)(RedisModuleType *mt) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DeleteEvict)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API void *(*RedisModule_ModuleTypeAddEvict)(RedisModuleKey *key) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_ModuleTypeEvictEvicted)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeEvictExists)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeReplaceEvict)(RedisModuleKey *key, RedisModuleType *mt, void *new_evict, void **old_evict) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeSwapIn)(RedisModuleKey *key, void *new_value) REDISMODULE_ATTR;
@@ -1014,7 +1013,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeReplaceValue);
     REDISMODULE_GET_API(DeleteEvict);
     REDISMODULE_GET_API(ModuleTypeAddEvict);
-    REDISMODULE_GET_API(ModuleTypeEvictEvicted);
     REDISMODULE_GET_API(ModuleTypeEvictExists);
     REDISMODULE_GET_API(ModuleTypeReplaceEvict);
     REDISMODULE_GET_API(RocksDelete);

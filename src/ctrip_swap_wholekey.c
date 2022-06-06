@@ -177,7 +177,6 @@ static robj *createSwapInObject(robj *newval, robj *evict) {
         swapin = dupSharedObject(newval);
     swapin->lru = evict->lru;
     swapin->dirty = 0;
-    swapin->evicted = 0;
     return swapin;
 }
 
@@ -199,7 +198,7 @@ robj *createSwapOutObject(robj *value, robj *evict) {
     robj *swapout;
 
     serverAssert(value);
-    serverAssert(evict == NULL || evict->evicted == 0);
+    serverAssert(evict == NULL);
 
     if (evict == NULL) {
         swapout = createObject(value->type, NULL);
@@ -210,7 +209,6 @@ robj *createSwapOutObject(robj *value, robj *evict) {
 
     swapout->lru = value->lru;
     swapout->type = value->type;
-    swapout->evicted = 1;
 
     return swapout;
 }

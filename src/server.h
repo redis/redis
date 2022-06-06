@@ -693,8 +693,8 @@ typedef struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    unsigned evicted:1;
     unsigned dirty:1;
+    unsigned big:1;
     unsigned reserved:6;
     int refcount;
     void *ptr;
