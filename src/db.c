@@ -860,8 +860,10 @@ void keysCommand(client *c) {
 				decrRefCount(keyobj);
 			}
 		}
+        dictReleaseIterator(di);
+        di = NULL;
     }
-    dictReleaseIterator(di);
+    
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
