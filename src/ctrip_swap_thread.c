@@ -33,17 +33,16 @@ void *swapThreadMain (void *arg) {
 
     snprintf(thdname, sizeof(thdname), "swap_thd_%d", thread->id);
     redis_set_thread_title(thdname);
-
+    listIter li;
+    listNode *ln;
+    list *processing_reqs;
     while (1) {
-        listIter li;
-        listNode *ln;
-        list *processing_reqs = listCreate();
-
         pthread_mutex_lock(&thread->lock);
         while (listLength(thread->pending_reqs) == 0)
             pthread_cond_wait(&thread->cond, &thread->lock);
 
         listRewind(thread->pending_reqs, &li);
+        processing_reqs = listCreate();
         while ((ln = listNext(&li))) {
             swapRequest *req = listNodeValue(ln);
             listAddNodeHead(processing_reqs, req);
