@@ -684,8 +684,9 @@ typedef struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_SHARED_REFCOUNT INT_MAX     /* Global object never destroyed. */
-#define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
+#define REFCOUNT_BITS 28
+#define OBJ_SHARED_REFCOUNT ((1<<(REFCOUNT_BITS-1))-1)  /* Global object never destroyed. */
+#define OBJ_STATIC_REFCOUNT (OBJ_SHARED_REFCOUNT-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 typedef struct redisObject {
     unsigned type:4;
@@ -695,8 +696,8 @@ typedef struct redisObject {
                             * and most significant 16 bits access time). */
     unsigned dirty:1;
     unsigned big:1;
-    unsigned reserved:6;
-    int refcount;
+    unsigned reserved:2;
+    int refcount:REFCOUNT_BITS;
     void *ptr;
 } robj;
 
