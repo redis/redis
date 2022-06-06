@@ -14,11 +14,13 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: |
           sudo apt-get update
-          sudo apt-get -y install librocksdb-dev libsnappy-dev zlib1g-dev libgflags-dev libstdc++6
-          make
+          sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+          make -j8
     - name: make test
       run: make test
    swap:
@@ -28,11 +30,13 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v2
+      with:
+          submodules: true
     - name: make
       run: |
           sudo apt-get update
-          sudo apt-get -y install librocksdb-dev libsnappy-dev zlib1g-dev libgflags-dev libstdc++6
-          make
+          sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+          make -j8
     - name: make test
       run: make test-disk
 
