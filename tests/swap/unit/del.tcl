@@ -32,7 +32,7 @@ start_server {tags "del"} {
     }
 
     test {delete cold key} {
-        r psetex foo 100 bar
+        r psetex foo 1000 bar
         r evict foo
         wait_for_condition 50 100 {
             [string match {*keys=0,evicts=1*} [r info keyspace]]
