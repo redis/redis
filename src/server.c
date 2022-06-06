@@ -1204,8 +1204,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 stat_net_input_bytes + stat_net_repl_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
                 stat_net_output_bytes + stat_net_repl_output_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_TOTAL_REPLICATION,
-                                 stat_net_repl_input_bytes + stat_net_repl_output_bytes);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION,
+                                 stat_net_repl_input_bytes);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
+                                 stat_net_repl_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -5622,7 +5624,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_net_repl_output_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
-            "instantaneous_repl_total_kbps:%.2f\r\n"
+            "instantaneous_input_repl_kbps:%.2f\r\n"
+            "instantaneous_output_repl_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
@@ -5670,7 +5673,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_net_repl_output_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_TOTAL_REPLICATION)/1024,
+            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
+            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION)/1024,
             server.stat_rejected_conn,
             server.stat_sync_full,
             server.stat_sync_partial_ok,
