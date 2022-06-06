@@ -84,9 +84,12 @@ static int parallelSwapProcess(swapEntry *e) {
                     strerror(errno));
             return C_ERR;
         }
-        e->inprogress = 0;
+        serverAssert(c == 'x');
         finishSwapRequest(e->req);
         e->req->finish_cb(e->req->data, e->req->finish_pd);
+        swapRequestFree(e->req);
+        e->req = NULL;
+        e->inprogress = 0;
     }
     return C_OK;
 }
@@ -120,6 +123,8 @@ int parallelSyncSwapRequestSubmit(swapRequest *req) {
     /* submit */
     req->notify_cb = parallelSyncSwapNotifyCallback;
     req->notify_pd = e;
+    e->req = req;
+    e->inprogress = 1;
     swapThreadsDispatch(req);
     return C_OK;
 }

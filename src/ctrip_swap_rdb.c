@@ -194,6 +194,9 @@ int rdbLoadEncodeData(swapData *data_, int intention, int *action,
     *numkeys = data->num;
     *prawkeys = data->rawkeys;
     *prawvals = data->rawvals;
+    data->num = 0;
+    data->rawkeys = NULL;
+    data->rawvals = NULL;
     return 0;
 }
 
