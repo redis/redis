@@ -3479,6 +3479,9 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
+
+    server.stat_rdb_saves++;
+
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
     if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
