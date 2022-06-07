@@ -904,6 +904,10 @@ NULL
         dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
         stats = sdscat(stats,buf);
 
+        stats = sdscatprintf(stats,"[Meta HT]\n");
+        dictGetStats(buf,sizeof(buf),server.db[dbid].meta);
+        stats = sdscat(stats,buf);
+
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {

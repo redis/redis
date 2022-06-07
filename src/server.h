@@ -701,10 +701,6 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
-#define setObjectDirty(o) do { \
-    if (o) o->dirty = 1; \
-} while(0)
-
 /* The a string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
@@ -745,6 +741,7 @@ typedef struct redisDb {
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
     /* swap */
     dict *evict;                /* evicted keys(or subkeys). */
+    dict *meta;                 /* meta for rocksdb subkeys of big object . */
     dict *hold_keys;            /* holded keys. */
     list *evict_asap;           /* keys to be evicted asap. */
 } redisDb;
@@ -1127,6 +1124,7 @@ struct redisMemOverhead {
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
         size_t overhead_ht_evict;
+        size_t overhead_ht_meta;
     } *db;
     size_t rocks_total;
     size_t rocks_block_cache;
@@ -1722,6 +1720,7 @@ struct redisServer {
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
     /* request wait */
     struct requestListeners *request_listeners; /* server level request listeners */
+    uint64_t meta_version; /* global meta version for objectMeta */
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -2471,15 +2470,6 @@ int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 void dbPauseRehash(redisDb *db);
 void dbResumeRehash(redisDb *db);
-
-/* Swap */
-int objectIsDirty(robj *o);
-int objectIsEvicted(robj *o);
-robj *createEvictObject(int type, moduleType *mt);
-robj *lookupEvictKey(redisDb *db, robj *key);
-void dbAddEvict(redisDb *db, robj *key, robj *evict);
-int dbDeleteEvict(redisDb *db, robj *key);
-void dbSetDirty(redisDb *db, robj *key);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */

@@ -21,11 +21,13 @@ void lazyfreeFreeObject(void *args[]) {
 void lazyfreeFreeDatabase(void *args[]) {
     dict *ht1 = (dict *) args[0];
     dict *ht2 = (dict *) args[1];
-    dict *ht4 = (dict *) args[2];
+    dict *ht3 = (dict *) args[2];
+    dict *ht4 = (dict *) args[3];
 
-    size_t numkeys = dictSize(ht1)+dictSize(ht4);
+    size_t numkeys = dictSize(ht1)+dictSize(ht3);
     dictRelease(ht1);
     dictRelease(ht2);
+    dictRelease(ht3);
     dictRelease(ht4);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
@@ -149,6 +151,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
 
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
@@ -203,12 +206,14 @@ void freeObjAsync(robj *key, robj *obj) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dict *oldht1 = db->dict, *oldht2 = db->expires, *oldht4 = db->evict;
+    dict *oldht1 = db->dict, *oldht2 = db->expires,
+         *oldht3 = db->evict, *oldht4 = db->meta;
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&dbExpiresDictType,NULL);
     db->evict = dictCreate(&evictDictType,NULL);
-    atomicIncr(lazyfree_objects,dictSize(oldht1)+dictSize(oldht4));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,3,oldht1,oldht2,oldht4);
+    db->meta = dictCreate(&dbMetaDictType,NULL);
+    atomicIncr(lazyfree_objects,dictSize(oldht1)+dictSize(oldht3));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase,4,oldht1,oldht2,oldht3,oldht4);
 }
 
 /* Release the radix tree mapping Redis Cluster keys to slots asynchronously. */

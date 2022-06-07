@@ -1626,6 +1626,10 @@ void tryResizeHashTables(int dbid) {
         dictResize(server.db[dbid].dict);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
+    if (htNeedsResize(server.db[dbid].evict))
+        dictResize(server.db[dbid].evict);
+    if (htNeedsResize(server.db[dbid].meta))
+        dictResize(server.db[dbid].meta);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -1644,6 +1648,16 @@ int incrementallyRehash(int dbid) {
     /* Expires */
     if (dictIsRehashing(server.db[dbid].expires)) {
         dictRehashMilliseconds(server.db[dbid].expires,1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    /* Evicts */
+    if (dictIsRehashing(server.db[dbid].evict)) {
+        dictRehashMilliseconds(server.db[dbid].evict,1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    /* Metas */
+    if (dictIsRehashing(server.db[dbid].meta)) {
+        dictRehashMilliseconds(server.db[dbid].meta,1);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
@@ -2330,7 +2344,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             server.rdb_bgsave_scheduled = 0;
     }
 
-    run_with_period(60*1000) rocksCron(); 
+    run_with_period(1000) rocksCron(); 
 
     /* Fire the cron loop modules event. */
     RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
@@ -3322,6 +3336,7 @@ void initServer(void) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
         server.db[j].evict = dictCreate(&evictDictType, NULL);
+        server.db[j].meta = dictCreate(&dbMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].expires_cursor = 0;
@@ -3462,6 +3477,7 @@ void InitServerLast() {
     server.rocksdb_epoch = 0;
     server.rocksdb_disk_error = 0;
     server.rocksdb_disk_error_since = 0;
+    server.meta_version = 0;
     rocksInit();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
@@ -5444,15 +5460,16 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys, evicts;
+            long long keys, vkeys, evicts, bigs;
 
             keys = dictSize(server.db[j].dict);
             evicts = dictSize(server.db[j].evict);
             vkeys = dictSize(server.db[j].expires);
+            bigs = dictSize(server.db[j].meta);
             if (keys || evicts || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,evicts=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, evicts, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,evicts=%lld,bigs=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                    j,keys,evicts,bigs,vkeys,server.db[j].avg_ttl);
             }
         }
     }

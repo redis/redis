@@ -391,12 +391,10 @@ int initTestRedisDb() {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
         server.db[j].evict = dictCreate(&evictDictType, NULL);
+        server.db[j].meta = dictCreate(&dbMetaDictType, NULL);
         server.db[j].hold_keys = dictCreate(&objectKeyPointerValueDictType, NULL);
         server.db[j].evict_asap = listCreate();
         server.db[j].expires_cursor = 0;
-        // server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        // server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
-        // server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
@@ -408,6 +406,7 @@ int initTestRedisDb() {
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    server.meta_version = 0;
     initTestRedisDb();
     return 1;
 }
@@ -421,6 +420,7 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapCmdTest(argc, argv, accurate);
   result += swapExecTest(argc, argv, accurate);
   result += swapRdbTest(argc, argv, accurate);
+  result += swapObjectTest(argc, argv, accurate);
   return result;
 }
 #endif

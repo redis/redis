@@ -405,18 +405,6 @@ void decrRefCountVoid(void *o) {
     decrRefCount(o);
 }
 
-int objectIsDirty(robj *o) {
-    return o->dirty;
-}
-
-robj *createEvictObject(int type, moduleType *mt) {
-    if (type != OBJ_MODULE) {
-        return createObject(type, NULL);
-    } else {
-        return createModuleObject(mt, NULL);
-    }
-}
-
 int checkType(client *c, robj *o, int type) {
     /* A NULL is considered an empty key */
     if (o && o->type != type) {
@@ -1087,6 +1075,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_evict = mem;
         mem_total+=mem;
 
+        mem = dictSize(db->meta) * sizeof(dictEntry)  +
+            dictSlots(db->meta) * sizeof(dictEntry*) + 
+            dictSize(db->meta) * sizeof(objectMeta);
+        mh->db[mh->num_dbs].overhead_ht_meta = mem;
+        mem_total+=mem;
+
         mh->num_dbs++;
     }
 
@@ -1445,13 +1439,16 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.meta");
+            addReplyLongLong(c,mh->db[j].overhead_ht_meta);
         }
 
         addReplyBulkCString(c,"overhead.total");

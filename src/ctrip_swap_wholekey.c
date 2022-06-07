@@ -28,7 +28,6 @@
 
 #include "ctrip_swap.h"
 
-sds objectDump(robj *o);
 int wholeKeySwapAna(swapData *data_, int cmd_intention,
         uint32_t cmd_intention_flags, struct keyRequest *req,
         int *intention, uint32_t *intention_flags) {

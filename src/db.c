@@ -328,6 +328,7 @@ int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
     dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
@@ -414,6 +415,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dictEmpty(dbarray[j].dict,callback);
             dictEmpty(dbarray[j].expires,callback);
 			dictEmpty(dbarray[j].evict,callback);
+			dictEmpty(dbarray[j].meta,callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -427,12 +429,14 @@ void dbPauseRehash(redisDb *db) {
     dictPauseRehashing(db->dict);
     dictPauseRehashing(db->expires);
     dictPauseRehashing(db->evict);
+    dictPauseRehashing(db->meta);
 }
 
 void dbResumeRehash(redisDb *db) {
     dictResumeRehashing(db->dict);
     dictResumeRehashing(db->expires);
     dictResumeRehashing(db->evict);
+    dictResumeRehashing(db->meta);
 }
 
 /* Remove all keys from all the databases in a Redis server.
@@ -505,6 +509,7 @@ dbBackup *backupDb(void) {
         server.db[i].dict = dictCreate(&dbDictType,NULL);
         server.db[i].expires = dictCreate(&dbExpiresDictType,NULL);
         server.db[i].evict = dictCreate(&evictDictType,NULL);
+        server.db[i].meta = dictCreate(&dbMetaDictType,NULL);
     }
 
     /* Backup cluster slots to keys map if enable cluster. */
@@ -535,6 +540,7 @@ void discardDbBackup(dbBackup *buckup, int flags, void(callback)(void*)) {
         dictRelease(buckup->dbarray[i].dict);
         dictRelease(buckup->dbarray[i].expires);
         dictRelease(buckup->dbarray[i].evict);
+        dictRelease(buckup->dbarray[i].meta);
     }
 
     /* Release slots to keys map backup if enable cluster. */
@@ -559,9 +565,11 @@ void restoreDbBackup(dbBackup *buckup) {
         serverAssert(dictSize(server.db[i].dict) == 0);
         serverAssert(dictSize(server.db[i].expires) == 0);
         serverAssert(dictSize(server.db[i].evict) == 0);
+        serverAssert(dictSize(server.db[i].meta) == 0);
         dictRelease(server.db[i].dict);
         dictRelease(server.db[i].expires);
         dictRelease(server.db[i].evict);
+        dictRelease(server.db[i].meta);
         server.db[i] = buckup->dbarray[i];
     }
 
@@ -597,48 +605,6 @@ long long dbTotalServerKeyCount() {
         total += dictSize(server.db[j].dict) + dictSize(server.db[j].evict);
     }
     return total;
-}
-
-/*-----------------------------------------------------------------------------
- * db.evict related API
- *----------------------------------------------------------------------------*/
-robj *lookupEvictKey(redisDb *db, robj *key) {
-    return dictFetchValue(db->evict,key->ptr);
-}
-
-void dbAddEvict(redisDb *db, robj *key, robj *evict) {
-    sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->evict, copy, evict);
-    serverAssertWithInfo(NULL,key,retval == DICT_OK);
-}
-
-/* Note: 
- * - only evict object shell will be deleted.
- * - corresponding expire will be deleted (expire must not survive alone) */
-int dbDeleteEvict(redisDb *db, robj *key) {
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    dictEntry *de = dictUnlink(db->evict,key->ptr);
-    if (de) {
-        robj *evict = dictGetVal(de);
-        /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,evict);
-        /* Only free evict object shell */ 
-        if (evict->type == OBJ_MODULE) {
-            moduleValue *mv = evict->ptr;
-            if (mv) mv->value = NULL;
-        } else {
-            evict->ptr = NULL;
-        }
-        dictFreeUnlinkedEntry(db->evict,de);
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-void dbSetDirty(redisDb *db, robj *key) {
-    robj *o = lookupKey(db,key,LOOKUP_NOTOUCH);
-    if (o) setObjectDirty(o);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1451,11 +1417,13 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
+    db1->meta = db2->meta;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
+    db2->meta = aux.meta;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list

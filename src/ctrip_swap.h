@@ -198,6 +198,38 @@ typedef struct wholeKeySwapData {
 
 swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
 
+/* Object */
+extern dictType dbMetaDictType;
+
+#define setObjectDirty(o) do { \
+    if (o) o->dirty = 1; \
+} while(0)
+
+#define setObjectBig(o) do { \
+    if (o) o->big = 1; \
+} while(0)
+
+typedef struct objectMeta {
+  size_t len;
+  uint64_t version;
+} objectMeta;
+
+objectMeta *createObjectMeta();
+objectMeta *dupObjectMeta(objectMeta *m);
+void freeObjectMeta(objectMeta *m);
+
+objectMeta *lookupMeta(redisDb *db, robj *key);
+void dbAddMeta(redisDb *db, robj *key, objectMeta *m);
+int dbDeleteMeta(redisDb *db, robj *key);
+
+robj *lookupEvictKey(redisDb *db, robj *key);
+void dbAddEvict(redisDb *db, robj *key, robj *evict);
+int dbDeleteEvict(redisDb *db, robj *key);
+void dbSetDirty(redisDb *db, robj *key);
+int objectIsDirty(robj *o);
+void dbSetBig(redisDb *db, robj *key);
+int objectIsBig(robj *o);
+
 /* Big hash */
 typedef struct hashSwapData {
   swapData d;
@@ -210,6 +242,8 @@ typedef struct hashSwapData {
 typedef struct hashDataCtx {
   int num;
   robj **subkeys;
+  int num_absent;
+  robj **absent_subkeys;
 } hashDataCtx;
 
 swapData *createHashSwapData(redisDb *db, sds key);
@@ -589,6 +623,7 @@ int swapWaitTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);
+int swapObjectTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 
