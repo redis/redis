@@ -100,6 +100,7 @@ void rocksRelease() {
     rocksdb_options_destroy(rocks->db_opts);
     rocksdb_writeoptions_destroy(rocks->wopts);
     rocksdb_readoptions_destroy(rocks->ropts);
+    rocksReleaseSnapshot();
     rocksdb_close(rocks->db);
     zfree(rocks);
     server.rocks = NULL;
