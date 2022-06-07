@@ -178,6 +178,51 @@ void rksgetCommand(client *c) {
     addReply(c, shared.ok);
 }
 
+#define GETKEYS_RESULT_SUBKEYS_INIT_LEN 8
+#define GETKEYS_RESULT_SUBKEYS_LINER_LEN 1024
+
+int getKeyRequestsSingleKeyWithSubkeys(struct redisCommand *cmd, robj **argv,
+        int argc, struct getKeyRequestsResult *result,
+        int key_index, int first_subkey, int last_subkey, int subkey_step) {
+    int i, num = 0, capacity = GETKEYS_RESULT_SUBKEYS_INIT_LEN;
+    robj *key, **subkeys = NULL;
+    UNUSED(cmd);
+
+    subkeys = zmalloc(capacity*sizeof(robj*));
+    getKeyRequestsPrepareResult(result,result->num+1);
+
+    key = argv[key_index];
+    incrRefCount(key);
+    
+    if (last_subkey < 0) last_subkey += argc;
+    for (i = first_subkey; i <= last_subkey; i += subkey_step) {
+        robj *subkey = argv[i];
+        if (num >= capacity) {
+            if (capacity < GETKEYS_RESULT_SUBKEYS_LINER_LEN)
+                capacity *= 2;
+            else
+                capacity += GETKEYS_RESULT_SUBKEYS_LINER_LEN;
+
+            subkeys = zrealloc(subkeys, capacity);
+        }
+        incrRefCount(subkey);
+        subkeys[num++] = subkey;
+    }
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,num,subkeys);
+
+    return 0;
+}
+
+int getKeyRequestsHset(struct redisCommand *cmd, robj **argv, int argc,
+        struct getKeyRequestsResult *result) {
+    return getKeyRequestsSingleKeyWithSubkeys(cmd,argv,argc,result,1,2,-1,2);
+}
+
+int getKeyRequestsHmget(struct redisCommand *cmd, robj **argv, int argc,
+        struct getKeyRequestsResult *result) {
+    return getKeyRequestsSingleKeyWithSubkeys(cmd,argv,argc,result,1,2,-1,1);
+}
+
 #ifdef REDIS_TEST
 
 void rewriteResetClientCommandCString(client *c, int argc, ...) {
@@ -248,7 +293,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         queueMultiCommand(c);
         rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
         queueMultiCommand(c);
-        rewriteResetClientCommandCString(c,3,"HGET","KEY3","F1");
+        rewriteResetClientCommandCString(c,3,"SET","KEY3","VAL3");
         queueMultiCommand(c);
         rewriteResetClientCommandCString(c,1,"EXEC");
         getKeyRequests(c,&result);
@@ -264,43 +309,45 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         discardTransaction(c);
     }
 
-    /* TODO hash support subkeys
-    TEST("cmd: subkeys") {
+    TEST("cmd: hash subkeys") {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,5,"HMGET","KEY","F1","F2","F3");
         getKeyRequests(c,&result);
-        if (result.num != 1) ERROR;
-        if (strcmp(result.key_requests[0].key->ptr, "KEY")) ERROR;
-        if (strcmp(result.key_requests[0].subkeys[0]->ptr, "F1")) ERROR;
-        if (strcmp(result.key_requests[0].subkeys[1]->ptr, "F2")) ERROR;
-        if (strcmp(result.key_requests[0].subkeys[2]->ptr, "F3")) ERROR;
+        test_assert(result.num == 1);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY"));
+        test_assert(result.key_requests[0].num_subkeys == 3);
+        test_assert(!strcmp(result.key_requests[0].subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[0].subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[0].subkeys[2]->ptr, "F3"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
 
-    TEST("cmd: multi/exec subkeys") {
+    TEST("cmd: multi/exec hash subkeys") {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         c->flags |= CLIENT_MULTI;
         rewriteResetClientCommandCString(c,1,"PING");
         queueMultiCommand(c);
         rewriteResetClientCommandCString(c,3,"MGET","KEY1","KEY2");
         queueMultiCommand(c);
-        rewriteResetClientCommandCString(c,5,"HMGET","KEY","F1","F2","F3");
+        rewriteResetClientCommandCString(c,5,"HMGET","HASH","F1","F2","F3");
         queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"EXEC");
         getKeyRequests(c,&result);
-        if (result.num != 3) ERROR;
-        if (strcmp(result.key_requests[0].key->ptr, "KEY1")) ERROR;
-        if (result.key_requests[0].subkeys != NULL) ERROR;
-        if (strcmp(result.key_requests[1].key->ptr, "KEY2")) ERROR;
-        if (result.key_requests[1].subkeys != NULL) ERROR;
-        if (strcmp(result.key_requests[2].key->ptr, "KEY")) ERROR;
-        if (strcmp(result.key_requests[2].subkeys[0]->ptr, "F1")) ERROR;
-        if (strcmp(result.key_requests[2].subkeys[1]->ptr, "F2")) ERROR;
-        if (strcmp(result.key_requests[2].subkeys[2]->ptr, "F3")) ERROR;
+        test_assert(result.num == 3);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
+        test_assert(result.key_requests[0].subkeys == NULL);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(!strcmp(result.key_requests[2].key->ptr, "HASH"));
+        test_assert(result.key_requests[2].num_subkeys == 3);
+        test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
+        test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
+        test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
-    } */
+    }
 
     return 0;
 }

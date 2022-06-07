@@ -561,43 +561,43 @@ struct redisCommand redisCommandTable[] = {
 
     {"hset",hsetCommand,-4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHset,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hsetnx",hsetnxCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHsetnx,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hget",hgetCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHget,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmset",hsetCommand,-4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHset,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hmget",hmgetCommand,-3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHmget,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrby",hincrbyCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHincrby,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hincrbyfloat",hincrbyfloatCommand,4,
      "write use-memory fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHincrbyfloat,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHdel,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_IN_META,1,1,1,0,0,0},
 
     {"hstrlen",hstrlenCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHstrlen,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hkeys",hkeysCommand,2,
      "read-only to-sort @hash",
@@ -613,7 +613,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"hexists",hexistsCommand,3,
      "read-only fast @hash",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHexists,SWAP_IN,0,1,1,1,0,0,0},
 
     {"hrandfield",hrandfieldCommand,-2,
      "read-only random @hash",

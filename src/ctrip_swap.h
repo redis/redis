@@ -39,8 +39,11 @@
 
 /* Delete key in rocksdb after right after swap in. */
 #define INTENTION_IN_DEL (1<<0)
+/* No need to swap if this is a big object */
+#define INTENTION_IN_META (1<<1)
 /* Delete key in rocksdb without touching keyspace. */
-#define INTENTION_DEL_ASYNC (1<<1)
+#define INTENTION_DEL_ASYNC (1<<2)
+
 
 static inline const char *requestLevelName(int level) {
   const char *name = "?";
@@ -61,6 +64,17 @@ void getKeyRequests(client *c, struct getKeyRequestsResult *result);
 void releaseKeyRequests(struct getKeyRequestsResult *result);
 int getKeyRequestsNone(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+
+#define getKeyRequestsHsetnx getKeyRequestsHset
+#define getKeyRequestsHget getKeyRequestsHmget
+#define getKeyRequestsHdel getKeyRequestsHmget
+#define getKeyRequestsHstrlen getKeyRequestsHmget
+#define getKeyRequestsHincrby getKeyRequestsHget
+#define getKeyRequestsHincrbyfloat getKeyRequestsHmget
+#define getKeyRequestsHexists getKeyRequestsHmget
+int getKeyRequestsHset(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsHmget(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
+int getKeyRequestsHlen(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 128
 #define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER }
