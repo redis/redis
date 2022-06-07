@@ -6476,7 +6476,7 @@ struct redisCommandArg XINFO_GROUPS_Args[] = {
 
 /* XINFO STREAM history */
 commandHistory XINFO_STREAM_History[] = {
-{"6.2.0","Added the `FULL` modifier."},
+{"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
 {0}
 };

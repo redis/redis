@@ -8,7 +8,7 @@
         "container": "XINFO",
         "history": [
             [
-                "6.2.0",
+                "6.0.0",
                 "Added the `FULL` modifier."
             ],
             [
