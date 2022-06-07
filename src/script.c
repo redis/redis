@@ -37,7 +37,7 @@ scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_ALLOW_STALE, .str = "allow-stale"},
     {.flag = SCRIPT_FLAG_NO_CLUSTER, .str = "no-cluster"},
     {.flag = SCRIPT_FLAG_ALLOW_CROSS_SLOT, .str = "allow-cross-slot-keys"},
-    {.flag = SCRIPT_FLAG_NO_INCREASE_MEMORY, .str = "no-increase-memory"},
+    {.flag = SCRIPT_FLAG_NO_DENY_OOM, .str = "no-deny-oom"},
     {.flag = 0, .str = NULL}, /* flags array end */
 };
 
@@ -114,7 +114,7 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
     cmd_flags &= ~(CMD_STALE | CMD_DENYOOM | CMD_WRITE);
 
     /* NO_WRITES implies ALLOW_OOM */
-    if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES | SCRIPT_FLAG_NO_INCREASE_MEMORY)))
+    if (!(script_flags & (SCRIPT_FLAG_ALLOW_OOM | SCRIPT_FLAG_NO_WRITES | SCRIPT_FLAG_NO_DENY_OOM)))
         cmd_flags |= CMD_DENYOOM;
     if (!(script_flags & SCRIPT_FLAG_NO_WRITES))
         cmd_flags |= CMD_WRITE;
@@ -195,9 +195,9 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         /* Check OOM state. the no-writes flag imply allow-oom. we tested it
          * after the no-write error, so no need to mention it in the error reply. */
         if (server.pre_command_oom_state && server.maxmemory &&
-            !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES|SCRIPT_FLAG_NO_INCREASE_MEMORY)))
+            !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES|SCRIPT_FLAG_NO_DENY_OOM)))
         {
-            addReplyError(caller, "-OOM allow-oom, no-writes or no-increase-memory flag "
+            addReplyError(caller, "-OOM allow-oom, no-writes or no-deny-oom flag "
                                   "is not set on the script, "
                                   "can not run it when used memory > 'maxmemory'");
             return C_ERR;
@@ -249,8 +249,8 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
         run_ctx->flags |= SCRIPT_ALLOW_CROSS_SLOT;
     }
 
-    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_NO_INCREASE_MEMORY)) {
-        run_ctx->flags |= SCRIPT_NO_INCREASE_MEMORY;
+    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_NO_DENY_OOM)) {
+        run_ctx->flags |= SCRIPT_NO_DENY_OOM;
     }
 
     /* set the curr_run_ctx so we can use it to kill the script if needed */
@@ -464,13 +464,13 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     return C_OK;
 }
 
-static int scriptVerifyNoIncreaseMemory(scriptRunCtx *run_ctx, char **err) {
+static int scriptVerifyDenyOOMCommandAllow(scriptRunCtx *run_ctx, char **err) {
     if (!(run_ctx->c->cmd->flags & CMD_DENYOOM)) {
         return C_OK;
     }
 
-    if (run_ctx->flags & SCRIPT_NO_INCREASE_MEMORY) {
-        *err = sdsnew("Deny-OOM commands are not allowed from no-increase-memory scripts.");
+    if (run_ctx->flags & SCRIPT_NO_DENY_OOM) {
+        *err = sdsnew("Deny-OOM commands are not allowed from no-deny-oom scripts.");
         return C_ERR;
     }
     return C_OK;
@@ -564,7 +564,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         goto error;
     }
 
-    if (scriptVerifyNoIncreaseMemory(run_ctx, err) != C_OK) {
+    if (scriptVerifyDenyOOMCommandAllow(run_ctx, err) != C_OK) {
         goto error;
     }
 
