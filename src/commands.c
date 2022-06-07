@@ -124,7 +124,7 @@ struct redisCommandArg BITFIELD_RO_encoding_offset_Subargs[] = {
 /* BITFIELD_RO argument table */
 struct redisCommandArg BITFIELD_RO_Args[] = {
 {"key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE},
-{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{"encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,.subargs=BITFIELD_RO_encoding_offset_Subargs},
 {0}
 };
 
