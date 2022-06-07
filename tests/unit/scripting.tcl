@@ -1389,14 +1389,14 @@ start_server {tags {"scripting"}} {
 
     test "Unknown shebang flag" {
         catch {
-            r eval {#!lua flags=allow-oom,what?
+            r eval {#!lua flags=what?
                 return 1
             } 0
         } e
         assert_match {*Unexpected flag in script shebang*} $e
     }
 
-    test "allow-oom shebang flag" {
+    test "no-deny-oom shebang flag" {
         r set x 123
     
         r config set maxmemory 1
@@ -1422,15 +1422,15 @@ start_server {tags {"scripting"}} {
             } 0
         }
 
-        # Script with allow-oom can write despite being in OOM state
+        # no-deny-oom scripts can be executed in OOM state
         assert_equal [
-            r eval {#!lua flags=allow-oom
-                redis.call('set','x',1)
+            r eval {#!lua flags=no-deny-oom
+                redis.call('del','no-one')
                 return 1
-            } 1 x
+            } 0
         ] 1
 
-        # read-only scripts implies allow-oom
+        # read-only scripts implies no-deny-oom
         assert_equal [
             r eval {#!lua flags=no-writes
                 redis.call('get','x')
@@ -1442,14 +1442,6 @@ start_server {tags {"scripting"}} {
                 redis.call('get','x')
                 return 1
             } 1 x
-        ] 1
-
-        # no-deny-oom scripts can be executed in OOM state
-        assert_equal [
-            r eval {#!lua flags=no-deny-oom
-                redis.call('del','no-one')
-                return 1
-            } 0
         ] 1
 
         # Script with no shebang can read in OOM state

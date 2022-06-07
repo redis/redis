@@ -969,19 +969,20 @@ start_server {tags {"scripting"}} {
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
 
-    test {FUNCTION - verify allow-omm allows running any command} {
+    test {FUNCTION - verify no-deny-omm allows running no deny-oom command in OOM state} {
         r FUNCTION load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() return redis.call('set', 'x', '1') end,
-                flags={'allow-oom'}
+                callback=function() return redis.call('del', 'x') end,
+                flags={'no-deny-oom'}
             }
         }
 
+        r set x 1
         r config set maxmemory 1
 
-        assert_match {OK} [r fcall f1 1 x]
-        assert_match {1} [r get x]
+        assert_equal {1} [r fcall f1 1 x]
+        assert_equal {} [r get x]
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
