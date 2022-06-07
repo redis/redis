@@ -2153,7 +2153,7 @@ void xlenCommand(client *c) {
     addReplyLongLong(c,s->length);
 }
 
-/* XREAD [COUNT <count>] [BLOCK <milliseconds>] STREAMS key [key...] id [id...] 
+/* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key [key...] id [id...] 
  *       
  *
  * This function also implements the XREADGROUP command, which is like XREAD
@@ -2734,7 +2734,7 @@ NULL
     }
 }
 
-/* XSETID <key> <id> [ENTRIESADDED entries_added] [MAXDELETEDID max_deleted_entry_id]
+/* XSETID <stream> <id> [ENTRIESADDED entries_added] [MAXDELETEDID max_deleted_entry_id]
  *
  * Set the internal "last ID", "added entries" and "maximal deleted entry ID"
  * of a stream. */
@@ -2804,8 +2804,7 @@ void xsetidCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
 }
 
-/* XACK <key> <group> <id> [<id>...]
- *
+/* XACK <key> <group> <id> <id> ... <id>
  * Acknowledge a message as processed. In practical terms we just check the
  * pending entries list (PEL) of the group, and delete the PEL entry both from
  * the group and the consumer (pending messages are referenced in both places).
