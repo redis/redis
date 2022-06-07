@@ -2746,7 +2746,7 @@ void stopLoading(int success) {
 }
 
 void startSaving(int rdbflags) {
-    /* Fire the persistence modules end event. */
+    /* Fire the persistence modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
@@ -3479,6 +3479,9 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
+
+    server.stat_rdb_saves++;
+
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
     if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
