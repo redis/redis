@@ -43,7 +43,7 @@
 #endif
 
 /* Optimization levels for size-based filling.
- * Note that the largest possible limit is 16k, so even if each record takes
+ * Note that the largest possible limit is 64k, so even if each record takes
  * just one byte, it still won't overflow the 16 bit count field. */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 

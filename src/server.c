@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "syscheck.h"
 
 #include <time.h>
 #include <signal.h>
@@ -638,6 +639,11 @@ int isMutuallyExclusiveChildType(int type) {
     return type == CHILD_TYPE_RDB || type == CHILD_TYPE_AOF || type == CHILD_TYPE_MODULE;
 }
 
+/* Returns true when we're inside a long command that yielded to the event loop. */
+int isInsideYieldingLongCommand() {
+    return scriptIsTimedout() || server.busy_module_yield_flags;
+}
+
 /* Return true if this instance has persistence completely turned off:
  * both RDB and AOF are disabled. */
 int allPersistenceDisabled(void) {
@@ -1187,14 +1193,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
+        atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                stat_net_input_bytes);
+                stat_net_input_bytes + stat_net_repl_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                stat_net_output_bytes);
+                stat_net_output_bytes + stat_net_repl_output_bytes);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION,
+                                 stat_net_repl_input_bytes);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
+                                 stat_net_repl_output_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -1754,6 +1767,7 @@ void createSharedObjects(void) {
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.ssubscribebulk = createStringObject("$10\r\nssubscribe\r\n", 17);
     shared.sunsubscribebulk = createStringObject("$12\r\nsunsubscribe\r\n", 19);
+    shared.smessagebulk = createStringObject("$8\r\nsmessage\r\n", 14);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
 
@@ -2354,6 +2368,8 @@ void resetServerStats(void) {
     server.stat_aofrw_consecutive_failures = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
+    atomicSet(server.stat_net_repl_input_bytes, 0);
+    atomicSet(server.stat_net_repl_output_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
@@ -2500,7 +2516,6 @@ void initServer(void) {
     server.pubsub_patterns = dictCreate(&keylistDictType);
     server.pubsubshard_channels = dictCreate(&keylistDictType);
     server.cronloops = 0;
-    server.in_script = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
@@ -2716,7 +2731,8 @@ void commandAddSubcommand(struct redisCommand *parent, struct redisCommand *subc
 void setImplicitACLCategories(struct redisCommand *c) {
     if (c->flags & CMD_WRITE)
         c->acl_categories |= ACL_CATEGORY_WRITE;
-    if (c->flags & CMD_READONLY)
+    /* Exclude scripting commands from the RO category. */
+    if (c->flags & CMD_READONLY && !(c->acl_categories & ACL_CATEGORY_SCRIPTING))
         c->acl_categories |= ACL_CATEGORY_READ;
     if (c->flags & CMD_ADMIN)
         c->acl_categories |= ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS;
@@ -3392,8 +3408,12 @@ void call(client *c, int flags) {
         (CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
 
     /* If the client has keys tracking enabled for client side caching,
-     * make sure to remember the keys it fetched via this command. */
-    if (c->cmd->flags & CMD_READONLY) {
+     * make sure to remember the keys it fetched via this command. Scripting
+     * works a bit differently, where if the scripts executes any read command, it
+     * remembers all of the declared keys from the script. */
+    if ((c->cmd->flags & CMD_READONLY) && (c->cmd->proc != evalRoCommand)
+        && (c->cmd->proc != evalShaRoCommand) && (c->cmd->proc != fcallroCommand))
+    {
         client *caller = (c->flags & CLIENT_SCRIPT && server.script_caller) ?
                             server.script_caller : c;
         if (caller->flags & CLIENT_TRACKING &&
@@ -3482,11 +3502,8 @@ void afterCommand(client *c) {
  * spec doesn't cover all of them. */
 void populateCommandMovableKeys(struct redisCommand *cmd) {
     int movablekeys = 0;
-    if (cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) {
-        /* Redis command with getkeys proc */
-        movablekeys = 1;
-    } else if (cmd->flags & CMD_MODULE_GETKEYS) {
-        /* Module command with getkeys proc */
+    if (cmd->getkeys_proc || (cmd->flags & CMD_MODULE_GETKEYS)) {
+        /* Command with getkeys proc */
         movablekeys = 1;
     } else {
         /* Redis command without getkeys proc, but possibly has
@@ -3569,7 +3586,7 @@ int processCommand(client *c) {
          * That is unless lua_timedout, in which case client may run
          * some commands. */
         serverAssert(!server.in_exec);
-        serverAssert(!server.in_script);
+        serverAssert(!scriptIsRunning());
     }
 
     moduleCallCommandFilters(c);
@@ -3618,19 +3635,33 @@ int processCommand(client *c) {
         }
     }
 
-    int is_read_command = (c->cmd->flags & CMD_READONLY) ||
+    /* If we're executing a script, try to extract a set of command flags from
+     * it, in case it declared them. Note this is just an attempt, we don't yet
+     * know the script command is well formed.*/
+    uint64_t cmd_flags = c->cmd->flags;
+    if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand ||
+        c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand ||
+        c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
+    {
+        if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
+            cmd_flags = fcallGetCommandFlags(c, cmd_flags);
+        else
+            cmd_flags = evalGetCommandFlags(c, cmd_flags);
+    }
+
+    int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
-    int is_write_command = (c->cmd->flags & CMD_WRITE) ||
+    int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    int is_denyoom_command = (c->cmd->flags & CMD_DENYOOM) ||
+    int is_denyoom_command = (cmd_flags & CMD_DENYOOM) ||
                              (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_DENYOOM));
-    int is_denystale_command = !(c->cmd->flags & CMD_STALE) ||
+    int is_denystale_command = !(cmd_flags & CMD_STALE) ||
                                (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_STALE));
-    int is_denyloading_command = !(c->cmd->flags & CMD_LOADING) ||
+    int is_denyloading_command = !(cmd_flags & CMD_LOADING) ||
                                  (c->cmd->proc == execCommand && (c->mstate.cmd_inv_flags & CMD_LOADING));
-    int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
+    int is_may_replicate_command = (cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    int is_deny_async_loading_command = (c->cmd->flags & CMD_NO_ASYNC_LOADING) ||
+    int is_deny_async_loading_command = (cmd_flags & CMD_NO_ASYNC_LOADING) ||
                                         (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_NO_ASYNC_LOADING));
     int obey_client = mustObeyClient(c);
 
@@ -3718,7 +3749,7 @@ int processCommand(client *c) {
      * the event loop since there is a busy Lua script running in timeout
      * condition, to avoid mixing the propagation of scripts with the
      * propagation of DELs due to eviction. */
-    if (server.maxmemory && !scriptIsTimedout()) {
+    if (server.maxmemory && !isInsideYieldingLongCommand()) {
         int out_of_memory = (performEvictions() == EVICT_FAIL);
 
         /* performEvictions may evict keys, so we need flush pending tracking
@@ -3750,16 +3781,12 @@ int processCommand(client *c) {
             return C_OK;
         }
 
-        /* Save out_of_memory result at script start, otherwise if we check OOM
-         * until first write within script, memory used by lua stack and
-         * arguments might interfere. */
-        if (c->cmd->proc == evalCommand ||
-            c->cmd->proc == evalShaCommand ||
-            c->cmd->proc == fcallCommand ||
-            c->cmd->proc == fcallroCommand)
-        {
-            server.script_oom = out_of_memory;
-        }
+        /* Save out_of_memory result at command start, otherwise if we check OOM
+         * in the first write within script, memory used by lua stack and
+         * arguments might interfere. We need to save it for EXEC and module
+         * calls too, since these can call EVAL, but avoid saving it during an
+         * interrupted / yielding busy script / module. */
+        server.pre_command_oom_state = out_of_memory;
     }
 
     /* Make sure to use a reasonable amount of memory for client side
@@ -3787,6 +3814,8 @@ int processCommand(client *c) {
             }
         } else {
             sds err = writeCommandsGetDiskErrorMessage(deny_write_type);
+            /* remove the newline since rejectCommandSds adds it. */
+            sdssubstr(err, 0, sdslen(err)-2);
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -3859,7 +3888,7 @@ int processCommand(client *c) {
      * the MULTI plus a few initial commands refused, then the timeout
      * condition resolves, and the bottom-half of the transaction gets
      * executed, see Github PR #7022. */
-    if ((scriptIsTimedout() || server.busy_module_yield_flags) && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
+    if (isInsideYieldingLongCommand() && !(c->cmd->flags & CMD_ALLOW_BUSY)) {
         if (server.busy_module_yield_flags && server.busy_module_yield_reply) {
             rejectCommandFormat(c, "-BUSY %s", server.busy_module_yield_reply);
         } else if (server.busy_module_yield_flags) {
@@ -3900,7 +3929,7 @@ int processCommand(client *c) {
         c->cmd->proc != quitCommand &&
         c->cmd->proc != resetCommand)
     {
-        queueMultiCommand(c);
+        queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);
     } else {
         call(c,CMD_CALL_FULL);
@@ -4226,7 +4255,7 @@ sds writeCommandsGetDiskErrorMessage(int error_code) {
         ret = sdsdup(shared.bgsaveerr->ptr);
     } else {
         ret = sdscatfmt(sdsempty(),
-                "-MISCONF Errors writing to the AOF file: %s",
+                "-MISCONF Errors writing to the AOF file: %s\r\n",
                 strerror(server.aof_last_write_errno));
     }
     return ret;
@@ -4312,7 +4341,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_ASKING,            "asking"},
         {CMD_FAST,              "fast"},
         {CMD_NO_AUTH,           "no_auth"},
-        {CMD_MAY_REPLICATE,     "may_replicate"},
+        /* {CMD_MAY_REPLICATE,     "may_replicate"},, Hidden on purpose */
         /* {CMD_SENTINEL,          "sentinel"}, Hidden on purpose */
         /* {CMD_ONLY_SENTINEL,     "only_sentinel"}, Hidden on purpose */
         {CMD_NO_MANDATORY_KEYS, "no_mandatory_keys"},
@@ -4709,7 +4738,7 @@ void getKeysSubcommandImpl(client *c, int with_flags) {
     if (!cmd) {
         addReplyError(c,"Invalid command specified");
         return;
-    } else if (cmd->getkeys_proc == NULL && cmd->key_specs_num == 0) {
+    } else if (!doesCommandHaveKeys(cmd)) {
         addReplyError(c,"The command has no key arguments");
         return;
     } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
@@ -4911,7 +4940,7 @@ void commandInfoCommand(client *c) {
     }
 }
 
-/* COMMAND DOCS [<command-name> ...] */
+/* COMMAND DOCS [command-name [command-name ...]] */
 void commandDocsCommand(client *c) {
     int i;
     if (c->argc == 2) {
@@ -5571,6 +5600,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     if (all_sections  || (dictFind(section_dict,"stats") != NULL)) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
+        long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5579,6 +5609,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
+        atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
+        atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5588,8 +5620,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_ops_per_sec:%lld\r\n"
             "total_net_input_bytes:%lld\r\n"
             "total_net_output_bytes:%lld\r\n"
+            "total_net_repl_input_bytes:%lld\r\n"
+            "total_net_repl_output_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
+            "instantaneous_input_repl_kbps:%.2f\r\n"
+            "instantaneous_output_repl_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
@@ -5631,10 +5667,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
-            stat_net_input_bytes,
-            stat_net_output_bytes,
+            stat_net_input_bytes + stat_net_repl_input_bytes,
+            stat_net_output_bytes + stat_net_repl_output_bytes,
+            stat_net_repl_input_bytes,
+            stat_net_repl_output_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
+            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
+            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION)/1024,
             server.stat_rejected_conn,
             server.stat_sync_full,
             server.stat_sync_partial_ok,
@@ -5920,6 +5960,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     return info;
 }
 
+/* INFO [<section> [<section> ...]] */
 void infoCommand(client *c) {
     if (server.sentinel_mode) {
         sentinelInfoCommand(c);
@@ -5970,168 +6011,38 @@ int checkIgnoreWarning(const char *warning) {
 }
 
 #ifdef __linux__
-int linuxOvercommitMemoryValue(void) {
-    FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
-    char buf[64];
+#include <sys/prctl.h>
+/* since linux-3.5, kernel supports to set the state of the "THP disable" flag
+ * for the calling thread. PR_SET_THP_DISABLE is defined in linux/prctl.h */
+static int THPDisable(void) {
+    int ret = -EINVAL;
 
-    if (!fp) return -1;
-    if (fgets(buf,64,fp) == NULL) {
-        fclose(fp);
-        return -1;
-    }
-    fclose(fp);
+    if (!server.disable_thp)
+        return ret;
 
-    return atoi(buf);
+#ifdef PR_SET_THP_DISABLE
+    ret = prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif
+
+    return ret;
 }
 
 void linuxMemoryWarnings(void) {
-    if (linuxOvercommitMemoryValue() == 0) {
-        serverLog(LL_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
+    sds err_msg;
+    if (checkOvercommit(&err_msg) < 0) {
+        serverLog(LL_WARNING,"WARNING %s", err_msg);
+        sdsfree(err_msg);
     }
-    if (THPIsEnabled()) {
+    if (checkTHPEnabled(&err_msg) < 0) {
         server.thp_enabled = 1;
         if (THPDisable() == 0) {
             server.thp_enabled = 0;
-            return;
+        } else {
+            serverLog(LL_WARNING, "WARNING %s", err_msg);
         }
-        serverLog(LL_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').");
+        sdsfree(err_msg);
     }
 }
-
-#ifdef __arm64__
-
-/* Get size in kilobytes of the Shared_Dirty pages of the calling process for the
- * memory map corresponding to the provided address, or -1 on error. */
-static int smapsGetSharedDirty(unsigned long addr) {
-    int ret, in_mapping = 0, val = -1;
-    unsigned long from, to;
-    char buf[64];
-    FILE *f;
-
-    f = fopen("/proc/self/smaps", "r");
-    if (!f) return -1;
-
-    while (1) {
-        if (!fgets(buf, sizeof(buf), f))
-            break;
-
-        ret = sscanf(buf, "%lx-%lx", &from, &to);
-        if (ret == 2)
-            in_mapping = from <= addr && addr < to;
-
-        if (in_mapping && !memcmp(buf, "Shared_Dirty:", 13)) {
-            sscanf(buf, "%*s %d", &val);
-            /* If parsing fails, we remain with val == -1 */
-            break;
-        }
-    }
-
-    fclose(f);
-    return val;
-}
-
-/* Older arm64 Linux kernels have a bug that could lead to data corruption
- * during background save in certain scenarios. This function checks if the
- * kernel is affected.
- * The bug was fixed in commit ff1712f953e27f0b0718762ec17d0adb15c9fd0b
- * titled: "arm64: pgtable: Ensure dirty bit is preserved across pte_wrprotect()"
- * Return -1 on unexpected test failure, 1 if the kernel seems to be affected,
- * and 0 otherwise. */
-int linuxMadvFreeForkBugCheck(void) {
-    int ret, pipefd[2] = { -1, -1 };
-    pid_t pid;
-    char *p = NULL, *q;
-    int bug_found = 0;
-    long page_size = sysconf(_SC_PAGESIZE);
-    long map_size = 3 * page_size;
-
-    /* Create a memory map that's in our full control (not one used by the allocator). */
-    p = mmap(NULL, map_size, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-    if (p == MAP_FAILED) {
-        serverLog(LL_WARNING, "Failed to mmap(): %s", strerror(errno));
-        return -1;
-    }
-
-    q = p + page_size;
-
-    /* Split the memory map in 3 pages by setting their protection as RO|RW|RO to prevent
-     * Linux from merging this memory map with adjacent VMAs. */
-    ret = mprotect(q, page_size, PROT_READ | PROT_WRITE);
-    if (ret < 0) {
-        serverLog(LL_WARNING, "Failed to mprotect(): %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Write to the page once to make it resident */
-    *(volatile char*)q = 0;
-
-    /* Tell the kernel that this page is free to be reclaimed. */
-#ifndef MADV_FREE
-#define MADV_FREE 8
-#endif
-    ret = madvise(q, page_size, MADV_FREE);
-    if (ret < 0) {
-        /* MADV_FREE is not available on older kernels that are presumably
-         * not affected. */
-        if (errno == EINVAL) goto exit;
-
-        serverLog(LL_WARNING, "Failed to madvise(): %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Write to the page after being marked for freeing, this is supposed to take
-     * ownership of that page again. */
-    *(volatile char*)q = 0;
-
-    /* Create a pipe for the child to return the info to the parent. */
-    ret = anetPipe(pipefd, 0, 0);
-    if (ret < 0) {
-        serverLog(LL_WARNING, "Failed to create pipe: %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    }
-
-    /* Fork the process. */
-    pid = fork();
-    if (pid < 0) {
-        serverLog(LL_WARNING, "Failed to fork: %s", strerror(errno));
-        bug_found = -1;
-        goto exit;
-    } else if (!pid) {
-        /* Child: check if the page is marked as dirty, page_size in kb.
-         * A value of 0 means the kernel is affected by the bug. */
-        ret = smapsGetSharedDirty((unsigned long) q);
-        if (!ret)
-            bug_found = 1;
-        else if (ret == -1)     /* Failed to read */
-            bug_found = -1;
-
-        if (write(pipefd[1], &bug_found, sizeof(bug_found)) < 0)
-            serverLog(LL_WARNING, "Failed to write to parent: %s", strerror(errno));
-        exitFromChild(0);
-    } else {
-        /* Read the result from the child. */
-        ret = read(pipefd[0], &bug_found, sizeof(bug_found));
-        if (ret < 0) {
-            serverLog(LL_WARNING, "Failed to read from child: %s", strerror(errno));
-            bug_found = -1;
-        }
-
-        /* Reap the child pid. */
-        waitpid(pid, NULL, 0);
-    }
-
-exit:
-    /* Cleanup */
-    if (pipefd[0] != -1) close(pipefd[0]);
-    if (pipefd[1] != -1) close(pipefd[1]);
-    if (p != NULL) munmap(p, map_size);
-
-    return bug_found;
-}
-#endif /* __arm64__ */
 #endif /* __linux__ */
 
 void createPidFile(void) {
@@ -6568,6 +6479,8 @@ void loadDataFromDisk(void) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
+        if (ret != AOF_NOT_EXIST)
+            serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
@@ -6950,6 +6863,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
                 exit(1);
             }
+        } if (strcmp(argv[1], "--check-system") == 0) {
+            exit(syscheck() ? 0 : 1);
         }
         /* Parse command line options
          * Precedence wise, File, stdin, explicit options -- last config is the one that matters.
@@ -6962,6 +6877,7 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
+        int handled_last_config_arg = 1;
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
@@ -6970,16 +6886,20 @@ int main(int argc, char **argv) {
             /* All the other options are parsed and conceptually appended to the
              * configuration file. For instance --port 6380 will generate the
              * string "port 6380\n" to be parsed after the actual config file
-             * and stdin input are parsed (if they exist). */
-            else if (argv[j][0] == '-' && argv[j][1] == '-') {
+             * and stdin input are parsed (if they exist).
+             * Only consider that if the last config has at least one argument. */
+            else if (handled_last_config_arg && argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
                 if (sdslen(options)) options = sdscat(options,"\n");
+                /* argv[j]+2 for removing the preceding `--` */
                 options = sdscat(options,argv[j]+2);
                 options = sdscat(options," ");
+                handled_last_config_arg = 0;
             } else {
                 /* Option argument */
                 options = sdscatrepr(options,argv[j],strlen(argv[j]));
                 options = sdscat(options," ");
+                handled_last_config_arg = 1;
             }
             j++;
         }
@@ -7019,13 +6939,18 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
+        sds err_msg;
+        if (checkXenClocksource(&err_msg) < 0) {
+            serverLog(LL_WARNING, "WARNING %s", err_msg);
+            sdsfree(err_msg);
+        }
     #if defined (__arm64__)
         int ret;
-        if ((ret = linuxMadvFreeForkBugCheck())) {
-            if (ret == 1)
-                serverLog(LL_WARNING,"WARNING Your kernel has a bug that could lead to data corruption during background save. "
-                                     "Please upgrade to the latest stable kernel.");
-            else
+        if ((ret = checkLinuxMadvFreeForkBug(&err_msg)) <= 0) {
+            if (ret < 0) {
+                serverLog(LL_WARNING, "WARNING %s", err_msg);
+                sdsfree(err_msg);
+            } else
                 serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save. "
                                       "Your system could be affected, please report this error.");
             if (!checkIgnoreWarning("ARM64-COW-BUG")) {

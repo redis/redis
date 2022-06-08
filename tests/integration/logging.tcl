@@ -9,7 +9,7 @@ if {$system_name eq {darwin}} {
 } elseif {$system_name eq {linux}} {
     # Avoid the test on libmusl, which does not support backtrace
     set ldd [exec ldd src/redis-server]
-    if {![string match {*libc.musl*} $ldd]} {
+    if {![string match {*libc.*musl*} $ldd]} {
         set backtrace_supported 1
     }
 }

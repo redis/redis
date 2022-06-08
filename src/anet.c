@@ -162,6 +162,13 @@ int anetKeepAlive(char *err, int fd, int interval)
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
     }
+#elif defined(__APPLE__)
+    /* Set idle time with interval */
+    val = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &val, sizeof(val)) < 0) {
+        anetSetError(err, "setsockopt TCP_KEEPALIVE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
 #else
     ((void) interval); /* Avoid unused var warning for non Linux systems. */
 #endif

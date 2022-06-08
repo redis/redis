@@ -126,28 +126,36 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
-# try to match a value to a list of patterns that is either regex, or plain sub-string
-proc search_pattern_list {value pattern_list {substr false}} {
-    set n 0
+# try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
+# The caller can specify to use only glob-pattern match
+proc search_pattern_list {value pattern_list {glob_pattern false}} {
     foreach el $pattern_list {
-        if {[string length $el] > 0 && ((!$substr && [regexp -- $el $value]) || ($substr && [string match $el $value]))} {
-            return $n
+        if {[string length $el] == 0} { continue }
+        if { $glob_pattern } {
+            if {[string match $el $value]} {
+                return 1
+            }
+            continue
         }
-        incr n
+        if {[string equal / [string index $el 0]] && [regexp -- [string range $el 1 end] $value]} {
+            return 1
+        } elseif {[string equal $el $value]} {
+            return 1
+        }
     }
-    return -1
+    return 0
 }
 
 proc test {name code {okpattern undefined} {tags {}}} {
     # abort if test name in skiptests
-    if {[search_pattern_list $name $::skiptests] >= 0} {
+    if {[search_pattern_list $name $::skiptests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return
     }
 
     # abort if only_tests was set but test name is not included
-    if {[llength $::only_tests] > 0 && [search_pattern_list $name $::only_tests] < 0} {
+    if {[llength $::only_tests] > 0 && ![search_pattern_list $name $::only_tests]} {
         incr ::num_skipped
         send_data_packet $::test_server_fd skip $name
         return

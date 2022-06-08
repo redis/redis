@@ -927,7 +927,7 @@ int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
 }
 
 /* Returns if there is a part of the zset is in range. Should only be used
- * internally by zzlFirstInRange and zzlLastInRange. */
+ * internally by zzlFirstInLexRange and zzlLastInLexRange. */
 int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *p;
 
@@ -1186,9 +1186,10 @@ void zsetConvert(robj *zobj, int encoding) {
         zs->zsl = zslCreate();
 
         eptr = lpSeek(zl,0);
-        serverAssertWithInfo(NULL,zobj,eptr != NULL);
-        sptr = lpNext(zl,eptr);
-        serverAssertWithInfo(NULL,zobj,sptr != NULL);
+        if (eptr != NULL) {
+            sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(NULL,zobj,sptr != NULL);
+        }
 
         while (eptr != NULL) {
             score = zzlGetScore(sptr);
@@ -4041,7 +4042,7 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
 
     /* If the keys do not exist we must block */
     struct blockPos pos = {where};
-    blockForKeys(c,BLOCKED_ZSET,c->argv+1,c->argc-2,count,timeout,NULL,&pos,NULL);
+    blockForKeys(c,BLOCKED_ZSET,keys,numkeys,count,timeout,NULL,&pos,NULL);
 }
 
 // BZPOPMIN key [key ...] timeout
@@ -4054,7 +4055,7 @@ void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, -1, 0, 0);
 }
 
-static void zarndmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -4135,7 +4136,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
-                zarndmemberReplyWithListpack(c, sample_count, keys, vals);
+                zrandmemberReplyWithListpack(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -4234,7 +4235,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             if (withscores)
                 vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
-            zarndmemberReplyWithListpack(c, count, keys, vals);
+            zrandmemberReplyWithListpack(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
             zuiClearIterator(&src);

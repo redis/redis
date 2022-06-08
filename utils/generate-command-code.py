@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-
-import os
 import glob
 import json
+import os
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
@@ -66,6 +65,55 @@ def get_optional_desc_string(desc, field, force_uppercase=False):
         v = v.upper()
     ret = "\"%s\"" % v if v else "NULL"
     return ret.replace("\n", "\\n")
+
+
+def check_command_args_key_specs(args, command_key_specs_index_set, command_arg_key_specs_index_set):
+    if not args:
+        return True
+
+    for arg in args:
+        if arg.key_spec_index is not None:
+            assert isinstance(arg.key_spec_index, int)
+
+            if arg.key_spec_index not in command_key_specs_index_set:
+                print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
+                return False
+
+            command_arg_key_specs_index_set.add(arg.key_spec_index)
+
+        if not check_command_args_key_specs(arg.subargs, command_key_specs_index_set, command_arg_key_specs_index_set):
+            return False
+
+    return True
+
+def check_command_key_specs(command):
+    if not command.key_specs:
+        return True
+
+    assert isinstance(command.key_specs, list)
+
+    for cmd_key_spec in command.key_specs:
+        if "flags" not in cmd_key_spec:
+            print("command: %s key_specs missing flags" % command.fullname())
+            return False
+
+        if "NOT_KEY" in cmd_key_spec["flags"]:
+            # Like SUNSUBSCRIBE / SPUBLISH / SSUBSCRIBE
+            return True
+
+    command_key_specs_index_set = set(range(len(command.key_specs)))
+    command_arg_key_specs_index_set = set()
+
+    # Collect key_spec used for each arg, including arg.subarg
+    if not check_command_args_key_specs(command.args, command_key_specs_index_set, command_arg_key_specs_index_set):
+        return False
+
+    # Check if we have key_specs not used
+    if command_key_specs_index_set != command_arg_key_specs_index_set:
+        print("command: %s may have unused key_spec" % command.fullname())
+        return False
+
+    return True
 
 
 # Globals
@@ -132,6 +180,7 @@ class Argument(object):
         self.desc = desc
         self.name = self.desc["name"].lower()
         self.type = self.desc["type"]
+        self.key_spec_index = self.desc.get("key_spec_index", None)
         self.parent_name = parent_name
         self.subargs = []
         self.subargs_name = None
@@ -200,6 +249,7 @@ class Command(object):
         self.name = name.upper()
         self.desc = desc
         self.group = self.desc["group"]
+        self.key_specs = self.desc.get("key_specs", [])
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
@@ -271,7 +321,7 @@ class Command(object):
 
         def _key_specs_code():
             s = ""
-            for spec in self.desc.get("key_specs", []):
+            for spec in self.key_specs:
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
@@ -397,6 +447,17 @@ for command in commands.values():
         assert not subcommand.group or subcommand.group == command.group
         subcommand.group = command.group
         command.subcommands.append(subcommand)
+
+check_command_error_counter = 0  # An error counter is used to count errors in command checking.
+
+print("Checking all commands...")
+for command in commands.values():
+    if not check_command_key_specs(command):
+        check_command_error_counter += 1
+
+if check_command_error_counter != 0:
+    print("Error: There are errors in the commands check, please check the above logs.")
+    exit(1)
 
 print("Generating commands.c...")
 with open("%s/commands.c" % srcdir, "w") as f:

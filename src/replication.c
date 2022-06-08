@@ -1358,7 +1358,7 @@ void sendBulkToSlave(connection *conn) {
             freeClient(slave);
             return;
         }
-        atomicIncr(server.stat_net_output_bytes, nwritten);
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         sdsrange(slave->replpreamble,nwritten,-1);
         if (sdslen(slave->replpreamble) == 0) {
             sdsfree(slave->replpreamble);
@@ -1387,7 +1387,7 @@ void sendBulkToSlave(connection *conn) {
         return;
     }
     slave->repldboff += nwritten;
-    atomicIncr(server.stat_net_output_bytes, nwritten);
+    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
@@ -1419,7 +1419,7 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn) {
 void rdbPipeWriteHandler(struct connection *conn) {
     serverAssert(server.rdb_pipe_bufflen>0);
     client *slave = connGetPrivateData(conn);
-    int nwritten;
+    ssize_t nwritten;
     if ((nwritten = connWrite(conn, server.rdb_pipe_buff + slave->repldboff,
                               server.rdb_pipe_bufflen - slave->repldboff)) == -1)
     {
@@ -1431,7 +1431,7 @@ void rdbPipeWriteHandler(struct connection *conn) {
         return;
     } else {
         slave->repldboff += nwritten;
-        atomicIncr(server.stat_net_output_bytes, nwritten);
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
         if (slave->repldboff < server.rdb_pipe_bufflen) {
             slave->repl_last_partial_write = server.unixtime;
             return; /* more data to write.. */
@@ -1491,7 +1491,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         int stillAlive = 0;
         for (i=0; i < server.rdb_pipe_numconns; i++)
         {
-            int nwritten;
+            ssize_t nwritten;
             connection *conn = server.rdb_pipe_conns[i];
             if (!conn)
                 continue;
@@ -1511,7 +1511,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 /* Note: when use diskless replication, 'repldboff' is the offset
                  * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
                 slave->repldboff = nwritten;
-                atomicIncr(server.stat_net_output_bytes, nwritten);
+                atomicIncr(server.stat_net_repl_output_bytes, nwritten);
             }
             /* If we were unable to write all the data to one of the replicas,
              * setup write handler (and disable pipe read handler, below) */
@@ -1817,11 +1817,16 @@ void readSyncBulkPayload(connection *conn) {
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
     if (server.repl_transfer_size == -1) {
-        if (connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000) == -1) {
+        nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
+        if (nread == -1) {
             serverLog(LL_WARNING,
                 "I/O error reading bulk count from MASTER: %s",
                 strerror(errno));
             goto error;
+        } else {
+            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
+             * convert "\r\n" to '\0' so 1 byte is lost. */
+            atomicIncr(server.stat_net_repl_input_bytes, nread+1);
         }
 
         if (buf[0] == '-') {
@@ -1892,7 +1897,7 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        atomicIncr(server.stat_net_input_bytes, nread);
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
@@ -2223,8 +2228,8 @@ char *receiveSynchronousResponse(connection *conn) {
     /* Read the reply from the server. */
     if (connSyncReadLine(conn,buf,sizeof(buf),server.repl_syncio_timeout*1000) == -1)
     {
-        return sdscatprintf(sdsempty(),"-Reading from master: %s",
-                strerror(errno));
+        serverLog(LL_WARNING, "Failed to read response from the server: %s", strerror(errno));
+        return NULL;
     }
     server.repl_transfer_lastio = server.unixtime;
     return sdsnew(buf);
@@ -2407,6 +2412,13 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     /* Reading half */
     reply = receiveSynchronousResponse(conn);
+    /* Master did not reply to PSYNC */
+    if (reply == NULL) {
+        connSetReadHandler(conn, NULL);
+        serverLog(LL_WARNING, "Master did not reply to PSYNC, will try later");
+        return PSYNC_TRY_LATER;
+    }
+
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
@@ -2566,6 +2578,9 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_RECEIVE_PING_REPLY) {
         err = receiveSynchronousResponse(conn);
 
+        /* The master did not reply */
+        if (err == NULL) goto no_response_error;
+
         /* We accept only two replies as valid, a positive +PONG reply
          * (we just check for "+") or an authentication error.
          * Note that older versions of Redis replied with "operation not
@@ -2652,6 +2667,7 @@ void syncWithMaster(connection *conn) {
     /* Receive AUTH reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         if (err[0] == '-') {
             serverLog(LL_WARNING,"Unable to AUTH to MASTER: %s",err);
             sdsfree(err);
@@ -2666,6 +2682,7 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF listening-port reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_PORT_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF listening-port. */
         if (err[0] == '-') {
@@ -2683,6 +2700,7 @@ void syncWithMaster(connection *conn) {
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF ip-address. */
         if (err[0] == '-') {
@@ -2697,6 +2715,7 @@ void syncWithMaster(connection *conn) {
     /* Receive CAPA reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_CAPA_REPLY) {
         err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
         /* Ignore the error if any, not all the Redis versions support
          * REPLCONF capa. */
         if (err[0] == '-') {
@@ -2809,6 +2828,10 @@ void syncWithMaster(connection *conn) {
     server.repl_transfer_last_fsync_off = 0;
     server.repl_transfer_lastio = server.unixtime;
     return;
+
+no_response_error: /* Handle receiveSynchronousResponse() error when master has no reply */
+    serverLog(LL_WARNING, "Master did not respond to command during SYNC handshake");
+    /* Fall through to regular error handling */
 
 error:
     if (dfd != -1) close(dfd);

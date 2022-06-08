@@ -11,7 +11,8 @@
             "NOSCRIPT",
             "SKIP_MONITOR",
             "NO_MANDATORY_KEYS",
-            "STALE"
+            "STALE",
+            "READONLY"
         ],
         "acl_categories": [
             "SCRIPTING"

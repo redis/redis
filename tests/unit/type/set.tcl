@@ -285,6 +285,13 @@ start_server {
             }
             assert_equal {1 2 3 4} [lsort [r smembers setres{t}]]
         }
+
+        test "SINTER/SUNION/SDIFF with three same sets - $type" {
+            set expected [lsort "[r smembers set1{t}]"]
+            assert_equal $expected [lsort [r sinter set1{t} set1{t} set1{t}]]
+            assert_equal $expected [lsort [r sunion set1{t} set1{t} set1{t}]]
+            assert_equal {} [lsort [r sdiff set1{t} set1{t} set1{t}]]
+        }
     }
 
     test "SDIFF with first set empty" {

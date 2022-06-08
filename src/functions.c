@@ -293,7 +293,7 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     entry = dictUnlink(lib_ctx->libraries, li->name);
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
-    lib_ctx->cache_memory += libraryMallocSize(li);
+    lib_ctx->cache_memory -= libraryMallocSize(li);
 
     /* update stats */
     functionsLibEngineStats *stats = dictFetchValue(lib_ctx->engines_stats, li->ei->name);
@@ -325,7 +325,7 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
 /* Takes all libraries from lib_ctx_src and add to lib_ctx_dst.
  * On collision, if 'replace' argument is true, replace the existing library with the new one.
  * Otherwise abort and leave 'lib_ctx_dst' and 'lib_ctx_src' untouched.
- * Return C_OK on success and C_ERR if aborted. If C_ERR is retunred, set a relevant
+ * Return C_OK on success and C_ERR if aborted. If C_ERR is returned, set a relevant
  * error message on the 'err' out parameter.
  *  */
 static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *functions_lib_ctx_src, int replace, sds *err) {
@@ -599,8 +599,20 @@ void functionDeleteCommand(client *c) {
     addReply(c, shared.ok);
 }
 
+/* FUNCTION KILL */
 void functionKillCommand(client *c) {
     scriptKill(c, 0);
+}
+
+/* Try to extract command flags if we can, returns the modified flags.
+ * Note that it does not guarantee the command arguments are right. */
+uint64_t fcallGetCommandFlags(client *c, uint64_t cmd_flags) {
+    robj *function_name = c->argv[1];
+    functionInfo *fi = dictFetchValue(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!fi)
+        return cmd_flags;
+    uint64_t script_flags = fi->f_flags;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
 }
 
 static void fcallCommandGeneric(client *c, int ro) {
@@ -778,6 +790,7 @@ load_error:
     }
 }
 
+/* FUNCTION FLUSH [ASYNC | SYNC] */
 void functionFlushCommand(client *c) {
     if (c->argc > 3) {
         addReplySubcommandSyntaxError(c);
@@ -803,6 +816,7 @@ void functionFlushCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/* FUNCTION HELP */
 void functionHelpCommand(client *c) {
     const char *help[] = {
 "LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
@@ -960,6 +974,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
 
     old_li = dictFetchValue(lib_ctx->libraries, md.name);
     if (old_li && !replace) {
+        old_li = NULL;
         *err = sdscatfmt(sdsempty(), "Library '%S' already exists", md.name);
         goto error;
     }
