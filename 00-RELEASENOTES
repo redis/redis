@@ -12,6 +12,89 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 7.0.1 Released Wed Jun 8 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: MODERATE, specifically if you're using a previous release of
+Redis 7.0, contains some behavior changes for new 7.0 features and important
+fixes for bugs in previous 7.0 releases.
+
+Improvements
+============
+
+* Add warning for suspected slow system clocksource setting
+  Add --check-system command line option. (#10636)
+* Allow read-only scripts (*_RO commands, and ones with `no-writes` flag)
+  during CLIENT PAUSE WRITE (#10744)
+* Add `readonly` flag in COMMAND command for EVAL_RO, EVALSHA_RO and FCALL_RO (#10728)
+* redis-server command line arguments now accept one string with spaces
+  for multi-arg configs (#10660)
+
+Potentially Breaking Changes
+============================
+
+* Omitting a config option value in command line argument no longer works (#10660)
+* Hide the `may_replicate` flag from the COMMAND command response (#10744)
+
+Potentially Breaking Changes for new Redis 7.0 features
+-------------------------------------------------------
+
+* Protocol: Sharded pubsub publish emits `smessage` instead of `message` (#10792)
+* CLUSTER SHARDS returns slots as RESP integers, not strings (#10683)
+* Block PFCOUNT and PUBLISH in read-only scripts (*_RO commands, and no-writes) (#10744)
+* Scripts that declare the `no-writes` flag are implicitly `allow-oom` too (#10699)
+
+Changes in CLI tools
+====================
+
+* redis-cli --bigkeys, --memkeys, --hotkeys, --scan. Finish nicely after Ctrl+C (#10736)
+
+Platform / toolchain support related improvements
+=================================================
+
+* Support tcp-keepalive config interval on MacOs (#10667)
+* Support RSS metrics on Haiku OS (#10687)
+
+INFO fields and introspection changes
+=====================================
+
+* Add isolated network metrics for replication. (#10062, #10810)
+
+Module API changes
+==================
+
+* Add two more new checks to RM_Call script mode (#10786)
+* Add new RM_Call flag to let Redis automatically refuse `deny-oom` commands (#10786)
+* Add module API RM_MallocUsableSize (#10795)
+* Add missing REDISMODULE_NOTIFY_NEW (#10688)
+* Fix cursor type in RedisModuleScanCursor to handle more than 2^31 elements (#10698)
+* Fix RM_Yield bugs and RM_Call("EVAL") OOM check bug (#10786)
+* Fix bugs in enum configs with overlapping bit flags (#10661)
+
+Bug Fixes
+=========
+
+* FLUSHALL correctly resets rdb_changes_since_last_save INFO field (#10691)
+* FLUSHDB is now propagated to replicas / AOF, even if the db is empty (#10691)
+* Replica fail and retry the PSYNC if the master is unresponsive (#10726)
+* Fix ZRANGESTORE crash when zset_max_listpack_entries is 0 (#10767)
+
+Fixes for issues in previous release candidates of Redis 7.0
+------------------------------------------------------------
+
+* CONFIG REWRITE could cause a config change to be dropped for aliased configs (#10811)
+* CONFIG REWRITE would omit rename-command and include lines (#10761)
+  NOTE: Affected users who used Redis 7.0.0 to rewrite their configuration file
+  should review and fix the file.
+* Fix broken protocol after MISCONF (persistence) error (#10786)
+* Fix --save command line regression (#10690)
+* Fix possible regression around TLS config changes. re-load files even if the
+  file name didn't change. (#10713)
+* Re-add SENTINEL SLAVES command, missing in redis 7.0 (#10723)
+* BZMPOP gets unblocked by non-key args and returns them (#10764)
+* Fix possible memory leak in XADD and XTRIM (#10753)
+
+================================================================================
 Redis 7.0.0 GA  Released Wed Apr 27 12:00:00 IST 2022
 ================================================================================
 
