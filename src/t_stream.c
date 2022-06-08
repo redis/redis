@@ -2235,7 +2235,7 @@ void xreadCommand(client *c) {
         } else if (!strcasecmp(o,"MKGROUP")) {
             if (!xreadgroup) {
                 addReplyError(c,"The MKGROUP option is only supported by "
-                                "XREADGROUP or XPENDING. You called XREAD instead.");
+                                "XREADGROUP, XPENDING, XCLAIM, and XAUTOCLAIM. You called XREAD instead.");
                 return;
             }
             mkgroup = 1;
@@ -2940,7 +2940,7 @@ void xpendingCommand(client *c) {
 
     if(c->argc == 4) {
 	mkgroup = 1;
-    } if (c->argc >= 6) {
+    } else if (c->argc >= 6) {
 	int totalOption = c->argc-1;
 	int startidx = 3; /* Without IDLE */
 
@@ -3185,13 +3185,13 @@ void xclaimCommand(client *c) {
     int justid = 0;
     int mkgroup = 0;
 
+    if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
     if (o == NULL) {
         addReplyErrorFormat(c, "No such key '%s'",
                                      (char*)c->argv[1]->ptr);
         return;
     }
    
-    if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
     group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     if(c->argc > 6 && !strcasecmp(c->argv[c->argc-1]->ptr,"MKGROUP")) {
        mkgroup = 1;
@@ -3396,7 +3396,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
+/* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID] [MKGROUP]
  *
  * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
@@ -3421,6 +3421,7 @@ void xautoclaimCommand(client *c) {
     streamID startid;
     int startex;
     int justid = 0;
+    int mkgroup = 0;
 
     /* Parse idle/start/end/count arguments ASAP if needed, in order to report
      * syntax errors before any other error. */
@@ -3446,6 +3447,8 @@ void xautoclaimCommand(client *c) {
             j++;
         } else if (!strcasecmp(opt,"JUSTID")) {
             justid = 1;
+        } else if (!strcasecmp(opt,"MKGROUP")) {
+            mkgroup = 1;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -3458,14 +3461,29 @@ void xautoclaimCommand(client *c) {
             return; /* Type error. */
         group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     }
-
-    /* No key or group? Send an error given that the group creation
-     * is mandatory. */
-    if (o == NULL || group == NULL) {
-        addReplyErrorFormat(c,"-NOGROUP No such key '%s' or consumer group '%s'",
-                            (char*)c->argv[1]->ptr,
-                            (char*)c->argv[2]->ptr);
+    if(o == NULL) {
+        addReplyErrorFormat(c, "No such key '%s'",
+                                     (char*)c->argv[1]->ptr);
         return;
+    }
+
+    if (group == NULL) {
+        if (!mkgroup) {
+           addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                  "group '%s'", (char*)c->argv[2]->ptr);
+           return;
+        }
+        streamID id;
+        id.ms = 0;
+        id.seq = 0;
+        group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
+        if(group) {
+            server.dirty++;
+            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
+        } else {
+            addReplyErrorFormat(c, "Create consumer group '%s' in CAUTOLAIM failed" , (char*)c->argv[2]->ptr);
+            return;
+        }
     }
 
     streamID *deleted_ids = ztrymalloc(count * sizeof(streamID));

@@ -10,6 +10,10 @@
             [
                 "6.2.0",
                 "Added the `IDLE` option and exclusive range intervals."
+            ],
+	    [
+                "7.2.0",
+                "Added MKGROUP option for creating consumer group if it does not exist"
             ]
         ],
         "command_flags": [

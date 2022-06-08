@@ -6,6 +6,12 @@
         "since": "5.0.0",
         "arity": -6,
         "function": "xclaimCommand",
+	"history": [
+            [
+                "7.2.0",
+                "Added MKGROUP option for creating consumer group if it does not exist"
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "FAST"
