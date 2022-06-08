@@ -1986,7 +1986,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
     decrRefCount(arg);
 }
 
-/* XADD key [NOMKSTREAM] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]]  <ID or *> field value [field value...] */
+/* XADD key [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] [NOMKSTREAM] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
@@ -2153,9 +2153,9 @@ void xlenCommand(client *c) {
     addReplyLongLong(c,s->length);
 }
 
-/* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key [key...] id [id...] 
+/* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key_1 key_2 ... key_N
+ *       ID_1 ID_2 ... ID_N 
  *       
- *
  * This function also implements the XREADGROUP command, which is like XREAD
  * but accepting the [GROUP group-name consumer-name] additional option.
  * This is useful because while XREAD is a read command and can be called
@@ -3045,7 +3045,7 @@ void xpendingCommand(client *c) {
     }
 }
 
-/* XCLAIM <key> <group> <consumer> <min-idle-time> <ID> [<ID>...]
+/* XCLAIM <key> <group> <consumer> <min-idle-time> <ID-1> <ID-2>
  *        [IDLE <milliseconds>] [TIME <mstime>] [RETRYCOUNT <count>]
  *        [FORCE] [JUSTID]
  *
@@ -3494,7 +3494,7 @@ void xautoclaimCommand(client *c) {
     preventCommandPropagation(c);
 }
 
-/* XDEL <key> <ID1> [<ID2> ... <IDN>]
+/* XDEL <key> [<ID1> <ID2> ... <IDN>]
  *
  * Removes the specified entries from the stream. Returns the number
  * of items actually deleted, that may be different from the number
