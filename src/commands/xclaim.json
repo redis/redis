@@ -94,6 +94,13 @@
                 "token": "LASTID",
                 "type": "string",
                 "optional": true
+	    },
+	    {
+                "name": "mkgroup",
+                "token": "MKGROUP",
+                "type": "pure-token",
+                "optional": true,
+		"since":"7.2.0"
             }
         ],
         "reply_schema": {

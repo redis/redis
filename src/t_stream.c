@@ -2901,7 +2901,7 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]]
+/* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]] [MKGROUP]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
@@ -2920,8 +2920,18 @@ void xpendingCommand(client *c) {
     long long count = 0;
     long long minidle = 0;
     int startex = 0, endex = 0;
-    int mkgroup = 0;     /* True if MKGROUP option for XREADGROUP was specified. */
+    int mkgroup = 0;   
 
+    robj *o = lookupKeyRead(c->db,key);
+    streamCG *group;
+
+    if (checkType(c,o,OBJ_STREAM)) return;
+    if (o == NULL) {
+        addReplyErrorFormat(c, "No such key '%s'",
+                                     (char*)key->ptr);
+        return;
+    }
+ 
     /* Start and stop, and the consumer, can be omitted. Also the IDLE modifier. */
     if (c->argc == 5 || c->argc > 10) {
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2977,22 +2987,11 @@ void xpendingCommand(client *c) {
 	}
     }
 
-    /* Lookup the key and the group inside the stream. */
-    robj *o = lookupKeyRead(c->db,c->argv[1]);
-    streamCG *group;
-
-    if (checkType(c,o,OBJ_STREAM)) return;
-    if (o == NULL) {
-        addReplyErrorFormat(c, "No such key '%s'",
-                                     (char*)key->ptr);
-        return;
-    }
     group = streamLookupCG(o->ptr,groupname->ptr);
     if(group == NULL) {
 	if (!mkgroup) {
 	          addReplyErrorFormat(c, "-NOGROUP No consumer "
-                                       "group '%s' in XREADGROUP with GROUP "
-                                       "option",(char*)groupname->ptr);
+                                       "group '%s'",(char*)groupname->ptr);
                  return;
 	} 
         streamID id;
@@ -3112,7 +3111,7 @@ void xpendingCommand(client *c) {
 
 /* XCLAIM <key> <group> <consumer> <min-idle-time> <ID-1> <ID-2>
  *        [IDLE <milliseconds>] [TIME <mstime>] [RETRYCOUNT <count>]
- *        [FORCE] [JUSTID]
+ *        [FORCE] [JUSTID] [MKGROUP]
  *
  * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
@@ -3184,19 +3183,37 @@ void xclaimCommand(client *c) {
     mstime_t deliverytime = -1;  /* -1 means IDLE/TIME options not given. */
     int force = 0;
     int justid = 0;
+    int mkgroup = 0;
 
-    if (o) {
-        if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
-        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
-    }
-
-    /* No key or group? Send an error given that the group creation
-     * is mandatory. */
-    if (o == NULL || group == NULL) {
-        addReplyErrorFormat(c,"-NOGROUP No such key '%s' or "
-                              "consumer group '%s'", (char*)c->argv[1]->ptr,
-                              (char*)c->argv[2]->ptr);
+    if (o == NULL) {
+        addReplyErrorFormat(c, "No such key '%s'",
+                                     (char*)c->argv[1]->ptr);
         return;
+    }
+   
+    if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
+    group = streamLookupCG(o->ptr,c->argv[2]->ptr);
+    if(c->argc > 6 && !strcasecmp(c->argv[c->argc-1]->ptr,"MKGROUP")) {
+       mkgroup = 1;
+    }
+    
+    if (group == NULL) {
+        if (!mkgroup) {
+	   addReplyErrorFormat(c, "-NOGROUP No consumer "
+                                  "group '%s'", (char*)c->argv[2]->ptr);
+           return;
+	}
+	streamID id;
+        id.ms = 0;
+        id.seq = 0;
+        group = streamCreateCG(o->ptr,c->argv[2]->ptr,strlen(c->argv[2]->ptr),&id,SCG_INVALID_ENTRIES_READ);
+        if(group) {
+            server.dirty++;
+            notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",c->argv[1],c->db->id);
+        } else {
+            addReplyErrorFormat(c, "Create consumer group '%s' in CLAIMfailed" , (char*)c->argv[2]->ptr);
+	    return;
+        }       
     }
 
     if (getLongLongFromObjectOrReply(c,c->argv[4],&minidle,
