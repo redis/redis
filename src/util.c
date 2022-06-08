@@ -522,7 +522,7 @@ int string2ld(const char *s, size_t slen, long double *dp) {
     if (isspace(buf[0]) || eptr[0] != '\0' ||
         (size_t)(eptr-buf) != slen ||
         (errno == ERANGE &&
-            (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+            (value == HUGE_VAL || value == -HUGE_VAL || fpclassify(value) == FP_ZERO)) ||
         errno == EINVAL ||
         isnan(value))
         return 0;
@@ -546,7 +546,7 @@ int string2d(const char *s, size_t slen, double *dp) {
         isspace(((const char*)s)[0]) ||
         (size_t)(eptr-(char*)s) != slen ||
         (errno == ERANGE &&
-            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
         isnan(*dp))
         return 0;
     return 1;

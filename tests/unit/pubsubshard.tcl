@@ -7,14 +7,14 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal {2} [ssubscribe $rd1 {chan2}]
         assert_equal 1 [r SPUBLISH chan1 hello]
         assert_equal 1 [r SPUBLISH chan2 world]
-        assert_equal {message chan1 hello} [$rd1 read]
-        assert_equal {message chan2 world} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
+        assert_equal {smessage chan2 world} [$rd1 read]
 
         # unsubscribe from one of the channels
         sunsubscribe $rd1 {chan1}
         assert_equal 0 [r SPUBLISH chan1 hello]
         assert_equal 1 [r SPUBLISH chan2 world]
-        assert_equal {message chan2 world} [$rd1 read]
+        assert_equal {smessage chan2 world} [$rd1 read]
 
         # unsubscribe from the remaining channel
         sunsubscribe $rd1 {chan2}
@@ -32,8 +32,8 @@ start_server {tags {"pubsubshard external:skip"}} {
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         assert_equal {1} [ssubscribe $rd2 {chan1}]
         assert_equal 2 [r SPUBLISH chan1 hello]
-        assert_equal {message chan1 hello} [$rd1 read]
-        assert_equal {message chan1 hello} [$rd2 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd2 read]
 
         # clean up clients
         $rd1 close
@@ -58,7 +58,7 @@ start_server {tags {"pubsubshard external:skip"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [ssubscribe $rd1 {chan1 chan1 chan1}]
         assert_equal 1 [r SPUBLISH chan1 hello]
-        assert_equal {message chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
 
         # clean up clients
         $rd1 close
@@ -129,9 +129,9 @@ start_server {tags {"pubsubshard external:skip"}} {
 
         assert_equal {1} [ssubscribe $rd1 {chan1}]
         $rd0 SPUBLISH chan1 hello
-        assert_equal {message chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
         $rd0 SPUBLISH chan1 world
-        assert_equal {message chan1 world} [$rd1 read]
+        assert_equal {smessage chan1 world} [$rd1 read]
     }
 }
 }

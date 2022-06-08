@@ -2014,7 +2014,9 @@ void bugReportEnd(int killViaSignal, int sig) {
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
+"  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
+"  Some other issues could be detected by redis-server --check-system\n"
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */

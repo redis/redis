@@ -1,0 +1,27 @@
+{
+    "SLAVES": {
+        "summary": "List the monitored slaves",
+        "complexity": "O(N) where N is the number of slaves",
+        "group": "sentinel",
+        "since": "2.8.0",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`SENTINEL REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}
