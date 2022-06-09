@@ -124,6 +124,20 @@ start_server {
         }
     }
 
+    test {XPENDING with MKGROUP option to create consumer group} {
+	r XADD mystream_extra * t 1
+	r XADD mystream_extra * s 2
+	catch {[r XPENDING mystream_extra mygroup2 - + 10]} err
+        assert_match {*No consumer group 'mygroup2'*} $err
+
+	set pending [r XPENDING mystream_extra mygroup2 - + 10 MKGROUP]
+        assert {[llength $pending] == 0}
+	r XREADGROUP GROUP mygroup2 consumer-1 COUNT 10 STREAMS mystream_extra ">"
+	set pending [r XPENDING mystream_extra mygroup2 - + 10]
+        assert {[llength $pending] == 2}
+    }
+
+
     test {XACK is able to remove items from the consumer/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 consumer-1]
         set id1 [lindex $pending 0 0]
@@ -211,6 +225,20 @@ start_server {
         set res [r XREADGROUP GROUP mygroup myconsumer STREAMS mystream 0-1]
         assert {[lindex $res 0 1 0] == {1-0 {}}}
         assert {[lindex $res 0 1 1] == {2-0 {field1 B}}}
+    }
+
+    test {XREADGROUP with MKGROUP option to create consumer group} {
+        r del mystream
+        r XADD mystream * c 3
+        r XADD mystream * d 4
+        catch {[r XREADGROUP GROUP mygroup myconsumer STREAMS mystream ">"]} err
+        assert_match {*No consumer group 'mygroup' in XREADGROUP*} $err
+
+	set reply [
+            r XREADGROUP GROUP mygroup myconsumer MKGROUP STREAMS mystream ">"
+        ]
+        assert {[llength [lindex $reply 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {c 3}}
     }
 
     test {Blocking XREADGROUP will not reply with an empty array} {
@@ -566,6 +594,39 @@ start_server {
         assert {[llength $reply] == 0}
     }
 
+    test {XCLAIM with MKGROUP option to create consumer group} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+
+        after 200
+        catch {[r XCLAIM mystream mygroup consumer2 10 $id1]} err
+        assert_match {*No consumer group 'mygroup'*} $err
+
+        after 200
+        set reply [
+            r XCLAIM mystream mygroup consumer2 10 $id1 MKGROUP
+        ]
+        assert {[llength $reply] == 0}
+
+	after 200
+	set reply [
+            r XREADGROUP GROUP mygroup consumer1 count 1 STREAMS mystream >
+        ]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+
+	after 200
+        set reply [
+            r XCLAIM mystream mygroup consumer2 10 $id1
+        ]
+        assert {[llength [lindex $reply 0 1]] == 2}
+        assert {[lindex $reply 0 1] eq {a 1}}
+    }
+
+
     test {XCLAIM without JUSTID increments delivery count} {
         # Add 3 items into the stream, and create a consumer group
         r del mystream
@@ -697,6 +758,28 @@ start_server {
         assert_equal [lindex $reply 1 0] $id1
         assert_equal [lindex $reply 1 1] $id3
     }
+
+    test {XAUTOCLAIM with MKGROUP option to create consumer group} {
+        # Add 5 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        set id4 [r XADD mystream * d 4]
+        set id5 [r XADD mystream * e 5]
+	
+	after 200
+        catch {[r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]} err
+        assert_match {*No consumer group 'mygroup'*} $err
+
+	after 200
+	r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2 MKGROUP
+
+	after 200
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2 MKGROUP]
+        assert_equal [llength $reply] 3
+    }
+
 
     test {XAUTOCLAIM as an iterator} {
         # Add 5 items into the stream, and create a consumer group

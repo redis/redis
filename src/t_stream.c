@@ -3267,6 +3267,8 @@ void xclaimCommand(client *c) {
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
             j++;
             if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0,NULL) != C_OK) goto cleanup;
+        } else if (!strcasecmp(opt,"MKGROUP")) {
+	    continue;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             goto cleanup;
