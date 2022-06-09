@@ -1249,7 +1249,7 @@ static int matchArg(char **nextword, int numwords, commandArg *arg) {
 /* Tries to match the next words of the input against
  * any one of a consecutive set of optional arguments.
  */
-static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int numargs) {
+static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int numargs, int *matchedarg) {
     for (int nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
         if (args[nextarg].matched) {
             /* Already matched this arg. */
@@ -1258,6 +1258,7 @@ static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int
 
         int matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
         if (matchedWords != 0) {
+            *matchedarg = nextarg;
             return matchedWords;
         }
     }
@@ -1267,11 +1268,19 @@ static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int
 /* Matches as many input words as possible against a set of consecutive optional arguments. */
 static int matchOptionalArgs(char **words, int numwords, commandArg *args, int numargs) {
     int nextword = 0;
+    int matchedarg = -1, lastmatchedarg = -1;
     while (nextword != numwords) {
-        int matchedWords = matchOneOptionalArg(&words[nextword], numwords - nextword, args, numargs);
+        int matchedWords = matchOneOptionalArg(&words[nextword], numwords - nextword, args, numargs, &matchedarg);
         if (matchedWords == 0) {
             break;
         }
+        /* Successfully matched an optional arg; mark any previous match as completed
+         * so it won't be partially hinted.
+         */
+        if (lastmatchedarg != -1) {
+            args[lastmatchedarg].matched_all = 1;
+        }
+        lastmatchedarg = matchedarg;
         nextword += matchedWords;
     }
     return nextword;
