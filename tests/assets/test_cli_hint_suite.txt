@@ -22,14 +22,15 @@
 "XRANGE k 4 2 COUNT " "count"
 
 # Command with required token block arg: BITFIELD_RO key GET encoding offset [encoding offset ...]
-"BITFIELD_RO k " "GET encoding offset [encoding offset ...]"
-"BITFIELD_RO k GE" "GET encoding offset [encoding offset ...]"
-"BITFIELD_RO k GET" "GET encoding offset [encoding offset ...]"
-"BITFIELD_RO k GET " "encoding offset [encoding offset ...]"
-"BITFIELD_RO k GET xyz " "offset [encoding offset ...]"
-"BITFIELD_RO k GET xyz 12 " "[encoding offset ...]"
-"BITFIELD_RO k GET enc1 12 enc2 " "offset [encoding offset ...]"
-"BITFIELD_RO k GET enc1 12 enc2 34 " "[encoding offset ...]"
+"BITFIELD_RO k " "GET encoding offset [GET encoding offset ...]"
+"BITFIELD_RO k GE" "GET encoding offset [GET encoding offset ...]"
+"BITFIELD_RO k GET" "GET encoding offset [GET encoding offset ...]"
+"BITFIELD_RO k GET " "encoding offset [GET encoding offset ...]"
+"BITFIELD_RO k GET xyz " "offset [GET encoding offset ...]"
+"BITFIELD_RO k GET xyz 12 " "[GET encoding offset ...]"
+"BITFIELD_RO k GET xyz 12 GET " "encoding offset [GET encoding offset ...]"
+"BITFIELD_RO k GET enc1 12 GET enc2 " "offset [GET encoding offset ...]"
+"BITFIELD_RO k GET enc1 12 GET enc2 34 " "[GET encoding offset ...]"
 
 # Two-word command with multiple non-token block args:  CONFIG SET parameter value [parameter value ...]
 "CONFIG SET param " "value [parameter value ...]"
