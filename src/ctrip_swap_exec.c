@@ -485,7 +485,7 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, sds *rawkeys) {
 
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in.del","numkeys=%d,retval=%d",
             numkeys, retval);
-
+    RIODeinit(rio);
     return retval;
 }
 
