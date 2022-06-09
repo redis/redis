@@ -1720,7 +1720,11 @@ struct redisServer {
     struct ctripRdbLoadCtx *rdb_load_ctx; /* parallel swap for rdb load */
     /* request wait */
     struct requestListeners *request_listeners; /* server level request listeners */
+    /* big object */
     uint64_t meta_version; /* global meta version for objectMeta */
+    int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
+    unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
+    unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */
 };
 
 #define MAX_KEYS_BUFFER 256

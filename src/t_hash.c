@@ -871,6 +871,14 @@ void hlenCommand(client *c) {
 
 void hstrlenCommand(client *c) {
     robj *o;
+    objectMeta *m = lookupMeta(c->db,c->argv[1]);
+    if (m != NULL) {
+        size_t hash_len = m->len;
+        o = lookupKeyRead(c->db, c->argv[1]);
+        if (o != NULL) hash_len += hashTypeLength(o);
+        addReplyLongLong(c,hash_len);
+        return;
+    }
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;

@@ -88,9 +88,9 @@ dictType dbMetaDictType = {
     dictExpandAllowed           /* allow to expand */
 };
 
-objectMeta *createObjectMeta() {
+objectMeta *createObjectMeta(size_t len) {
     objectMeta *m = zmalloc(sizeof(objectMeta));
-    m->len = 0;
+    m->len = len;
     m->version = server.meta_version++;
     return m;
 }
@@ -143,7 +143,7 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
         char *key1raw = "key1", *val1raw = "val1";
         robj *key1 = createStringObject(key1raw, sizeof(key1raw)); 
         robj *val1 = createStringObject(val1raw, sizeof(val1raw)); 
-        objectMeta *m = createObjectMeta();
+        objectMeta *m = createObjectMeta(1);
 
         dbAdd(db,key1,val1);
         dbAddMeta(db,key1,m);

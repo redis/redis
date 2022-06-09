@@ -29,15 +29,19 @@
 #include "ctrip_swap.h"
 
 swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict,
-        void **datactx) {
-    int obj_type;
+        objectMeta *meta, void **datactx) {
+    int obj_type, big;
     swapData *data;
 
     obj_type = value ? value->type : evict->type;
+    big = value ? value->big : evict->big;
     switch (obj_type) {
-    case OBJ_HASH:
     case OBJ_STRING:
         data = createWholeKeySwapData(db,key,value,evict,datactx);
+        break;
+    case OBJ_HASH:
+        if (big) data = createBigHashSwapData(db,key,value,evict,meta,datactx);
+        else data = createWholeKeySwapData(db,key,value,evict,datactx);
         break;
     default:
         data = NULL;
@@ -52,30 +56,30 @@ swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict,
  * evicted, then intention is decided as NOP. */ 
 inline int swapDataAna(swapData *d, int cmd_intention,
         uint32_t cmd_intention_flags, struct keyRequest *key_request,
-        int *intention, uint32_t *intention_flags) {
+        int *intention, uint32_t *intention_flags, void *datactx) {
     if (d->type->swapAna)
         return d->type->swapAna(d,cmd_intention,cmd_intention_flags,
-                key_request, intention,intention_flags);
+                key_request, intention,intention_flags,datactx);
     else
         return 0;
 }
 
 /* Swap-thread: decide how to encode keys by data and intention. */
-inline int swapDataEncodeKeys(swapData *d, int intention, int *action,
-        int *numkeys, sds **rawkeys) {
+inline int swapDataEncodeKeys(swapData *d, int intention, void *datactx,
+        int *action, int *numkeys, sds **rawkeys) {
     if (d->type->encodeKeys)
-        return d->type->encodeKeys(d,intention,action,numkeys,rawkeys);
+        return d->type->encodeKeys(d,intention,datactx,action,numkeys,rawkeys);
     else
         return 0;
 }
 
 /* Swap-thread: decode how to encode val/subval by data and intention.
  * dataactx can be used store context of which subvals are encoded. */
-inline int swapDataEncodeData(swapData *d, int intention, int *action,
-        int *numkeys, sds **rawkeys, sds **rawvals, void *datactx) {
+inline int swapDataEncodeData(swapData *d, int intention, void *datactx,
+        int *action, int *numkeys, sds **rawkeys, sds **rawvals) {
     if (d->type->encodeData)
-        return d->type->encodeData(d,intention,action,numkeys,rawkeys,
-                rawvals,datactx);
+        return d->type->encodeData(d,intention,datactx,action,
+                numkeys,rawkeys,rawvals);
     else
         return 0;
 }

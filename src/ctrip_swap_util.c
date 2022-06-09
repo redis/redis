@@ -78,14 +78,18 @@ sds rocksEncodeKey(int obj_type, sds key) {
 }
 
 sds rocksEncodeSubkey(int obj_type, sds key, sds subkey) {
-    sds rawkey = sdsnewlen(SDS_NOINIT,
-            1+sizeof(keylen_t)+sdslen(key)+sdslen(subkey));
+    size_t subkeylen = subkey ? sdslen(subkey) : 0;
+    size_t rawkeylen = 1+sizeof(keylen_t)+sdslen(key)+subkeylen;
+    sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen);
+            
     char *ptr = rawkey;
     keylen_t keylen = (keylen_t)sdslen(key);
     ptr[0] = typeO2S(obj_type), ptr++;
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, sdslen(key)), ptr += sdslen(key);
-    memcpy(ptr, subkey, sdslen(subkey)), ptr += sdslen(subkey);
+    if (subkey) {
+        memcpy(ptr, subkey, sdslen(subkey)), ptr += sdslen(subkey);
+    }
     return rawkey;
 }
 
@@ -164,3 +168,16 @@ size_t keyComputeSize(redisDb *db, robj *key) {
     return val ? objectComputeSize(val, 5): 0;
 }
 
+/* Create an unshared object from src, note that o.refcount decreased. */
+robj *unshareStringValue(robj *o) {
+    serverAssert(o->type == OBJ_STRING);
+    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
+        robj *decoded = getDecodedObject(o);
+        decrRefCount(o);
+        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+        decrRefCount(decoded);
+        return o;
+    } else {
+        return o;
+    }
+}

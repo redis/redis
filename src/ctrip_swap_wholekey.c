@@ -30,9 +30,9 @@
 
 int wholeKeySwapAna(swapData *data_, int cmd_intention,
         uint32_t cmd_intention_flags, struct keyRequest *req,
-        int *intention, uint32_t *intention_flags) {
+        int *intention, uint32_t *intention_flags, void *datactx) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
-    UNUSED(req);
+    UNUSED(req), UNUSED(datactx);
     if (intention_flags) *intention_flags = cmd_intention_flags;
     switch(cmd_intention) {
     case SWAP_NOP:
@@ -90,9 +90,10 @@ static sds wholeKeyEncodeKey(swapData *data_) {
     return rocksEncodeKey(obj_type, data->key->ptr);
 }
 
-int wholeKeyEncodeKeys(swapData *data, int intention, int *action,
-        int *numkeys, sds **prawkeys) {
+int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
+        int *action, int *numkeys, sds **prawkeys) {
     sds *rawkeys = zmalloc(sizeof(sds*));
+    UNUSED(datactx);
     rawkeys[0] = wholeKeyEncodeKey(data);
     *numkeys = 1;
     *prawkeys = rawkeys;
@@ -108,9 +109,10 @@ int wholeKeyEncodeKeys(swapData *data, int intention, int *action,
     default:
         sdsfree(rawkeys[0]);
         zfree(rawkeys);
+        rawkeys = NULL;
         *action = SWAP_NOP;
         *numkeys = 0;
-        *rawkeys = NULL;
+        *prawkeys = NULL;
         return C_ERR;
     }
     return C_OK;
@@ -125,8 +127,8 @@ static sds wholeKeyEncodeVal(swapData *data_) {
     }
 }
 
-int wholeKeyEncodeData(swapData *data, int intention, int *action,
-        int *numkeys, sds **prawkeys, sds **prawvals, void *datactx) {
+int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
+        int *action, int *numkeys, sds **prawkeys, sds **prawvals) {
     UNUSED(datactx);
     serverAssert(intention == SWAP_OUT);
     sds *rawkeys = zmalloc(sizeof(sds*));
@@ -193,7 +195,7 @@ int wholeKeySwapIn(swapData *data_, robj *result, void *datactx) {
     return 0;
 }
 
-robj *createSwapOutObject(robj *value, robj *evict) {
+static robj *createSwapOutObject(robj *value, robj *evict) {
     robj *swapout;
 
     serverAssert(value);
@@ -300,13 +302,13 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, NULL, NULL, NULL, &ctx);
         int intention;
         uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
         
         freeWholeKeySwapData(data, ctx);
@@ -318,18 +320,18 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, NULL, value, NULL, &ctx);
         int intention;
         uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
         test_assert(intention_flags == INTENTION_DEL_ASYNC);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_OUT);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
-        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
         test_assert(intention_flags == INTENTION_DEL_ASYNC);
         freeWholeKeySwapData(data, ctx);
@@ -341,18 +343,18 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, NULL, NULL, evict, &ctx);
         int intention;
         uint32_t intention_flags;
-        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_NOP, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_IN, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_IN);
-        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_IN, INTENTION_IN_DEL, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_IN);
         test_assert(intention_flags == INTENTION_IN_DEL);
-        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_OUT, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_NOP);
-        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_DEL, 0, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
-        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags);
+        wholeKeySwapAna(data, SWAP_DEL, INTENTION_DEL_ASYNC, NULL, &intention, &intention_flags, ctx);
         test_assert(intention == SWAP_DEL);
         test_assert(intention_flags == INTENTION_DEL_ASYNC);
         freeWholeKeySwapData(data, ctx);
@@ -366,7 +368,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
         test_assert(numkeys == 1);
         test_assert(strcmp(rawkeys[0], "Kkey")== 0);
         test_assert(result == C_OK);
@@ -381,17 +383,17 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
         test_assert(strcmp(rawkeys[0], "Kkey")== 0);
         test_assert(result == C_OK);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, &action, &numkeys, &rawkeys);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
         test_assert(strcmp(rawkeys[0], "Kkey")== 0);
         test_assert(result == C_OK);
-        // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
+        // result = wholeKeyEncodeKeys(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys);
         // serverAssert(numkeys == 0);
         // serverAssert(result == C_ERR);
         freeWholeKeySwapData(data, ctx);
@@ -405,17 +407,17 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL;
-        int result = wholeKeyEncodeKeys(data, SWAP_IN, &action, &numkeys, &rawkeys);
+        int result = wholeKeyEncodeKeys(data, SWAP_IN, ctx, &action, &numkeys, &rawkeys);
         test_assert(ROCKS_GET == action);
         test_assert(numkeys == 1);
         test_assert(strcmp(rawkeys[0], "Kkey")== 0);
         test_assert(result == C_OK);
-        result = wholeKeyEncodeKeys(data, SWAP_DEL, &action, &numkeys, &rawkeys);
+        result = wholeKeyEncodeKeys(data, SWAP_DEL, ctx, &action, &numkeys, &rawkeys);
         test_assert(ROCKS_DEL == action);
         test_assert(numkeys == 1);
         test_assert(strcmp(rawkeys[0], "Kkey")== 0);
         test_assert(result == C_OK);
-        // result = wholeKeyEncodeKeys(data, SWAP_OUT, &action, &numkeys, &rawkeys);
+        // result = wholeKeyEncodeKeys(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys);
         // serverAssert(numkeys == 0);
         // serverAssert(result == C_ERR);
         freeWholeKeySwapData(data, ctx);
@@ -429,7 +431,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         swapData* data = createWholeKeySwapData(db, key, value, evict, &ctx);
         int numkeys, action;
         sds *rawkeys = NULL, *rawvals = NULL;
-        int result = wholeKeyEncodeData(data, SWAP_OUT,  &action, &numkeys, &rawkeys, &rawvals, NULL);
+        int result = wholeKeyEncodeData(data, SWAP_OUT, ctx, &action, &numkeys, &rawkeys, &rawvals);
         test_assert(result == C_OK);
         test_assert(ROCKS_PUT == action);
         test_assert(numkeys == 1);

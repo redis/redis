@@ -347,7 +347,8 @@ static int executeSwapDelRequest(swapRequest *req) {
     rocksdb_writebatch_t *wb;
     swapData *data = req->data;
 
-    if (swapDataEncodeKeys(data,req->intention,&action,&numkeys,&rawkeys)) {
+    if (swapDataEncodeKeys(data,req->intention,req->datactx,
+                &action,&numkeys,&rawkeys)) {
         retval = EXEC_FAIL;
         goto end;
     }
@@ -401,8 +402,8 @@ static int executeSwapOutRequest(swapRequest *req) {
     rocksdb_writebatch_t *wb = NULL;
     swapData *data = req->data;
 
-    if (swapDataEncodeData(data,req->intention,&action,&numkeys,
-                &rawkeys,&rawvals,req->datactx)) {
+    if (swapDataEncodeData(data,req->intention,req->datactx,
+                &action,&numkeys, &rawkeys,&rawvals)) {
         retval = EXEC_FAIL;
         goto end;
     }
@@ -496,7 +497,8 @@ static int executeSwapInRequest(swapRequest *req) {
     RIO _rio = {0}, *rio = &_rio;
     swapData *data = req->data;
 
-    if (swapDataEncodeKeys(data,req->intention,&action,&numkeys,&rawkeys)) {
+    if (swapDataEncodeKeys(data,req->intention,req->datactx,
+                &action,&numkeys,&rawkeys)) {
         retval = EXEC_FAIL;
         goto end;
     }
@@ -520,7 +522,7 @@ static int executeSwapInRequest(swapRequest *req) {
         DEBUG_MSGS_APPEND(req->msgs,"execswap-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & INTENTION_IN_DEL) {
-            if (doSwapIntentionDel(req, numkeys, rawkeys)) {
+            if (doSwapIntentionDel(req,numkeys,rawkeys)) {
                 retval = EXEC_FAIL;
                 goto end;
             }
@@ -778,7 +780,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
        int numkeys, action;
        sds *rawkeys;
        RIO _rio = {0}, *rio = &_rio;
-       swapDataEncodeKeys(out_data,SWAP_IN,&action,&numkeys,&rawkeys);
+       swapDataEncodeKeys(out_data,SWAP_IN,NULL,&action,&numkeys,&rawkeys);
        test_assert(numkeys == 1);
        RIOInitGet(rio, rawkeys[0]);
        doRIO(rio);

@@ -45,6 +45,7 @@ robj *createObject(int type, void *ptr) {
     o->ptr = ptr;
     o->refcount = 1;
     o->dirty = 1;
+    o->big = 0;
     o->reserved = 0;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
@@ -92,6 +93,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->ptr = sh+1;
     o->refcount = 1;
     o->dirty = 1;
+    o->big = 0;
     o->reserved = 0;
 
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {

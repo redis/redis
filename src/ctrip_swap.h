@@ -91,6 +91,10 @@ void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, robj *k
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 
 /* --- Data --- */
+#define IN        /* Input parameter */
+#define OUT       /* Output parameter */
+#define INOUT     /* Input/Output parameter */
+
 #define SWAP_NOP    0
 #define SWAP_IN     1
 #define SWAP_OUT    2
@@ -116,10 +120,10 @@ typedef struct swapData {
  * dataCtx: dynamic data when swapping.  */
 typedef struct swapDataType {
   char *name;
-  int (*swapAna)(struct swapData *data, int cmd_intention, uint32_t cmd_intention_flags, struct keyRequest *key_request, int *intention, uint32_t *intention_flags);
-  int (*encodeKeys)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys);
-  int (*encodeData)(struct swapData *data, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
-  int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, robj **decoded);
+  int (*swapAna)(struct swapData *data, int cmd_intention, uint32_t cmd_intention_flags, OUT struct keyRequest *key_request, OUT int *intention, OUT uint32_t *intention_flags, OUT void *datactx);
+  int (*encodeKeys)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT sds **rawkeys);
+  int (*encodeData)(struct swapData *data, int intention, void *datactx, OUT int *action, OUT int *num, OUT sds **rawkeys, OUT sds **rawvals);
+  int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, OUT robj **decoded);
   int (*swapIn)(struct swapData *data, robj *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
   int (*swapDel)(struct swapData *data, void *datactx);
@@ -128,9 +132,9 @@ typedef struct swapDataType {
   void (*free)(struct swapData *data, void *datactx);
 } swapDataType;
 
-int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flag, struct keyRequest *key_request, int *intention, uint32_t *intention_flag);
-int swapDataEncodeKeys(swapData *d, int intention, int *action, int *num, sds **rawkeys);
-int swapDataEncodeData(swapData *d, int intention, int *action, int *num, sds **rawkeys, sds **rawvals, void *datactx);
+int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flag, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
+int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys);
+int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys, sds **rawvals);
 int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
 int swapDataSwapIn(swapData *d, robj *result, void *datactx);
 int swapDataSwapOut(swapData *d, void *datactx);
@@ -199,7 +203,8 @@ typedef struct swapCtx {
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
 void swapCtxFree(swapCtx *ctx);
 
-swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, void **datactx);
+struct objectMeta;
+swapData *createSwapData(redisDb *db, robj *key, robj *value, robj *evict, struct objectMeta *meta, void **datactx);
 
 /* Whole key */
 typedef struct wholeKeySwapData {
@@ -224,11 +229,11 @@ extern dictType dbMetaDictType;
 } while(0)
 
 typedef struct objectMeta {
-  size_t len;
+  ssize_t len;
   uint64_t version;
 } objectMeta;
 
-objectMeta *createObjectMeta();
+objectMeta *createObjectMeta(size_t len);
 objectMeta *dupObjectMeta(objectMeta *m);
 void freeObjectMeta(objectMeta *m);
 
@@ -245,22 +250,23 @@ void dbSetBig(redisDb *db, robj *key);
 int objectIsBig(robj *o);
 
 /* Big hash */
-typedef struct hashSwapData {
+typedef struct bigHashSwapData {
   swapData d;
   redisDb *db;
   robj *key;
   robj *value;
   robj *evict;
-} hashSwapData;
+  objectMeta *meta;
+} bigHashSwapData;
 
-typedef struct hashDataCtx {
+typedef struct bigHashDataCtx {
   int num;
   robj **subkeys;
-  int num_absent;
-  robj **absent_subkeys;
-} hashDataCtx;
+  ssize_t meta_len_delta;
+} bigHashDataCtx;
 
-swapData *createHashSwapData(redisDb *db, sds key);
+void hashTransformBig(robj *o, objectMeta *m);
+swapData *createBigHashSwapData(redisDb *db, robj *key, robj *value, robj *evict, objectMeta *meta, void **pdatactx);
 
 /* --- Exec --- */
 struct swapRequest;
@@ -608,6 +614,7 @@ sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
 int rocksDecodeSubkey(const char *raw, size_t rawlen, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
+robj *unshareStringValue(robj *value);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
 void swapCommand(client *c);
@@ -632,6 +639,7 @@ int clearTestRedisDb(void);
 int clearTestRedisServer(void);
 
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
+int swapDataBigHashTest(int argc, char **argv, int accurate);
 int swapDataTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);

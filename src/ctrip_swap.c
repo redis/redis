@@ -155,6 +155,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     swapData *data;
     swapCtx *ctx = pd;
     robj *value, *evict;
+    objectMeta *meta;
     char *reason;
     void *msgs = NULL;
     UNUSED(reason);
@@ -168,13 +169,14 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     value = lookupKey(db,key,LOOKUP_NOTOUCH);
     evict = lookupEvictKey(db,key);
+    meta = lookupMeta(db,key);
 
     if (!value && !evict) {
         reason = "key not exists";
         goto noswap;
     }
 
-    data = createSwapData(db,key,value,evict,&datactx);
+    data = createSwapData(db,key,value,evict,meta,&datactx);
 
     if (data == NULL) {
         reason = "data not support swap";
@@ -188,13 +190,13 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     /* Expired key will be delete before execute command proc. */
     if (keyExpiredAndShouldDelete(db,key)) {
         cmd_intention = SWAP_DEL;
-        cmd_intention_flags &= ~INTENTION_DEL_ASYNC;
+        cmd_intention_flags = 0;
         ctx->expired = 1;
     }
 
     if (swapDataAna(data,cmd_intention,cmd_intention_flags,
                 ctx->key_request, &ctx->swap_intention,
-                &ctx->swap_intention_flags)) {
+                &ctx->swap_intention_flags,ctx->datactx)) {
         ctx->errcode = SWAP_ERR_ANA_FAIL;
         retval = C_ERR;
         reason = "swap ana failed";
@@ -403,10 +405,12 @@ int initTestRedisDb() {
     return 1;
 }
 
+void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     server.meta_version = 0;
+    createSharedObjects();
     initTestRedisDb();
     return 1;
 }
@@ -421,6 +425,8 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapExecTest(argc, argv, accurate);
   result += swapRdbTest(argc, argv, accurate);
   result += swapObjectTest(argc, argv, accurate);
+  result += swapDataWholeKeyTest(argc, argv, accurate);
+  result += swapDataBigHashTest(argc, argv, accurate);
   return result;
 }
 #endif

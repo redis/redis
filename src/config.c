@@ -2533,6 +2533,7 @@ standardConfig configs[] = {
     createIntConfig("debug-evict-keys", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_evict_keys, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("ps-parallism-rdb", NULL, MODIFIABLE_CONFIG, 4, 16384, server.ps_parallism_rdb, 32, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("swap-evict-step-max-subkeys", NULL, MODIFIABLE_CONFIG, 0, 65536, server.swap_evict_step_max_subkeys, 1024, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -2556,6 +2557,8 @@ standardConfig configs[] = {
     createULongLongConfig("maxdisk", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.maxdisk, 0, MEMORY_CONFIG, NULL, NULL), /* Default: 80gb */
     createULongLongConfig("swap-memory-slowdown", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_slowdown, 64*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 64mb */
     createULongLongConfig("swap-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
+    createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
+    createULongLongConfig("swap-big-hash-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_big_hash_threshold, 256*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 256k */
 
     /* Size_t configs */
     createSizeTConfig("hash-max-ziplist-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_ziplist_entries, 512, INTEGER_CONFIG, NULL, NULL),

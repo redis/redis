@@ -179,15 +179,16 @@ void rdbLoadSwapDataFree(swapData *data_, void *datactx) {
 
 int rdbLoadSwapAna(swapData *data, int cmd_intention,
         uint32_t cmd_intention_flags, struct keyRequest *req,
-        int *intention, uint32_t *intention_flags) {
+        int *intention, uint32_t *intention_flags, void *datactx) {
     UNUSED(data), UNUSED(cmd_intention), UNUSED(cmd_intention_flags),
-    UNUSED(req), UNUSED(intention_flags);
+    UNUSED(req), UNUSED(intention_flags), UNUSED(datactx);
     *intention = SWAP_OUT;
+    *intention_flags = 0;
     return 0;
 }
 
-int rdbLoadEncodeData(swapData *data_, int intention, int *action,
-        int *numkeys, sds **prawkeys, sds **prawvals, void *datactx) {
+int rdbLoadEncodeData(swapData *data_, int intention, void *datactx,
+        int *action, int *numkeys, sds **prawkeys, sds **prawvals) {
     rdbLoadSwapData *data = (rdbLoadSwapData*)data_;
     UNUSED(intention), UNUSED(datactx);
     *action = ROCKS_WRITE;
