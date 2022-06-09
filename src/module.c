@@ -3379,8 +3379,7 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     return modulePopulateClientInfoStructure(ci,client,structver);
 }
 
-/* Sets the name of the current client connection, i.e. the client calling the
- * currently active module command. This is equivalent to the client calling
+/* Sets the name of the client with the given ID. This is equivalent to the client calling
  * `CLIENT SETNAME name`.
  *
  * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
@@ -3401,8 +3400,7 @@ int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
     return REDISMODULE_OK;
 }
 
-/* Sets the protocol of the current client connection, i.e. the client calling
- * the currently active module command. This is equivalent to the client calling
+/* Sets the RESP protocol version of the client with the given ID. This is equivalent to the client calling
  * `HELLO 3` or `HELLO 2`.
  *
  * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
