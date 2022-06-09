@@ -176,4 +176,11 @@ start_server {tags {"introspection"}} {
         assert_equal {{}} [r command info get|key]
         assert_equal {{}} [r command info config|get|key]
     }
+
+    foreach cmd {SET BITFIELD} {
+        test "$cmd command will not be marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_no_match {*movablekeys*} [lindex $info 2]
+        }
+    }
 }

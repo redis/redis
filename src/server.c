@@ -3498,13 +3498,20 @@ void afterCommand(client *c) {
     }
 }
 
-/* Returns 1 for commands that may have key names in their arguments, but the legacy range
+/* Set CMD_MOVABLE_KEYS for commands that may have key names in their arguments, but the legacy range
  * spec doesn't cover all of them. */
 void populateCommandMovableKeys(struct redisCommand *cmd) {
     int movablekeys = 0;
     if (cmd->getkeys_proc || (cmd->flags & CMD_MODULE_GETKEYS)) {
         /* Command with getkeys proc */
         movablekeys = 1;
+
+        for (int i = 0; i < cmd->key_specs_num; i++) {
+            if (cmd->key_specs[i].flags & CMD_KEY_VARIABLE_FLAGS) {
+                movablekeys = 0;
+                break;
+            }
+        }
     } else {
         /* Redis command without getkeys proc, but possibly has
          * movable keys because of a keys spec. */
