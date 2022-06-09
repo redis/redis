@@ -103,6 +103,22 @@ start_server {tags {"modules"}} {
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
     }
 
+    test {test module SetClientNameById api} {
+        r client setname nobody
+        assert_equal nobody [r client getname]
+        r test.setname somebody
+        assert_equal somebody [r client getname]
+    }
+
+    test {test module SetClientProtocolById api} {
+        catch { r test.setresp 4 } e
+        assert_match "*out of domain*" $e
+        r test.setresp 3
+        assert_match "*resp=3*" [r client info]
+        r test.setresp 2
+        assert_match "*resp=2*" [r client info]
+    }
+
     test {test module getclientcert api} {
         set cert [r test.getclientcert]
 

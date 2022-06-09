@@ -3379,6 +3379,47 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     return modulePopulateClientInfoStructure(ci,client,structver);
 }
 
+/* Sets the name of the current client connection, i.e. the client calling the
+ * currently active module command. This is equivalent to the client calling
+ * `CLIENT SETNAME name`.
+ *
+ * Returns REDISMODULE_OK on success. If the client does not exist
+ * REDISMODULE_ERR is returned and errno is set to ENOENT. */
+int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
+    client *client = lookupClientByID(id);
+    if (client == NULL) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+    if (client->name != NULL) decrRefCount(client->name);
+    client->name = name;
+    if (name != NULL) incrRefCount(name);
+    return REDISMODULE_OK;
+}
+
+/* Sets the protocol of the current client connection, i.e. the client calling
+ * the currently active module command. This is equivalent to the client calling
+ * `HELLO 3` or `HELLO 2`.
+ *
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and errno is set as follows:
+ *
+ * - ENOENT if the client does not exist
+ * - EDOM if proto is anything other than 2 or 3. */
+int RM_SetClientProtocolById(uint64_t id, int proto) {
+    client *client = lookupClientByID(id);
+    if (client == NULL) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+    if (proto < 2 || proto > 3) {
+        errno = EDOM;
+        return REDISMODULE_ERR;
+    }
+    client->resp = proto;
+    return REDISMODULE_OK;
+}
+
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
@@ -12598,6 +12639,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ServerInfoGetFieldUnsigned);
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
+    REGISTER_API(SetClientNameById);
+    REGISTER_API(SetClientProtocolById);
     REGISTER_API(PublishMessage);
     REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToServerEvent);
