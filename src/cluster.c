@@ -4077,7 +4077,7 @@ void clusterCron(void) {
                 orphaned_masters++;
             }
             if (okslaves > max_slaves) max_slaves = okslaves;
-            if (nodeIsSlave(myself) && myself->slaveof == node)
+            if (myself->slaveof == node)
                 this_slaves = okslaves;
         }
 
