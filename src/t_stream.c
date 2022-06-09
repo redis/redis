@@ -2144,7 +2144,7 @@ void xrevrangeCommand(client *c) {
     xrangeGenericCommand(c,1);
 }
 
-/* XLEN */
+/* XLEN key*/
 void xlenCommand(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL
@@ -2156,10 +2156,10 @@ void xlenCommand(client *c) {
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key_1 key_2 ... key_N
  *       ID_1 ID_2 ... ID_N
  *
- * This function also implements the XREAD-GROUP command, which is like XREAD
+ * This function also implements the XREADGROUP command, which is like XREAD
  * but accepting the [GROUP group-name consumer-name] additional option.
  * This is useful because while XREAD is a read command and can be called
- * on slaves, XREAD-GROUP is not. */
+ * on slaves, XREADGROUP is not. */
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
 void xreadCommand(client *c) {
     long long timeout = -1; /* -1 means, no BLOCK argument given. */
@@ -2566,8 +2566,8 @@ void streamDelConsumer(streamCG *cg, streamConsumer *consumer) {
  * Consumer groups commands
  * ----------------------------------------------------------------------- */
 
-/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESADDED count]
- * XGROUP SETID <key> <groupname> <id or $> [ENTRIESADDED count]
+/* XGROUP CREATE <key> <groupname> <id or $> [MKSTREAM] [ENTRIESREAD entries_read]
+ * XGROUP SETID <key> <groupname> <id or $> [ENTRIESREAD entries_read]
  * XGROUP DESTROY <key> <groupname>
  * XGROUP CREATECONSUMER <key> <groupname> <consumer>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
@@ -2805,7 +2805,6 @@ void xsetidCommand(client *c) {
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
- *
  * Acknowledge a message as processed. In practical terms we just check the
  * pending entries list (PEL) of the group, and delete the PEL entry both from
  * the group and the consumer (pending messages are referenced in both places).
@@ -3050,7 +3049,7 @@ void xpendingCommand(client *c) {
  *        [IDLE <milliseconds>] [TIME <mstime>] [RETRYCOUNT <count>]
  *        [FORCE] [JUSTID]
  *
- * Gets ownership of one or multiple messages in the Pending Entries List
+ * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
  *
  * If the message ID (among the specified ones) exists, and its idle
@@ -3316,7 +3315,7 @@ cleanup:
 
 /* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
  *
- * Gets ownership of one or multiple messages in the Pending Entries List
+ * Changes ownership of one or multiple messages in the Pending Entries List
  * of a given stream consumer group.
  *
  * For each PEL entry, if its idle time greater or equal to <min-idle-time>,
