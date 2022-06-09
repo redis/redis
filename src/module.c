@@ -3383,17 +3383,21 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
  * currently active module command. This is equivalent to the client calling
  * `CLIENT SETNAME name`.
  *
- * Returns REDISMODULE_OK on success. If the client does not exist
- * REDISMODULE_ERR is returned and errno is set to ENOENT. */
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and errno is set as follows:
+ *
+ * - ENOENT if the client does not exist
+ * - EINVAL if the name contains invalid characters */
 int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
     client *client = lookupClientByID(id);
     if (client == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
-    if (client->name != NULL) decrRefCount(client->name);
-    client->name = name;
-    if (name != NULL) incrRefCount(name);
+    if (clientSetName(client, name) == C_ERR) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
     return REDISMODULE_OK;
 }
 

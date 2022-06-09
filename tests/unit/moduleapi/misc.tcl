@@ -105,6 +105,8 @@ start_server {tags {"modules"}} {
 
     test {test module SetClientNameById api} {
         r client setname nobody
+        catch { r test.setname "name with spaces" } e
+        assert_match "*Invalid argument*" $e
         assert_equal nobody [r client getname]
         r test.setname somebody
         assert_equal somebody [r client getname]
