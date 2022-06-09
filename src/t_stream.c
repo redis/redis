@@ -2154,8 +2154,8 @@ void xlenCommand(client *c) {
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] STREAMS key_1 key_2 ... key_N
- *       ID_1 ID_2 ... ID_N 
- *       
+ *       ID_1 ID_2 ... ID_N
+ *
  * This function also implements the XREADGROUP command, which is like XREAD
  * but accepting the [GROUP group-name consumer-name] additional option.
  * This is useful because while XREAD is a read command and can be called
