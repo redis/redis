@@ -27,7 +27,9 @@
 "BITFIELD_RO k GET" "GET encoding offset [encoding offset ...]"
 "BITFIELD_RO k GET " "encoding offset [encoding offset ...]"
 "BITFIELD_RO k GET xyz " "offset [encoding offset ...]"
-"BITFIELD_RO k GET xyz abc " "[encoding offset ...]"
+"BITFIELD_RO k GET xyz 12 " "[encoding offset ...]"
+"BITFIELD_RO k GET enc1 12 enc2 " "offset [encoding offset ...]"
+"BITFIELD_RO k GET enc1 12 enc2 34 " "[encoding offset ...]"
 
 # Two-word command with multiple non-token block args:  CONFIG SET parameter value [parameter value ...]
 "CONFIG SET param " "value [parameter value ...]"
@@ -39,6 +41,8 @@
 "ZRANDMEMBER k 3 " "[WITHSCORES]"
 "ZRANDMEMBER k 3 WI" "[WITHSCORES]"
 "ZRANDMEMBER k 3 WITHSCORES " ""
+# Wrong data type: count must be an integer. Hinting fails.
+"ZRANDMEMBER k cnt " ""
 
 # Command ends with repeated arg: MGET key [key ...]
 "MGET " "key [key ...]"
@@ -46,8 +50,8 @@
 "MGET k k " "[key ...]"
 
 # Optional args can be in any order: SCAN cursor [MATCH pattern] [COUNT count] [TYPE type]
-"SCAN cur MATCH " "pattern [COUNT count] [TYPE type]"
-"SCAN cur COUNT " "count [MATCH pattern] [TYPE type]"
+"SCAN 2 MATCH " "pattern [COUNT count] [TYPE type]"
+"SCAN 2 COUNT " "count [MATCH pattern] [TYPE type]"
 
 # One-of choices: BLMOVE source destination LEFT|RIGHT LEFT|RIGHT timeout
 "BLMOVE src dst LEFT " "LEFT|RIGHT timeout"
@@ -74,13 +78,21 @@
 "SET key value KEEPTTL " "[NX|XX] [GET]"
 "SET key value XX " "[GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
 
+# If an input word can't be matched, stop hinting.
+"SET key value FOOBAR " ""
+
 # Reordering partially-matched optional argument: GEORADIUS key longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]
 "GEORADIUS key " "longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
 "GEORADIUS key 1 2 3 M " "[WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
 "GEORADIUS key 1 2 3 M COUNT " "count [ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
 "GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
-# The next case is not working yet - it needs to be fixed:
+"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
+"GEORADIUS key 1 -2.345 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"" ""
+# Wrong data type: latitude must be a double. Hinting fails.
+"GEORADIUS key 1 X " ""
+# TODO: The next case is not working yet - it needs to be fixed:
 # "GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key] [STOREDIST key]"
+
 
 # Optional parameters followed by mandatory params: ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]
 "ZADD key " "[NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]"

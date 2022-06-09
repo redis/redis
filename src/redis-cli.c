@@ -602,6 +602,8 @@ static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap) {
             char *type = argMap->element[i + 1]->str;
             if (!strcmp(type, "string")) {
                 cmdArg->type = ARG_TYPE_STRING;
+            } else if (!strcmp(type, "integer")) {
+                cmdArg->type = ARG_TYPE_INTEGER;
             } else if (!strcmp(type, "double")) {
                 cmdArg->type = ARG_TYPE_DOUBLE;
             } else if (!strcmp(type, "key")) {
@@ -1126,7 +1128,8 @@ static int matchArgs(char **words, int numwords, commandArg *args, int numargs);
 /* Tries to match the next words of the input against an argument. */
 static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
     int i;
-    if (arg->type == ARG_TYPE_BLOCK) {
+    switch (arg->type) {
+    case ARG_TYPE_BLOCK: {
         int matchedWords = matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
         arg->matched = matchedWords;
 
@@ -1137,7 +1140,9 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
                 arg->matched_all = 0;
             }
         }
-    } else if (arg->type == ARG_TYPE_ONEOF) {
+        break;
+    }
+    case ARG_TYPE_ONEOF: {
         int matchedWords = 0;
         for (i = 0; i < arg->numsubargs; i++) {
             matchedWords = matchArg(nextword, numwords, &arg->subargs[i]);
@@ -1147,10 +1152,32 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
                 break;
             }
         }
-    } else {
-        /* TODO: Handle multiple matches of a repeated argument. */
+        break;
+    }
+
+    case ARG_TYPE_INTEGER:
+    case ARG_TYPE_UNIX_TIME: {
+        long long value;
+        if (sscanf(*nextword, "%lld", &value)) {
+            arg->matched = 1;
+            arg->matched_all = 1;
+        }
+        break;
+    }
+
+    case ARG_TYPE_DOUBLE: {
+        double value;
+        if (sscanf(*nextword, "%lf", &value)) {
+            arg->matched = 1;
+            arg->matched_all = 1;
+        }
+        break;
+    }
+
+    default:
         arg->matched = 1;
         arg->matched_all = 1;
+        break;
     }
     return arg->matched;
 }
@@ -1165,8 +1192,10 @@ static int matchToken(char **nextword, commandArg *arg) {
     return 1;
 }
 
-/* Tries to match the next words of the input against the next argument. */
-static int matchArg(char **nextword, int numwords, commandArg *arg) {
+/* Tries to match the next words of the input against the next argument.
+ * If the arg is repeated ("multiple"), it will be matched only once.
+ */
+static int matchArgOnce(char **nextword, int numwords, commandArg *arg) {
     int matchedWords = 0;
     if (arg->token != NULL) {
         matchedWords = matchToken(nextword, arg);
@@ -1186,6 +1215,34 @@ static int matchArg(char **nextword, int numwords, commandArg *arg) {
 
     matchedWords += matchNoTokenArg(nextword, numwords, arg);
     arg->matched = matchedWords;
+    return matchedWords;
+}
+
+/* Tries to match the next words of the input against the next argument.
+ * If the arg is repeated ("multiple"), it will be matched as many times as possible.
+ */
+static int matchArg(char **nextword, int numwords, commandArg *arg) {
+    int matchedWords = 0;
+    int matchedOnce = matchArgOnce(nextword, numwords, arg);
+    if (!arg->multiple) {
+        return matchedOnce;
+    }
+
+    /* Found one match; now match a "multiple" argument as many times as possible. */
+    matchedWords += matchedOnce;
+    while (arg->matched_all && matchedWords < numwords) {
+        clearMatchedArgs(arg, 1);
+        if (arg->token != NULL && !arg->multiple_token) {
+            /* The token only appears the first time; the rest of the times, pretend we saw it. */
+            matchedOnce = matchNoTokenArg(nextword + matchedWords, numwords - matchedWords, arg);
+            if (arg->matched) {
+                arg->matched_token = 1;
+            }
+        } else {
+            matchedOnce = matchArgOnce(nextword + matchedWords, numwords - matchedWords, arg);
+        }
+        matchedWords += matchedOnce;
+    }
     return matchedWords;
 }
 
@@ -1236,6 +1293,10 @@ static int matchArgs(char **words, int numwords, commandArg *args, int numargs) 
             nextarg = lastoptional - 1;
         } else {
             matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
+            if (matchedWords == 0) {
+                /* Couldn't match a required word - matching fails! */
+                return 0;
+            }
         }
 
         nextword += matchedWords;
@@ -1255,9 +1316,11 @@ static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandD
         /* Remove arguments from the returned hint to show only the
          * ones the user did not yet type. */
         clearMatchedArgs(docs.args, docs.numargs);
-        matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
         hint = sdsempty();
-        hint = addHintForArguments(hint, docs.args, docs.numargs, " ", 0);
+        int matchedWords = matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
+        if (matchedWords == inputargc - cmdlen) {
+            hint = addHintForArguments(hint, docs.args, docs.numargs, " ", 0);
+        }
         return hint;
     }
 
