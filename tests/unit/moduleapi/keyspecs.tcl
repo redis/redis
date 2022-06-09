@@ -79,7 +79,7 @@ start_server {tags {"modules"}} {
     test "Module command list filtering" {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
-        assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.tworanges}
+        assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.nonewithgetkeys kspec.tworanges}
         assert_equal [r command getkeys kspec.complex2 foo bar 2 baz quux banana STORE dst dummy MOREKEYS hey ho] {dst foo bar baz quux hey ho}
     }
 
@@ -106,6 +106,20 @@ start_server {tags {"modules"}} {
         assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges rw rw]
         assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.tworanges rw read]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.tworanges write rw]
+    }
+
+    foreach cmd {kspec.none kspec.tworanges} {
+        test "$cmd command will not be marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_no_match {*movablekeys*} [lindex $info 2]
+        }
+    }
+
+    foreach cmd {kspec.keyword kspec.complex1 kspec.complex2 kspec.nonewithgetkeys} {
+        test "$cmd command is marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_match {*movablekeys*} [lindex $info 2]
+        }
     }
 
     test "Unload the module - keyspecs" {

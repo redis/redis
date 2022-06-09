@@ -18,6 +18,13 @@ int createKspecNone(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
+int createKspecNoneWithGetkeys(RedisModuleCtx *ctx) {
+    /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec). but also has a getkeys callback */
+    if (RedisModule_CreateCommand(ctx,"kspec.nonewithgetkeys",kspec_impl,"getkeys-api",1,-1,2) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    return REDISMODULE_OK;
+}
+
 int createKspecTwoRanges(RedisModuleCtx *ctx) {
     /* Test that two position/range-based key specs are combined to produce the
      * legacy (first,last,step) values representing both keys. */
@@ -177,6 +184,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (createKspecNone(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
+    if (createKspecNoneWithGetkeys(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecTwoRanges(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecKeyword(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (createKspecComplex1(ctx) == REDISMODULE_ERR) return REDISMODULE_ERR;

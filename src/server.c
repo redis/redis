@@ -2645,7 +2645,10 @@ void InitServerLast() {
  * in order to have different flags for different keys (e.g. SMOVE,
  * first key is "read write", second key is "write").
  *
- * This functions uses very basic heuristics and is "best effort":
+ * Additionally set the CMD_MOVABLE_KEYS flag for commands that may have key
+ * names in their arguments, but the legacy range spec doesn't cover all of them.
+ *
+ * This function uses very basic heuristics and is "best effort":
  * 1. Only commands which have only "range" specs are considered.
  * 2. Only range specs with keystep of 1 are considered.
  * 3. The order of the range specs must be ascending (i.e.
@@ -2667,15 +2670,26 @@ void InitServerLast() {
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
 
-    if (c->key_specs_num == 0)
+    /* set the movablekeys flag if we have a GETKEYS flag for modules.
+     * note that for native redis commands, we always have keyspecs,
+     * with enough information to rely on for movablekeys. */
+    if (c->flags & CMD_MODULE_GETKEYS)
+        c->flags |= CMD_MOVABLE_KEYS;
+
+    /* no key-specs, no keys, exit. */
+    if (c->key_specs_num == 0) {
         return;
+    }
 
     if (c->key_specs_num == 1 &&
         c->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
         c->key_specs[0].find_keys_type == KSPEC_FK_RANGE)
     {
-        /* Quick win */
+        /* Quick win, exactly one range spec. */
         c->legacy_range_key_spec = c->key_specs[0];
+        /* If it has the incomplete flag, set the movablekeys flag on the command. */
+        if (c->key_specs[0].flags & CMD_KEY_INCOMPLETE)
+            c->flags |= CMD_MOVABLE_KEYS;
         return;
     }
 
@@ -2684,11 +2698,23 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     for (int i = 0; i < c->key_specs_num; i++) {
         if (c->key_specs[i].begin_search_type != KSPEC_BS_INDEX ||
             c->key_specs[i].find_keys_type != KSPEC_FK_RANGE)
+        {
+            /* Found an incompatible (non range) spec, skip it, and set the movable keys flag. */
+            c->flags |= CMD_MOVABLE_KEYS;
             continue;
-        if (c->key_specs[i].fk.range.keystep != 1)
+        }
+        if (c->key_specs[i].fk.range.keystep != 1 ||
+            (prev_lastkey && prev_lastkey != c->key_specs[i].bs.index.pos-1))
+        {
+            /* Found a range spec that's not consecutive to the previous one.
+             * The legacy range spec will remain empty, and we set the movable keys flag. */
+            c->flags |= CMD_MOVABLE_KEYS;
             return;
-        if (prev_lastkey && prev_lastkey != c->key_specs[i].bs.index.pos-1)
-            return;
+        }
+        if (c->key_specs[i].flags & CMD_KEY_INCOMPLETE) {
+            /* The spec we're using is incomplete, we can use it, but we also have to set the movable keys flag. */
+            c->flags |= CMD_MOVABLE_KEYS;
+        }
         firstkey = min(firstkey, c->key_specs[i].bs.index.pos);
         /* Get the absolute index for lastkey (in the "range" spec, lastkey is relative to firstkey) */
         int lastkey_abs_index = c->key_specs[i].fk.range.lastkey;
@@ -2698,8 +2724,11 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
         lastkey = max((unsigned)lastkey, (unsigned)lastkey_abs_index);
     }
 
-    if (firstkey == INT_MAX)
+    if (firstkey == INT_MAX) {
+        /* Couldn't find range specs, the legacy range spec will remain empty, and we set the movable keys flag. */
+        c->flags |= CMD_MOVABLE_KEYS;
         return;
+    }
 
     serverAssert(firstkey != 0);
     serverAssert(lastkey != 0);
@@ -2787,10 +2816,8 @@ void populateCommandStructure(struct redisCommand *c) {
         c->num_tips++;
     c->num_args = populateArgsStructure(c->args);
 
+    /* Handle the legacy range spec and the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandLegacyRangeSpec(c);
-
-    /* Handle the "movablekeys" flag (must be done after populating all key specs). */
-    populateCommandMovableKeys(c);
 
     /* Assign the ID used for ACL. */
     c->id = ACLGetCommandID(c->fullname);
@@ -3496,38 +3523,6 @@ void afterCommand(client *c) {
          * So the messages are not interleaved with transaction response. */
         trackingHandlePendingKeyInvalidations();
     }
-}
-
-/* Set CMD_MOVABLE_KEYS for commands that may have key names in their arguments, but the legacy range
- * spec doesn't cover all of them. */
-void populateCommandMovableKeys(struct redisCommand *cmd) {
-    int movablekeys = 0;
-    if (cmd->getkeys_proc || (cmd->flags & CMD_MODULE_GETKEYS)) {
-        /* Command with getkeys proc */
-        movablekeys = 1;
-
-        for (int i = 0; i < cmd->key_specs_num; i++) {
-            if (cmd->key_specs[i].flags & CMD_KEY_VARIABLE_FLAGS) {
-                movablekeys = 0;
-                break;
-            }
-        }
-    } else {
-        /* Redis command without getkeys proc, but possibly has
-         * movable keys because of a keys spec. */
-        for (int i = 0; i < cmd->key_specs_num; i++) {
-            if (cmd->key_specs[i].begin_search_type != KSPEC_BS_INDEX ||
-                cmd->key_specs[i].find_keys_type != KSPEC_FK_RANGE)
-            {
-                /* If we have a non-range spec it means we have movable keys */
-                movablekeys = 1;
-                break;
-            }
-        }
-    }
-
-    if (movablekeys)
-        cmd->flags |= CMD_MOVABLE_KEYS;
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
