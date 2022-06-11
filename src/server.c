@@ -2706,10 +2706,10 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
         if (c->key_specs[i].fk.range.keystep != 1 ||
             (prev_lastkey && prev_lastkey != c->key_specs[i].bs.index.pos-1))
         {
-            /* Found a range spec that's not consecutive to the previous one.
-             * The legacy range spec will remain empty, and we set the movablekeys flag. */
+            /* Found a range spec that's not plain (step of 1) or not consecutive to the previous one.
+             * Skip it, and we set the movablekeys flag. */
             c->flags |= CMD_MOVABLE_KEYS;
-            return;
+            continue;
         }
         if (c->key_specs[i].flags & CMD_KEY_INCOMPLETE) {
             /* The spec we're using is incomplete, we can use it, but we also have to set the movablekeys flag. */
