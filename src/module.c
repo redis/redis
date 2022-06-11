@@ -3132,6 +3132,18 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
     return REDISMODULE_OK;
 }
 
+/* Reply with the HELLO command's response. The format (RESP 2 or 3) will
+ * depend on the client's proto field.
+ * This function uses `addReplyHelloResponse` from networking.c.
+ *
+ * The function always returns REDISMODULE_OK. */
+int RM_ReplyWithHelloResponse(RedisModuleCtx *ctx) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyHelloResponse(c);
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * ## Commands replication API
  * -------------------------------------------------------------------------- */
@@ -12370,6 +12382,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
+    REGISTER_API(ReplyWithHelloResponse);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
     REGISTER_API(KeyExists);

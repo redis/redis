@@ -350,6 +350,16 @@ start_server {tags {"modules"}} {
         r set x y
     } {OK}
 
+    test {test module replywithhello api} {
+        # Set the protocol field to 2
+        r HELLO 2
+        assert_equal [r HELLO 2] [r test.rm_reply_with_hello_resp]
+
+        # Set the protocol field to 3
+        r HELLO 3
+        assert_equal [r HELLO 3] [r test.rm_reply_with_hello_resp]
+    }
+
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]
     }

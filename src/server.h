@@ -2486,6 +2486,7 @@ void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
+void addReplyHelloResponse(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);

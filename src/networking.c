@@ -3420,6 +3420,36 @@ NULL
     }
 }
 
+/* Adds the HELLO Command response to the reply .*/
+void addReplyHelloResponse(client *c) {
+    addReplyMapLen(c,6 + !server.sentinel_mode);
+
+    addReplyBulkCString(c,"server");
+    addReplyBulkCString(c,"redis");
+
+    addReplyBulkCString(c,"version");
+    addReplyBulkCString(c,REDIS_VERSION);
+
+    addReplyBulkCString(c,"proto");
+    addReplyLongLong(c,c->resp);
+
+    addReplyBulkCString(c,"id");
+    addReplyLongLong(c,c->id);
+
+    addReplyBulkCString(c,"mode");
+    if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
+    else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
+    else addReplyBulkCString(c,"standalone");
+
+    if (!server.sentinel_mode) {
+        addReplyBulkCString(c,"role");
+        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
+    }
+
+    addReplyBulkCString(c,"modules");
+    addReplyLoadedModules(c);
+}
+
 /* HELLO [<protocol-version> [AUTH <user> <password>] [SETNAME <name>] ] */
 void helloCommand(client *c) {
     long long ver = 0;
@@ -3468,32 +3498,7 @@ void helloCommand(client *c) {
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
-    addReplyMapLen(c,6 + !server.sentinel_mode);
-
-    addReplyBulkCString(c,"server");
-    addReplyBulkCString(c,"redis");
-
-    addReplyBulkCString(c,"version");
-    addReplyBulkCString(c,REDIS_VERSION);
-
-    addReplyBulkCString(c,"proto");
-    addReplyLongLong(c,c->resp);
-
-    addReplyBulkCString(c,"id");
-    addReplyLongLong(c,c->id);
-
-    addReplyBulkCString(c,"mode");
-    if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
-    else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
-    else addReplyBulkCString(c,"standalone");
-
-    if (!server.sentinel_mode) {
-        addReplyBulkCString(c,"role");
-        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
-    }
-
-    addReplyBulkCString(c,"modules");
-    addReplyLoadedModules(c);
+    addReplyHelloResponse(c);
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not
