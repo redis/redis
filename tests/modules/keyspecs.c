@@ -19,7 +19,7 @@ int createKspecNone(RedisModuleCtx *ctx) {
 }
 
 int createKspecNoneWithGetkeys(RedisModuleCtx *ctx) {
-    /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec). but also has a getkeys callback */
+    /* A command without keyspecs; only the legacy (first,last,step) triple (MSET like spec), but also has a getkeys callback */
     if (RedisModule_CreateCommand(ctx,"kspec.nonewithgetkeys",kspec_impl,"getkeys-api",1,-1,2) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     return REDISMODULE_OK;

@@ -215,7 +215,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_MODULE_NO_CLUSTER (1ULL<<22) /* Deny on Redis Cluster. */
 #define CMD_NO_ASYNC_LOADING (1ULL<<23)
 #define CMD_NO_MULTI (1ULL<<24)
-#define CMD_MOVABLE_KEYS (1ULL<<25) /* the legacy range spec doesn't cover all keys. populated by populateCommandLegacyRangeSpec */
+#define CMD_MOVABLE_KEYS (1ULL<<25) /* The legacy range spec doesn't cover all keys.
+                                     * Populated by populateCommandLegacyRangeSpec. */
 #define CMD_ALLOW_BUSY ((1ULL<<26))
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
 

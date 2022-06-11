@@ -2643,7 +2643,7 @@ void InitServerLast() {
  * By far the most common case is just one range spec (e.g. SET)
  * but some commands' ranges were split into two or more ranges
  * in order to have different flags for different keys (e.g. SMOVE,
- * first key is "read write", second key is "write").
+ * first key is "RW ACCESS DELETE", second key is "RW INSERT").
  *
  * Additionally set the CMD_MOVABLE_KEYS flag for commands that may have key
  * names in their arguments, but the legacy range spec doesn't cover all of them.
@@ -2670,8 +2670,8 @@ void InitServerLast() {
 void populateCommandLegacyRangeSpec(struct redisCommand *c) {
     memset(&c->legacy_range_key_spec, 0, sizeof(c->legacy_range_key_spec));
 
-    /* set the movablekeys flag if we have a GETKEYS flag for modules.
-     * note that for native redis commands, we always have keyspecs,
+    /* Set the movablekeys flag if we have a GETKEYS flag for modules.
+     * Note that for native redis commands, we always have keyspecs,
      * with enough information to rely on for movablekeys. */
     if (c->flags & CMD_MODULE_GETKEYS)
         c->flags |= CMD_MOVABLE_KEYS;
@@ -2699,7 +2699,7 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
         if (c->key_specs[i].begin_search_type != KSPEC_BS_INDEX ||
             c->key_specs[i].find_keys_type != KSPEC_FK_RANGE)
         {
-            /* Found an incompatible (non range) spec, skip it, and set the movable keys flag. */
+            /* Found an incompatible (non range) spec, skip it, and set the movablekeys flag. */
             c->flags |= CMD_MOVABLE_KEYS;
             continue;
         }
@@ -2707,12 +2707,12 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
             (prev_lastkey && prev_lastkey != c->key_specs[i].bs.index.pos-1))
         {
             /* Found a range spec that's not consecutive to the previous one.
-             * The legacy range spec will remain empty, and we set the movable keys flag. */
+             * The legacy range spec will remain empty, and we set the movablekeys flag. */
             c->flags |= CMD_MOVABLE_KEYS;
             return;
         }
         if (c->key_specs[i].flags & CMD_KEY_INCOMPLETE) {
-            /* The spec we're using is incomplete, we can use it, but we also have to set the movable keys flag. */
+            /* The spec we're using is incomplete, we can use it, but we also have to set the movablekeys flag. */
             c->flags |= CMD_MOVABLE_KEYS;
         }
         firstkey = min(firstkey, c->key_specs[i].bs.index.pos);
@@ -2722,10 +2722,11 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c) {
             lastkey_abs_index += c->key_specs[i].bs.index.pos;
         /* For lastkey we use unsigned comparison to handle negative values correctly */
         lastkey = max((unsigned)lastkey, (unsigned)lastkey_abs_index);
+        prev_lastkey = lastkey;
     }
 
     if (firstkey == INT_MAX) {
-        /* Couldn't find range specs, the legacy range spec will remain empty, and we set the movable keys flag. */
+        /* Couldn't find range specs, the legacy range spec will remain empty, and we set the movablekeys flag. */
         c->flags |= CMD_MOVABLE_KEYS;
         return;
     }
