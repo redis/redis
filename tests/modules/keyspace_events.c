@@ -30,7 +30,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 
 #include "redismodule.h"
 #include <stdio.h>
@@ -76,6 +75,17 @@ static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const cha
             RedisModule_FreeCallReply(rep);
         }
     }
+
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    REDISMODULE_NOT_USED(key);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "testkeyspace:expired");
+    RedisModule_FreeCallReply(rep);
 
     return REDISMODULE_OK;
 }
@@ -234,6 +244,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationExpired) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_MODULE, KeySpace_NotificationModule) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
@@ -250,19 +264,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if (RedisModule_CreateCommand(ctx,"keyspace.del_key_copy", cmdDelKeyCopy,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.del_key_copy", cmdDelKeyCopy,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case1", cmdIncrCase1,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case1", cmdIncrCase1,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case2", cmdIncrCase2,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case2", cmdIncrCase2,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
     
-    if (RedisModule_CreateCommand(ctx,"keyspace.incr_case3", cmdIncrCase3,"",0,0,0) == REDISMODULE_ERR){
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 

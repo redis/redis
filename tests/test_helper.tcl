@@ -6,6 +6,7 @@ package require Tcl 8.5
 
 set tcl_precision 17
 source tests/support/redis.tcl
+source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
@@ -19,6 +20,7 @@ set ::all_tests {
     unit/keyspace
     unit/scan
     unit/info
+    unit/info-command
     unit/type/string
     unit/type/incr
     unit/type/list
@@ -36,6 +38,7 @@ set ::all_tests {
     unit/quit
     unit/aofrw
     unit/acl
+    unit/acl-v2
     unit/latency-monitor
     integration/block-repl
     integration/replication
@@ -43,7 +46,10 @@ set ::all_tests {
     integration/replication-3
     integration/replication-4
     integration/replication-psync
+    integration/replication-buffer
+    integration/shutdown
     integration/aof
+    integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
     integration/corrupt-dump-fuzzer
@@ -60,8 +66,10 @@ set ::all_tests {
     integration/redis-benchmark
     integration/dismiss-mem
     unit/pubsub
+    unit/pubsubshard
     unit/slowlog
     unit/scripting
+    unit/functions
     unit/maxmemory
     unit/introspection
     unit/introspection-2
@@ -82,6 +90,11 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
+    unit/cluster
+    unit/client-eviction
+    unit/violations
+    unit/replybufsize
+    unit/cluster-scripting
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -124,6 +137,7 @@ set ::singledb 0
 set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
+set ::large_memory 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -261,6 +275,16 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
+# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
+proc csi {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    cluster_info [srv $level "client"] [lindex $args 0]
+}
+
 # Test wrapped into run_solo are sent back from the client to the
 # test server, so that the test server will send them again to
 # clients once the clients are idle.
@@ -362,7 +386,7 @@ proc accept_test_clients {fd addr port} {
 proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
-    foreach {status data} $payload break
+    foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
 
     if {$status eq {ready}} {
@@ -381,7 +405,7 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
         if {!$::quiet} {
-            puts "\[[colorstr green $status]\]: $data"
+            puts "\[[colorstr green $status]\]: $data ($elapsed ms)"
         }
         set ::active_clients_task($fd) "(OK) $data"
     } elseif {$status eq {skip}} {
@@ -547,8 +571,8 @@ proc test_client_main server_port {
     }
 }
 
-proc send_data_packet {fd status data} {
-    set payload [list $status $data]
+proc send_data_packet {fd status data {elapsed 0}} {
+    set payload [list $status $data $elapsed]
     puts $fd [string length $payload]
     puts -nonewline $fd $payload
     flush $fd
@@ -564,15 +588,15 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute tests that match <test> regexp. This option can be repeated."
+        "--only <test>      Just execute the specified test by test name or tests that match <test> regexp (if <test> starts with '/'). This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
-        "--timeout <sec>    Test timeout in seconds (default 10 min)."
+        "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)."
-        "--skiptest <name>  Name of a file containing test names that should be skipped (one per line)."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line)."
+        "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--no-latency       Skip latency measurements and validation by some tests."
@@ -589,6 +613,7 @@ proc print_help_screen {} {
         "--cluster-mode     Run tests in cluster protocol compatible mode."
         "--ignore-encoding  Don't validate object encoding."
         "--ignore-digest    Don't use debug digest validations."
+        "--large-memory     Run tests using over 100mb."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -700,6 +725,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--cluster-mode}} {
         set ::cluster_mode 1
         set ::singledb 1
+    } elseif {$opt eq {--large-memory}} {
+        set ::large_memory 1
     } elseif {$opt eq {--ignore-encoding}} {
         set ::ignoreencoding 1
     } elseif {$opt eq {--ignore-digest}} {

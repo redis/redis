@@ -7,12 +7,14 @@
 #include "jemalloc/internal/ctl.h"
 #include "jemalloc/internal/extent_dss.h"
 #include "jemalloc/internal/extent_mmap.h"
+#include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/jemalloc_internal_types.h"
 #include "jemalloc/internal/log.h"
 #include "jemalloc/internal/malloc_io.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/rtree.h"
-#include "jemalloc/internal/size_classes.h"
+#include "jemalloc/internal/safety_check.h"
+#include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/spin.h"
 #include "jemalloc/internal/sz.h"
 #include "jemalloc/internal/ticker.h"
@@ -41,6 +43,8 @@ bool	opt_abort_conf =
     false
 #endif
     ;
+/* Intentionally default off, even with debug builds. */
+bool	opt_confirm_conf = false;
 const char	*opt_junk =
 #if (defined(JEMALLOC_DEBUG) && defined(JEMALLOC_FILL))
     "true"
@@ -85,8 +89,10 @@ malloc_mutex_t arenas_lock;
 JEMALLOC_ALIGNED(CACHELINE)
 atomic_p_t		arenas[MALLOCX_ARENA_LIMIT];
 static atomic_u_t	narenas_total; /* Use narenas_total_*(). */
-static arena_t		*a0; /* arenas[0]; read-only after initialization. */
-unsigned		narenas_auto; /* Read-only after initialization. */
+/* Below three are read-only after initialization. */
+static arena_t		*a0; /* arenas[0]. */
+unsigned		narenas_auto;
+unsigned		manual_arena_base;
 
 typedef enum {
 	malloc_init_uninitialized	= 3,
@@ -326,7 +332,7 @@ arena_init_locked(tsdn_t *tsdn, unsigned ind, extent_hooks_t *extent_hooks) {
 	 */
 	arena = arena_get(tsdn, ind, false);
 	if (arena != NULL) {
-		assert(ind < narenas_auto);
+		assert(arena_is_auto(arena));
 		return arena;
 	}
 
@@ -341,12 +347,12 @@ arena_new_create_background_thread(tsdn_t *tsdn, unsigned ind) {
 	if (ind == 0) {
 		return;
 	}
-	if (have_background_thread) {
-		bool err;
-		malloc_mutex_lock(tsdn, &background_thread_lock);
-		err = background_thread_create(tsdn_tsd(tsdn), ind);
-		malloc_mutex_unlock(tsdn, &background_thread_lock);
-		if (err) {
+	/*
+	 * Avoid creating a new background thread just for the huge arena, which
+	 * purges eagerly by default.
+	 */
+	if (have_background_thread && !arena_is_huge(ind)) {
+		if (background_thread_create(tsdn_tsd(tsdn), ind)) {
 			malloc_printf("<jemalloc>: error in background thread "
 				      "creation for arena %u. Abort.\n", ind);
 			abort();
@@ -376,6 +382,14 @@ arena_bind(tsd_t *tsd, unsigned ind, bool internal) {
 		tsd_iarena_set(tsd, arena);
 	} else {
 		tsd_arena_set(tsd, arena);
+		unsigned shard = atomic_fetch_add_u(&arena->binshard_next, 1,
+		    ATOMIC_RELAXED);
+		tsd_binshards_t *bins = tsd_binshardsp_get(tsd);
+		for (unsigned i = 0; i < SC_NBINS; i++) {
+			assert(bin_infos[i].n_shards > 0 &&
+			    bin_infos[i].n_shards <= BIN_SHARDS_MAX);
+			bins->binshard[i] = shard % bin_infos[i].n_shards;
+		}
 	}
 }
 
@@ -761,6 +775,50 @@ init_opt_stats_print_opts(const char *v, size_t vlen) {
 	assert(opts_len == strlen(opt_stats_print_opts));
 }
 
+/* Reads the next size pair in a multi-sized option. */
+static bool
+malloc_conf_multi_sizes_next(const char **slab_size_segment_cur,
+    size_t *vlen_left, size_t *slab_start, size_t *slab_end, size_t *new_size) {
+	const char *cur = *slab_size_segment_cur;
+	char *end;
+	uintmax_t um;
+
+	set_errno(0);
+
+	/* First number, then '-' */
+	um = malloc_strtoumax(cur, &end, 0);
+	if (get_errno() != 0 || *end != '-') {
+		return true;
+	}
+	*slab_start = (size_t)um;
+	cur = end + 1;
+
+	/* Second number, then ':' */
+	um = malloc_strtoumax(cur, &end, 0);
+	if (get_errno() != 0 || *end != ':') {
+		return true;
+	}
+	*slab_end = (size_t)um;
+	cur = end + 1;
+
+	/* Last number */
+	um = malloc_strtoumax(cur, &end, 0);
+	if (get_errno() != 0) {
+		return true;
+	}
+	*new_size = (size_t)um;
+
+	/* Consume the separator if there is one. */
+	if (*end == '|') {
+		end++;
+	}
+
+	*vlen_left -= end - *slab_size_segment_cur;
+	*slab_size_segment_cur = end;
+
+	return false;
+}
+
 static bool
 malloc_conf_next(char const **opts_p, char const **k_p, size_t *klen_p,
     char const **v_p, size_t *vlen_p) {
@@ -850,6 +908,11 @@ malloc_conf_error(const char *msg, const char *k, size_t klen, const char *v,
 	malloc_printf("<jemalloc>: %s: %.*s:%.*s\n", msg, (int)klen, k,
 	    (int)vlen, v);
 	/* If abort_conf is set, error out after processing all options. */
+	const char *experimental = "experimental_";
+	if (strncmp(k, experimental, strlen(experimental)) == 0) {
+		/* However, tolerate experimental features. */
+		return;
+	}
 	had_conf_error = true;
 }
 
@@ -868,88 +931,141 @@ malloc_slow_flag_init(void) {
 	malloc_slow = (malloc_slow_flags != 0);
 }
 
+/* Number of sources for initializing malloc_conf */
+#define MALLOC_CONF_NSOURCES 4
+
+static const char *
+obtain_malloc_conf(unsigned which_source, char buf[PATH_MAX + 1]) {
+	if (config_debug) {
+		static unsigned read_source = 0;
+		/*
+		 * Each source should only be read once, to minimize # of
+		 * syscalls on init.
+		 */
+		assert(read_source++ == which_source);
+	}
+	assert(which_source < MALLOC_CONF_NSOURCES);
+
+	const char *ret;
+	switch (which_source) {
+	case 0:
+		ret = config_malloc_conf;
+		break;
+	case 1:
+		if (je_malloc_conf != NULL) {
+			/* Use options that were compiled into the program. */
+			ret = je_malloc_conf;
+		} else {
+			/* No configuration specified. */
+			ret = NULL;
+		}
+		break;
+	case 2: {
+		ssize_t linklen = 0;
+#ifndef _WIN32
+		int saved_errno = errno;
+		const char *linkname =
+#  ifdef JEMALLOC_PREFIX
+		    "/etc/"JEMALLOC_PREFIX"malloc.conf"
+#  else
+		    "/etc/malloc.conf"
+#  endif
+		    ;
+
+		/*
+		 * Try to use the contents of the "/etc/malloc.conf" symbolic
+		 * link's name.
+		 */
+#ifndef JEMALLOC_READLINKAT
+		linklen = readlink(linkname, buf, PATH_MAX);
+#else
+		linklen = readlinkat(AT_FDCWD, linkname, buf, PATH_MAX);
+#endif
+		if (linklen == -1) {
+			/* No configuration specified. */
+			linklen = 0;
+			/* Restore errno. */
+			set_errno(saved_errno);
+		}
+#endif
+		buf[linklen] = '\0';
+		ret = buf;
+		break;
+	} case 3: {
+		const char *envname =
+#ifdef JEMALLOC_PREFIX
+		    JEMALLOC_CPREFIX"MALLOC_CONF"
+#else
+		    "MALLOC_CONF"
+#endif
+		    ;
+
+		if ((ret = jemalloc_secure_getenv(envname)) != NULL) {
+			/*
+			 * Do nothing; opts is already initialized to the value
+			 * of the MALLOC_CONF environment variable.
+			 */
+		} else {
+			/* No configuration specified. */
+			ret = NULL;
+		}
+		break;
+	} default:
+		not_reached();
+		ret = NULL;
+	}
+	return ret;
+}
+
 static void
-malloc_conf_init(void) {
+malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
+    bool initial_call, const char *opts_cache[MALLOC_CONF_NSOURCES],
+    char buf[PATH_MAX + 1]) {
+	static const char *opts_explain[MALLOC_CONF_NSOURCES] = {
+		"string specified via --with-malloc-conf",
+		"string pointed to by the global variable malloc_conf",
+		"\"name\" of the file referenced by the symbolic link named "
+		    "/etc/malloc.conf",
+		"value of the environment variable MALLOC_CONF"
+	};
 	unsigned i;
-	char buf[PATH_MAX + 1];
 	const char *opts, *k, *v;
 	size_t klen, vlen;
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < MALLOC_CONF_NSOURCES; i++) {
 		/* Get runtime configuration. */
-		switch (i) {
-		case 0:
-			opts = config_malloc_conf;
-			break;
-		case 1:
-			if (je_malloc_conf != NULL) {
-				/*
-				 * Use options that were compiled into the
-				 * program.
-				 */
-				opts = je_malloc_conf;
-			} else {
-				/* No configuration specified. */
-				buf[0] = '\0';
-				opts = buf;
-			}
-			break;
-		case 2: {
-			ssize_t linklen = 0;
-#ifndef _WIN32
-			int saved_errno = errno;
-			const char *linkname =
-#  ifdef JEMALLOC_PREFIX
-			    "/etc/"JEMALLOC_PREFIX"malloc.conf"
-#  else
-			    "/etc/malloc.conf"
-#  endif
-			    ;
-
-			/*
-			 * Try to use the contents of the "/etc/malloc.conf"
-			 * symbolic link's name.
-			 */
-			linklen = readlink(linkname, buf, sizeof(buf) - 1);
-			if (linklen == -1) {
-				/* No configuration specified. */
-				linklen = 0;
-				/* Restore errno. */
-				set_errno(saved_errno);
-			}
-#endif
-			buf[linklen] = '\0';
-			opts = buf;
-			break;
-		} case 3: {
-			const char *envname =
-#ifdef JEMALLOC_PREFIX
-			    JEMALLOC_CPREFIX"MALLOC_CONF"
-#else
-			    "MALLOC_CONF"
-#endif
-			    ;
-
-			if ((opts = jemalloc_secure_getenv(envname)) != NULL) {
-				/*
-				 * Do nothing; opts is already initialized to
-				 * the value of the MALLOC_CONF environment
-				 * variable.
-				 */
-			} else {
-				/* No configuration specified. */
-				buf[0] = '\0';
-				opts = buf;
-			}
-			break;
-		} default:
-			not_reached();
-			buf[0] = '\0';
-			opts = buf;
+		if (initial_call) {
+			opts_cache[i] = obtain_malloc_conf(i, buf);
+		}
+		opts = opts_cache[i];
+		if (!initial_call && opt_confirm_conf) {
+			malloc_printf(
+			    "<jemalloc>: malloc_conf #%u (%s): \"%s\"\n",
+			    i + 1, opts_explain[i], opts != NULL ? opts : "");
+		}
+		if (opts == NULL) {
+			continue;
 		}
 
 		while (*opts != '\0' && !malloc_conf_next(&opts, &k, &klen, &v,
 		    &vlen)) {
+
+#define CONF_ERROR(msg, k, klen, v, vlen)				\
+			if (!initial_call) {				\
+				malloc_conf_error(			\
+				    msg, k, klen, v, vlen);		\
+				cur_opt_valid = false;			\
+			}
+#define CONF_CONTINUE	{						\
+				if (!initial_call && opt_confirm_conf	\
+				    && cur_opt_valid) {			\
+					malloc_printf("<jemalloc>: -- "	\
+					    "Set conf value: %.*s:%.*s"	\
+					    "\n", (int)klen, k,		\
+					    (int)vlen, v);		\
+				}					\
+				continue;				\
+			}
 #define CONF_MATCH(n)							\
 	(sizeof(n)-1 == klen && strncmp(n, k, klen) == 0)
 #define CONF_MATCH_VALUE(n)						\
@@ -961,16 +1077,23 @@ malloc_conf_init(void) {
 				} else if (CONF_MATCH_VALUE("false")) {	\
 					o = false;			\
 				} else {				\
-					malloc_conf_error(		\
-					    "Invalid conf value",	\
+					CONF_ERROR("Invalid conf value",\
 					    k, klen, v, vlen);		\
 				}					\
-				continue;				\
+				CONF_CONTINUE;				\
 			}
-#define CONF_MIN_no(um, min)	false
-#define CONF_MIN_yes(um, min)	((um) < (min))
-#define CONF_MAX_no(um, max)	false
-#define CONF_MAX_yes(um, max)	((um) > (max))
+      /*
+       * One of the CONF_MIN macros below expands, in one of the use points,
+       * to "unsigned integer < 0", which is always false, triggering the
+       * GCC -Wtype-limits warning, which we disable here and re-enable below.
+       */
+      JEMALLOC_DIAGNOSTIC_PUSH
+      JEMALLOC_DIAGNOSTIC_IGNORE_TYPE_LIMITS
+
+#define CONF_DONT_CHECK_MIN(um, min)	false
+#define CONF_CHECK_MIN(um, min)	((um) < (min))
+#define CONF_DONT_CHECK_MAX(um, max)	false
+#define CONF_CHECK_MAX(um, max)	((um) > (max))
 #define CONF_HANDLE_T_U(t, o, n, min, max, check_min, check_max, clip)	\
 			if (CONF_MATCH(n)) {				\
 				uintmax_t um;				\
@@ -980,26 +1103,21 @@ malloc_conf_init(void) {
 				um = malloc_strtoumax(v, &end, 0);	\
 				if (get_errno() != 0 || (uintptr_t)end -\
 				    (uintptr_t)v != vlen) {		\
-					malloc_conf_error(		\
-					    "Invalid conf value",	\
+					CONF_ERROR("Invalid conf value",\
 					    k, klen, v, vlen);		\
 				} else if (clip) {			\
-					if (CONF_MIN_##check_min(um,	\
-					    (t)(min))) {		\
+					if (check_min(um, (t)(min))) {	\
 						o = (t)(min);		\
 					} else if (			\
-					    CONF_MAX_##check_max(um,	\
-					    (t)(max))) {		\
+					    check_max(um, (t)(max))) {	\
 						o = (t)(max);		\
 					} else {			\
 						o = (t)um;		\
 					}				\
 				} else {				\
-					if (CONF_MIN_##check_min(um,	\
-					    (t)(min)) ||		\
-					    CONF_MAX_##check_max(um,	\
-					    (t)(max))) {		\
-						malloc_conf_error(	\
+					if (check_min(um, (t)(min)) ||	\
+					    check_max(um, (t)(max))) {	\
+						CONF_ERROR(		\
 						    "Out-of-range "	\
 						    "conf value",	\
 						    k, klen, v, vlen);	\
@@ -1007,7 +1125,7 @@ malloc_conf_init(void) {
 						o = (t)um;		\
 					}				\
 				}					\
-				continue;				\
+				CONF_CONTINUE;				\
 			}
 #define CONF_HANDLE_UNSIGNED(o, n, min, max, check_min, check_max,	\
     clip)								\
@@ -1025,18 +1143,17 @@ malloc_conf_init(void) {
 				l = strtol(v, &end, 0);			\
 				if (get_errno() != 0 || (uintptr_t)end -\
 				    (uintptr_t)v != vlen) {		\
-					malloc_conf_error(		\
-					    "Invalid conf value",	\
+					CONF_ERROR("Invalid conf value",\
 					    k, klen, v, vlen);		\
 				} else if (l < (ssize_t)(min) || l >	\
 				    (ssize_t)(max)) {			\
-					malloc_conf_error(		\
+					CONF_ERROR(			\
 					    "Out-of-range conf value",	\
 					    k, klen, v, vlen);		\
 				} else {				\
 					o = l;				\
 				}					\
-				continue;				\
+				CONF_CONTINUE;				\
 			}
 #define CONF_HANDLE_CHAR_P(o, n, d)					\
 			if (CONF_MATCH(n)) {				\
@@ -1045,7 +1162,14 @@ malloc_conf_init(void) {
 				    sizeof(o)-1;			\
 				strncpy(o, v, cpylen);			\
 				o[cpylen] = '\0';			\
-				continue;				\
+				CONF_CONTINUE;				\
+			}
+
+			bool cur_opt_valid = true;
+
+			CONF_HANDLE_BOOL(opt_confirm_conf, "confirm_conf")
+			if (initial_call) {
+				continue;
 			}
 
 			CONF_HANDLE_BOOL(opt_abort, "abort")
@@ -1062,10 +1186,10 @@ malloc_conf_init(void) {
 					}
 				}
 				if (!match) {
-					malloc_conf_error("Invalid conf value",
+					CONF_ERROR("Invalid conf value",
 					    k, klen, v, vlen);
 				}
-				continue;
+				CONF_CONTINUE;
 			}
 			CONF_HANDLE_BOOL(opt_retain, "retain")
 			if (strncmp("dss", k, klen) == 0) {
@@ -1075,7 +1199,7 @@ malloc_conf_init(void) {
 					if (strncmp(dss_prec_names[i], v, vlen)
 					    == 0) {
 						if (extent_dss_prec_set(i)) {
-							malloc_conf_error(
+							CONF_ERROR(
 							    "Error setting dss",
 							    k, klen, v, vlen);
 						} else {
@@ -1087,13 +1211,36 @@ malloc_conf_init(void) {
 					}
 				}
 				if (!match) {
-					malloc_conf_error("Invalid conf value",
+					CONF_ERROR("Invalid conf value",
 					    k, klen, v, vlen);
 				}
-				continue;
+				CONF_CONTINUE;
 			}
 			CONF_HANDLE_UNSIGNED(opt_narenas, "narenas", 1,
-			    UINT_MAX, yes, no, false)
+			    UINT_MAX, CONF_CHECK_MIN, CONF_DONT_CHECK_MAX,
+			    false)
+			if (CONF_MATCH("bin_shards")) {
+				const char *bin_shards_segment_cur = v;
+				size_t vlen_left = vlen;
+				do {
+					size_t size_start;
+					size_t size_end;
+					size_t nshards;
+					bool err = malloc_conf_multi_sizes_next(
+					    &bin_shards_segment_cur, &vlen_left,
+					    &size_start, &size_end, &nshards);
+					if (err || bin_update_shard_size(
+					    bin_shard_sizes, size_start,
+					    size_end, nshards)) {
+						CONF_ERROR(
+						    "Invalid settings for "
+						    "bin_shards", k, klen, v,
+						    vlen);
+						break;
+					}
+				} while (vlen_left > 0);
+				CONF_CONTINUE;
+			}
 			CONF_HANDLE_SSIZE_T(opt_dirty_decay_ms,
 			    "dirty_decay_ms", -1, NSTIME_SEC_MAX * KQU(1000) <
 			    QU(SSIZE_MAX) ? NSTIME_SEC_MAX * KQU(1000) :
@@ -1105,7 +1252,7 @@ malloc_conf_init(void) {
 			CONF_HANDLE_BOOL(opt_stats_print, "stats_print")
 			if (CONF_MATCH("stats_print_opts")) {
 				init_opt_stats_print_opts(v, vlen);
-				continue;
+				CONF_CONTINUE;
 			}
 			if (config_fill) {
 				if (CONF_MATCH("junk")) {
@@ -1126,11 +1273,11 @@ malloc_conf_init(void) {
 						opt_junk_alloc = false;
 						opt_junk_free = true;
 					} else {
-						malloc_conf_error(
-						    "Invalid conf value", k,
-						    klen, v, vlen);
+						CONF_ERROR(
+						    "Invalid conf value",
+						    k, klen, v, vlen);
 					}
-					continue;
+					CONF_CONTINUE;
 				}
 				CONF_HANDLE_BOOL(opt_zero, "zero")
 			}
@@ -1141,11 +1288,25 @@ malloc_conf_init(void) {
 				CONF_HANDLE_BOOL(opt_xmalloc, "xmalloc")
 			}
 			CONF_HANDLE_BOOL(opt_tcache, "tcache")
-			CONF_HANDLE_SIZE_T(opt_lg_extent_max_active_fit,
-			    "lg_extent_max_active_fit", 0,
-			    (sizeof(size_t) << 3), yes, yes, false)
 			CONF_HANDLE_SSIZE_T(opt_lg_tcache_max, "lg_tcache_max",
 			    -1, (sizeof(size_t) << 3) - 1)
+
+			/*
+			 * The runtime option of oversize_threshold remains
+			 * undocumented.  It may be tweaked in the next major
+			 * release (6.0).  The default value 8M is rather
+			 * conservative / safe.  Tuning it further down may
+			 * improve fragmentation a bit more, but may also cause
+			 * contention on the huge arena.
+			 */
+			CONF_HANDLE_SIZE_T(opt_oversize_threshold,
+			    "oversize_threshold", 0, SC_LARGE_MAXCLASS,
+			    CONF_DONT_CHECK_MIN, CONF_CHECK_MAX, false)
+			CONF_HANDLE_SIZE_T(opt_lg_extent_max_active_fit,
+			    "lg_extent_max_active_fit", 0,
+			    (sizeof(size_t) << 3), CONF_DONT_CHECK_MIN,
+			    CONF_CHECK_MAX, false)
+
 			if (strncmp("percpu_arena", k, klen) == 0) {
 				bool match = false;
 				for (int i = percpu_arena_mode_names_base; i <
@@ -1153,7 +1314,7 @@ malloc_conf_init(void) {
 					if (strncmp(percpu_arena_mode_names[i],
 					    v, vlen) == 0) {
 						if (!have_percpu_arena) {
-							malloc_conf_error(
+							CONF_ERROR(
 							    "No getcpu support",
 							    k, klen, v, vlen);
 						}
@@ -1163,17 +1324,42 @@ malloc_conf_init(void) {
 					}
 				}
 				if (!match) {
-					malloc_conf_error("Invalid conf value",
+					CONF_ERROR("Invalid conf value",
 					    k, klen, v, vlen);
 				}
-				continue;
+				CONF_CONTINUE;
 			}
 			CONF_HANDLE_BOOL(opt_background_thread,
 			    "background_thread");
 			CONF_HANDLE_SIZE_T(opt_max_background_threads,
 					   "max_background_threads", 1,
-					   opt_max_background_threads, yes, yes,
+					   opt_max_background_threads,
+					   CONF_CHECK_MIN, CONF_CHECK_MAX,
 					   true);
+			if (CONF_MATCH("slab_sizes")) {
+				bool err;
+				const char *slab_size_segment_cur = v;
+				size_t vlen_left = vlen;
+				do {
+					size_t slab_start;
+					size_t slab_end;
+					size_t pgs;
+					err = malloc_conf_multi_sizes_next(
+					    &slab_size_segment_cur,
+					    &vlen_left, &slab_start, &slab_end,
+					    &pgs);
+					if (!err) {
+						sc_data_update_slab_size(
+						    sc_data, slab_start,
+						    slab_end, (int)pgs);
+					} else {
+						CONF_ERROR("Invalid settings "
+						    "for slab_sizes",
+						    k, klen, v, vlen);
+					}
+				} while (!err && vlen_left > 0);
+				CONF_CONTINUE;
+			}
 			if (config_prof) {
 				CONF_HANDLE_BOOL(opt_prof, "prof")
 				CONF_HANDLE_CHAR_P(opt_prof_prefix,
@@ -1183,7 +1369,8 @@ malloc_conf_init(void) {
 				    "prof_thread_active_init")
 				CONF_HANDLE_SIZE_T(opt_lg_prof_sample,
 				    "lg_prof_sample", 0, (sizeof(uint64_t) << 3)
-				    - 1, no, yes, true)
+				    - 1, CONF_DONT_CHECK_MIN, CONF_CHECK_MAX,
+				    true)
 				CONF_HANDLE_BOOL(opt_prof_accum, "prof_accum")
 				CONF_HANDLE_SSIZE_T(opt_lg_prof_interval,
 				    "lg_prof_interval", -1,
@@ -1191,6 +1378,7 @@ malloc_conf_init(void) {
 				CONF_HANDLE_BOOL(opt_prof_gdump, "prof_gdump")
 				CONF_HANDLE_BOOL(opt_prof_final, "prof_final")
 				CONF_HANDLE_BOOL(opt_prof_leak, "prof_leak")
+				CONF_HANDLE_BOOL(opt_prof_log, "prof_log")
 			}
 			if (config_log) {
 				if (CONF_MATCH("log")) {
@@ -1199,7 +1387,7 @@ malloc_conf_init(void) {
 					    vlen : sizeof(log_var_names) - 1);
 					strncpy(log_var_names, v, cpylen);
 					log_var_names[cpylen] = '\0';
-					continue;
+					CONF_CONTINUE;
 				}
 			}
 			if (CONF_MATCH("thp")) {
@@ -1208,7 +1396,7 @@ malloc_conf_init(void) {
 					if (strncmp(thp_mode_names[i],v, vlen)
 					    == 0) {
 						if (!have_madvise_huge) {
-							malloc_conf_error(
+							CONF_ERROR(
 							    "No THP support",
 							    k, klen, v, vlen);
 						}
@@ -1218,25 +1406,28 @@ malloc_conf_init(void) {
 					}
 				}
 				if (!match) {
-					malloc_conf_error("Invalid conf value",
+					CONF_ERROR("Invalid conf value",
 					    k, klen, v, vlen);
 				}
-				continue;
+				CONF_CONTINUE;
 			}
-			malloc_conf_error("Invalid conf pair", k, klen, v,
-			    vlen);
+			CONF_ERROR("Invalid conf pair", k, klen, v, vlen);
+#undef CONF_ERROR
+#undef CONF_CONTINUE
 #undef CONF_MATCH
 #undef CONF_MATCH_VALUE
 #undef CONF_HANDLE_BOOL
-#undef CONF_MIN_no
-#undef CONF_MIN_yes
-#undef CONF_MAX_no
-#undef CONF_MAX_yes
+#undef CONF_DONT_CHECK_MIN
+#undef CONF_CHECK_MIN
+#undef CONF_DONT_CHECK_MAX
+#undef CONF_CHECK_MAX
 #undef CONF_HANDLE_T_U
 #undef CONF_HANDLE_UNSIGNED
 #undef CONF_HANDLE_SIZE_T
 #undef CONF_HANDLE_SSIZE_T
 #undef CONF_HANDLE_CHAR_P
+    /* Re-enable diagnostic "-Wtype-limits" */
+    JEMALLOC_DIAGNOSTIC_POP
 		}
 		if (opt_abort_conf && had_conf_error) {
 			malloc_abort_invalid_conf();
@@ -1244,6 +1435,19 @@ malloc_conf_init(void) {
 	}
 	atomic_store_b(&log_init_done, true, ATOMIC_RELEASE);
 }
+
+static void
+malloc_conf_init(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS]) {
+	const char *opts_cache[MALLOC_CONF_NSOURCES] = {NULL, NULL, NULL, NULL};
+	char buf[PATH_MAX + 1];
+
+	/* The first call only set the confirm_conf option and opts_cache */
+	malloc_conf_init_helper(NULL, NULL, true, opts_cache, buf);
+	malloc_conf_init_helper(sc_data, bin_shard_sizes, false, opts_cache,
+	    NULL);
+}
+
+#undef MALLOC_CONF_NSOURCES
 
 static bool
 malloc_init_hard_needed(void) {
@@ -1275,10 +1479,33 @@ static bool
 malloc_init_hard_a0_locked() {
 	malloc_initializer = INITIALIZER;
 
+	JEMALLOC_DIAGNOSTIC_PUSH
+	JEMALLOC_DIAGNOSTIC_IGNORE_MISSING_STRUCT_FIELD_INITIALIZERS
+	sc_data_t sc_data = {0};
+	JEMALLOC_DIAGNOSTIC_POP
+
+	/*
+	 * Ordering here is somewhat tricky; we need sc_boot() first, since that
+	 * determines what the size classes will be, and then
+	 * malloc_conf_init(), since any slab size tweaking will need to be done
+	 * before sz_boot and bin_boot, which assume that the values they read
+	 * out of sc_data_global are final.
+	 */
+	sc_boot(&sc_data);
+	unsigned bin_shard_sizes[SC_NBINS];
+	bin_shard_sizes_boot(bin_shard_sizes);
+	/*
+	 * prof_boot0 only initializes opt_prof_prefix.  We need to do it before
+	 * we parse malloc_conf options, in case malloc_conf parsing overwrites
+	 * it.
+	 */
 	if (config_prof) {
 		prof_boot0();
 	}
-	malloc_conf_init();
+	malloc_conf_init(&sc_data, bin_shard_sizes);
+	sz_boot(&sc_data);
+	bin_boot(&sc_data, bin_shard_sizes);
+
 	if (opt_stats_print) {
 		/* Print statistics at exit. */
 		if (atexit(stats_print_atexit) != 0) {
@@ -1303,7 +1530,7 @@ malloc_init_hard_a0_locked() {
 	if (config_prof) {
 		prof_boot1();
 	}
-	arena_boot();
+	arena_boot(&sc_data);
 	if (tcache_boot(TSDN_NULL)) {
 		return true;
 	}
@@ -1311,11 +1538,13 @@ malloc_init_hard_a0_locked() {
 	    malloc_mutex_rank_exclusive)) {
 		return true;
 	}
+	hook_boot();
 	/*
 	 * Create enough scaffolding to allow recursive allocation in
 	 * malloc_ncpus().
 	 */
 	narenas_auto = 1;
+	manual_arena_base = narenas_auto + 1;
 	memset(arenas, 0, sizeof(arena_t *) * narenas_auto);
 	/*
 	 * Initialize one arena here.  The rest are lazily created in
@@ -1463,6 +1692,10 @@ malloc_init_narenas(void) {
 		    narenas_auto);
 	}
 	narenas_total_set(narenas_auto);
+	if (arena_init_huge()) {
+		narenas_total_inc();
+	}
+	manual_arena_base = narenas_total_get();
 
 	return false;
 }
@@ -1560,11 +1793,7 @@ malloc_init_hard(void) {
 		 * sets isthreaded) needs to be called without holding any lock.
 		 */
 		background_thread_ctl_init(tsd_tsdn(tsd));
-
-		malloc_mutex_lock(tsd_tsdn(tsd), &background_thread_lock);
-		bool err = background_thread_create(tsd, 0);
-		malloc_mutex_unlock(tsd_tsdn(tsd), &background_thread_lock);
-		if (err) {
+		if (background_thread_create(tsd, 0)) {
 			return true;
 		}
 	}
@@ -1587,8 +1816,12 @@ typedef struct static_opts_s static_opts_t;
 struct static_opts_s {
 	/* Whether or not allocation size may overflow. */
 	bool may_overflow;
-	/* Whether or not allocations of size 0 should be treated as size 1. */
-	bool bump_empty_alloc;
+
+	/*
+	 * Whether or not allocations (with alignment) of size 0 should be
+	 * treated as size 1.
+	 */
+	bool bump_empty_aligned_alloc;
 	/*
 	 * Whether to assert that allocations are not of size 0 (after any
 	 * bumping).
@@ -1621,12 +1854,16 @@ struct static_opts_s {
 	 * initialization) options.
 	 */
 	bool slow;
+	/*
+	 * Return size.
+	 */
+	bool usize;
 };
 
 JEMALLOC_ALWAYS_INLINE void
 static_opts_init(static_opts_t *static_opts) {
 	static_opts->may_overflow = false;
-	static_opts->bump_empty_alloc = false;
+	static_opts->bump_empty_aligned_alloc = false;
 	static_opts->assert_nonempty_alloc = false;
 	static_opts->null_out_result_on_error = false;
 	static_opts->set_errno_on_error = false;
@@ -1634,6 +1871,7 @@ static_opts_init(static_opts_t *static_opts) {
 	static_opts->oom_string = "";
 	static_opts->invalid_alignment_string = "";
 	static_opts->slow = false;
+	static_opts->usize = false;
 }
 
 /*
@@ -1648,6 +1886,7 @@ static_opts_init(static_opts_t *static_opts) {
 typedef struct dynamic_opts_s dynamic_opts_t;
 struct dynamic_opts_s {
 	void **result;
+	size_t usize;
 	size_t num_items;
 	size_t item_size;
 	size_t alignment;
@@ -1659,6 +1898,7 @@ struct dynamic_opts_s {
 JEMALLOC_ALWAYS_INLINE void
 dynamic_opts_init(dynamic_opts_t *dynamic_opts) {
 	dynamic_opts->result = NULL;
+	dynamic_opts->usize = 0;
 	dynamic_opts->num_items = 0;
 	dynamic_opts->item_size = 0;
 	dynamic_opts->alignment = 0;
@@ -1722,12 +1962,13 @@ imalloc_sample(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd,
 	szind_t ind_large;
 	size_t bumped_usize = usize;
 
-	if (usize <= SMALL_MAXCLASS) {
-		assert(((dopts->alignment == 0) ? sz_s2u(LARGE_MINCLASS) :
-		    sz_sa2u(LARGE_MINCLASS, dopts->alignment))
-		    == LARGE_MINCLASS);
-		ind_large = sz_size2index(LARGE_MINCLASS);
-		bumped_usize = sz_s2u(LARGE_MINCLASS);
+	if (usize <= SC_SMALL_MAXCLASS) {
+		assert(((dopts->alignment == 0) ?
+		    sz_s2u(SC_LARGE_MINCLASS) :
+		    sz_sa2u(SC_LARGE_MINCLASS, dopts->alignment))
+			== SC_LARGE_MINCLASS);
+		ind_large = sz_size2index(SC_LARGE_MINCLASS);
+		bumped_usize = sz_s2u(SC_LARGE_MINCLASS);
 		ret = imalloc_no_sample(sopts, dopts, tsd, bumped_usize,
 		    bumped_usize, ind_large);
 		if (unlikely(ret == NULL)) {
@@ -1810,17 +2051,6 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 		goto label_oom;
 	}
 
-	/* Validate the user input. */
-	if (sopts->bump_empty_alloc) {
-		if (unlikely(size == 0)) {
-			size = 1;
-		}
-	}
-
-	if (sopts->assert_nonempty_alloc) {
-		assert (size != 0);
-	}
-
 	if (unlikely(dopts->alignment < sopts->min_alignment
 	    || (dopts->alignment & (dopts->alignment - 1)) != 0)) {
 		goto label_invalid_alignment;
@@ -1830,18 +2060,31 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 
 	if (dopts->alignment == 0) {
 		ind = sz_size2index(size);
-		if (unlikely(ind >= NSIZES)) {
+		if (unlikely(ind >= SC_NSIZES)) {
 			goto label_oom;
 		}
-		if (config_stats || (config_prof && opt_prof)) {
+		if (config_stats || (config_prof && opt_prof) || sopts->usize) {
 			usize = sz_index2size(ind);
-			assert(usize > 0 && usize <= LARGE_MAXCLASS);
+			dopts->usize = usize;
+			assert(usize > 0 && usize
+			    <= SC_LARGE_MAXCLASS);
 		}
 	} else {
+		if (sopts->bump_empty_aligned_alloc) {
+			if (unlikely(size == 0)) {
+				size = 1;
+			}
+		}
 		usize = sz_sa2u(size, dopts->alignment);
-		if (unlikely(usize == 0 || usize > LARGE_MAXCLASS)) {
+		dopts->usize = usize;
+		if (unlikely(usize == 0
+		    || usize > SC_LARGE_MAXCLASS)) {
 			goto label_oom;
 		}
+	}
+	/* Validate the user input. */
+	if (sopts->assert_nonempty_alloc) {
+		assert (size != 0);
 	}
 
 	check_entry_exit_locking(tsd_tsdn(tsd));
@@ -1875,7 +2118,8 @@ imalloc_body(static_opts_t *sopts, dynamic_opts_t *dopts, tsd_t *tsd) {
 
 		alloc_ctx_t alloc_ctx;
 		if (likely((uintptr_t)tctx == (uintptr_t)1U)) {
-			alloc_ctx.slab = (usize <= SMALL_MAXCLASS);
+			alloc_ctx.slab = (usize
+			    <= SC_SMALL_MAXCLASS);
 			allocation = imalloc_no_sample(
 			    sopts, dopts, tsd, usize, usize, ind);
 		} else if ((uintptr_t)tctx > (uintptr_t)1U) {
@@ -1980,9 +2224,8 @@ label_invalid_alignment:
 	return EINVAL;
 }
 
-/* Returns the errno-style error code of the allocation. */
-JEMALLOC_ALWAYS_INLINE int
-imalloc(static_opts_t *sopts, dynamic_opts_t *dopts) {
+JEMALLOC_ALWAYS_INLINE bool
+imalloc_init_check(static_opts_t *sopts, dynamic_opts_t *dopts) {
 	if (unlikely(!malloc_initialized()) && unlikely(malloc_init())) {
 		if (config_xmalloc && unlikely(opt_xmalloc)) {
 			malloc_write(sopts->oom_string);
@@ -1992,6 +2235,16 @@ imalloc(static_opts_t *sopts, dynamic_opts_t *dopts) {
 		set_errno(ENOMEM);
 		*dopts->result = NULL;
 
+		return false;
+	}
+
+	return true;
+}
+
+/* Returns the errno-style error code of the allocation. */
+JEMALLOC_ALWAYS_INLINE int
+imalloc(static_opts_t *sopts, dynamic_opts_t *dopts) {
+	if (tsd_get_allocates() && !imalloc_init_check(sopts, dopts)) {
 		return ENOMEM;
 	}
 
@@ -2004,19 +2257,18 @@ imalloc(static_opts_t *sopts, dynamic_opts_t *dopts) {
 		sopts->slow = false;
 		return imalloc_body(sopts, dopts, tsd);
 	} else {
+		if (!tsd_get_allocates() && !imalloc_init_check(sopts, dopts)) {
+			return ENOMEM;
+		}
+
 		sopts->slow = true;
 		return imalloc_body(sopts, dopts, tsd);
 	}
 }
-/******************************************************************************/
-/*
- * Begin malloc(3)-compatible functions.
- */
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
-je_malloc(size_t size) {
+JEMALLOC_NOINLINE
+void *
+malloc_default(size_t size) {
 	void *ret;
 	static_opts_t sopts;
 	dynamic_opts_t dopts;
@@ -2026,7 +2278,6 @@ je_malloc(size_t size) {
 	static_opts_init(&sopts);
 	dynamic_opts_init(&dopts);
 
-	sopts.bump_empty_alloc = true;
 	sopts.null_out_result_on_error = true;
 	sopts.set_errno_on_error = true;
 	sopts.oom_string = "<jemalloc>: Error in malloc(): out of memory\n";
@@ -2036,10 +2287,105 @@ je_malloc(size_t size) {
 	dopts.item_size = size;
 
 	imalloc(&sopts, &dopts);
+	/*
+	 * Note that this branch gets optimized away -- it immediately follows
+	 * the check on tsd_fast that sets sopts.slow.
+	 */
+	if (sopts.slow) {
+		uintptr_t args[3] = {size};
+		hook_invoke_alloc(hook_alloc_malloc, ret, (uintptr_t)ret, args);
+	}
 
 	LOG("core.malloc.exit", "result: %p", ret);
 
 	return ret;
+}
+
+/******************************************************************************/
+/*
+ * Begin malloc(3)-compatible functions.
+ */
+
+/*
+ * malloc() fastpath.
+ *
+ * Fastpath assumes size <= SC_LOOKUP_MAXCLASS, and that we hit
+ * tcache.  If either of these is false, we tail-call to the slowpath,
+ * malloc_default().  Tail-calling is used to avoid any caller-saved
+ * registers.
+ *
+ * fastpath supports ticker and profiling, both of which will also
+ * tail-call to the slowpath if they fire.
+ */
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
+je_malloc(size_t size) {
+	LOG("core.malloc.entry", "size: %zu", size);
+
+	if (tsd_get_allocates() && unlikely(!malloc_initialized())) {
+		return malloc_default(size);
+	}
+
+	tsd_t *tsd = tsd_get(false);
+	if (unlikely(!tsd || !tsd_fast(tsd) || (size > SC_LOOKUP_MAXCLASS))) {
+		return malloc_default(size);
+	}
+
+	tcache_t *tcache = tsd_tcachep_get(tsd);
+
+	if (unlikely(ticker_trytick(&tcache->gc_ticker))) {
+		return malloc_default(size);
+	}
+
+	szind_t ind = sz_size2index_lookup(size);
+	size_t usize;
+	if (config_stats || config_prof) {
+		usize = sz_index2size(ind);
+	}
+	/* Fast path relies on size being a bin. I.e. SC_LOOKUP_MAXCLASS < SC_SMALL_MAXCLASS */
+	assert(ind < SC_NBINS);
+	assert(size <= SC_SMALL_MAXCLASS);
+
+	if (config_prof) {
+		int64_t bytes_until_sample = tsd_bytes_until_sample_get(tsd);
+		bytes_until_sample -= usize;
+		tsd_bytes_until_sample_set(tsd, bytes_until_sample);
+
+		if (unlikely(bytes_until_sample < 0)) {
+			/*
+			 * Avoid a prof_active check on the fastpath.
+			 * If prof_active is false, set bytes_until_sample to
+			 * a large value.  If prof_active is set to true,
+			 * bytes_until_sample will be reset.
+			 */
+			if (!prof_active) {
+				tsd_bytes_until_sample_set(tsd, SSIZE_MAX);
+			}
+			return malloc_default(size);
+		}
+	}
+
+	cache_bin_t *bin = tcache_small_bin_get(tcache, ind);
+	bool tcache_success;
+	void* ret = cache_bin_alloc_easy(bin, &tcache_success);
+
+	if (tcache_success) {
+		if (config_stats) {
+			*tsd_thread_allocatedp_get(tsd) += usize;
+			bin->tstats.nrequests++;
+		}
+		if (config_prof) {
+			tcache->prof_accumbytes += usize;
+		}
+
+		LOG("core.malloc.exit", "result: %p", ret);
+
+		/* Fastpath success */
+		return ret;
+	}
+
+	return malloc_default(size);
 }
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
@@ -2055,7 +2401,7 @@ je_posix_memalign(void **memptr, size_t alignment, size_t size) {
 	static_opts_init(&sopts);
 	dynamic_opts_init(&dopts);
 
-	sopts.bump_empty_alloc = true;
+	sopts.bump_empty_aligned_alloc = true;
 	sopts.min_alignment = sizeof(void *);
 	sopts.oom_string =
 	    "<jemalloc>: Error allocating aligned memory: out of memory\n";
@@ -2068,6 +2414,12 @@ je_posix_memalign(void **memptr, size_t alignment, size_t size) {
 	dopts.alignment = alignment;
 
 	ret = imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {(uintptr_t)memptr, (uintptr_t)alignment,
+			(uintptr_t)size};
+		hook_invoke_alloc(hook_alloc_posix_memalign, *memptr,
+		    (uintptr_t)ret, args);
+	}
 
 	LOG("core.posix_memalign.exit", "result: %d, alloc ptr: %p", ret,
 	    *memptr);
@@ -2090,7 +2442,7 @@ je_aligned_alloc(size_t alignment, size_t size) {
 	static_opts_init(&sopts);
 	dynamic_opts_init(&dopts);
 
-	sopts.bump_empty_alloc = true;
+	sopts.bump_empty_aligned_alloc = true;
 	sopts.null_out_result_on_error = true;
 	sopts.set_errno_on_error = true;
 	sopts.min_alignment = 1;
@@ -2105,6 +2457,11 @@ je_aligned_alloc(size_t alignment, size_t size) {
 	dopts.alignment = alignment;
 
 	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {(uintptr_t)alignment, (uintptr_t)size};
+		hook_invoke_alloc(hook_alloc_aligned_alloc, ret,
+		    (uintptr_t)ret, args);
+	}
 
 	LOG("core.aligned_alloc.exit", "result: %p", ret);
 
@@ -2125,7 +2482,6 @@ je_calloc(size_t num, size_t size) {
 	dynamic_opts_init(&dopts);
 
 	sopts.may_overflow = true;
-	sopts.bump_empty_alloc = true;
 	sopts.null_out_result_on_error = true;
 	sopts.set_errno_on_error = true;
 	sopts.oom_string = "<jemalloc>: Error in calloc(): out of memory\n";
@@ -2136,6 +2492,10 @@ je_calloc(size_t num, size_t size) {
 	dopts.zero = true;
 
 	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {(uintptr_t)num, (uintptr_t)size};
+		hook_invoke_alloc(hook_alloc_calloc, ret, (uintptr_t)ret, args);
+	}
 
 	LOG("core.calloc.exit", "result: %p", ret);
 
@@ -2144,20 +2504,22 @@ je_calloc(size_t num, size_t size) {
 
 static void *
 irealloc_prof_sample(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t usize,
-    prof_tctx_t *tctx) {
+    prof_tctx_t *tctx, hook_ralloc_args_t *hook_args) {
 	void *p;
 
 	if (tctx == NULL) {
 		return NULL;
 	}
-	if (usize <= SMALL_MAXCLASS) {
-		p = iralloc(tsd, old_ptr, old_usize, LARGE_MINCLASS, 0, false);
+	if (usize <= SC_SMALL_MAXCLASS) {
+		p = iralloc(tsd, old_ptr, old_usize,
+		    SC_LARGE_MINCLASS, 0, false, hook_args);
 		if (p == NULL) {
 			return NULL;
 		}
 		arena_prof_promote(tsd_tsdn(tsd), p, usize);
 	} else {
-		p = iralloc(tsd, old_ptr, old_usize, usize, 0, false);
+		p = iralloc(tsd, old_ptr, old_usize, usize, 0, false,
+		    hook_args);
 	}
 
 	return p;
@@ -2165,7 +2527,7 @@ irealloc_prof_sample(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t usize,
 
 JEMALLOC_ALWAYS_INLINE void *
 irealloc_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t usize,
-   alloc_ctx_t *alloc_ctx) {
+   alloc_ctx_t *alloc_ctx, hook_ralloc_args_t *hook_args) {
 	void *p;
 	bool prof_active;
 	prof_tctx_t *old_tctx, *tctx;
@@ -2174,9 +2536,11 @@ irealloc_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t usize,
 	old_tctx = prof_tctx_get(tsd_tsdn(tsd), old_ptr, alloc_ctx);
 	tctx = prof_alloc_prep(tsd, usize, prof_active, true);
 	if (unlikely((uintptr_t)tctx != (uintptr_t)1U)) {
-		p = irealloc_prof_sample(tsd, old_ptr, old_usize, usize, tctx);
+		p = irealloc_prof_sample(tsd, old_ptr, old_usize, usize, tctx,
+		    hook_args);
 	} else {
-		p = iralloc(tsd, old_ptr, old_usize, usize, 0, false);
+		p = iralloc(tsd, old_ptr, old_usize, usize, 0, false,
+		    hook_args);
 	}
 	if (unlikely(p == NULL)) {
 		prof_alloc_rollback(tsd, tctx, true);
@@ -2205,7 +2569,7 @@ ifree(tsd_t *tsd, void *ptr, tcache_t *tcache, bool slow_path) {
 	rtree_ctx_t *rtree_ctx = tsd_rtree_ctx(tsd);
 	rtree_szind_slab_read(tsd_tsdn(tsd), &extents_rtree, rtree_ctx,
 	    (uintptr_t)ptr, true, &alloc_ctx.szind, &alloc_ctx.slab);
-	assert(alloc_ctx.szind != NSIZES);
+	assert(alloc_ctx.szind != SC_NSIZES);
 
 	size_t usize;
 	if (config_prof && opt_prof) {
@@ -2286,11 +2650,12 @@ isfree(tsd_t *tsd, void *ptr, size_t usize, tcache_t *tcache, bool slow_path) {
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ALLOC_SIZE(2)
-je_realloc(void *ptr, size_t size) {
+je_realloc(void *ptr, size_t arg_size) {
 	void *ret;
 	tsdn_t *tsdn JEMALLOC_CC_SILENCE_INIT(NULL);
 	size_t usize JEMALLOC_CC_SILENCE_INIT(0);
 	size_t old_usize = 0;
+	size_t size = arg_size;
 
 	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
 
@@ -2305,6 +2670,10 @@ je_realloc(void *ptr, size_t size) {
 			} else {
 				tcache = NULL;
 			}
+
+			uintptr_t args[3] = {(uintptr_t)ptr, size};
+			hook_invoke_dalloc(hook_dalloc_realloc, ptr, args);
+
 			ifree(tsd, ptr, tcache, true);
 
 			LOG("core.realloc.exit", "result: %p", NULL);
@@ -2319,29 +2688,58 @@ je_realloc(void *ptr, size_t size) {
 
 		check_entry_exit_locking(tsd_tsdn(tsd));
 
+
+		hook_ralloc_args_t hook_args = {true, {(uintptr_t)ptr,
+			(uintptr_t)arg_size, 0, 0}};
+
 		alloc_ctx_t alloc_ctx;
 		rtree_ctx_t *rtree_ctx = tsd_rtree_ctx(tsd);
 		rtree_szind_slab_read(tsd_tsdn(tsd), &extents_rtree, rtree_ctx,
 		    (uintptr_t)ptr, true, &alloc_ctx.szind, &alloc_ctx.slab);
-		assert(alloc_ctx.szind != NSIZES);
+		assert(alloc_ctx.szind != SC_NSIZES);
 		old_usize = sz_index2size(alloc_ctx.szind);
 		assert(old_usize == isalloc(tsd_tsdn(tsd), ptr));
 		if (config_prof && opt_prof) {
 			usize = sz_s2u(size);
-			ret = unlikely(usize == 0 || usize > LARGE_MAXCLASS) ?
-			    NULL : irealloc_prof(tsd, ptr, old_usize, usize,
-			    &alloc_ctx);
+			if (unlikely(usize == 0
+			    || usize > SC_LARGE_MAXCLASS)) {
+				ret = NULL;
+			} else {
+				ret = irealloc_prof(tsd, ptr, old_usize, usize,
+				    &alloc_ctx, &hook_args);
+			}
 		} else {
 			if (config_stats) {
 				usize = sz_s2u(size);
 			}
-			ret = iralloc(tsd, ptr, old_usize, size, 0, false);
+			ret = iralloc(tsd, ptr, old_usize, size, 0, false,
+			    &hook_args);
 		}
 		tsdn = tsd_tsdn(tsd);
 	} else {
 		/* realloc(NULL, size) is equivalent to malloc(size). */
-		void *ret = je_malloc(size);
-		LOG("core.realloc.exit", "result: %p", ret);
+		static_opts_t sopts;
+		dynamic_opts_t dopts;
+
+		static_opts_init(&sopts);
+		dynamic_opts_init(&dopts);
+
+		sopts.null_out_result_on_error = true;
+		sopts.set_errno_on_error = true;
+		sopts.oom_string =
+		    "<jemalloc>: Error in realloc(): out of memory\n";
+
+		dopts.result = &ret;
+		dopts.num_items = 1;
+		dopts.item_size = size;
+
+		imalloc(&sopts, &dopts);
+		if (sopts.slow) {
+			uintptr_t args[3] = {(uintptr_t)ptr, arg_size};
+			hook_invoke_alloc(hook_alloc_realloc, ret,
+			    (uintptr_t)ret, args);
+		}
+
 		return ret;
 	}
 
@@ -2368,10 +2766,9 @@ je_realloc(void *ptr, size_t size) {
 	return ret;
 }
 
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-je_free(void *ptr) {
-	LOG("core.free.entry", "ptr: %p", ptr);
-
+JEMALLOC_NOINLINE
+void
+free_default(void *ptr) {
 	UTRACE(ptr, 0, 0);
 	if (likely(ptr != NULL)) {
 		/*
@@ -2397,10 +2794,79 @@ je_free(void *ptr) {
 			} else {
 				tcache = NULL;
 			}
+			uintptr_t args_raw[3] = {(uintptr_t)ptr};
+			hook_invoke_dalloc(hook_dalloc_free, ptr, args_raw);
 			ifree(tsd, ptr, tcache, true);
 		}
 		check_entry_exit_locking(tsd_tsdn(tsd));
 	}
+}
+
+JEMALLOC_ALWAYS_INLINE
+bool free_fastpath(void *ptr, size_t size, bool size_hint) {
+	tsd_t *tsd = tsd_get(false);
+	if (unlikely(!tsd || !tsd_fast(tsd))) {
+		return false;
+	}
+
+	tcache_t *tcache = tsd_tcachep_get(tsd);
+
+	alloc_ctx_t alloc_ctx;
+	/*
+	 * If !config_cache_oblivious, we can check PAGE alignment to
+	 * detect sampled objects.  Otherwise addresses are
+	 * randomized, and we have to look it up in the rtree anyway.
+	 * See also isfree().
+	 */
+	if (!size_hint || config_cache_oblivious) {
+		rtree_ctx_t *rtree_ctx = tsd_rtree_ctx(tsd);
+		bool res = rtree_szind_slab_read_fast(tsd_tsdn(tsd), &extents_rtree,
+						      rtree_ctx, (uintptr_t)ptr,
+						      &alloc_ctx.szind, &alloc_ctx.slab);
+
+		/* Note: profiled objects will have alloc_ctx.slab set */
+		if (!res || !alloc_ctx.slab) {
+			return false;
+		}
+		assert(alloc_ctx.szind != SC_NSIZES);
+	} else {
+		/*
+		 * Check for both sizes that are too large, and for sampled objects.
+		 * Sampled objects are always page-aligned.  The sampled object check
+		 * will also check for null ptr.
+		 */
+		if (size > SC_LOOKUP_MAXCLASS || (((uintptr_t)ptr & PAGE_MASK) == 0)) {
+			return false;
+		}
+		alloc_ctx.szind = sz_size2index_lookup(size);
+	}
+
+	if (unlikely(ticker_trytick(&tcache->gc_ticker))) {
+		return false;
+	}
+
+	cache_bin_t *bin = tcache_small_bin_get(tcache, alloc_ctx.szind);
+	cache_bin_info_t *bin_info = &tcache_bin_info[alloc_ctx.szind];
+	if (!cache_bin_dalloc_easy(bin, bin_info, ptr)) {
+		return false;
+	}
+
+	if (config_stats) {
+		size_t usize = sz_index2size(alloc_ctx.szind);
+		*tsd_thread_deallocatedp_get(tsd) += usize;
+	}
+
+	return true;
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+je_free(void *ptr) {
+	LOG("core.free.entry", "ptr: %p", ptr);
+
+	if (!free_fastpath(ptr, 0, false)) {
+		free_default(ptr);
+	}
+
 	LOG("core.free.exit", "");
 }
 
@@ -2427,7 +2893,6 @@ je_memalign(size_t alignment, size_t size) {
 	static_opts_init(&sopts);
 	dynamic_opts_init(&dopts);
 
-	sopts.bump_empty_alloc = true;
 	sopts.min_alignment = 1;
 	sopts.oom_string =
 	    "<jemalloc>: Error allocating aligned memory: out of memory\n";
@@ -2441,6 +2906,11 @@ je_memalign(size_t alignment, size_t size) {
 	dopts.alignment = alignment;
 
 	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {alignment, size};
+		hook_invoke_alloc(hook_alloc_memalign, ret, (uintptr_t)ret,
+		    args);
+	}
 
 	LOG("core.memalign.exit", "result: %p", ret);
 	return ret;
@@ -2462,7 +2932,6 @@ je_valloc(size_t size) {
 	static_opts_init(&sopts);
 	dynamic_opts_init(&dopts);
 
-	sopts.bump_empty_alloc = true;
 	sopts.null_out_result_on_error = true;
 	sopts.min_alignment = PAGE;
 	sopts.oom_string =
@@ -2476,6 +2945,10 @@ je_valloc(size_t size) {
 	dopts.alignment = PAGE;
 
 	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {size};
+		hook_invoke_alloc(hook_alloc_valloc, ret, (uintptr_t)ret, args);
+	}
 
 	LOG("core.valloc.exit", "result: %p\n", ret);
 	return ret;
@@ -2543,6 +3016,82 @@ int __posix_memalign(void** r, size_t a, size_t s) PREALIAS(je_posix_memalign);
  * Begin non-standard functions.
  */
 
+#ifdef JEMALLOC_EXPERIMENTAL_SMALLOCX_API
+
+#define JEMALLOC_SMALLOCX_CONCAT_HELPER(x, y) x ## y
+#define JEMALLOC_SMALLOCX_CONCAT_HELPER2(x, y)  \
+  JEMALLOC_SMALLOCX_CONCAT_HELPER(x, y)
+
+typedef struct {
+	void *ptr;
+	size_t size;
+} smallocx_return_t;
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+smallocx_return_t JEMALLOC_NOTHROW
+/*
+ * The attribute JEMALLOC_ATTR(malloc) cannot be used due to:
+ *  - https://gcc.gnu.org/bugzilla/show_bug.cgi?id=86488
+ */
+JEMALLOC_SMALLOCX_CONCAT_HELPER2(je_smallocx_, JEMALLOC_VERSION_GID_IDENT)
+  (size_t size, int flags) {
+	/*
+	 * Note: the attribute JEMALLOC_ALLOC_SIZE(1) cannot be
+	 * used here because it makes writing beyond the `size`
+	 * of the `ptr` undefined behavior, but the objective
+	 * of this function is to allow writing beyond `size`
+	 * up to `smallocx_return_t::size`.
+	 */
+	smallocx_return_t ret;
+	static_opts_t sopts;
+	dynamic_opts_t dopts;
+
+	LOG("core.smallocx.entry", "size: %zu, flags: %d", size, flags);
+
+	static_opts_init(&sopts);
+	dynamic_opts_init(&dopts);
+
+	sopts.assert_nonempty_alloc = true;
+	sopts.null_out_result_on_error = true;
+	sopts.oom_string = "<jemalloc>: Error in mallocx(): out of memory\n";
+	sopts.usize = true;
+
+	dopts.result = &ret.ptr;
+	dopts.num_items = 1;
+	dopts.item_size = size;
+	if (unlikely(flags != 0)) {
+		if ((flags & MALLOCX_LG_ALIGN_MASK) != 0) {
+			dopts.alignment = MALLOCX_ALIGN_GET_SPECIFIED(flags);
+		}
+
+		dopts.zero = MALLOCX_ZERO_GET(flags);
+
+		if ((flags & MALLOCX_TCACHE_MASK) != 0) {
+			if ((flags & MALLOCX_TCACHE_MASK)
+			    == MALLOCX_TCACHE_NONE) {
+				dopts.tcache_ind = TCACHE_IND_NONE;
+			} else {
+				dopts.tcache_ind = MALLOCX_TCACHE_GET(flags);
+			}
+		} else {
+			dopts.tcache_ind = TCACHE_IND_AUTOMATIC;
+		}
+
+		if ((flags & MALLOCX_ARENA_MASK) != 0)
+			dopts.arena_ind = MALLOCX_ARENA_GET(flags);
+	}
+
+	imalloc(&sopts, &dopts);
+	assert(dopts.usize == je_nallocx(size, flags));
+	ret.size = dopts.usize;
+
+	LOG("core.smallocx.exit", "result: %p, size: %zu", ret.ptr, ret.size);
+	return ret;
+}
+#undef JEMALLOC_SMALLOCX_CONCAT_HELPER
+#undef JEMALLOC_SMALLOCX_CONCAT_HELPER2
+#endif
+
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
@@ -2586,6 +3135,11 @@ je_mallocx(size_t size, int flags) {
 	}
 
 	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {size, flags};
+		hook_invoke_alloc(hook_alloc_mallocx, ret, (uintptr_t)ret,
+		    args);
+	}
 
 	LOG("core.mallocx.exit", "result: %p", ret);
 	return ret;
@@ -2594,22 +3148,23 @@ je_mallocx(size_t size, int flags) {
 static void *
 irallocx_prof_sample(tsdn_t *tsdn, void *old_ptr, size_t old_usize,
     size_t usize, size_t alignment, bool zero, tcache_t *tcache, arena_t *arena,
-    prof_tctx_t *tctx) {
+    prof_tctx_t *tctx, hook_ralloc_args_t *hook_args) {
 	void *p;
 
 	if (tctx == NULL) {
 		return NULL;
 	}
-	if (usize <= SMALL_MAXCLASS) {
-		p = iralloct(tsdn, old_ptr, old_usize, LARGE_MINCLASS,
-		    alignment, zero, tcache, arena);
+	if (usize <= SC_SMALL_MAXCLASS) {
+		p = iralloct(tsdn, old_ptr, old_usize,
+		    SC_LARGE_MINCLASS, alignment, zero, tcache,
+		    arena, hook_args);
 		if (p == NULL) {
 			return NULL;
 		}
 		arena_prof_promote(tsdn, p, usize);
 	} else {
 		p = iralloct(tsdn, old_ptr, old_usize, usize, alignment, zero,
-		    tcache, arena);
+		    tcache, arena, hook_args);
 	}
 
 	return p;
@@ -2618,7 +3173,7 @@ irallocx_prof_sample(tsdn_t *tsdn, void *old_ptr, size_t old_usize,
 JEMALLOC_ALWAYS_INLINE void *
 irallocx_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t size,
     size_t alignment, size_t *usize, bool zero, tcache_t *tcache,
-    arena_t *arena, alloc_ctx_t *alloc_ctx) {
+    arena_t *arena, alloc_ctx_t *alloc_ctx, hook_ralloc_args_t *hook_args) {
 	void *p;
 	bool prof_active;
 	prof_tctx_t *old_tctx, *tctx;
@@ -2628,10 +3183,10 @@ irallocx_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t size,
 	tctx = prof_alloc_prep(tsd, *usize, prof_active, false);
 	if (unlikely((uintptr_t)tctx != (uintptr_t)1U)) {
 		p = irallocx_prof_sample(tsd_tsdn(tsd), old_ptr, old_usize,
-		    *usize, alignment, zero, tcache, arena, tctx);
+		    *usize, alignment, zero, tcache, arena, tctx, hook_args);
 	} else {
 		p = iralloct(tsd_tsdn(tsd), old_ptr, old_usize, size, alignment,
-		    zero, tcache, arena);
+		    zero, tcache, arena, hook_args);
 	}
 	if (unlikely(p == NULL)) {
 		prof_alloc_rollback(tsd, tctx, false);
@@ -2702,23 +3257,27 @@ je_rallocx(void *ptr, size_t size, int flags) {
 	rtree_ctx_t *rtree_ctx = tsd_rtree_ctx(tsd);
 	rtree_szind_slab_read(tsd_tsdn(tsd), &extents_rtree, rtree_ctx,
 	    (uintptr_t)ptr, true, &alloc_ctx.szind, &alloc_ctx.slab);
-	assert(alloc_ctx.szind != NSIZES);
+	assert(alloc_ctx.szind != SC_NSIZES);
 	old_usize = sz_index2size(alloc_ctx.szind);
 	assert(old_usize == isalloc(tsd_tsdn(tsd), ptr));
+
+	hook_ralloc_args_t hook_args = {false, {(uintptr_t)ptr, size, flags,
+		0}};
 	if (config_prof && opt_prof) {
 		usize = (alignment == 0) ?
 		    sz_s2u(size) : sz_sa2u(size, alignment);
-		if (unlikely(usize == 0 || usize > LARGE_MAXCLASS)) {
+		if (unlikely(usize == 0
+		    || usize > SC_LARGE_MAXCLASS)) {
 			goto label_oom;
 		}
 		p = irallocx_prof(tsd, ptr, old_usize, size, alignment, &usize,
-		    zero, tcache, arena, &alloc_ctx);
+		    zero, tcache, arena, &alloc_ctx, &hook_args);
 		if (unlikely(p == NULL)) {
 			goto label_oom;
 		}
 	} else {
 		p = iralloct(tsd_tsdn(tsd), ptr, old_usize, size, alignment,
-		    zero, tcache, arena);
+		    zero, tcache, arena, &hook_args);
 		if (unlikely(p == NULL)) {
 			goto label_oom;
 		}
@@ -2752,14 +3311,14 @@ label_oom:
 JEMALLOC_ALWAYS_INLINE size_t
 ixallocx_helper(tsdn_t *tsdn, void *ptr, size_t old_usize, size_t size,
     size_t extra, size_t alignment, bool zero) {
-	size_t usize;
+	size_t newsize;
 
-	if (ixalloc(tsdn, ptr, old_usize, size, extra, alignment, zero)) {
+	if (ixalloc(tsdn, ptr, old_usize, size, extra, alignment, zero,
+	    &newsize)) {
 		return old_usize;
 	}
-	usize = isalloc(tsdn, ptr);
 
-	return usize;
+	return newsize;
 }
 
 static size_t
@@ -2793,17 +3352,19 @@ ixallocx_prof(tsd_t *tsd, void *ptr, size_t old_usize, size_t size,
 	 */
 	if (alignment == 0) {
 		usize_max = sz_s2u(size+extra);
-		assert(usize_max > 0 && usize_max <= LARGE_MAXCLASS);
+		assert(usize_max > 0
+		    && usize_max <= SC_LARGE_MAXCLASS);
 	} else {
 		usize_max = sz_sa2u(size+extra, alignment);
-		if (unlikely(usize_max == 0 || usize_max > LARGE_MAXCLASS)) {
+		if (unlikely(usize_max == 0
+		    || usize_max > SC_LARGE_MAXCLASS)) {
 			/*
 			 * usize_max is out of range, and chances are that
 			 * allocation will fail, but use the maximum possible
 			 * value and carry on with prof_alloc_prep(), just in
 			 * case allocation succeeds.
 			 */
-			usize_max = LARGE_MAXCLASS;
+			usize_max = SC_LARGE_MAXCLASS;
 		}
 	}
 	tctx = prof_alloc_prep(tsd, usize_max, prof_active, false);
@@ -2846,24 +3407,24 @@ je_xallocx(void *ptr, size_t size, size_t extra, int flags) {
 	rtree_ctx_t *rtree_ctx = tsd_rtree_ctx(tsd);
 	rtree_szind_slab_read(tsd_tsdn(tsd), &extents_rtree, rtree_ctx,
 	    (uintptr_t)ptr, true, &alloc_ctx.szind, &alloc_ctx.slab);
-	assert(alloc_ctx.szind != NSIZES);
+	assert(alloc_ctx.szind != SC_NSIZES);
 	old_usize = sz_index2size(alloc_ctx.szind);
 	assert(old_usize == isalloc(tsd_tsdn(tsd), ptr));
 	/*
 	 * The API explicitly absolves itself of protecting against (size +
 	 * extra) numerical overflow, but we may need to clamp extra to avoid
-	 * exceeding LARGE_MAXCLASS.
+	 * exceeding SC_LARGE_MAXCLASS.
 	 *
 	 * Ordinarily, size limit checking is handled deeper down, but here we
 	 * have to check as part of (size + extra) clamping, since we need the
 	 * clamped value in the above helper functions.
 	 */
-	if (unlikely(size > LARGE_MAXCLASS)) {
+	if (unlikely(size > SC_LARGE_MAXCLASS)) {
 		usize = old_usize;
 		goto label_not_resized;
 	}
-	if (unlikely(LARGE_MAXCLASS - size < extra)) {
-		extra = LARGE_MAXCLASS - size;
+	if (unlikely(SC_LARGE_MAXCLASS - size < extra)) {
+		extra = SC_LARGE_MAXCLASS - size;
 	}
 
 	if (config_prof && opt_prof) {
@@ -2882,6 +3443,12 @@ je_xallocx(void *ptr, size_t size, size_t extra, int flags) {
 		*tsd_thread_deallocatedp_get(tsd) += old_usize;
 	}
 label_not_resized:
+	if (unlikely(!tsd_fast(tsd))) {
+		uintptr_t args[4] = {(uintptr_t)ptr, size, extra, flags};
+		hook_invoke_expand(hook_expand_xallocx, ptr, old_usize,
+		    usize, (uintptr_t)usize, args);
+	}
+
 	UTRACE(ptr, size, ptr);
 	check_entry_exit_locking(tsd_tsdn(tsd));
 
@@ -2891,7 +3458,7 @@ label_not_resized:
 
 JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW
 JEMALLOC_ATTR(pure)
-je_sallocx(const void *ptr, UNUSED int flags) {
+je_sallocx(const void *ptr, int flags) {
 	size_t usize;
 	tsdn_t *tsdn;
 
@@ -2954,6 +3521,8 @@ je_dallocx(void *ptr, int flags) {
 		tsd_assert_fast(tsd);
 		ifree(tsd, ptr, tcache, false);
 	} else {
+		uintptr_t args_raw[3] = {(uintptr_t)ptr, flags};
+		hook_invoke_dalloc(hook_dalloc_dallocx, ptr, args_raw);
 		ifree(tsd, ptr, tcache, true);
 	}
 	check_entry_exit_locking(tsd_tsdn(tsd));
@@ -2975,13 +3544,10 @@ inallocx(tsdn_t *tsdn, size_t size, int flags) {
 	return usize;
 }
 
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-je_sdallocx(void *ptr, size_t size, int flags) {
+JEMALLOC_NOINLINE void
+sdallocx_default(void *ptr, size_t size, int flags) {
 	assert(ptr != NULL);
 	assert(malloc_initialized() || IS_INITIALIZER);
-
-	LOG("core.sdallocx.entry", "ptr: %p, size: %zu, flags: %d", ptr,
-	    size, flags);
 
 	tsd_t *tsd = tsd_fetch();
 	bool fast = tsd_fast(tsd);
@@ -3016,9 +3582,34 @@ je_sdallocx(void *ptr, size_t size, int flags) {
 		tsd_assert_fast(tsd);
 		isfree(tsd, ptr, usize, tcache, false);
 	} else {
+		uintptr_t args_raw[3] = {(uintptr_t)ptr, size, flags};
+		hook_invoke_dalloc(hook_dalloc_sdallocx, ptr, args_raw);
 		isfree(tsd, ptr, usize, tcache, true);
 	}
 	check_entry_exit_locking(tsd_tsdn(tsd));
+
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+je_sdallocx(void *ptr, size_t size, int flags) {
+	LOG("core.sdallocx.entry", "ptr: %p, size: %zu, flags: %d", ptr,
+		size, flags);
+
+	if (flags !=0 || !free_fastpath(ptr, size, true)) {
+		sdallocx_default(ptr, size, flags);
+	}
+
+	LOG("core.sdallocx.exit", "");
+}
+
+void JEMALLOC_NOTHROW
+je_sdallocx_noflags(void *ptr, size_t size) {
+	LOG("core.sdallocx.entry", "ptr: %p, size: %zu, flags: 0", ptr,
+		size);
+
+	if (!free_fastpath(ptr, size, true)) {
+		sdallocx_default(ptr, size, 0);
+	}
 
 	LOG("core.sdallocx.exit", "");
 }
@@ -3040,7 +3631,7 @@ je_nallocx(size_t size, int flags) {
 	check_entry_exit_locking(tsdn);
 
 	usize = inallocx(tsdn, size, flags);
-	if (unlikely(usize > LARGE_MAXCLASS)) {
+	if (unlikely(usize > SC_LARGE_MAXCLASS)) {
 		LOG("core.nallocx.exit", "result: %zu", ZU(0));
 		return 0;
 	}
@@ -3256,6 +3847,7 @@ _malloc_prefork(void)
 		}
 	}
 	prof_prefork1(tsd_tsdn(tsd));
+	tsd_prefork(tsd);
 }
 
 #ifndef JEMALLOC_MUTEX_INIT_CB
@@ -3277,6 +3869,8 @@ _malloc_postfork(void)
 	assert(malloc_initialized());
 
 	tsd = tsd_fetch();
+
+	tsd_postfork_parent(tsd);
 
 	witness_postfork_parent(tsd_witness_tsdp_get(tsd));
 	/* Release all mutexes, now that fork() has completed. */
@@ -3304,6 +3898,8 @@ jemalloc_postfork_child(void) {
 	assert(malloc_initialized());
 
 	tsd = tsd_fetch();
+
+	tsd_postfork_child(tsd);
 
 	witness_postfork_child(tsd_witness_tsdp_get(tsd));
 	/* Release all mutexes, now that fork() has completed. */

@@ -171,7 +171,22 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
         /* Don't overwrite the state of a connection that is not already
          * connected, not to mess with handler callbacks.
          */
-        if (conn->state == CONN_STATE_CONNECTED)
+        if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
+            conn->state = CONN_STATE_ERROR;
+    }
+
+    return ret;
+}
+
+static int connSocketWritev(connection *conn, const struct iovec *iov, int iovcnt) {
+    int ret = writev(conn->fd, iov, iovcnt);
+    if (ret < 0 && errno != EAGAIN) {
+        conn->last_errno = errno;
+
+        /* Don't overwrite the state of a connection that is not already
+         * connected, not to mess with handler callbacks.
+         */
+        if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
 
@@ -188,7 +203,7 @@ static int connSocketRead(connection *conn, void *buf, size_t buf_len) {
         /* Don't overwrite the state of a connection that is not already
          * connected, not to mess with handler callbacks.
          */
-        if (conn->state == CONN_STATE_CONNECTED)
+        if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
 
@@ -349,6 +364,7 @@ ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .close = connSocketClose,
     .write = connSocketWrite,
+    .writev = connSocketWritev,
     .read = connSocketRead,
     .accept = connSocketAccept,
     .connect = connSocketConnect,

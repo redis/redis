@@ -31,16 +31,23 @@ test "(post-init) Set up ACL configuration" {
 
 test "SENTINEL CONFIG SET handles on-the-fly credentials reconfiguration" {
     # Make sure we're starting with a broken state...
-    after 5000
-    catch {S 1 SENTINEL CKQUORUM mymaster} err
-    assert_match {*NOQUORUM*} $err
+    wait_for_condition 200 50 {
+        [catch {S 1 SENTINEL CKQUORUM mymaster}] == 1
+    } else {
+        fail "Expected: Sentinel to be disconnected from master due to wrong password"
+    }
+    assert_error "*NOQUORUM*" {S 1 SENTINEL CKQUORUM mymaster}
 
     foreach_sentinel_id id {
         assert_equal {OK} [S $id SENTINEL CONFIG SET sentinel-user $::user]
         assert_equal {OK} [S $id SENTINEL CONFIG SET sentinel-pass $::password]
     }
 
-    after 5000
+    wait_for_condition 200 50 {
+        [catch {S 1 SENTINEL CKQUORUM mymaster}] == 0
+    } else {
+         fail "Expected: Sentinel to be connected to master after setting password"
+    }
     assert_match {*OK*} [S 1 SENTINEL CKQUORUM mymaster]
 }
 

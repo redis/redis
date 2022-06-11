@@ -27,9 +27,9 @@
 #define WITNESS_RANK_PROF_BT2GCTX	6U
 #define WITNESS_RANK_PROF_TDATAS	7U
 #define WITNESS_RANK_PROF_TDATA		8U
-#define WITNESS_RANK_PROF_GCTX		9U
-
-#define WITNESS_RANK_BACKGROUND_THREAD	10U
+#define WITNESS_RANK_PROF_LOG		9U
+#define WITNESS_RANK_PROF_GCTX		10U
+#define WITNESS_RANK_BACKGROUND_THREAD	11U
 
 /*
  * Used as an argument to witness_assert_depth_to_rank() in order to validate
@@ -37,18 +37,19 @@
  * witness_assert_depth_to_rank() is inclusive rather than exclusive, this
  * definition can have the same value as the minimally ranked core lock.
  */
-#define WITNESS_RANK_CORE		11U
+#define WITNESS_RANK_CORE		12U
 
-#define WITNESS_RANK_DECAY		11U
-#define WITNESS_RANK_TCACHE_QL		12U
-#define WITNESS_RANK_EXTENT_GROW	13U
-#define WITNESS_RANK_EXTENTS		14U
-#define WITNESS_RANK_EXTENT_AVAIL	15U
+#define WITNESS_RANK_DECAY		12U
+#define WITNESS_RANK_TCACHE_QL		13U
+#define WITNESS_RANK_EXTENT_GROW	14U
+#define WITNESS_RANK_EXTENTS		15U
+#define WITNESS_RANK_EXTENT_AVAIL	16U
 
-#define WITNESS_RANK_EXTENT_POOL	16U
-#define WITNESS_RANK_RTREE		17U
-#define WITNESS_RANK_BASE		18U
-#define WITNESS_RANK_ARENA_LARGE	19U
+#define WITNESS_RANK_EXTENT_POOL	17U
+#define WITNESS_RANK_RTREE		18U
+#define WITNESS_RANK_BASE		19U
+#define WITNESS_RANK_ARENA_LARGE	20U
+#define WITNESS_RANK_HOOK		21U
 
 #define WITNESS_RANK_LEAF		0xffffffffU
 #define WITNESS_RANK_BIN		WITNESS_RANK_LEAF

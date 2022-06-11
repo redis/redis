@@ -19,6 +19,9 @@ start_server {tags {"lazyfree"}} {
     }
 
     test "FLUSHDB ASYNC can reclaim memory in background" {
+        # make the previous test is really done before sampling used_memory
+        wait_lazyfree_done r
+
         set orig_mem [s used_memory]
         set args {}
         for {set i 0} {$i < 100000} {incr i} {
@@ -39,7 +42,7 @@ start_server {tags {"lazyfree"}} {
 
     test "lazy free a stream with all types of metadata" {
         # make the previous test is really done before doing RESETSTAT
-        wait_for_condition 5 100 {
+        wait_for_condition 50 100 {
             [s lazyfree_pending_objects] == 0
         } else {
             fail "lazyfree isn't done"
@@ -61,7 +64,7 @@ start_server {tags {"lazyfree"}} {
         r unlink stream
 
         # make sure it was lazy freed
-        wait_for_condition 5 100 {
+        wait_for_condition 50 100 {
             [s lazyfree_pending_objects] == 0
         } else {
             fail "lazyfree isn't done"
@@ -77,7 +80,7 @@ start_server {tags {"lazyfree"}} {
         r unlink s
 
         # make sure it was not lazy freed
-        wait_for_condition 5 100 {
+        wait_for_condition 50 100 {
             [s lazyfree_pending_objects] == 0
         } else {
             fail "lazyfree isn't done"

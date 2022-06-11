@@ -86,6 +86,16 @@
 #define expect_false(expr) expect ((expr) != 0, 0)
 #define expect_true(expr)  expect ((expr) != 0, 1)
 
+#if defined(__has_attribute)
+# if __has_attribute(no_sanitize)
+#  define NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+# endif
+#endif
+
+#if !defined(NO_SANITIZE)
+# define NO_SANITIZE(sanitizer)
+#endif
+
 /*
  * compressed format
  *
@@ -94,10 +104,10 @@
  * 111ooooo LLLLLLLL oooooooo ; backref L+8 octets, o+1=1..4096 offset
  *
  */
-
-unsigned int
-lzf_compress (const void *const in_data, unsigned int in_len,
-	      void *out_data, unsigned int out_len
+NO_SANITIZE("alignment")
+size_t
+lzf_compress (const void *const in_data, size_t in_len,
+	      void *out_data, size_t out_len
 #if LZF_STATE_ARG
               , LZF_STATE htab
 #endif
@@ -122,7 +132,7 @@ lzf_compress (const void *const in_data, unsigned int in_len,
 #if defined (WIN32) && defined (_M_X64)
   unsigned _int64 off; /* workaround for missing POSIX compliance */
 #else
-  unsigned long off;
+  size_t off;
 #endif
   unsigned int hval;
   int lit;
@@ -143,7 +153,8 @@ lzf_compress (const void *const in_data, unsigned int in_len,
 
       hval = NEXT (hval, ip);
       hslot = htab + IDX (hval);
-      ref = *hslot + LZF_HSLOT_BIAS; *hslot = ip - LZF_HSLOT_BIAS;
+      ref = *hslot ? (*hslot + LZF_HSLOT_BIAS) : NULL; /* avoid applying zero offset to null pointer */
+      *hslot = ip - LZF_HSLOT_BIAS;
 
       if (1
 #if INIT_HTAB
@@ -161,7 +172,7 @@ lzf_compress (const void *const in_data, unsigned int in_len,
         {
           /* match found at *ref++ */
           unsigned int len = 2;
-          unsigned int maxlen = in_end - ip - len;
+          size_t maxlen = in_end - ip - len;
           maxlen = maxlen > MAX_REF ? MAX_REF : maxlen;
 
           if (expect_false (op + 3 + 1 >= out_end)) /* first a faster conservative test */

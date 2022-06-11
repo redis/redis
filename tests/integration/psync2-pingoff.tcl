@@ -53,10 +53,16 @@ start_server {} {
     }
 
     test "Make the old master a replica of the new one and check conditions" {
+        # We set the new master's ping period to a high value, so that there's
+        # no chance for a race condition of sending a PING in between the two
+        # INFO calls in the assert for master_repl_offset match below.
+        $R(1) CONFIG SET repl-ping-replica-period 1000
+
         assert_equal [status $R(1) sync_full] 0
         $R(0) REPLICAOF $R_host(1) $R_port(1)
+
         wait_for_condition 50 1000 {
-            [status $R(1) sync_full] == 1
+            [status $R(0) master_link_status] == "up"
         } else {
             fail "The new master was not able to sync"
         }

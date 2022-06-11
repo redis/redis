@@ -77,7 +77,6 @@ static unsigned long long bio_pending[BIO_NUM_OPS];
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
 struct bio_job {
-    time_t time; /* Time at which the job was created. */
     /* Job specific arguments.*/
     int fd; /* Fd for file based background jobs */
     lazy_free_fn *free_fn; /* Function that will free the provided arguments */
@@ -127,7 +126,6 @@ void bioInit(void) {
 }
 
 void bioSubmitJob(int type, struct bio_job *job) {
-    job->time = time(NULL);
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
     bio_pending[type]++;

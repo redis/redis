@@ -1,3 +1,357 @@
+# check functionality compression of plain and zipped nodes
+start_server [list overrides [list save ""] ] {
+    r config set list-compress-depth 2
+    r config set list-max-ziplist-size 1
+
+    # 3 test to check compression with regular ziplist nodes
+    # 1. using push + insert
+    # 2. using push + insert + trim
+    # 3. using push + insert + set
+
+    test {reg node check compression with insert and pop} {
+        r lpush list1 [string repeat a 500]
+        r lpush list1 [string repeat b 500]
+        r lpush list1 [string repeat c 500]
+        r lpush list1 [string repeat d 500]
+        r linsert list1 after [string repeat d 500] [string repeat e 500]
+        r linsert list1 after [string repeat d 500] [string repeat f 500]
+        r linsert list1 after [string repeat d 500] [string repeat g 500]
+        r linsert list1 after [string repeat d 500] [string repeat j 500]
+        assert_equal [r lpop list1] [string repeat d 500]
+        assert_equal [r lpop list1] [string repeat j 500]
+        assert_equal [r lpop list1] [string repeat g 500]
+        assert_equal [r lpop list1] [string repeat f 500]
+        assert_equal [r lpop list1] [string repeat e 500]
+        assert_equal [r lpop list1] [string repeat c 500]
+        assert_equal [r lpop list1] [string repeat b 500]
+        assert_equal [r lpop list1] [string repeat a 500]
+    };
+
+    test {reg node check compression combined with trim} {
+        r lpush list2 [string repeat a 500]
+        r linsert list2 after  [string repeat a 500] [string repeat b 500]
+        r rpush list2 [string repeat c 500]
+        assert_equal [string repeat b 500] [r lindex list2 1]
+        r LTRIM list2 1 -1
+        r llen list2
+    } {2}
+
+    test {reg node check compression with lset} {
+        r lpush list3 [string repeat a 500]
+        r LSET list3 0 [string repeat b 500]
+        assert_equal [string repeat b 500] [r lindex list3 0]
+        r lpush list3 [string repeat c 500]
+        r LSET list3 0 [string repeat d 500]
+        assert_equal [string repeat d 500] [r lindex list3 0]
+    }
+
+    # repeating the 3 tests with plain nodes
+    # (by adjusting quicklist-packed-threshold)
+
+    test {plain node check compression} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list4 [string repeat a 500]
+        r lpush list4 [string repeat b 500]
+        r lpush list4 [string repeat c 500]
+        r lpush list4 [string repeat d 500]
+        r linsert list4 after [string repeat d 500] [string repeat e 500]
+        r linsert list4 after [string repeat d 500] [string repeat f 500]
+        r linsert list4 after [string repeat d 500] [string repeat g 500]
+        r linsert list4 after [string repeat d 500] [string repeat j 500]
+        assert_equal [r lpop list4] [string repeat d 500]
+        assert_equal [r lpop list4] [string repeat j 500]
+        assert_equal [r lpop list4] [string repeat g 500]
+        assert_equal [r lpop list4] [string repeat f 500]
+        assert_equal [r lpop list4] [string repeat e 500]
+        assert_equal [r lpop list4] [string repeat c 500]
+        assert_equal [r lpop list4] [string repeat b 500]
+        assert_equal [r lpop list4] [string repeat a 500]
+    } {} {needs:debug}
+
+    test {plain node check compression with ltrim} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list5 [string repeat a 500]
+        r linsert list5 after  [string repeat a 500] [string repeat b 500]
+        r rpush list5 [string repeat c 500]
+        assert_equal [string repeat b 500] [r lindex list5 1]
+        r LTRIM list5 1 -1
+        r llen list5
+    } {2} {needs:debug}
+
+    test {plain node check compression using lset} {
+        r debug quicklist-packed-threshold 1b
+        r lpush list6 [string repeat a 500]
+        r LSET list6 0 [string repeat b 500]
+        assert_equal [string repeat b 500] [r lindex list6 0]
+        r lpush list6 [string repeat c 500]
+        r LSET list6 0 [string repeat d 500]
+        assert_equal [string repeat d 500] [r lindex list6 0]
+    } {} {needs:debug}
+
+    # revert config for external mode tests.
+    r config set list-compress-depth 0
+}
+
+# check functionality of plain nodes using low packed-threshold
+start_server [list overrides [list save ""] ] {
+    # basic command check for plain nodes - "LPUSH & LPOP"
+    test {Test LPUSH and LPOP on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst 9
+        r lpush lst xxxxxxxxxx
+        r lpush lst xxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        assert {[r llen lst] == 3}
+        set s0 [r rpop lst]
+        set s1 [r rpop lst]
+        assert {$s0 eq "9"}
+        assert {[r llen lst] == 1}
+        r lpop lst
+        assert {[string length $s1] == 10}
+        # check rdb
+        r lpush lst xxxxxxxxxx
+        r lpush lst bb
+        r debug reload
+        assert_equal [r rpop lst] "xxxxxxxxxx"
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LINDEX & LINSERT"
+    test {Test LINDEX and LINSERT on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst xxxxxxxxxxx
+        r lpush lst 9
+        r lpush lst xxxxxxxxxxx
+        r linsert lst before "9" "8"
+        assert {[r lindex lst 1] eq "8"}
+        r linsert lst BEFORE "9" "7"
+        r linsert lst BEFORE "9" "xxxxxxxxxxx"
+        assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LTRIM"
+    test {Test LTRIM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst1 9
+        r lpush lst1 xxxxxxxxxxx
+        r lpush lst1 9
+        r LTRIM lst1 1 -1
+        assert_equal [r llen lst1] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LREM"
+    test {Test LREM on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r lpush lst one
+        r lpush lst xxxxxxxxxxx
+        set s0 [s used_memory]
+        assert {$s0 > 10}
+        r lpush lst 9
+        r LREM lst -2 "one"
+        assert_equal [r llen lst] 2
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LPOS"
+    test {Test LPOS on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r RPUSH lst "cc"
+        r LSET lst 0 "xxxxxxxxxxx"
+        assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
+    } {} {needs:debug}
+
+    # basic command check for plain nodes - "LMOVE"
+    test {Test LMOVE on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst2{t} "aa"
+        r RPUSH lst2{t} "bb"
+        r LSET lst2{t} 0 xxxxxxxxxxx
+        r RPUSH lst2{t} "cc"
+        r RPUSH lst2{t} "dd"
+        r LMOVE lst2{t} lst{t} RIGHT LEFT
+        r LMOVE lst2{t} lst{t} LEFT RIGHT
+        assert_equal [r llen lst{t}] 2
+        assert_equal [r llen lst2{t}] 2
+        assert_equal [r lpop lst2{t}] "bb"
+        assert_equal [r lpop lst2{t}] "cc"
+        assert_equal [r lpop lst{t}] "dd"
+        assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
+    } {} {needs:debug}
+
+    # testing LSET with combinations of node types
+    # plain->packed , packed->plain, plain->plain, packed->packed
+    test {Test LSET with packed / plain combinations} {
+        r debug quicklist-packed-threshold 5b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+    } {} {needs:debug}
+
+    # checking LSET in case ziplist needs to be split
+    test {Test LSET with packed is split in the middle} {
+        r flushdb
+        r debug quicklist-packed-threshold 5b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r RPUSH lst "cc"
+        r RPUSH lst "dd"
+        r RPUSH lst "ee"
+        r lset lst 2 [string repeat e 10]
+        assert_equal [r lpop lst] "aa"
+        assert_equal [r lpop lst] "bb"
+        assert_equal [r lpop lst] [string repeat e 10]
+        assert_equal [r lpop lst] "dd"
+        assert_equal [r lpop lst] "ee"
+    } {} {needs:debug}
+
+
+    # repeating "plain check LSET with combinations"
+    # but now with single item in each ziplist
+    test {Test LSET with packed consist only one item} {
+        r flushdb
+        r config set list-max-ziplist-size 1
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst "aa"
+        r RPUSH lst "bb"
+        r lset lst 0 [string repeat d 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat d 50001]
+        r RPUSH lst [string repeat f 50001]
+        r lset lst 0 [string repeat e 50001]
+        set s1 [r lpop lst]
+        assert_equal $s1 [string repeat e 50001]
+        r RPUSH lst [string repeat m 50001]
+        r lset lst 0 "bb"
+        set s1 [r lpop lst]
+        assert_equal $s1 "bb"
+        r RPUSH lst "bb"
+        r lset lst 0 "cc"
+        set s1 [r lpop lst]
+        assert_equal $s1 "cc"
+    } {} {needs:debug}
+}
+
+run_solo {list-large-memory} {
+start_server [list overrides [list save ""] ] {
+
+# test if the server supports such large configs (avoid 32 bit builds)
+catch {
+    r config set proto-max-bulk-len 10000000000 ;#10gb
+    r config set client-query-buffer-limit 10000000000 ;#10gb
+}
+if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
+
+    set str_length 5000000000
+
+    # repeating all the plain nodes basic checks with 5gb values
+    test {Test LPUSH and LPOP on plain nodes over 4GB} {
+        r flushdb
+        r lpush lst 9
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk $str_length;
+        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+        write_big_bulk $str_length;
+        set s0 [s used_memory]
+        assert {$s0 > $str_length}
+        assert {[r llen lst] == 3}
+        assert_equal [r rpop lst] "9"
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
+        assert {[r llen lst] == 1}
+        assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LINDEX and LINSERT on plain nodes over 4GB} {
+       r flushdb
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r linsert lst before "9" "8"
+       assert_equal [r lindex lst 1] "8"
+       r LINSERT lst BEFORE "9" "7"
+       r write "*5\r\n\$7\r\nLINSERT\r\n\$3\r\nlst\r\n\$6\r\nBEFORE\r\n\$3\r\n\"9\"\r\n"
+       write_big_bulk 10;
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LTRIM on plain nodes over 4GB} {
+       r flushdb
+       r lpush lst 9
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r LTRIM lst 1 -1
+       assert_equal [r llen lst] 2
+       assert_equal [r rpop lst] 9
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LREM on plain nodes over 4GB} {
+       r flushdb
+       r lpush lst one
+       r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
+       write_big_bulk $str_length;
+       r lpush lst 9
+       r LREM lst -2 "one"
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+       r llen lst
+   } {1} {large-memory}
+
+   test {Test LSET on plain nodes over 4GB} {
+       r flushdb
+       r RPUSH lst "aa"
+       r RPUSH lst "bb"
+       r RPUSH lst "cc"
+       r write "*4\r\n\$4\r\nLSET\r\n\$3\r\nlst\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       assert_equal [r rpop lst] "cc"
+       assert_equal [r rpop lst] "bb"
+       assert_equal [read_big_bulk {r rpop lst}] $str_length
+   } {} {large-memory}
+
+   test {Test LMOVE on plain nodes over 4GB} {
+       r flushdb
+       r RPUSH lst2{t} "aa"
+       r RPUSH lst2{t} "bb"
+       r write "*4\r\n\$4\r\nLSET\r\n\$7\r\nlst2{t}\r\n\$1\r\n0\r\n"
+       write_big_bulk $str_length;
+       r RPUSH lst2{t} "cc"
+       r RPUSH lst2{t} "dd"
+       r LMOVE lst2{t} lst{t} RIGHT LEFT
+       assert_equal [read_big_bulk {r LMOVE lst2{t} lst{t} LEFT RIGHT}] $str_length
+       assert_equal [r llen lst{t}] 2
+       assert_equal [r llen lst2{t}] 2
+       assert_equal [r lpop lst2{t}] "bb"
+       assert_equal [r lpop lst2{t}] "cc"
+       assert_equal [r lpop lst{t}] "dd"
+       assert_equal [read_big_bulk {r rpop lst{t}}] $str_length
+   } {} {large-memory}
+} ;# skip 32bit builds
+}
+} ;# run_solo
+
 start_server {
     tags {"list"}
     overrides {
@@ -6,7 +360,7 @@ start_server {
 } {
     source "tests/unit/type/list-common.tcl"
 
-    # A helper function for BPOP/BLMPOP with one input key.
+    # A helper function to execute either B*POP or BLMPOP* with one input key.
     proc bpop_command {rd pop key timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 1 $key left count 1
@@ -17,7 +371,7 @@ start_server {
         }
     }
 
-    # A helper function for BPOP/BLMPOP with two input keys.
+    # A helper function to execute either B*POP or BLMPOP* with two input keys.
     proc bpop_command_two_key {rd pop key key2 timeout} {
         if {$pop == "BLMPOP_LEFT"} {
             $rd blmpop $timeout 2 $key $key2 left count 1
@@ -35,12 +389,13 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS RANK (positive and negative rank) option} {
+    test {LPOS RANK (positive, negative and zero rank) option} {
         assert {[r LPOS mylist c RANK 1] == 2}
         assert {[r LPOS mylist c RANK 2] == 6}
         assert {[r LPOS mylist c RANK 4] eq ""}
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
+        assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
     }
 
     test {LPOS COUNT option} {
@@ -133,16 +488,64 @@ start_server {
         assert_equal $largevalue(linkedlist) [r rpop mylist2]
         assert_equal c [r lpop mylist2]
     }
-    
-    test {R/LPOP with the optional count argument} {
+
+    test "LPOP/RPOP with wrong number of arguments" {
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
+    }
+
+    test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
-        assert_equal {} [r lpop listcount 0]
         assert_equal {gg} [r lpop listcount 1]
         assert_equal {ff ee} [r lpop listcount 2]
         assert_equal {aa bb} [r rpop listcount 2]
         assert_equal {cc} [r rpop listcount 1]
         assert_equal {dd} [r rpop listcount 123]
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
+    }
+
+    proc verify_resp_response {resp response resp2_response resp3_response} {
+        if {$resp == 2} {
+            assert_equal $response $resp2_response
+        } elseif {$resp == 3} {
+            assert_equal $response $resp3_response
+        }
+    }
+
+    foreach resp {3 2} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+        }
+
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        test "LPOP/RPOP with the count 0 returns an empty array in RESP$resp" {
+            r lpush listcount zero
+            assert_equal {*0} [r lpop listcount 0]
+            assert_equal {*0} [r rpop listcount 0]
+        }
+
+        test "LPOP/RPOP against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
+        }
+
+        test "LPOP/RPOP with <count> against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r lpop non_existing_key 1] {*-1} {_}
+
+            verify_resp_response $resp [r rpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key 1] {*-1} {_}
+        }
+
+        r readraw 0
     }
 
     test {Variadic RPUSH/LPUSH} {
@@ -189,6 +592,7 @@ start_server {
             assert_equal {blist c} [$rd read]
 
             assert_equal 1 [r llen blist]
+            $rd close
         }
 
         test "$pop: multiple existing lists - $type" {
@@ -217,6 +621,7 @@ start_server {
             assert_equal {blist2{t} f} [$rd read]
             assert_equal 1 [r llen blist1{t}]
             assert_equal 1 [r llen blist2{t}]
+            $rd close
         }
 
         test "$pop: second list has an entry - $type" {
@@ -234,6 +639,7 @@ start_server {
             assert_equal {blist2{t} f} [$rd read]
             assert_equal 0 [r llen blist1{t}]
             assert_equal 1 [r llen blist2{t}]
+            $rd close
         }
     }
 
@@ -249,6 +655,7 @@ start_server {
 
             assert_equal d [r lpop target{t}]
             assert_equal "a b $large c" [r lrange blist{t} 0 -1]
+            $rd close
         }
 
         foreach wherefrom {left right} {
@@ -276,6 +683,7 @@ start_server {
                     } else {
                         assert_equal $poppedelement [r lpop target{t}]
                     }
+                    $rd close
                 }
             }
         }
@@ -297,6 +705,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
         r lpush list b
         assert_equal {list b} [$rd read]
+        $rd close
     }
 
     test "$pop, LPUSH + DEL + SET should not awake blocked client" {
@@ -315,6 +724,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del list
         r lpush list b
         assert_equal {list b} [$rd read]
+        $rd close
     }
 }
 
@@ -337,6 +747,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_equal [$rd read] {list1{t} a}
         $rd blpop list1{t} list2{t} list2{t} list1{t} 0
         assert_equal [$rd read] {list2{t} b}
+        $rd close
     }
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
@@ -354,6 +765,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r lpush list c
         r exec
         assert_equal {list c} [$rd read]
+        $rd close
     }
 
     test "$pop with variadic LPUSH" {
@@ -367,6 +779,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         if {$::valgrind} {after 100}
         assert_equal {blist bar} [$rd read]
         assert_equal foo [lindex [r lrange blist 0 -1] 0]
+        $rd close
     }
 }
 
@@ -379,6 +792,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush blist{t} foo
         assert_equal foo [$rd read]
         assert_equal {foo bar} [r lrange target{t} 0 -1]
+        $rd close
     }
 
     foreach wherefrom {left right} {
@@ -396,6 +810,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
                 } else {
                     assert_equal {foo bar} [r lrange target{t} 0 -1]
                 }
+                $rd close
             }
         }
     }
@@ -407,12 +822,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
                 set rd2 [redis_deferring_client]
                 r del blist{t} target{t}
                 $rd2 blpop target{t} 0
+                wait_for_blocked_clients_count 1
                 $rd blmove blist{t} target{t} $wherefrom $whereto 0
                 wait_for_blocked_clients_count 2
                 r rpush blist{t} foo
                 assert_equal foo [$rd read]
                 assert_equal {target{t} foo} [$rd2 read]
                 assert_equal 0 [r exists target{t}]
+                $rd close
+                $rd2 close
             }
         }
     }
@@ -423,6 +841,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r set blist{t} nolist
         $rd brpoplpush blist{t} target{t} 1
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
     }
 
     test "BRPOPLPUSH with wrong destination type" {
@@ -432,6 +851,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r lpush blist{t} foo
         $rd brpoplpush blist{t} target{t} 1
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
 
         set rd [redis_deferring_client]
         r del blist{t} target{t}
@@ -441,6 +861,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r rpush blist{t} foo
         assert_error "WRONGTYPE*" {$rd read}
         assert_equal {foo} [r lrange blist{t} 0 -1]
+        $rd close
     }
 
     test "BRPOPLPUSH maintains order of elements after failure" {
@@ -450,6 +871,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd brpoplpush blist{t} target{t} 0
         r rpush blist{t} a b c
         assert_error "WRONGTYPE*" {$rd read}
+        $rd close
         r lrange blist{t} 0 -1
     } {a b c}
 
@@ -465,6 +887,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_error "WRONGTYPE*" {$rd1 read}
         assert_equal {foo} [$rd2 read]
         assert_equal {foo} [r lrange target2{t} 0 -1]
+        $rd1 close
+        $rd2 close
     }
 
     test "BLMPOP with multiple blocked clients" {
@@ -475,8 +899,11 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r del blist{t} blist2{t}
 
         $rd1 blmpop 0 2 blist{t} blist2{t} left count 1
+        wait_for_blocked_clients_count 1
         $rd2 blmpop 0 2 blist{t} blist2{t} right count 10
+        wait_for_blocked_clients_count 2
         $rd3 blmpop 0 2 blist{t} blist2{t} left count 10
+        wait_for_blocked_clients_count 3
         $rd4 blmpop 0 2 blist{t} blist2{t} right count 1
         wait_for_blocked_clients_count 4
 
@@ -491,6 +918,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
         r lpush blist2{t} 1 2 3
         assert_equal {blist2{t} 1} [$rd4 read]
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
     }
 
     test "Linked LMOVEs" {
@@ -500,6 +931,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r del list1{t} list2{t} list3{t}
 
       $rd1 blmove list1{t} list2{t} right left 0
+      wait_for_blocked_clients_count 1
       $rd2 blmove list2{t} list3{t} left right 0
       wait_for_blocked_clients_count 2
 
@@ -508,6 +940,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       assert_equal {} [r lrange list1{t} 0 -1]
       assert_equal {} [r lrange list2{t} 0 -1]
       assert_equal {foo} [r lrange list3{t} 0 -1]
+      $rd1 close
+      $rd2 close
     }
 
     test "Circular BRPOPLPUSH" {
@@ -517,6 +951,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r del list1{t} list2{t}
 
       $rd1 brpoplpush list1{t} list2{t} 0
+      wait_for_blocked_clients_count 1
       $rd2 brpoplpush list2{t} list1{t} 0
       wait_for_blocked_clients_count 2
 
@@ -524,6 +959,8 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
 
       assert_equal {foo} [r lrange list1{t} 0 -1]
       assert_equal {} [r lrange list2{t} 0 -1]
+      $rd1 close
+      $rd2 close
     }
 
     test "Self-referential BRPOPLPUSH" {
@@ -537,6 +974,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       r rpush blist{t} foo
 
       assert_equal {foo} [r lrange blist{t} 0 -1]
+      $rd close
     }
 
     test "BRPOPLPUSH inside a transaction" {
@@ -568,7 +1006,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client read
         r lpush srclist{t} element
         $watching_client exec
-        $watching_client read
+        set res [$watching_client read]
+        $blocked_client close
+        $watching_client close
+        set _ $res
     } {}
 
     test "BRPOPLPUSH does not affect WATCH while still blocked" {
@@ -587,7 +1028,10 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $watching_client exec
         # Blocked BLPOPLPUSH may create problems, unblock it.
         r lpush srclist{t} element
-        $watching_client read
+        set res [$watching_client read]
+        $blocked_client close
+        $watching_client close
+        set _ $res
     } {somevalue}
 
     test {BRPOPLPUSH timeout} {
@@ -596,8 +1040,98 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       $rd brpoplpush foo_list{t} bar_list{t} 1
       wait_for_blocked_clients_count 1
       wait_for_blocked_clients_count 0 500 10
-      $rd read
+      set res [$rd read]
+      $rd close
+      set _ $res
     } {}
+
+    test {SWAPDB awakes blocked client} {
+        r flushall
+        r select 1
+        r rpush k hello
+        r select 9
+        set rd [redis_deferring_client]
+        $rd brpop k 5
+        wait_for_blocked_clients_count 1
+        r swapdb 1 9
+        $rd read
+    } {k hello} {singledb:skip}
+
+    test {SWAPDB wants to wake blocked client, but the key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r rpush k hello
+        r pexpire k 100
+        set rd [redis_deferring_client]
+        $rd select 9
+        assert_equal {OK} [$rd read]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 1
+        wait_for_blocked_clients_count 1
+        after 101
+        r swapdb 1 9
+        # The SWAPDB command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {select 1}
+            {rpush k hello}
+            {pexpireat k *}
+            {swapdb 1 9}
+            {select 9}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip needs:debug}
+
+    test {MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired} {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r debug set-active-expire 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd brpop k 0
+        wait_for_blocked_clients_count 1
+
+        r multi
+        r rpush k hello
+        r pexpire k 100
+        r debug sleep 0.2
+        r exec
+
+        # The EXEC command tries to awake the blocked client, but it remains
+        # blocked because the key is expired. Check that the deferred client is
+        # still blocked. Then unblock it.
+        assert_match "*flags=b*" [r client list id $id]
+        r client unblock $id
+        assert_equal {} [$rd read]
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {multi}
+            {rpush k hello}
+            {pexpireat k *}
+            {exec}
+            {del k}
+        }
+        close_replication_stream $repl
+        # Restore server and client state
+        r debug set-active-expire 1
+        r select 9
+    } {OK} {singledb:skip needs:debug}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
@@ -608,7 +1142,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush bob{t} abc def hij
         r rename bob{t} foo{t}
-        $rd read
+        set res [$rd read]
+        $rd close
+        set _ $res
     } {foo{t} hij}
 
     test "$pop when result key is created by SORT..STORE" {
@@ -623,7 +1159,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         wait_for_blocked_client
         r lpush notfoo{t} hello hola aguacate konichiwa zanzibar
         r sort notfoo{t} ALPHA store foo{t}
-        $rd read
+        set res [$rd read]
+        $rd close
+        set _ $res
     } {foo{t} aguacate}
 }
 
@@ -636,12 +1174,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             assert_equal 0 [r exists blist1]
+            $rd close
         }
 
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
-            assert_error "ERR*is negative*" {$rd read}
+            assert_error "ERR *is negative*" {$rd read}
+            $rd close
         }
 
         test "$pop: with non-integer timeout" {
@@ -651,6 +1191,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
             assert_equal 0 [r exists blist1]
+            $rd close
         }
 
         test "$pop: with zero timeout should block indefinitely" {
@@ -662,6 +1203,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             after 1000
             r rpush blist1 foo
             assert_equal {blist1 foo} [$rd read]
+            $rd close
         }
 
         test "$pop: second argument is not a list" {
@@ -671,6 +1213,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
             $rd $pop blist1{t} blist2{t} 1
             assert_error "WRONGTYPE*" {$rd read}
+            $rd close
         }
 
         test "$pop: timeout" {
@@ -679,6 +1222,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             bpop_command_two_key $rd $pop blist1{t} blist2{t} 1
             wait_for_blocked_client
             assert_equal {} [$rd read]
+            $rd close
         }
 
         test "$pop: arguments are empty" {
@@ -698,6 +1242,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             assert_equal {blist2{t} foo} [$rd read]
             assert_equal 0 [r exists blist1{t}]
             assert_equal 0 [r exists blist2{t}]
+            $rd close
         }
     }
 
@@ -719,14 +1264,14 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set rd [redis_deferring_client]
         set repl [attach_to_replication_stream]
 
-        # BLMPOP without block.
+        # BLMPOP without being blocked.
         r lpush mylist{t} a b c
         r rpush mylist2{t} 1 2 3
         r blmpop 0 1 mylist{t} left count 1
         r blmpop 0 2 mylist{t} mylist2{t} right count 10
         r blmpop 0 2 mylist{t} mylist2{t} right count 10
 
-        # BLMPOP with block.
+        # BLMPOP that gets blocked.
         $rd blmpop 0 1 mylist{t} left count 1
         wait_for_blocked_client
         r lpush mylist{t} a
@@ -736,6 +1281,12 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd blmpop 0 2 mylist{t} mylist2{t} right count 10
         wait_for_blocked_client
         r rpush mylist2{t} a b c
+
+        # Released on timeout.
+        assert_equal {} [r blmpop 0.01 1 mylist{t} left count 10]
+        r set foo{t} bar ;# something else to propagate after, so we can make sure the above pop didn't.
+
+        $rd close
 
         assert_replication_stream $repl {
             {select *}
@@ -750,7 +1301,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpush mylist2{t} a b c}
             {rpop mylist2{t} 3}
+            {set foo{t} bar}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {LPUSHX, RPUSHX - generic} {
@@ -1059,9 +1612,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments*" {r lmpop}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}
@@ -1071,6 +1624,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT bar_arg}
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} RIGHT LEFT}
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} COUNT}
+        assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r lmpop 2 mylist{t} mylist2{t} bad_arg}
 
         assert_error "ERR count*" {r lmpop 1 mylist{t} LEFT COUNT 0}
@@ -1171,6 +1725,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             {lpop mylist{t} 3}
             {rpop mylist2{t} 3}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     foreach {type large} [array get largevalue] {
@@ -1350,7 +1905,8 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         wait_for_blocked_client
         r lpush l foo
         assert_equal {l foo} [$rd read]
-    } {}
+        $rd close
+    }
 }
 
     test {List ziplist of various encodings} {
@@ -1399,5 +1955,4 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         assert_equal [lpop k] [string repeat x 31]
         set _ $k
     } {12 0 9223372036854775808 2147483647 32767 127}
-
 }

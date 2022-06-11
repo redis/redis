@@ -47,6 +47,7 @@ REV := @rev@
 install_suffix := @install_suffix@
 ABI := @abi@
 XSLTPROC := @XSLTPROC@
+XSLROOT := @XSLROOT@
 AUTOCONF := @AUTOCONF@
 _RPATH = @RPATH@
 RPATH = $(if $(1),$(call _RPATH,$(1)))
@@ -55,8 +56,12 @@ cfghdrs_out := @cfghdrs_out@
 cfgoutputs_in := $(addprefix $(srcroot),@cfgoutputs_in@)
 cfgoutputs_out := @cfgoutputs_out@
 enable_autogen := @enable_autogen@
+enable_doc := @enable_doc@
+enable_shared := @enable_shared@
+enable_static := @enable_static@
 enable_prof := @enable_prof@
 enable_zone_allocator := @enable_zone_allocator@
+enable_experimental_smallocx := @enable_experimental_smallocx@
 MALLOC_CONF := @JEMALLOC_CPREFIX@MALLOC_CONF
 link_whole_archive := @link_whole_archive@
 DSO_LDFLAGS = @DSO_LDFLAGS@
@@ -102,7 +107,7 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/extent_dss.c \
 	$(srcroot)src/extent_mmap.c \
 	$(srcroot)src/hash.c \
-	$(srcroot)src/hooks.c \
+	$(srcroot)src/hook.c \
 	$(srcroot)src/large.c \
 	$(srcroot)src/log.c \
 	$(srcroot)src/malloc_io.c \
@@ -113,9 +118,12 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/prng.c \
 	$(srcroot)src/prof.c \
 	$(srcroot)src/rtree.c \
+	$(srcroot)src/safety_check.c \
 	$(srcroot)src/stats.c \
+	$(srcroot)src/sc.c \
 	$(srcroot)src/sz.c \
 	$(srcroot)src/tcache.c \
+	$(srcroot)src/test_hooks.c \
 	$(srcroot)src/ticker.c \
 	$(srcroot)src/tsd.c \
 	$(srcroot)src/witness.c
@@ -165,14 +173,18 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/background_thread_enable.c \
 	$(srcroot)test/unit/base.c \
 	$(srcroot)test/unit/bitmap.c \
+	$(srcroot)test/unit/bit_util.c \
+	$(srcroot)test/unit/binshard.c \
 	$(srcroot)test/unit/ckh.c \
 	$(srcroot)test/unit/decay.c \
 	$(srcroot)test/unit/div.c \
 	$(srcroot)test/unit/emitter.c \
 	$(srcroot)test/unit/extent_quantize.c \
+	$(srcroot)test/unit/extent_util.c \
 	$(srcroot)test/unit/fork.c \
 	$(srcroot)test/unit/hash.c \
-	$(srcroot)test/unit/hooks.c \
+	$(srcroot)test/unit/hook.c \
+	$(srcroot)test/unit/huge.c \
 	$(srcroot)test/unit/junk.c \
 	$(srcroot)test/unit/junk_alloc.c \
 	$(srcroot)test/unit/junk_free.c \
@@ -190,6 +202,7 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/prof_active.c \
 	$(srcroot)test/unit/prof_gdump.c \
 	$(srcroot)test/unit/prof_idump.c \
+	$(srcroot)test/unit/prof_log.c \
 	$(srcroot)test/unit/prof_reset.c \
 	$(srcroot)test/unit/prof_tctx.c \
 	$(srcroot)test/unit/prof_thread_name.c \
@@ -198,13 +211,17 @@ TESTS_UNIT := \
 	$(srcroot)test/unit/rb.c \
 	$(srcroot)test/unit/retained.c \
 	$(srcroot)test/unit/rtree.c \
+	$(srcroot)test/unit/safety_check.c \
+	$(srcroot)test/unit/seq.c \
 	$(srcroot)test/unit/SFMT.c \
+	$(srcroot)test/unit/sc.c \
 	$(srcroot)test/unit/size_classes.c \
 	$(srcroot)test/unit/slab.c \
 	$(srcroot)test/unit/smoothstep.c \
 	$(srcroot)test/unit/spin.c \
 	$(srcroot)test/unit/stats.c \
 	$(srcroot)test/unit/stats_print.c \
+	$(srcroot)test/unit/test_hooks.c \
 	$(srcroot)test/unit/ticker.c \
 	$(srcroot)test/unit/nstime.c \
 	$(srcroot)test/unit/tsd.c \
@@ -217,15 +234,21 @@ endif
 TESTS_INTEGRATION := $(srcroot)test/integration/aligned_alloc.c \
 	$(srcroot)test/integration/allocated.c \
 	$(srcroot)test/integration/extent.c \
+	$(srcroot)test/integration/malloc.c \
 	$(srcroot)test/integration/mallocx.c \
 	$(srcroot)test/integration/MALLOCX_ARENA.c \
 	$(srcroot)test/integration/overflow.c \
 	$(srcroot)test/integration/posix_memalign.c \
 	$(srcroot)test/integration/rallocx.c \
 	$(srcroot)test/integration/sdallocx.c \
+	$(srcroot)test/integration/slab_sizes.c \
 	$(srcroot)test/integration/thread_arena.c \
 	$(srcroot)test/integration/thread_tcache_enabled.c \
 	$(srcroot)test/integration/xallocx.c
+ifeq (@enable_experimental_smallocx@, 1)
+TESTS_INTEGRATION += \
+  $(srcroot)test/integration/smallocx.c
+endif
 ifeq (@enable_cxx@, 1)
 CPP_SRCS := $(srcroot)src/jemalloc_cpp.cpp
 TESTS_INTEGRATION_CPP := $(srcroot)test/integration/cpp/basic.cpp
@@ -233,7 +256,9 @@ else
 CPP_SRCS :=
 TESTS_INTEGRATION_CPP :=
 endif
-TESTS_STRESS := $(srcroot)test/stress/microbench.c
+TESTS_STRESS := $(srcroot)test/stress/microbench.c \
+	$(srcroot)test/stress/hookbench.c
+
 
 TESTS := $(TESTS_UNIT) $(TESTS_INTEGRATION) $(TESTS_INTEGRATION_CPP) $(TESTS_STRESS)
 
@@ -274,10 +299,24 @@ all: build_lib
 dist: build_doc
 
 $(objroot)doc/%.html : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/html.xsl
+ifneq ($(XSLROOT),)
 	$(XSLTPROC) -o $@ $(objroot)doc/html.xsl $<
+else
+ifeq ($(wildcard $(DOCS_HTML)),)
+	@echo "<p>Missing xsltproc.  Doc not built.</p>" > $@
+endif
+	@echo "Missing xsltproc.  "$@" not (re)built."
+endif
 
 $(objroot)doc/%.3 : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/manpages.xsl
+ifneq ($(XSLROOT),)
 	$(XSLTPROC) -o $@ $(objroot)doc/manpages.xsl $<
+else
+ifeq ($(wildcard $(DOCS_MAN3)),)
+	@echo "Missing xsltproc.  Doc not built." > $@
+endif
+	@echo "Missing xsltproc.  "$@" not (re)built."
+endif
 
 build_doc_html: $(DOCS_HTML)
 build_doc_man: $(DOCS_MAN3)
@@ -400,7 +439,7 @@ $(objroot)test/unit/%$(EXE): $(objroot)test/unit/%.$(O) $(C_JET_OBJS) $(C_TESTLI
 
 $(objroot)test/integration/%$(EXE): $(objroot)test/integration/%.$(O) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 	@mkdir -p $(@D)
-	$(CC) $(TEST_LD_MODE) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(LJEMALLOC) $(LDFLAGS) $(filter-out -lm,$(filter -lrt -lpthread -lstdc++,$(LIBS))) $(LM) $(EXTRA_LDFLAGS)
+	$(CC) $(TEST_LD_MODE) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(LJEMALLOC) $(LDFLAGS) $(filter-out -lm,$(filter -lrt -pthread -lstdc++,$(LIBS))) $(LM) $(EXTRA_LDFLAGS)
 
 $(objroot)test/integration/cpp/%$(EXE): $(objroot)test/integration/cpp/%.$(O) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 	@mkdir -p $(@D)
@@ -412,7 +451,12 @@ $(objroot)test/stress/%$(EXE): $(objroot)test/stress/%.$(O) $(C_JET_OBJS) $(C_TE
 
 build_lib_shared: $(DSOS)
 build_lib_static: $(STATIC_LIBS)
-build_lib: build_lib_shared build_lib_static
+ifeq ($(enable_shared), 1)
+build_lib: build_lib_shared
+endif
+ifeq ($(enable_static), 1)
+build_lib: build_lib_static
+endif
 
 install_bin:
 	$(INSTALL) -d $(BINDIR)
@@ -449,7 +493,13 @@ install_lib_pc: $(PC)
 	$(INSTALL) -m 644 $$l $(LIBDIR)/pkgconfig; \
 done
 
-install_lib: install_lib_shared install_lib_static install_lib_pc
+ifeq ($(enable_shared), 1)
+install_lib: install_lib_shared
+endif
+ifeq ($(enable_static), 1)
+install_lib: install_lib_static
+endif
+install_lib: install_lib_pc
 
 install_doc_html:
 	$(INSTALL) -d $(DATADIR)/doc/jemalloc$(install_suffix)
@@ -465,9 +515,13 @@ install_doc_man:
 	$(INSTALL) -m 644 $$d $(MANDIR)/man3; \
 done
 
-install_doc: install_doc_html install_doc_man
+install_doc: build_doc install_doc_html install_doc_man
 
-install: install_bin install_include install_lib install_doc
+install: install_bin install_include install_lib
+
+ifeq ($(enable_doc), 1)
+install: install_doc
+endif
 
 tests_unit: $(TESTS_UNIT:$(srcroot)%.c=$(objroot)%$(EXE))
 tests_integration: $(TESTS_INTEGRATION:$(srcroot)%.c=$(objroot)%$(EXE)) $(TESTS_INTEGRATION_CPP:$(srcroot)%.cpp=$(objroot)%$(EXE))

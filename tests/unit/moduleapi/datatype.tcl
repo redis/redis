@@ -8,20 +8,20 @@ start_server {tags {"modules"}} {
         assert {[r datatype.get dtkey] eq {100 stringval}}
     }
 
-    test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromString() work} {
+    test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]
 
-        r datatype.restore dtkeycopy $encoded
+        assert {[r datatype.restore dtkeycopy $encoded 4] eq {4}}
         assert {[r datatype.get dtkeycopy] eq {-1111 MyString}}
     }
 
-    test {DataType: Handle truncated RM_LoadDataTypeFromString()} {
+    test {DataType: Handle truncated RM_LoadDataTypeFromStringEncver()} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]
         set truncated [string range $encoded 0 end-1]
 
-        catch {r datatype.restore dtkeycopy $truncated} e
+        catch {r datatype.restore dtkeycopy $truncated 4} e
         set e
     } {*Invalid*}
 
@@ -55,4 +55,34 @@ start_server {tags {"modules"}} {
         r copy sourcekey targetkey
         r datatype.get targetkey
     } {1234 AAA/sourcekey/targetkey}
+
+    test {DataType: Slow Loading} {
+        r config set busy-reply-threshold 5000 ;# make sure we're using a high default
+        # trigger slow loading
+        r datatype.slow_loading 1
+        set rd [redis_deferring_client]
+        set start [clock clicks -milliseconds]
+        $rd debug reload
+
+        # wait till we know we're blocked inside the module
+        wait_for_condition 50 100 {
+            [r datatype.is_in_slow_loading] eq 1
+        } else {
+            fail "Failed waiting for slow loading to start"
+        }
+
+        # make sure we get LOADING error, and that we didn't get here late (not waiting for busy-reply-threshold)
+        assert_error {*LOADING*} {r ping}
+        assert_lessthan [expr [clock clicks -milliseconds]-$start] 2000
+
+        # abort the blocking operation
+        r datatype.slow_loading 0
+        wait_for_condition 50 100 {
+            [s loading] eq {0}
+        } else {
+            fail "Failed waiting for loading to end"
+        }
+        $rd read
+        $rd close
+    }
 }

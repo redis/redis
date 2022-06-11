@@ -4,6 +4,8 @@
 
 #include "jemalloc/internal/assert.h"
 
+JEMALLOC_DIAGNOSTIC_DISABLE_SPURIOUS
+
 /******************************************************************************/
 /* Data. */
 
@@ -11,7 +13,7 @@
 #define BACKGROUND_THREAD_DEFAULT false
 /* Read-only after initialization. */
 bool opt_background_thread = BACKGROUND_THREAD_DEFAULT;
-size_t opt_max_background_threads = MAX_BACKGROUND_THREAD_LIMIT;
+size_t opt_max_background_threads = MAX_BACKGROUND_THREAD_LIMIT + 1;
 
 /* Used for thread creation, termination and stats. */
 malloc_mutex_t background_thread_lock;
@@ -22,13 +24,9 @@ size_t max_background_threads;
 /* Thread info per-index. */
 background_thread_info_t *background_thread_info;
 
-/* False if no necessary runtime support. */
-bool can_enable_background_thread;
-
 /******************************************************************************/
 
 #ifdef JEMALLOC_PTHREAD_CREATE_WRAPPER
-#include <dlfcn.h>
 
 static int (*pthread_create_fptr)(pthread_t *__restrict, const pthread_attr_t *,
     void *(*)(void *), void *__restrict);
@@ -81,7 +79,7 @@ background_thread_info_init(tsdn_t *tsdn, background_thread_info_t *info) {
 }
 
 static inline bool
-set_current_thread_affinity(UNUSED int cpu) {
+set_current_thread_affinity(int cpu) {
 #if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
 	cpu_set_t cpuset;
 	CPU_ZERO(&cpuset);
@@ -510,6 +508,8 @@ background_thread_entry(void *ind_arg) {
 	assert(thread_ind < max_background_threads);
 #ifdef JEMALLOC_HAVE_PTHREAD_SETNAME_NP
 	pthread_setname_np(pthread_self(), "jemalloc_bg_thd");
+#elif defined(__FreeBSD__)
+	pthread_set_name_np(pthread_self(), "jemalloc_bg_thd");
 #endif
 	if (opt_percpu_arena != percpu_arena_disabled) {
 		set_current_thread_affinity((int)thread_ind);
@@ -534,9 +534,8 @@ background_thread_init(tsd_t *tsd, background_thread_info_t *info) {
 	n_background_threads++;
 }
 
-/* Create a new background thread if needed. */
-bool
-background_thread_create(tsd_t *tsd, unsigned arena_ind) {
+static bool
+background_thread_create_locked(tsd_t *tsd, unsigned arena_ind) {
 	assert(have_background_thread);
 	malloc_mutex_assert_owner(tsd_tsdn(tsd), &background_thread_lock);
 
@@ -589,6 +588,19 @@ background_thread_create(tsd_t *tsd, unsigned arena_ind) {
 	return false;
 }
 
+/* Create a new background thread if needed. */
+bool
+background_thread_create(tsd_t *tsd, unsigned arena_ind) {
+	assert(have_background_thread);
+
+	bool ret;
+	malloc_mutex_lock(tsd_tsdn(tsd), &background_thread_lock);
+	ret = background_thread_create_locked(tsd, arena_ind);
+	malloc_mutex_unlock(tsd_tsdn(tsd), &background_thread_lock);
+
+	return ret;
+}
+
 bool
 background_threads_enable(tsd_t *tsd) {
 	assert(n_background_threads == 0);
@@ -622,7 +634,7 @@ background_threads_enable(tsd_t *tsd) {
 		}
 	}
 
-	return background_thread_create(tsd, 0);
+	return background_thread_create_locked(tsd, 0);
 }
 
 bool
@@ -813,21 +825,34 @@ background_thread_stats_read(tsdn_t *tsdn, background_thread_stats_t *stats) {
 #undef BILLION
 #undef BACKGROUND_THREAD_MIN_INTERVAL_NS
 
+#ifdef JEMALLOC_HAVE_DLSYM
+#include <dlfcn.h>
+#endif
+
 static bool
 pthread_create_fptr_init(void) {
 	if (pthread_create_fptr != NULL) {
 		return false;
 	}
+	/*
+	 * Try the next symbol first, because 1) when use lazy_lock we have a
+	 * wrapper for pthread_create; and 2) application may define its own
+	 * wrapper as well (and can call malloc within the wrapper).
+	 */
+#ifdef JEMALLOC_HAVE_DLSYM
 	pthread_create_fptr = dlsym(RTLD_NEXT, "pthread_create");
+#else
+	pthread_create_fptr = NULL;
+#endif
 	if (pthread_create_fptr == NULL) {
-		can_enable_background_thread = false;
-		if (config_lazy_lock || opt_background_thread) {
+		if (config_lazy_lock) {
 			malloc_write("<jemalloc>: Error in dlsym(RTLD_NEXT, "
 			    "\"pthread_create\")\n");
 			abort();
+		} else {
+			/* Fall back to the default symbol. */
+			pthread_create_fptr = pthread_create;
 		}
-	} else {
-		can_enable_background_thread = true;
 	}
 
 	return false;
@@ -872,9 +897,8 @@ background_thread_boot1(tsdn_t *tsdn) {
 	assert(have_background_thread);
 	assert(narenas_total_get() > 0);
 
-	if (opt_max_background_threads == MAX_BACKGROUND_THREAD_LIMIT &&
-	    ncpus < MAX_BACKGROUND_THREAD_LIMIT) {
-		opt_max_background_threads = ncpus;
+	if (opt_max_background_threads > MAX_BACKGROUND_THREAD_LIMIT) {
+		opt_max_background_threads = DEFAULT_NUM_BACKGROUND_THREAD;
 	}
 	max_background_threads = opt_max_background_threads;
 

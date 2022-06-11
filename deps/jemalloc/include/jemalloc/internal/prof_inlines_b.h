@@ -1,6 +1,7 @@
 #ifndef JEMALLOC_INTERNAL_PROF_INLINES_B_H
 #define JEMALLOC_INTERNAL_PROF_INLINES_B_H
 
+#include "jemalloc/internal/safety_check.h"
 #include "jemalloc/internal/sz.h"
 
 JEMALLOC_ALWAYS_INLINE bool
@@ -61,13 +62,54 @@ prof_tctx_reset(tsdn_t *tsdn, const void *ptr, prof_tctx_t *tctx) {
 	arena_prof_tctx_reset(tsdn, ptr, tctx);
 }
 
+JEMALLOC_ALWAYS_INLINE nstime_t
+prof_alloc_time_get(tsdn_t *tsdn, const void *ptr, alloc_ctx_t *alloc_ctx) {
+	cassert(config_prof);
+	assert(ptr != NULL);
+
+	return arena_prof_alloc_time_get(tsdn, ptr, alloc_ctx);
+}
+
+JEMALLOC_ALWAYS_INLINE void
+prof_alloc_time_set(tsdn_t *tsdn, const void *ptr, alloc_ctx_t *alloc_ctx,
+    nstime_t t) {
+	cassert(config_prof);
+	assert(ptr != NULL);
+
+	arena_prof_alloc_time_set(tsdn, ptr, alloc_ctx, t);
+}
+
+JEMALLOC_ALWAYS_INLINE bool
+prof_sample_check(tsd_t *tsd, size_t usize, bool update) {
+	ssize_t check = update ? 0 : usize;
+
+	int64_t bytes_until_sample = tsd_bytes_until_sample_get(tsd);
+	if (update) {
+		bytes_until_sample -= usize;
+		if (tsd_nominal(tsd)) {
+			tsd_bytes_until_sample_set(tsd, bytes_until_sample);
+		}
+	}
+	if (likely(bytes_until_sample >= check)) {
+		return true;
+	}
+
+	return false;
+}
+
 JEMALLOC_ALWAYS_INLINE bool
 prof_sample_accum_update(tsd_t *tsd, size_t usize, bool update,
-    prof_tdata_t **tdata_out) {
+			 prof_tdata_t **tdata_out) {
 	prof_tdata_t *tdata;
 
 	cassert(config_prof);
 
+	/* Fastpath: no need to load tdata */
+	if (likely(prof_sample_check(tsd, usize, update))) {
+		return true;
+	}
+
+	bool booted = tsd_prof_tdata_get(tsd);
 	tdata = prof_tdata_get(tsd, true);
 	if (unlikely((uintptr_t)tdata <= (uintptr_t)PROF_TDATA_STATE_MAX)) {
 		tdata = NULL;
@@ -81,21 +123,23 @@ prof_sample_accum_update(tsd_t *tsd, size_t usize, bool update,
 		return true;
 	}
 
-	if (likely(tdata->bytes_until_sample >= usize)) {
-		if (update) {
-			tdata->bytes_until_sample -= usize;
-		}
+	/*
+	 * If this was the first creation of tdata, then
+	 * prof_tdata_get() reset bytes_until_sample, so decrement and
+	 * check it again
+	 */
+	if (!booted && prof_sample_check(tsd, usize, update)) {
 		return true;
-	} else {
-		if (tsd_reentrancy_level_get(tsd) > 0) {
-			return true;
-		}
-		/* Compute new sample threshold. */
-		if (update) {
-			prof_sample_threshold_update(tdata);
-		}
-		return !tdata->active;
 	}
+
+	if (tsd_reentrancy_level_get(tsd) > 0) {
+		return true;
+	}
+	/* Compute new sample threshold. */
+	if (update) {
+		prof_sample_threshold_update(tdata);
+	}
+	return !tdata->active;
 }
 
 JEMALLOC_ALWAYS_INLINE prof_tctx_t *
@@ -187,7 +231,7 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 	 * counters.
 	 */
 	if (unlikely(old_sampled)) {
-		prof_free_sampled_object(tsd, old_usize, old_tctx);
+		prof_free_sampled_object(tsd, ptr, old_usize, old_tctx);
 	}
 }
 
@@ -199,7 +243,7 @@ prof_free(tsd_t *tsd, const void *ptr, size_t usize, alloc_ctx_t *alloc_ctx) {
 	assert(usize == isalloc(tsd_tsdn(tsd), ptr));
 
 	if (unlikely((uintptr_t)tctx > (uintptr_t)1U)) {
-		prof_free_sampled_object(tsd, usize, tctx);
+		prof_free_sampled_object(tsd, ptr, usize, tctx);
 	}
 }
 

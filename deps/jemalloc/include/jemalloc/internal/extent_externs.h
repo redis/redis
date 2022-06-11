@@ -24,13 +24,17 @@ size_t extent_size_quantize_floor(size_t size);
 size_t extent_size_quantize_ceil(size_t size);
 #endif
 
-rb_proto(, extent_avail_, extent_tree_t, extent_t)
+ph_proto(, extent_avail_, extent_tree_t, extent_t)
 ph_proto(, extent_heap_, extent_heap_t, extent_t)
 
 bool extents_init(tsdn_t *tsdn, extents_t *extents, extent_state_t state,
     bool delay_coalesce);
 extent_state_t extents_state_get(const extents_t *extents);
 size_t extents_npages_get(extents_t *extents);
+/* Get the number of extents in the given page size index. */
+size_t extents_nextents_get(extents_t *extents, pszind_t ind);
+/* Get the sum total bytes of the extents in the given page size index. */
+size_t extents_nbytes_get(extents_t *extents, pszind_t ind);
 extent_t *extents_alloc(tsdn_t *tsdn, arena_t *arena,
     extent_hooks_t **r_extent_hooks, extents_t *extents, void *new_addr,
     size_t size, size_t pad, size_t alignment, bool slab, szind_t szind,
@@ -69,5 +73,11 @@ bool extent_merge_wrapper(tsdn_t *tsdn, arena_t *arena,
     extent_hooks_t **r_extent_hooks, extent_t *a, extent_t *b);
 
 bool extent_boot(void);
+
+void extent_util_stats_get(tsdn_t *tsdn, const void *ptr,
+    size_t *nfree, size_t *nregs, size_t *size);
+void extent_util_stats_verbose_get(tsdn_t *tsdn, const void *ptr,
+    size_t *nfree, size_t *nregs, size_t *size,
+    size_t *bin_nfree, size_t *bin_nregs, void **slabcur_addr);
 
 #endif /* JEMALLOC_INTERNAL_EXTENT_EXTERNS_H */

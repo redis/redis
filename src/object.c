@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "functions.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -233,13 +234,6 @@ robj *createQuicklistObject(void) {
     return o;
 }
 
-robj *createZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
-    robj *o = createObject(OBJ_LIST,zl);
-    o->encoding = OBJ_ENCODING_ZIPLIST;
-    return o;
-}
-
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType);
     robj *o = createObject(OBJ_SET,d);
@@ -415,9 +409,9 @@ void dismissListObject(robj *o, size_t size_hint) {
             quicklistNode *node = ql->head;
             while (node) {
                 if (quicklistNodeIsCompressed(node)) {
-                    dismissMemory(node->zl, ((quicklistLZF*)node->zl)->sz);
+                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);
                 } else {
-                    dismissMemory(node->zl, node->sz);
+                    dismissMemory(node->entry, node->sz);
                 }
                 node = node->next;
             }
@@ -936,7 +930,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_INT: return "int";
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_ZIPLIST: return "ziplist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
@@ -964,7 +957,7 @@ char *strEncoding(int encoding) {
  * on the insertion speed and thus the ability of the radix tree
  * to compress prefixes. */
 size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
+    size_t size = sizeof(*rax);
     size = rax->numele * sizeof(streamID);
     size += rax->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
@@ -1000,12 +993,10 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             quicklistNode *node = ql->head;
             asize = sizeof(*o)+sizeof(quicklist);
             do {
-                elesize += sizeof(quicklistNode)+zmalloc_size(node->zl);
+                elesize += sizeof(quicklistNode)+zmalloc_size(node->entry);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -1127,7 +1118,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             raxStop(&ri);
         }
     } else if (o->type == OBJ_MODULE) {
-        asize = moduleGetMemUsage(key, o, dbid);
+        asize = moduleGetMemUsage(key, o, sample_size, dbid);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1172,41 +1163,51 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem_total += server.initial_memory_usage;
 
-    mem = 0;
-    if (server.repl_backlog)
-        mem += zmalloc_size(server.repl_backlog);
-    mh->repl_backlog = mem;
-    mem_total += mem;
+    /* Replication backlog and replicas share one global replication buffer,
+     * only if replication buffer memory is more than the repl backlog setting,
+     * we consider the excess as replicas' memory. Otherwise, replication buffer
+     * memory is the consumption of repl backlog. */
+    if (listLength(server.slaves) &&
+        (long long)server.repl_buffer_mem > server.repl_backlog_size)
+    {
+        mh->clients_slaves = server.repl_buffer_mem - server.repl_backlog_size;
+        mh->repl_backlog = server.repl_backlog_size;
+    } else {
+        mh->clients_slaves = 0;
+        mh->repl_backlog = server.repl_buffer_mem;
+    }
+    if (server.repl_backlog) {
+        /* The approximate memory of rax tree for indexed blocks. */
+        mh->repl_backlog +=
+            server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
+            raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
+    }
+    mem_total += mh->repl_backlog;
+    mem_total += mh->clients_slaves;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
-     * clientsCronTrackClientsMemUsage(). */
-    mh->clients_slaves = server.stat_clients_type_memory[CLIENT_TYPE_SLAVE];
+     * updateClientMemUsage(). */
     mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
                          server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
                          server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
-    mem_total += mh->clients_slaves;
     mem_total += mh->clients_normal;
+
+    mh->cluster_links = server.stat_cluster_links_memory;
+    mem_total += mh->cluster_links;
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
         mem += sdsZmallocSize(server.aof_buf);
-        mem += aofRewriteBufferMemoryUsage();
     }
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = server.lua_scripts_mem;
-    mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
-        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
-    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
-        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
-    if (listLength(server.repl_scriptcache_fifo) > 0) {
-        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) +
-            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
-    }
+    mem = evalScriptsMemory();
     mh->lua_caches = mem;
     mem_total+=mem;
+    mh->functions_caches = functionsMemoryOverhead();
+    mem_total+=mh->functions_caches;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1226,6 +1227,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem = dictSize(db->expires) * sizeof(dictEntry) +
               dictSlots(db->expires) * sizeof(dictEntry*);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
+        mem_total+=mem;
+
+        /* Account for the slot to keys map in cluster mode */
+        mem = dictSize(db->dict) * dictMetadataSize(db->dict);
+        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 
         mh->num_dbs++;
@@ -1312,13 +1318,13 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Slaves using more than 10 MB each? */
-        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
+        if (numslaves > 0 && mh->clients_slaves > (1024*1024*10)) {
             big_slave_buf = 1;
             num_reports++;
         }
 
         /* Too many scripts are cached? */
-        if (dictSize(server.lua_scripts) > 1000) {
+        if (dictSize(evalScriptsDict()) > 1000) {
             many_scripts = 1;
             num_reports++;
         }
@@ -1487,7 +1493,7 @@ void memoryCommand(client *c) {
 "    Return information about the memory usage of the server.",
 "USAGE <key> [SAMPLES <count>]",
 "    Return memory in bytes used by <key> and its value. Nested values are",
-"    sampled up to <count> times (default: 5).",
+"    sampled up to <count> times (default: 5, 0 means sample all).",
 NULL
         };
         addReplyHelp(c, help);
@@ -1518,11 +1524,12 @@ NULL
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += sizeof(dictEntry);
+        usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,25+mh->num_dbs);
+        addReplyMapLen(c,27+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1542,24 +1549,34 @@ NULL
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
 
+        addReplyBulkCString(c,"cluster.links");
+        addReplyLongLong(c,mh->cluster_links);
+
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);
 
         addReplyBulkCString(c,"lua.caches");
         addReplyLongLong(c,mh->lua_caches);
 
+        addReplyBulkCString(c,"functions.caches");
+        addReplyLongLong(c,mh->functions_caches);
+
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
+            addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
+
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);

@@ -54,6 +54,29 @@ test "Nodes should report cluster_state is ok now" {
     assert_cluster_state ok
 }
 
+test "Sanity for CLUSTER COUNTKEYSINSLOT" {
+    set reply [R 0 CLUSTER COUNTKEYSINSLOT 0]
+    assert {$reply eq 0}
+}
+
 test "It is possible to write and read from the cluster" {
     cluster_write_test 0
+}
+
+test "Function no-cluster flag" {
+    R 1 function load {#!lua name=test
+        redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
+    }
+    catch {R 1 fcall f1 0} e
+    assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
+}
+
+test "Script no-cluster flag" {
+    catch {
+        R 1 eval {#!lua flags=no-cluster
+            return 1
+        } 0
+    } e
+    
+    assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
 }

@@ -228,11 +228,17 @@ void trackingRememberKeys(client *c) {
         getKeysFreeResult(&result);
         return;
     }
+    /* Shard channels are treated as special keys for client
+     * library to rely on `COMMAND` command to discover the node
+     * to connect to. These channels doesn't need to be tracked. */
+    if (c->cmd->flags & CMD_PUBSUB) {
+        return;
+    }
 
-    int *keys = result.keys;
+    keyReference *keys = result.keys;
 
     for(int j = 0; j < numkeys; j++) {
-        int idx = keys[j];
+        int idx = keys[j].pos;
         sds sdskey = c->argv[idx]->ptr;
         rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
         if (ids == raxNotFound) {
@@ -289,7 +295,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     } else if (using_redirection && c->flags & CLIENT_PUBSUB) {
         /* We use a static object to speedup things, however we assume
          * that addReplyPubsubMessage() will not take a reference. */
-        addReplyPubsubMessage(c,TrackingChannelName,NULL);
+        addReplyPubsubMessage(c,TrackingChannelName,NULL,shared.messagebulk);
     } else {
         /* If are here, the client is not using RESP3, nor is
          * redirecting to another client. We can't send anything to
@@ -305,6 +311,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
+    updateClientMemUsage(c);
 }
 
 /* This function is called when a key is modified in Redis and in the case
@@ -347,13 +354,16 @@ void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
  * of memory pressure: in that case the key didn't really change, so we want
  * just to notify the clients that are in the table for this key, that would
  * otherwise miss the fact we are no longer tracking the key for them. */
-void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
+void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     if (TrackingTable == NULL) return;
 
-    if (bcast && raxSize(PrefixTable) > 0)
-        trackingRememberKeyToBroadcast(c,key,keylen);
+    unsigned char *key = (unsigned char*)keyobj->ptr;
+    size_t keylen = sdslen(keyobj->ptr);
 
-    rax *ids = raxFind(TrackingTable,(unsigned char*)key,keylen);
+    if (bcast && raxSize(PrefixTable) > 0)
+        trackingRememberKeyToBroadcast(c,(char *)key,keylen);
+
+    rax *ids = raxFind(TrackingTable,key,keylen);
     if (ids == raxNotFound) return;
 
     raxIterator ri;
@@ -383,7 +393,15 @@ void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
             continue;
         }
 
-        sendTrackingMessage(target,key,keylen,0);
+        /* If target is current client, we need schedule key invalidation.
+         * As the invalidation messages may be interleaved with command
+         * response and should after command response */
+        if (target == server.current_client){
+            incrRefCount(keyobj);
+            listAddNodeTail(server.tracking_pending_keys, keyobj);
+        } else {
+            sendTrackingMessage(target,(char *)keyobj->ptr,sdslen(keyobj->ptr),0);
+        }
     }
     raxStop(&ri);
 
@@ -394,10 +412,22 @@ void trackingInvalidateKeyRaw(client *c, char *key, size_t keylen, int bcast) {
     raxRemove(TrackingTable,(unsigned char*)key,keylen,NULL);
 }
 
-/* Wrapper (the one actually called across the core) to pass the key
- * as object. */
-void trackingInvalidateKey(client *c, robj *keyobj) {
-    trackingInvalidateKeyRaw(c,keyobj->ptr,sdslen(keyobj->ptr),1);
+void trackingHandlePendingKeyInvalidations() {
+    if (!listLength(server.tracking_pending_keys)) return;
+
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.tracking_pending_keys,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        robj *key = listNodeValue(ln);
+        /* current_client maybe freed, so we need to send invalidation
+         * message only when current_client is still alive */
+        if (server.current_client != NULL)
+            sendTrackingMessage(server.current_client,(char *)key->ptr,sdslen(key->ptr),0);
+        decrRefCount(key);
+    }
+    listEmpty(server.tracking_pending_keys);
 }
 
 /* This function is called when one or all the Redis databases are
@@ -474,7 +504,9 @@ void trackingLimitUsedSlots(void) {
         raxSeek(&ri,"^",NULL,0);
         raxRandomWalk(&ri,0);
         if (raxEOF(&ri)) break;
-        trackingInvalidateKeyRaw(NULL,(char*)ri.key,ri.key_len,0);
+        robj *keyobj = createStringObject((char*)ri.key,ri.key_len);
+        trackingInvalidateKey(NULL,keyobj,0);
+        decrRefCount(keyobj);
         if (raxSize(TrackingTable) <= max_keys) {
             timeout_counter = 0;
             raxStop(&ri);

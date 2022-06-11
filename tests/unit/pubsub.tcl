@@ -174,6 +174,8 @@ start_server {tags {"pubsub network"}} {
         punsubscribe $rd1
         punsubscribe $rd2
         assert_equal 3 $patterns
+        $rd1 close
+        $rd2 close
     }
 
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
@@ -387,5 +389,18 @@ start_server {tags {"pubsub network"}} {
         assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
         r config set notify-keyspace-events EA
         assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
+    }
+
+    test "Keyspace notifications: new key test" {
+        r config set notify-keyspace-events En
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r set foo bar
+        # second set of foo should not cause a 'new' event
+        r set foo baz 
+        r set bar bar
+        assert_equal "pmessage * __keyevent@${db}__:new foo" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:new bar" [$rd1 read]
+        $rd1 close
     }
 }

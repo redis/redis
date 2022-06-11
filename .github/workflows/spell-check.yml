@@ -16,10 +16,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+
+      - name: pip cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
 
       - name: Install prerequisites
-        run: sudo pip install codespell==2.0.0
+        run: sudo pip install -r ./.codespell/requirements.txt
 
       - name: Spell check
-        run: codespell --config=./.github/.codespellrc
+        run: codespell --config=./.codespell/.codespellrc

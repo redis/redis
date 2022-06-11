@@ -1,0 +1,95 @@
+{
+    "RESTORE": {
+        "summary": "Create a key using the provided serialized value, previously obtained using DUMP.",
+        "complexity": "O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).",
+        "group": "generic",
+        "since": "2.6.0",
+        "arity": -4,
+        "function": "restoreCommand",
+        "history": [
+            [
+                "3.0.0",
+                "Added the `REPLACE` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `ABSTTL` modifier."
+            ],
+            [
+                "5.0.0",
+                "Added the `IDLETIME` and `FREQ` options."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "ttl",
+                "type": "integer"
+            },
+            {
+                "name": "serialized-value",
+                "type": "string"
+            },
+            {
+                "name": "replace",
+                "token": "REPLACE",
+                "type": "pure-token",
+                "optional": true,
+                "since": "3.0.0"
+            },
+            {
+                "name": "absttl",
+                "token": "ABSTTL",
+                "type": "pure-token",
+                "optional": true,
+                "since": "5.0.0"
+            },
+            {
+                "token": "IDLETIME",
+                "name": "seconds",
+                "type": "integer",
+                "optional": true,
+                "since": "5.0.0"
+            },
+            {
+                "token": "FREQ",
+                "name": "frequency",
+                "type": "integer",
+                "optional": true,
+                "since": "5.0.0"
+            }
+        ]
+    }
+}

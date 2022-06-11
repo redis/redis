@@ -2,7 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hiredis.h>
-#include <win32.h>
+
+#ifdef _MSC_VER
+#include <winsock2.h> /* For struct timeval */
+#endif
 
 int main(int argc, char **argv) {
     unsigned int j, isunix = 0;

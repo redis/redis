@@ -39,17 +39,22 @@
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
+    size_t sum = 0;
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
     for (i = start; i <= end; i++) {
-        if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_listpack_value)
-        {
+        if (!sdsEncodedObject(argv[i]))
+            continue;
+        size_t len = sdslen(argv[i]->ptr);
+        if (len > server.hash_max_listpack_value) {
             hashTypeConvert(o, OBJ_ENCODING_HT);
-            break;
+            return;
         }
+        sum += len;
     }
+    if (!lpSafeToAdd(o->ptr, sum))
+        hashTypeConvert(o, OBJ_ENCODING_HT);
 }
 
 /* Get the value from a listpack encoded hash, identified by field.
@@ -141,39 +146,24 @@ robj *hashTypeGetValueObject(robj *o, sds field) {
  * exist. */
 size_t hashTypeGetValueLength(robj *o, sds field) {
     size_t len = 0;
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0)
-            len = vstr ? vlen : sdigits10(vll);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds aux;
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK)
+        len = vstr ? vlen : sdigits10(vll);
 
-        if ((aux = hashTypeGetFromHashTable(o, field)) != NULL)
-            len = sdslen(aux);
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
     return len;
 }
 
 /* Test if the specified field exists in the given hash. Returns 1 if the field
  * exists, and 0 when it doesn't. */
 int hashTypeExists(robj *o, sds field) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll) == 0) return 1;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (hashTypeGetFromHashTable(o, field) != NULL) return 1;
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-    return 0;
+    return hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK;
 }
 
 /* Add a new field, overwrite the old with the new value if it already exists.
@@ -200,6 +190,14 @@ int hashTypeExists(robj *o, sds field) {
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
+    /* Check if the field is too long for listpack, and convert before adding the item.
+     * This is needed for HINCRBY* case since in other commands this is handled early by
+     * hashTypeTryConversion, so this check will be a NOP. */
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
+            hashTypeConvert(o, OBJ_ENCODING_HT);
+    }
+    
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
 
@@ -472,6 +470,8 @@ void hashTypeConvertListpack(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
+                sdsfree(key); sdsfree(value); /* Needed for gcc ASAN */
+                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
                 serverPanic("Listpack corruption detected");
@@ -602,7 +602,7 @@ void hsetCommand(client *c) {
     robj *o;
 
     if ((c->argc % 2) == 1) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -710,37 +710,23 @@ void hincrbyfloatCommand(client *c) {
 }
 
 static void addHashFieldToReply(client *c, robj *o, sds field) {
-    int ret;
-
     if (o == NULL) {
         addReplyNull(c);
         return;
     }
 
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        ret = hashTypeGetFromListpack(o, field, &vstr, &vlen, &vll);
-        if (ret < 0) {
-            addReplyNull(c);
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK) {
+        if (vstr) {
+            addReplyBulkCBuffer(c, vstr, vlen);
         } else {
-            if (vstr) {
-                addReplyBulkCBuffer(c, vstr, vlen);
-            } else {
-                addReplyBulkLongLong(c, vll);
-            }
+            addReplyBulkLongLong(c, vll);
         }
-
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeGetFromHashTable(o, field);
-        if (value == NULL)
-            addReplyNull(c);
-        else
-            addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
-        serverPanic("Unknown hash encoding");
+        addReplyNull(c);
     }
 }
 
@@ -900,7 +886,7 @@ void hscanCommand(client *c) {
     scanGenericCommand(c,o,cursor);
 }
 
-static void harndfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
     for (unsigned long i = 0; i < count; i++) {
         if (vals && c->resp > 2)
             addReplyArrayLen(c,2);
@@ -983,7 +969,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
                 lpRandomPairs(hash->ptr, sample_count, keys, vals);
-                harndfieldReplyWithListpack(c, sample_count, keys, vals);
+                hrandfieldReplyWithListpack(c, sample_count, keys, vals);
             }
             zfree(keys);
             zfree(vals);
@@ -1046,7 +1032,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         /* Remove random elements to reach the right count. */
         while (size > count) {
             dictEntry *de;
-            de = dictGetRandomKey(d);
+            de = dictGetFairRandomKey(d);
             dictUnlink(d,dictGetKey(de));
             sdsfree(dictGetKey(de));
             sdsfree(dictGetVal(de));
@@ -1085,7 +1071,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
             if (withvalues)
                 vals = zmalloc(sizeof(listpackEntry)*count);
             serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
-            harndfieldReplyWithListpack(c, count, keys, vals);
+            hrandfieldReplyWithListpack(c, count, keys, vals);
             zfree(keys);
             zfree(vals);
             return;

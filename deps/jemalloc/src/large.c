@@ -28,7 +28,7 @@ large_palloc(tsdn_t *tsdn, arena_t *arena, size_t usize, size_t alignment,
 	assert(!tsdn_null(tsdn) || arena != NULL);
 
 	ausize = sz_sa2u(usize, alignment);
-	if (unlikely(ausize == 0 || ausize > LARGE_MAXCLASS)) {
+	if (unlikely(ausize == 0 || ausize > SC_LARGE_MAXCLASS)) {
 		return NULL;
 	}
 
@@ -42,7 +42,7 @@ large_palloc(tsdn_t *tsdn, arena_t *arena, size_t usize, size_t alignment,
 	 */
 	is_zeroed = zero;
 	if (likely(!tsdn_null(tsdn))) {
-		arena = arena_choose(tsdn_tsd(tsdn), arena);
+		arena = arena_choose_maybe_huge(tsdn_tsd(tsdn), arena, usize);
 	}
 	if (unlikely(arena == NULL) || (extent = arena_extent_alloc_large(tsdn,
 	    arena, usize, alignment, &is_zeroed)) == NULL) {
@@ -109,7 +109,7 @@ large_ralloc_no_move_shrink(tsdn_t *tsdn, extent_t *extent, size_t usize) {
 	if (diff != 0) {
 		extent_t *trail = extent_split_wrapper(tsdn, arena,
 		    &extent_hooks, extent, usize + sz_large_pad,
-		    sz_size2index(usize), false, diff, NSIZES, false);
+		    sz_size2index(usize), false, diff, SC_NSIZES, false);
 		if (trail == NULL) {
 			return true;
 		}
@@ -154,17 +154,17 @@ large_ralloc_no_move_expand(tsdn_t *tsdn, extent_t *extent, size_t usize,
 	bool new_mapping;
 	if ((trail = extents_alloc(tsdn, arena, &extent_hooks,
 	    &arena->extents_dirty, extent_past_get(extent), trailsize, 0,
-	    CACHELINE, false, NSIZES, &is_zeroed_trail, &commit)) != NULL
+	    CACHELINE, false, SC_NSIZES, &is_zeroed_trail, &commit)) != NULL
 	    || (trail = extents_alloc(tsdn, arena, &extent_hooks,
 	    &arena->extents_muzzy, extent_past_get(extent), trailsize, 0,
-	    CACHELINE, false, NSIZES, &is_zeroed_trail, &commit)) != NULL) {
+	    CACHELINE, false, SC_NSIZES, &is_zeroed_trail, &commit)) != NULL) {
 		if (config_stats) {
 			new_mapping = false;
 		}
 	} else {
 		if ((trail = extent_alloc_wrapper(tsdn, arena, &extent_hooks,
 		    extent_past_get(extent), trailsize, 0, CACHELINE, false,
-		    NSIZES, &is_zeroed_trail, &commit)) == NULL) {
+		    SC_NSIZES, &is_zeroed_trail, &commit)) == NULL) {
 			return true;
 		}
 		if (config_stats) {
@@ -221,9 +221,10 @@ large_ralloc_no_move(tsdn_t *tsdn, extent_t *extent, size_t usize_min,
 	size_t oldusize = extent_usize_get(extent);
 
 	/* The following should have been caught by callers. */
-	assert(usize_min > 0 && usize_max <= LARGE_MAXCLASS);
+	assert(usize_min > 0 && usize_max <= SC_LARGE_MAXCLASS);
 	/* Both allocation sizes must be large to avoid a move. */
-	assert(oldusize >= LARGE_MINCLASS && usize_max >= LARGE_MINCLASS);
+	assert(oldusize >= SC_LARGE_MINCLASS
+	    && usize_max >= SC_LARGE_MINCLASS);
 
 	if (usize_max > oldusize) {
 		/* Attempt to expand the allocation in-place. */
@@ -270,17 +271,23 @@ large_ralloc_move_helper(tsdn_t *tsdn, arena_t *arena, size_t usize,
 }
 
 void *
-large_ralloc(tsdn_t *tsdn, arena_t *arena, extent_t *extent, size_t usize,
-    size_t alignment, bool zero, tcache_t *tcache) {
-	size_t oldusize = extent_usize_get(extent);
+large_ralloc(tsdn_t *tsdn, arena_t *arena, void *ptr, size_t usize,
+    size_t alignment, bool zero, tcache_t *tcache,
+    hook_ralloc_args_t *hook_args) {
+	extent_t *extent = iealloc(tsdn, ptr);
 
+	size_t oldusize = extent_usize_get(extent);
 	/* The following should have been caught by callers. */
-	assert(usize > 0 && usize <= LARGE_MAXCLASS);
+	assert(usize > 0 && usize <= SC_LARGE_MAXCLASS);
 	/* Both allocation sizes must be large to avoid a move. */
-	assert(oldusize >= LARGE_MINCLASS && usize >= LARGE_MINCLASS);
+	assert(oldusize >= SC_LARGE_MINCLASS
+	    && usize >= SC_LARGE_MINCLASS);
 
 	/* Try to avoid moving the allocation. */
 	if (!large_ralloc_no_move(tsdn, extent, usize, usize, zero)) {
+		hook_invoke_expand(hook_args->is_realloc
+		    ? hook_expand_realloc : hook_expand_rallocx, ptr, oldusize,
+		    usize, (uintptr_t)ptr, hook_args->args);
 		return extent_addr_get(extent);
 	}
 
@@ -294,6 +301,12 @@ large_ralloc(tsdn_t *tsdn, arena_t *arena, extent_t *extent, size_t usize,
 	if (ret == NULL) {
 		return NULL;
 	}
+
+	hook_invoke_alloc(hook_args->is_realloc
+	    ? hook_alloc_realloc : hook_alloc_rallocx, ret, (uintptr_t)ret,
+	    hook_args->args);
+	hook_invoke_dalloc(hook_args->is_realloc
+	    ? hook_dalloc_realloc : hook_dalloc_rallocx, ptr, hook_args->args);
 
 	size_t copysize = (usize < oldusize) ? usize : oldusize;
 	memcpy(ret, extent_addr_get(extent), copysize);
@@ -318,8 +331,9 @@ large_dalloc_prep_impl(tsdn_t *tsdn, arena_t *arena, extent_t *extent,
 		large_dalloc_maybe_junk(extent_addr_get(extent),
 		    extent_usize_get(extent));
 	} else {
-		malloc_mutex_assert_owner(tsdn, &arena->large_mtx);
+		/* Only hold the large_mtx if necessary. */
 		if (!arena_is_auto(arena)) {
+			malloc_mutex_assert_owner(tsdn, &arena->large_mtx);
 			extent_list_remove(&arena->large, extent);
 		}
 	}
@@ -368,4 +382,14 @@ large_prof_tctx_set(tsdn_t *tsdn, extent_t *extent, prof_tctx_t *tctx) {
 void
 large_prof_tctx_reset(tsdn_t *tsdn, extent_t *extent) {
 	large_prof_tctx_set(tsdn, extent, (prof_tctx_t *)(uintptr_t)1U);
+}
+
+nstime_t
+large_prof_alloc_time_get(const extent_t *extent) {
+	return extent_prof_alloc_time_get(extent);
+}
+
+void
+large_prof_alloc_time_set(extent_t *extent, nstime_t t) {
+	extent_prof_alloc_time_set(extent, t);
 }

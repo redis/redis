@@ -122,6 +122,12 @@ get_arena_dirty_npurge(unsigned arena_ind) {
 }
 
 static uint64_t
+get_arena_dirty_purged(unsigned arena_ind) {
+	do_epoch();
+	return get_arena_npurge_impl("stats.arenas.0.dirty_purged", arena_ind);
+}
+
+static uint64_t
 get_arena_muzzy_npurge(unsigned arena_ind) {
 	do_epoch();
 	return get_arena_npurge_impl("stats.arenas.0.muzzy_npurge", arena_ind);
@@ -559,7 +565,7 @@ TEST_BEGIN(test_decay_now) {
 TEST_END
 
 TEST_BEGIN(test_decay_never) {
-	test_skip_if(check_background_thread_enabled());
+	test_skip_if(check_background_thread_enabled() || !config_stats);
 
 	unsigned arena_ind = do_arena_create(-1, -1);
 	int flags = MALLOCX_ARENA(arena_ind) | MALLOCX_TCACHE_NONE;
@@ -579,8 +585,8 @@ TEST_BEGIN(test_decay_never) {
 		dallocx(ptrs[i], flags);
 		size_t pdirty = get_arena_pdirty(arena_ind);
 		size_t pmuzzy = get_arena_pmuzzy(arena_ind);
-		assert_zu_gt(pdirty, pdirty_prev,
-		    "Expected dirty pages to increase.");
+		assert_zu_gt(pdirty + (size_t)get_arena_dirty_purged(arena_ind),
+		    pdirty_prev, "Expected dirty pages to increase.");
 		assert_zu_eq(pmuzzy, 0, "Unexpected muzzy pages");
 		pdirty_prev = pdirty;
 	}

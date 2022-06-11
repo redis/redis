@@ -33,6 +33,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "script.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -325,24 +326,46 @@ unsigned long LFUDecrAndReturn(robj *o) {
 }
 
 /* We don't want to count AOF buffers and slaves output buffers as
- * used memory: the eviction should use mostly data size. This function
- * returns the sum of AOF and slaves buffer. */
+ * used memory: the eviction should use mostly data size, because
+ * it can cause feedback-loop when we push DELs into them, putting
+ * more and more DELs will make them bigger, if we count them, we
+ * need to evict more keys, and then generate more DELs, maybe cause
+ * massive eviction loop, even all keys are evicted.
+ *
+ * This function returns the sum of AOF and replication buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
-    int slaves = listLength(server.slaves);
 
-    if (slaves) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = listNodeValue(ln);
-            overhead += getClientOutputBufferMemoryUsage(slave);
+    /* Since all replicas and replication backlog share global replication
+     * buffer, we think only the part of exceeding backlog size is the extra
+     * separate consumption of replicas.
+     *
+     * Note that although the backlog is also initially incrementally grown
+     * (pushing DELs consumes memory), it'll eventually stop growing and
+     * remain constant in size, so even if its creation will cause some
+     * eviction, it's capped, and also here to stay (no resonance effect)
+     *
+     * Note that, because we trim backlog incrementally in the background,
+     * backlog size may exceeds our setting if slow replicas that reference
+     * vast replication buffer blocks disconnect. To avoid massive eviction
+     * loop, we don't count the delayed freed replication backlog into used
+     * memory even if there are no replicas, i.e. we still regard this memory
+     * as replicas'. */
+    if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
+        /* We use list structure to manage replication buffer blocks, so backlog
+         * also occupies some extra memory, we can't know exact blocks numbers,
+         * we only get approximate size according to per block size. */
+        size_t extra_approx_size =
+            (server.repl_backlog_size/PROTO_REPLY_CHUNK_BYTES + 1) *
+            (sizeof(replBufBlock)+sizeof(listNode));
+        size_t counted_mem = server.repl_backlog_size + extra_approx_size;
+        if (server.repl_buffer_mem > counted_mem) {
+            overhead += (server.repl_buffer_mem - counted_mem);
         }
     }
+
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
+        overhead += sdsAllocSize(server.aof_buf);
     }
     return overhead;
 }
@@ -380,8 +403,11 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     if (total) *total = mem_reported;
 
     /* We may return ASAP if there is no need to compute the level. */
-    int return_ok_asap = !server.maxmemory || mem_reported <= server.maxmemory;
-    if (return_ok_asap && !level) return C_OK;
+    if (!server.maxmemory) {
+        if (level) *level = 0;
+        return C_OK;
+    }
+    if (mem_reported <= server.maxmemory && !level) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -390,15 +416,9 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
     /* Compute the ratio of memory usage. */
-    if (level) {
-        if (!server.maxmemory) {
-            *level = 0;
-        } else {
-            *level = (float)mem_used / (float)server.maxmemory;
-        }
-    }
+    if (level) *level = (float)mem_used / (float)server.maxmemory;
 
-    if (return_ok_asap) return C_OK;
+    if (mem_reported <= server.maxmemory) return C_OK;
 
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
@@ -446,6 +466,14 @@ static int evictionTimeProc(
     return AE_NOMORE;
 }
 
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
+}
+
 /* Check if it's safe to perform evictions.
  *   Returns 1 if evictions can be performed
  *   Returns 0 if eviction processing should be skipped
@@ -453,7 +481,7 @@ static int evictionTimeProc(
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (server.lua_timedout || server.loading) return 0;
+    if (isInsideYieldingLongCommand() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
@@ -540,6 +568,13 @@ int performEvictions(void) {
 
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
+
+    /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
+     * so we have to back-up and restore server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+    server.propagate_no_multi = 1;
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -628,7 +663,6 @@ int performEvictions(void) {
         if (bestkey) {
             db = server.db+bestdbid;
             robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-            propagateExpire(db,keyobj,server.lazyfree_lazy_eviction);
             /* We compute the amount of memory freed by db*Delete() alone.
              * It is possible that actually the memory needed to propagate
              * the DEL in AOF and replication link is greater than the one
@@ -653,6 +687,7 @@ int performEvictions(void) {
             signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -681,11 +716,7 @@ int performEvictions(void) {
                  * memory, don't want to spend too much time here.  */
                 if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
-                    if (!isEvictionProcRunning) {
-                        isEvictionProcRunning = 1;
-                        aeCreateTimeEvent(server.el, 0,
-                                evictionTimeProc, NULL, NULL);
-                    }
+                    startEvictionTimeProc();
                     break;
                 }
             }
@@ -708,6 +739,14 @@ cant_free:
             }
         }
     }
+
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    /* Propagate all DELs */
+    propagatePendingCommands();
+
+    server.core_propagates = prev_core_propagates;
+    server.propagate_no_multi = 0;
 
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);

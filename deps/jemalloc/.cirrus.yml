@@ -1,0 +1,21 @@
+env:
+  CIRRUS_CLONE_DEPTH: 1
+  ARCH: amd64
+
+task:
+  freebsd_instance:
+    matrix:
+      image: freebsd-12-0-release-amd64
+      image: freebsd-11-2-release-amd64
+  install_script:
+    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
+    - pkg upgrade -y
+    - pkg install -y autoconf gmake
+  script:
+    - autoconf
+    #- ./configure ${COMPILER_FLAGS:+       CC="$CC $COMPILER_FLAGS"       CXX="$CXX $COMPILER_FLAGS" }       $CONFIGURE_FLAGS
+    - ./configure
+    - export JFLAG=`sysctl -n kern.smp.cpus`
+    - gmake -j${JFLAG}
+    - gmake -j${JFLAG} tests
+    - gmake check
