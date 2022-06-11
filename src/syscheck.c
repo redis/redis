@@ -143,7 +143,7 @@ int checkOvercommit(sds *error_msg) {
     FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
     char buf[64];
 
-    if (!fp) return -1;
+    if (!fp) return 0;
     if (fgets(buf,64,fp) == NULL) {
         fclose(fp);
         return 0;
@@ -152,7 +152,7 @@ int checkOvercommit(sds *error_msg) {
 
     if (atoi(buf)) {
         *error_msg = sdsnew(
-            "WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. "
+            "overcommit_memory is set to 0! Background save may fail under low memory condition. "
             "To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the "
             "command 'sysctl vm.overcommit_memory=1' for this to take effect.");
         return -1;
@@ -351,7 +351,7 @@ check checks[] = {
 int syscheck(void) {
     check *cur_check = checks;
     int ret = 1;
-    sds err_msg;
+    sds err_msg = NULL;
     while (cur_check->check_fn) {
         int res = cur_check->check_fn(&err_msg);
         printf("[%s]...", cur_check->name);

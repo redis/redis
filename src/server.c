@@ -6028,7 +6028,7 @@ static int THPDisable(void) {
 }
 
 void linuxMemoryWarnings(void) {
-    sds err_msg;
+    sds err_msg = NULL;
     if (checkOvercommit(&err_msg) < 0) {
         serverLog(LL_WARNING,"WARNING %s", err_msg);
         sdsfree(err_msg);
@@ -6939,7 +6939,7 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING,"Server initialized");
     #ifdef __linux__
         linuxMemoryWarnings();
-        sds err_msg;
+        sds err_msg = NULL;
         if (checkXenClocksource(&err_msg) < 0) {
             serverLog(LL_WARNING, "WARNING %s", err_msg);
             sdsfree(err_msg);
