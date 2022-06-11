@@ -351,7 +351,7 @@ check checks[] = {
 int syscheck(void) {
     check *cur_check = checks;
     int ret = 1;
-    sds err_msg;
+    sds err_msg = NULL;
     while (cur_check->check_fn) {
         int res = cur_check->check_fn(&err_msg);
         printf("[%s]...", cur_check->name);
