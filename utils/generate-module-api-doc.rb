@@ -20,7 +20,7 @@ def markdown(s)
             # Add backquotes around RedisModule functions and type where missing.
             l = l.gsub(/(?<!`)RedisModule[A-z]+(?:\*?\(\))?/){|x| "`#{x}`"}
             # Add backquotes around c functions like malloc() where missing.
-            l = l.gsub(/(?<![`A-z])[a-z_]+\(\)/, '`\0`')
+            l = l.gsub(/(?<![`A-z.])[a-z_]+\(\)/, '`\0`')
             # Add backquotes around macro and var names containing underscores.
             l = l.gsub(/(?<![`A-z\*])[A-Za-z]+_[A-Za-z0-9_]+/){|x| "`#{x}`"}
             # Link URLs preceded by space or newline (not already linked)
