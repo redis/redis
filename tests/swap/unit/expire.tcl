@@ -5,11 +5,7 @@ start_server {tags {"swap string"}} {
         r pexpire k 200
         assert_match "*keys=1,evicts=0*" [r info keyspace] 
         r evict k
-        wait_for_condition 10 50 {
-            [string match "*keys=0,evicts=1,expires=1*" [r info keyspace]]
-        } else {
-            fail "evict fail"
-        } 
+        wait_keys_evicted r
         after 500
         assert_equal {# Keyspace} [string trim [r info keyspace]]
         assert_match [r get k] {}
@@ -25,7 +21,7 @@ start_server {tags "expire"} {
         r evict foo
         after 400
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
     }
 
     test {cold key passive expire} {
@@ -34,7 +30,7 @@ start_server {tags "expire"} {
         r evict foo
         after 150
         assert_equal [r ttl foo] -2
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
         r debug set-active-expire 1
     }
 
@@ -64,12 +60,12 @@ start_server {tags "expire"} {
         } else {
             fail "evict key failed."
         }
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
         assert_equal [r get foo] bar
         # wait active expire cycle to do it's job
         after 800
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
     }
 
     test {hot key passive expire} {
@@ -90,13 +86,13 @@ start_server {tags "expire"} {
         } else {
             fail "evict key failed."
         }
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
         assert_equal [r get foo] bar
         after 600
         # trigger passive expire
         assert_equal [r ttl foo] -2
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
         r debug set-active-expire 1
     }
 

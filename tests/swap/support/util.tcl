@@ -47,3 +47,8 @@ proc object_meta_version {r key} {
         set _ 0
     }
 }
+
+proc rocks_get_wholekey {r type key} {
+    lindex [$r swap rio-get [$r swap encode-key $type $key]] 0
+}
+

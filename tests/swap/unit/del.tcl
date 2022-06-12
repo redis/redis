@@ -20,15 +20,15 @@ start_server {tags "del"} {
         } else {
             fail "evict key failed."
         }
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
 
         assert_equal [r get foo] bar
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
 
         r del foo
         after 100
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
     }
 
     test {delete cold key} {
@@ -39,11 +39,11 @@ start_server {tags "del"} {
         } else {
             fail "evict key failed."
         }
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
         r del foo
         after 100
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
     }
 
     test {del expired hot key} {
@@ -65,11 +65,11 @@ start_server {tags "del"} {
         after 110
         assert_equal [r dbsize] 1
         assert_match {*keys=0,evicts=1*} [r info keyspace] 
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] > 0}
+        assert {[rocks_get_wholekey r K foo] != ""}
         assert_equal [r del foo] 0
         after 110
         assert_equal [r dbsize] 0
-        assert {[llength [r swap rio-get [r swap encode-key K foo]]] == 0}
+        assert {[rocks_get_wholekey r K foo] == ""}
         r debug set-active-expire 1
     }
 }
