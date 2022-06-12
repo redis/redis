@@ -372,7 +372,7 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
 size_t dictEntryMetadataSize(dict *d) {
     UNUSED(d);
-    /* NOTICE: this also affect overhead_ht_slot_to_keys in getMemoryOverheadData.
+    /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
      * If we ever add non-cluster related data here, that code must be modified too. */
     return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
 }
@@ -774,7 +774,7 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
  *
  * This is how it works. We have an array of CLIENTS_PEAK_MEM_USAGE_SLOTS slots
  * where we track, for each, the biggest client output and input buffers we
- * saw in that slot. Every slot correspond to one of the latest seconds, since
+ * saw in that slot. Every slot corresponds to one of the latest seconds, since
  * the array is indexed by doing UNIXTIME % CLIENTS_PEAK_MEM_USAGE_SLOTS.
  *
  * When we want to know what was recently the peak memory usage, we just scan
@@ -2840,7 +2840,7 @@ void populateCommandStructure(struct redisCommand *c) {
 
 extern struct redisCommand redisCommandTable[];
 
-/* Populates the Redis Command Table dict from from the static table in commands.c
+/* Populates the Redis Command Table dict from the static table in commands.c
  * which is auto generated from the json files in the commands folder. */
 void populateCommandTable(void) {
     int j;
