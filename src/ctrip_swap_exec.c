@@ -80,14 +80,19 @@ void RIODeinit(RIO *rio) {
     switch (rio->action) {
     case  ROCKS_GET:
         sdsfree(rio->get.rawkey);
+        rio->get.rawkey = NULL;
         sdsfree(rio->get.rawval);
+        rio->get.rawval = NULL;
         break;
     case  ROCKS_PUT:
         sdsfree(rio->put.rawkey);
+        rio->put.rawkey = NULL;
         sdsfree(rio->put.rawval);
+        rio->put.rawval = NULL;
         break;
     case  ROCKS_DEL:
         sdsfree(rio->del.rawkey);
+        rio->del.rawkey = NULL;
         break;
     case  ROCKS_MULTIGET:
         for (i = 0; i < rio->multiget.numkeys; i++) {
@@ -95,7 +100,9 @@ void RIODeinit(RIO *rio) {
             if (rio->multiget.rawvals) sdsfree(rio->multiget.rawvals[i]);
         }
         zfree(rio->multiget.rawkeys);
+        rio->multiget.rawkeys = NULL;
         zfree(rio->multiget.rawvals);
+        rio->multiget.rawvals = NULL;
         break;
     case  ROCKS_SCAN:
         sdsfree(rio->scan.prefix);
@@ -104,10 +111,13 @@ void RIODeinit(RIO *rio) {
             if (rio->scan.rawvals) sdsfree(rio->scan.rawvals[i]);
         }
         zfree(rio->scan.rawkeys);
+        rio->scan.rawkeys = NULL;
         zfree(rio->scan.rawvals);
+        rio->scan.rawvals = NULL;
         break;
     case  ROCKS_WRITE:
         rocksdb_writebatch_destroy(rio->write.wb);
+        rio->write.wb = NULL;
         break;
     default:
         break;

@@ -341,8 +341,11 @@ ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
 .make-prerequisites: persist-settings
 endif
 
+../deps/rocksdb/librocksdb.a:
+	cd ../deps && $(MAKE) rocksdb
+
 # redis-server
-$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) ../deps/rocksdb/librocksdb.a
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/rocksdb/librocksdb.a $(FINAL_LIBS)
 
 # redis-sentinel

@@ -38,7 +38,6 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
-	-(cd rocksdb && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
