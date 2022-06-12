@@ -340,7 +340,8 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
     test_nontty_cli "Test command-line hinting" {
-    	assert_match "*SUCCESS*" [run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt] 
+        catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
     }
 
     proc test_redis_cli_rdb_dump {functions_only} {

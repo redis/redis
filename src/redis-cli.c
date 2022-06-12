@@ -9337,7 +9337,7 @@ void testHintSuite(char *filename) {
         }
 
         if (hint == NULL || strcmp(hint, expected) != 0) {
-            printf("Test case '%s' FAILED: expected '%s', got '%s'\n", input, expected, hint);
+            fprintf(stderr, "Test case '%s' FAILED: expected '%s', got '%s'\n", input, expected, hint);
             ++fail;
         }
         else {

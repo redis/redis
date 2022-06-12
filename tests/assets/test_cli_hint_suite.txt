@@ -91,8 +91,8 @@
 "GEORADIUS key 1 -2.345 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"" ""
 # Wrong data type: latitude must be a double. Hinting fails.
 "GEORADIUS key 1 X " ""
-# TODO: The next case is not working yet - it needs to be fixed:
-# "GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key] [STOREDIST key]"
+# Once the next optional argument is started, the [ANY] hint completing the COUNT argument disappears.
+"GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key] [STOREDIST key]"
 
 
 # Optional parameters followed by mandatory params: ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]
