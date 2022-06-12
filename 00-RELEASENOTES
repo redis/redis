@@ -11,6 +11,23 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
+================================================================================
+Redis 7.0.2 Released Sunday Jun 12 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: MODERATE, specifically if you're using a previous release of
+Redis 7.0, contains fixes for bugs in previous 7.0 releases.
+
+Bug Fixes
+=========
+
+* Fixed SET and BITFIELD commands being wrongly marked movablekeys (#10837)
+  Regression in 7.0 possibly resulting in excessive roundtrip from cluster clients.
+* Fix crash when /proc/sys/vm/overcommit_memory is inaccessible (#10848)
+  Regression in 7.0.1 resulting in crash on startup on some configurations.
+
+
 ================================================================================
 Redis 7.0.1 Released Wed Jun 8 12:00:00 IST 2022
 ================================================================================
@@ -79,8 +96,8 @@ Bug Fixes
 * Replica fail and retry the PSYNC if the master is unresponsive (#10726)
 * Fix ZRANGESTORE crash when zset_max_listpack_entries is 0 (#10767)
 
-Fixes for issues in previous release candidates of Redis 7.0
-------------------------------------------------------------
+Fixes for issues in previous releases of Redis 7.0
+--------------------------------------------------
 
 * CONFIG REWRITE could cause a config change to be dropped for aliased configs (#10811)
 * CONFIG REWRITE would omit rename-command and include lines (#10761)
