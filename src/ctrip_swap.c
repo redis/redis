@@ -28,26 +28,6 @@
 
 #include "ctrip_swap.h"
 
-static void dupKeyRequest(keyRequest *dst, keyRequest *src) {
-    if (src->key) incrRefCount(src->key);
-    dst->key = src->key;
-    dst->num_subkeys = src->num_subkeys;
-    for (int i = 0; i < src->num_subkeys; i++) {
-        if (src->subkeys[i]) incrRefCount(src->subkeys[i]);
-        dst->subkeys[i] = src->subkeys[i];
-    }
-}
-
-static void keyRequestDeinit(keyRequest *key_request) {
-    if (key_request->key) decrRefCount(key_request->key);
-    key_request->key = NULL;
-    key_request->num_subkeys = 0;
-    for (int i = 0; i < key_request->num_subkeys; i++) {
-        if (key_request->subkeys[i]) decrRefCount(key_request->subkeys[i]);
-        key_request->subkeys[i] = NULL;
-    }
-}
-
 /* SwapCtx manages context and data for swapping specific key. Note that:
  * - key_request copy to swapCtx.key_request
  * - swapdata moved to swapCtx,
@@ -59,7 +39,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     ctx->c = c;
     ctx->cmd_intention = c->cmd->intention;
     ctx->cmd_intention_flags = c->cmd->intention_flags;
-    dupKeyRequest(ctx->key_request,key_request);
+    moveKeyRequest(ctx->key_request,key_request);
     ctx->finished = finished;
 #ifdef SWAP_DEBUG
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
@@ -244,11 +224,11 @@ noswap:
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         clientKeyRequestFinished cb) {
     for (int i = 0; i < result->num; i++) {
+        void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
-        swapCtx *ctx = swapCtxCreate(c,key_request,cb);
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
-        void *msgs = NULL;
+        swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
 
         //TODO refactor evict asap: swapdata or swapthread should notify
         // key swapped in and register those keys to be evict asap.
@@ -409,7 +389,7 @@ void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
-    server.meta_version = 0;
+    server.meta_version = 1;
     createSharedObjects();
     initTestRedisDb();
     return 1;

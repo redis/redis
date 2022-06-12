@@ -35,6 +35,43 @@
  * This function must be called at least once before starting to populate
  * the result, and can be called repeatedly to enlarge the result array.
  */
+
+void copyKeyRequest(keyRequest *dst, keyRequest *src) {
+    if (src->key) incrRefCount(src->key);
+    dst->key = src->key;
+    if (src->num_subkeys > 0)  {
+        dst->subkeys = zmalloc(sizeof(robj*)*src->num_subkeys);
+        for (int i = 0; i < src->num_subkeys; i++) {
+            if (src->subkeys[i]) incrRefCount(src->subkeys[i]);
+            dst->subkeys[i] = src->subkeys[i];
+        }
+    }
+    dst->num_subkeys = src->num_subkeys;
+}
+
+void moveKeyRequest(keyRequest *dst, keyRequest *src) {
+    dst->key = src->key;
+    src->key = NULL;
+    dst->subkeys = src->subkeys;
+    src->subkeys = NULL;
+    dst->num_subkeys = src->num_subkeys;
+    src->num_subkeys = 0;
+}
+
+void keyRequestDeinit(keyRequest *key_request) {
+    if (key_request == NULL) return;
+    if (key_request->key) decrRefCount(key_request->key);
+    key_request->key = NULL;
+    for (int i = 0; i < key_request->num_subkeys; i++) {
+        if (key_request->subkeys[i])
+            decrRefCount(key_request->subkeys[i]);
+        key_request->subkeys[i] = NULL;
+    }
+    zfree(key_request->subkeys);
+    key_request->subkeys = NULL;
+    key_request->num_subkeys = 0;
+}
+
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int num) {
 	/* GETKEYS_RESULT_INIT initializes keys to NULL, point it to the
      * pre-allocated stack buffer here. */
@@ -78,15 +115,9 @@ void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level,
 }
 
 void releaseKeyRequests(getKeyRequestsResult *result) {
-    int i, j;
-    for (i = 0; i < result->num; i++) {
+    for (int i = 0; i < result->num; i++) {
         keyRequest *key_request = result->key_requests + i;
-        if (key_request->key) decrRefCount(key_request->key);
-        for (j = 0; j < key_request->num_subkeys; j++) {
-            if (key_request->subkeys[j])
-                decrRefCount(key_request->subkeys[j]);
-        }
-        if (key_request->subkeys) zfree(key_request->subkeys);
+        keyRequestDeinit(key_request);
     }
 }
 
@@ -203,7 +234,7 @@ int getKeyRequestsSingleKeyWithSubkeys(struct redisCommand *cmd, robj **argv,
             else
                 capacity += GETKEYS_RESULT_SUBKEYS_LINER_LEN;
 
-            subkeys = zrealloc(subkeys, capacity);
+            subkeys = zrealloc(subkeys, capacity*sizeof(robj*));
         }
         incrRefCount(subkey);
         subkeys[num++] = subkey;

@@ -827,6 +827,11 @@ void hmgetCommand(client *c) {
     }
 }
 
+size_t hashMetaLength(redisDb *db, robj *key) {
+    objectMeta *m = lookupMeta(db, key);
+    return m ? m->len : 0;
+}
+
 void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
@@ -837,7 +842,8 @@ void hdelCommand(client *c) {
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
-            if (hashTypeLength(o) == 0) {
+            if (hashTypeLength(o) == 0 && 
+                    hashMetaLength(c->db,c->argv[1]) == 0) {
                 dbDelete(c->db,c->argv[1]);
                 keyremoved = 1;
                 break;
@@ -862,6 +868,14 @@ void hdelCommand(client *c) {
 
 void hlenCommand(client *c) {
     robj *o;
+    objectMeta *m = lookupMeta(c->db,c->argv[1]);
+    if (m != NULL) {
+        size_t hash_len = m->len;
+        o = lookupKeyRead(c->db, c->argv[1]);
+        if (o != NULL) hash_len += hashTypeLength(o);
+        addReplyLongLong(c,hash_len);
+        return;
+    }
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
@@ -871,14 +885,6 @@ void hlenCommand(client *c) {
 
 void hstrlenCommand(client *c) {
     robj *o;
-    objectMeta *m = lookupMeta(c->db,c->argv[1]);
-    if (m != NULL) {
-        size_t hash_len = m->len;
-        o = lookupKeyRead(c->db, c->argv[1]);
-        if (o != NULL) hash_len += hashTypeLength(o);
-        addReplyLongLong(c,hash_len);
-        return;
-    }
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;

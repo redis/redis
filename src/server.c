@@ -589,7 +589,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"hdel",hdelCommand,-3,
      "write fast @hash",
-     0,NULL,getKeyRequestsHdel,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,getKeyRequestsHdel,SWAP_IN,INTENTION_IN_DEL,1,1,1,0,0,0},
 
     {"hlen",hlenCommand,2,
      "read-only fast @hash",
@@ -3477,7 +3477,7 @@ void InitServerLast() {
     server.rocksdb_epoch = 0;
     server.rocksdb_disk_error = 0;
     server.rocksdb_disk_error_since = 0;
-    server.meta_version = 0;
+    server.meta_version = 1;
     rocksInit();
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
@@ -5460,16 +5460,16 @@ sds genRedisInfoString(const char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys, evicts, bigs;
+            long long keys, vkeys, evicts, metas;
 
             keys = dictSize(server.db[j].dict);
             evicts = dictSize(server.db[j].evict);
             vkeys = dictSize(server.db[j].expires);
-            bigs = dictSize(server.db[j].meta);
+            metas = dictSize(server.db[j].meta);
             if (keys || evicts || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,evicts=%lld,bigs=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j,keys,evicts,bigs,vkeys,server.db[j].avg_ttl);
+                    "db%d:keys=%lld,evicts=%lld,metas=%lld,expires=%lld,avg_ttl=%lld\r\n",
+                    j,keys,evicts,metas,vkeys,server.db[j].avg_ttl);
             }
         }
     }

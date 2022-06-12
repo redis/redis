@@ -10,6 +10,7 @@ source tests/support/server.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
+source tests/swap/support/util.tcl
 
 set mem_failed {
     unit/aofrw
@@ -40,6 +41,8 @@ set ::disk_tests {
     swap/unit/save_rdb
     swap/unit/swap_out+del
     swap/unit/swap_out+in
+    swap/unit/hash
+    swap/unit/big_hash
     swap/tmp_tests/stream-cgroups
     swap/tmp_tests/stream
     swap/tmp_tests/replication-3 

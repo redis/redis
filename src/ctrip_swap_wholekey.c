@@ -84,10 +84,12 @@ int wholeKeySwapAna(swapData *data_, int cmd_intention,
 
 static sds wholeKeyEncodeKey(swapData *data_) {
     int obj_type = 0;
+    unsigned char enc_type;
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     if (data->value) obj_type = data->value->type;
     if (data->evict) obj_type = data->evict->type;
-    return rocksEncodeKey(obj_type, data->key->ptr);
+    enc_type = rocksGetEncType(obj_type,0);
+    return rocksEncodeKey(enc_type, data->key->ptr);
 }
 
 int wholeKeyEncodeKeys(swapData *data, int intention, void *datactx,
@@ -142,6 +144,7 @@ int wholeKeyEncodeData(swapData *data, int intention, void *datactx,
     return C_OK;
 }
 
+/* decoded move to exec module */
 int wholeKeyDecodeData(swapData *data, int num, sds *rawkeys,
         sds *rawvals, robj **pdecoded) {
     serverAssert(num == 1);
@@ -239,6 +242,7 @@ int wholeKeySwapDel(swapData *data_, void *datactx) {
     return 0;
 }
 
+/* decoded moved back by exec to wholekey then moved to exec again. */
 robj *wholeKeyCreateOrMergeObject(swapData *data, robj *decoded, void *datactx) {
     UNUSED(data);
     UNUSED(datactx);

@@ -46,7 +46,7 @@ static void createFakeHashForDeleteIfNeeded(bigHashSwapData *data) {
         robj *key = data->key;
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
-        dictDelete(db->evict,key);
+        dictDelete(db->evict,key->ptr);
         dbAdd(db,key,createHashObject());
     }
 }
@@ -137,6 +137,12 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
                 }
             }
             hashTypeReleaseIterator(hi);
+
+            /* create new meta if key is an evicting hot key, meta version
+             * will be used to encode data. */
+            if (data->meta == NULL) 
+                datactx->new_meta = createObjectMeta(0);
+
             *intention = SWAP_OUT;
         }
         break;
@@ -155,13 +161,13 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
     return 0;
 }
 
-static sds bigHashEncodeSubkey(swapData *data_, sds subkey) {
-    bigHashSwapData *data = (bigHashSwapData*)data_;
-    return rocksEncodeSubkey(OBJ_HASH,data->key->ptr,subkey);
+static sds bigHashEncodeSubkey(uint64_t version, sds key, sds subkey) {
+    return rocksEncodeSubkey(rocksGetEncType(OBJ_HASH,1),version,key,subkey);
 }
 
-int bigHashEncodeKeys(swapData *data, int intention, void *datactx_,
+int bigHashEncodeKeys(swapData *data_, int intention, void *datactx_,
         int *action, int *numkeys, sds **prawkeys) {
+    bigHashSwapData *data = (bigHashSwapData*)data_;
     bigHashDataCtx *datactx = datactx_;
     sds *rawkeys = NULL;
 
@@ -171,15 +177,16 @@ int bigHashEncodeKeys(swapData *data, int intention, void *datactx_,
             int i;
             rawkeys = zmalloc(sizeof(sds)*datactx->num);
             for (i = 0; i < datactx->num; i++) {
-                rawkeys[i] = bigHashEncodeSubkey(data,
-                        datactx->subkeys[i]->ptr);
+                rawkeys[i] = bigHashEncodeSubkey(data->meta->version,
+                        data->key->ptr,datactx->subkeys[i]->ptr);
             }
             *numkeys = datactx->num;
             *prawkeys = rawkeys;
             *action = ROCKS_MULTIGET;
         } else { /* Swap in entire hash. */
             rawkeys = zmalloc(sizeof(sds));
-            rawkeys[0] = bigHashEncodeSubkey(data,NULL);
+            rawkeys[0] = bigHashEncodeSubkey(data->meta->version,
+                    data->key->ptr,NULL);
             *numkeys = 1;
             *prawkeys = rawkeys;
             *action = ROCKS_SCAN;
@@ -217,8 +224,13 @@ int bigHashEncodeData(swapData *data_, int intention, void *datactx_,
     sds *rawvals = zmalloc(datactx->num*sizeof(sds));
     serverAssert(intention == SWAP_OUT);
     for (int i = 0; i < datactx->num; i++) {
-        rawkeys[i] = bigHashEncodeSubkey(data_, datactx->subkeys[i]->ptr);
-        robj *subval = hashTypeGetValueObject(data->value,datactx->subkeys[i]->ptr);
+        uint64_t version;
+        if (data->meta) version = data->meta->version;
+        else version = datactx->new_meta->version;
+        rawkeys[i] = bigHashEncodeSubkey(version,data->key->ptr,
+                datactx->subkeys[i]->ptr);
+        robj *subval = hashTypeGetValueObject(data->value,
+                datactx->subkeys[i]->ptr);
         serverAssert(subval);
         rawvals[i] = bigHashEncodeSubval(subval);
         decrRefCount(subval);
@@ -230,6 +242,7 @@ int bigHashEncodeData(swapData *data_, int intention, void *datactx_,
     return C_OK;
 }
 
+/* decoded move to exec module */
 int bigHashDecodeData(swapData *data_, int num, sds *rawkeys,
         sds *rawvals, robj **pdecoded) {
     int i;
@@ -247,10 +260,16 @@ int bigHashDecodeData(swapData *data_, int num, sds *rawkeys,
         sds subkey, subval;
         const char *keystr, *subkeystr;
         size_t klen, slen;
+        uint64_t version;
         robj *subvalobj;
 
-        if (rocksDecodeSubkey(rawkeys[i],sdslen(rawkeys[i]),
+        if (rawvals[i] == NULL || sdslen(rawvals[i]) == 0)
+            continue;
+        if (rocksDecodeSubkey(rawkeys[i],sdslen(rawkeys[i]),&version,
                 &keystr,&klen,&subkeystr,&slen) < 0)
+            continue;
+        /* Decode do not hold obselete data.*/
+        if (data->meta == NULL || data->meta->version != version)
             continue;
         subkey = sdsnewlen(subkeystr,slen);
         serverAssert(memcmp(data->key->ptr,keystr,klen) == 0); //TODO remove
@@ -308,6 +327,9 @@ int bigHashSwapIn(swapData *data_, robj *result, void *datactx_) {
         else
             freeObjectMeta(newmeta);
     } else {
+        /* if data.value exists, then we expect all fields merged already
+         * and nothing need to be swapped in. */
+        serverAssert(result == NULL);
         data->meta->len += datactx->meta_len_delta;
         /* all subkeys are swapped in, hash is a hot key now. */
         if (!data->meta->len)
@@ -335,17 +357,16 @@ int bigHashSwapOut(swapData *data_, void *datactx_) {
         /* all fields swapped out, key turns into cold. */
         robj *swapout;
         long long expire;
-        objectMeta *newmeta = NULL;
         /* dup satellite (expire/meta) before value delete */
         if (data->meta) {
-            newmeta = dupObjectMeta(data->meta);
-            newmeta->len += datactx->meta_len_delta;
+            datactx->new_meta = dupObjectMeta(data->meta);
+            datactx->new_meta->len += datactx->meta_len_delta;
             dbDeleteMeta(data->db,data->key);
         } else {
             /* must have swapped out some fields, otherwise value should
              * not be empty. */
             serverAssert(datactx->meta_len_delta);
-            newmeta = createObjectMeta(datactx->meta_len_delta);
+            datactx->new_meta->len += datactx->meta_len_delta;
         }
         expire = getExpire(data->db,data->key);
         if (expire != -1) removeExpire(data->db,data->key);
@@ -354,7 +375,8 @@ int bigHashSwapOut(swapData *data_, void *datactx_) {
         swapout = createSwapOutObject(data->value,data->evict);
         dbAddEvict(data->db,data->key,swapout);
         if (expire != -1) setExpire(NULL,data->db,data->key,expire);
-        dbAddMeta(data->db,data->key,newmeta);
+        dbAddMeta(data->db,data->key,datactx->new_meta);
+        datactx->new_meta = NULL; /* moved */
     } else {
         /* not all fields swapped out. */
         if (!data->meta) {
@@ -362,8 +384,9 @@ int bigHashSwapOut(swapData *data_, void *datactx_) {
                 /* hot hash stays hot: nop */
             } else {
                 /* hot key turns warm: add meta. */
-                objectMeta *meta = createObjectMeta(datactx->meta_len_delta);
-                dbAddMeta(data->db,data->key,meta);
+                datactx->new_meta->len += datactx->meta_len_delta;
+                dbAddMeta(data->db,data->key,datactx->new_meta);
+                datactx->new_meta = NULL; /* moved */
             }
         } else {
             /* swap out some. */
@@ -381,29 +404,31 @@ int bigHashSwapDel(swapData *data_, void *datactx) {
     return C_OK;
 }
 
+/* decoded moved back by exec to bighash*/
 robj *bigHashCreateOrMergeObject(swapData *data_, robj *decoded, void *datactx_) {
     robj *result;
     bigHashSwapData *data = (bigHashSwapData*)data_;
     bigHashDataCtx *datactx = datactx_;
     serverAssert(decoded == NULL || decoded->type == OBJ_HASH);
-    if (!data->value) {
+
+    if (!data->value || !decoded) {
+        /* decoded moved to exec again. */
         result = decoded;
-    } else if (decoded == NULL) {
-        result = data->value;
+        if (decoded) datactx->meta_len_delta -= hashTypeLength(decoded);
     } else {
         hashTypeIterator *hi;
-        hi = hashTypeInitIterator(data->value);
+        hi = hashTypeInitIterator(decoded);
         while (hashTypeNext(hi) != C_ERR) {
             sds subkey = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
             sds subval = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             int updated = hashTypeSet(data->value, subkey, subval,
                     HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
-            if (!updated)
-                datactx->meta_len_delta--;
+            if (!updated) datactx->meta_len_delta--;
         }
         hashTypeReleaseIterator(hi);
+        /* decoded merged, we can release it now. */
         decrRefCount(decoded);
-        result = data->value;
+        result = NULL;
     }
     return result;
 }
@@ -566,14 +591,16 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
     TEST("bigHash - encodeData/DecodeData") {
         robj *decoded;
         size_t old = server.swap_evict_step_max_subkeys;
+        bigHashSwapData *hash1_data_ = (bigHashSwapData*)hash1_data;
         server.swap_evict_step_max_subkeys = 1024;
         kr1->num_subkeys = 0;
         kr1->subkeys = NULL;
         zfree(hash1_ctx->subkeys), hash1_ctx->subkeys = NULL;
         hash1_ctx->num = 0;
+        hash1_data_->meta = createObjectMeta(1);
         swapDataAna(hash1_data,SWAP_OUT,0,kr1,&intention,&intention_flags,hash1_ctx);
         test_assert(intention == SWAP_OUT && intention_flags == 0);
-        test_assert(hash1_ctx->num == (int)hashTypeLength(((bigHashSwapData*)hash1_data)->value));
+        test_assert(hash1_ctx->num == (int)hashTypeLength(hash1_data_->value));
         serverAssert(hash1_ctx->subkeys != NULL);
 
         bigHashEncodeData(hash1_data,intention,hash1_ctx,
@@ -584,6 +611,8 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         bigHashDecodeData(hash1_data,numkeys,rawkeys,rawvals,&decoded);
         test_assert(hashTypeLength(decoded) == hashTypeLength(hash1));
 
+        freeObjectMeta(hash1_data_->meta);
+        hash1_data_->meta = NULL;
         server.swap_evict_step_max_subkeys = old;
     }
 
@@ -626,11 +655,11 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
 
         hashTypeSet(hash1,f3,int1,HASH_SET_COPY);
         hashTypeSet(hash1,f4,int2,HASH_SET_COPY);
-        hash1_ctx->meta_len_delta = -2;
         data->value = h;
         data->evict = e;
         data->meta = m;
-        bigHashSwapIn((swapData*)data,hash1,hash1_ctx);
+        bigHashCreateOrMergeObject((swapData*)data,hash1,hash1_ctx);
+        bigHashSwapIn((swapData*)data,NULL,hash1_ctx);
         test_assert((m = lookupMeta(db,key1)) == NULL);
         test_assert((e = lookupEvictKey(db,key1)) == NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
@@ -641,10 +670,11 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         hashTypeDelete(hash1,f2);
         hashTypeDelete(hash1,f3);
         hashTypeDelete(hash1,f4);
+        hash1_ctx->new_meta = createObjectMeta(0);
         hash1_ctx->meta_len_delta = 4;
         *data = *(bigHashSwapData*)hash1_data;
         bigHashSwapOut((swapData*)data, hash1_ctx);
-        test_assert((m =lookupMeta(db,key1)) != NULL && m->len == 4);
+        test_assert((m = lookupMeta(db,key1)) != NULL && m->len == 4);
         test_assert((e = lookupEvictKey(db,key1)) != NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) == NULL);
 

@@ -60,6 +60,9 @@ typedef struct keyRequest{
 	robj **subkeys;
 } keyRequest;
 
+void copyKeyRequest(keyRequest *dst, keyRequest *src);
+void moveKeyRequest(keyRequest *dst, keyRequest *src);
+void keyRequestDeinit(keyRequest *key_request);
 void getKeyRequests(client *c, struct getKeyRequestsResult *result);
 void releaseKeyRequests(struct getKeyRequestsResult *result);
 int getKeyRequestsNone(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
@@ -263,6 +266,7 @@ typedef struct bigHashDataCtx {
   int num;
   robj **subkeys;
   ssize_t meta_len_delta;
+  objectMeta *new_meta; /* ref, will be moved to db.meta */
 } bigHashDataCtx;
 
 void hashTransformBig(robj *o, objectMeta *m);
@@ -349,8 +353,7 @@ typedef struct RIO {
 		struct {
 			int numkeys;
 			sds *rawkeys;
-			char **rawvals;
-			size_t *valens;
+			sds *rawvals;
 		} multiget;
 		struct {
 			sds prefix;
@@ -359,7 +362,7 @@ typedef struct RIO {
 			sds *rawvals;
 		} scan;
 	};
-  char *err;
+  sds err;
 } RIO;
 
 void RIOInitGet(RIO *rio, sds rawkey);
@@ -608,16 +611,18 @@ void evictStopLoading(int success);
 /* --- Util --- */
 #define ROCKS_VAL_TYPE_LEN 1
 
-sds rocksEncodeKey(int type, sds key);
-sds rocksEncodeSubkey(int type, sds key, sds subkey);
+unsigned char rocksGetEncType(int obj_type, int big);
+sds rocksEncodeKey(unsigned char enc_type, sds key);
+sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds subkey);
 sds rocksEncodeValRdb(robj *value);
 int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *klen);
-int rocksDecodeSubkey(const char *raw, size_t rawlen, const char **key, size_t *klen, const char **sub, size_t *slen);
+int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
 robj *unshareStringValue(robj *value);
 size_t objectComputeSize(robj *o, size_t sample_size);
 size_t keyComputeSize(redisDb *db, robj *key);
 void swapCommand(client *c);
+const char *strObjectType(int type);
 
 
 #ifdef REDIS_TEST

@@ -64,6 +64,7 @@ void RIOInitMultiGet(RIO *rio, int numkeys, sds *rawkeys) {
     rio->action = ROCKS_MULTIGET;
     rio->multiget.numkeys = numkeys;
     rio->multiget.rawkeys = rawkeys;
+    rio->multiget.rawvals = NULL;
     rio->err = NULL;
 }
 
@@ -120,8 +121,9 @@ static int doRIOGet(RIO *rio) {
     val = rocksdb_get(server.rocks->db, server.rocks->ropts,
             rio->get.rawkey, sdslen(rio->get.rawkey), &vallen, &err);
     if (err != NULL) {
-        rio->err = err;
+        rio->err = sdsnew(err);
         serverLog(LL_WARNING,"[rocks] do rocksdb get failed: %s", err);
+        zlibc_free(err);
         return -1;
     }
     if (val == NULL) {
@@ -140,8 +142,9 @@ static int doRIOPut(RIO *rio) {
             rio->put.rawkey, sdslen(rio->put.rawkey),
             rio->put.rawval, sdslen(rio->put.rawval), &err);
     if (err != NULL) {
-        rio->err = err;
+        rio->err = sdsnew(err);
         serverLog(LL_WARNING,"[rocks] do rocksdb write failed: %s", err);
+        zlibc_free(err);
         return -1;
     }
     return 0;
@@ -152,8 +155,9 @@ static int doRIODel(RIO *rio) {
     rocksdb_delete(server.rocks->db, server.rocks->wopts,
             rio->del.rawkey, sdslen(rio->del.rawkey), &err);
     if (err != NULL) {
-        rio->err = err;
+        rio->err = sdsnew(err);
         serverLog(LL_WARNING,"[rocks] do rocksdb del failed: %s", err);
+        zlibc_free(err);
         return -1;
     }
     return 0;
@@ -164,20 +168,21 @@ static int doRIOWrite(RIO *rio) {
     rocksdb_write(server.rocks->db, server.rocks->wopts,
             rio->write.wb, &err);
     if (err != NULL) {
-        rio->err = err;
+        rio->err = sdsnew(err);
         serverLog(LL_WARNING,"[rocks] do rocksdb write failed: %s", err);
+        zlibc_free(err);
         return -1;
     }
     return 0;
 }
 
 static int doRIOMultiGet(RIO *rio) {
-    char *err = NULL;
     int ret = 0, i;
     char **keys_list = zmalloc(rio->multiget.numkeys*sizeof(char*));
     char **values_list = zmalloc(rio->multiget.numkeys*sizeof(char*));
     size_t *keys_list_sizes = zmalloc(rio->multiget.numkeys*sizeof(size_t));
     size_t *values_list_sizes = zmalloc(rio->multiget.numkeys*sizeof(size_t));
+    char **errs = zmalloc(rio->multiget.numkeys*sizeof(char*));
 
     for (i = 0; i < rio->multiget.numkeys; i++) {
         keys_list[i] = rio->multiget.rawkeys[i];
@@ -187,19 +192,30 @@ static int doRIOMultiGet(RIO *rio) {
     rocksdb_multi_get(server.rocks->db, server.rocks->ropts,
             rio->multiget.numkeys,
             (const char**)keys_list, (const size_t*)keys_list_sizes,
-            values_list, values_list_sizes, &err);
-    if (err != NULL) {
-        rio->err = err;
-        serverLog(LL_WARNING,"[rocks] do rocksdb del failed: %s", err);
-        ret = -1;
-        goto end;
-    }
+            values_list, values_list_sizes, errs);
 
     rio->multiget.rawvals = zmalloc(rio->multiget.numkeys*sizeof(sds));
     for (i = 0; i < rio->multiget.numkeys; i++) {
-        rio->multiget.rawvals[i] = sdsnewlen(values_list[i],
-                values_list_sizes[i]);
-        zlibc_free(values_list[i]);
+        if (values_list[i] == NULL || values_list_sizes[i] == 0) {
+            rio->multiget.rawvals[i] = NULL;
+        } else {
+            rio->multiget.rawvals[i] = sdsnewlen(values_list[i],
+                    values_list_sizes[i]);
+            zlibc_free(values_list[i]);
+        }
+        if (errs[i]) {
+            if (rio->err == NULL) {
+                rio->err = sdsnew(errs[i]);
+                serverLog(LL_WARNING,"[rocks] do rocksdb multiget failed: %s",
+                        rio->err);
+            }
+            zlibc_free(errs[i]);
+        }
+    }
+
+    if (rio->err != NULL) {
+        ret = -1;
+        goto end;
     }
 
 end:
@@ -207,6 +223,7 @@ end:
     zfree(values_list);
     zfree(keys_list_sizes);
     zfree(values_list_sizes);
+    zfree(errs);
     return ret;
 }
 
@@ -220,8 +237,7 @@ static int doRIOScan(RIO *rio) {
     sds *rawvals = zmalloc(numalloc*sizeof(sds));
 
     iter = rocksdb_create_iterator(server.rocks->db,server.rocks->ropts);
-    rocksdb_iter_seek_to_first(iter);
-    //rocksdb_iter_seek(iter,"raw",4); //FIXME rocksdb iter not working if seek
+    rocksdb_iter_seek(iter,prefix,sdslen(prefix));
 
     while (rocksdb_iter_valid(iter)) {
         size_t klen, vlen;
@@ -288,10 +304,34 @@ void dumpRIO(RIO *rio) {
         repr = sdscat(repr, "WRITE ");
         break;
     case ROCKS_MULTIGET:
-        repr = sdscat(repr, "MULTIGET ");
+        repr = sdscat(repr, "MULTIGET:\n");
+        for (int i = 0; i < rio->multiget.numkeys; i++) {
+            repr = sdscat(repr, "  (");
+            repr = sdscatrepr(repr, rio->multiget.rawkeys[i],
+                    sdslen(rio->multiget.rawkeys[i]));
+            repr = sdscat(repr, ")=>(");
+            if (rio->multiget.rawvals[i]) {
+                repr = sdscatrepr(repr, rio->multiget.rawvals[i],
+                        sdslen(rio->multiget.rawvals[i]));
+            } else {
+                repr = sdscatfmt(repr, "<nil>");
+            }
+            repr = sdscat(repr,")\n");
+        }
         break;
     case ROCKS_SCAN:
-        repr = sdscat(repr, "MULTIGET ");
+        repr = sdscat(repr, "SCAN:(");
+        repr = sdscatrepr(repr, rio->scan.prefix, sdslen(rio->scan.prefix));
+        repr = sdscat(repr, ")\n");
+        for (int i = 0; i < rio->scan.numkeys; i++) {
+            repr = sdscat(repr, "  (");
+            repr = sdscatrepr(repr, rio->scan.rawkeys[i],
+                    sdslen(rio->scan.rawkeys[i]));
+            repr = sdscat(repr, ")=>(");
+            repr = sdscatrepr(repr, rio->scan.rawvals[i],
+                    sdslen(rio->scan.rawvals[i]));
+            repr = sdscat(repr,")\n");
+        }
         break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
@@ -387,11 +427,9 @@ static int executeSwapDelRequest(swapRequest *req) {
         DEBUG_MSGS_APPEND(req->msgs,"execswap-del-cleanobject", "ok");
     }
 
-    doNotify(req);
-
 end:
+    doNotify(req);
     RIODeinit(rio);
-
     return retval;
 }
 
@@ -449,11 +487,10 @@ static int executeSwapOutRequest(swapRequest *req) {
     }
     DEBUG_MSGS_APPEND(req->msgs,"execswap-out-cleanobject","ok");
 
-    doNotify(req);
 
 end:
     DEBUG_MSGS_APPEND(req->msgs,"execswap-out-end","retval=%d",retval);
-
+    doNotify(req);
     if (rawkeys) {
         for (i = 0; i < numkeys; i++) {
             sdsfree(rawkeys[i]);
@@ -476,13 +513,13 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, sds *rawkeys) {
     UNUSED(req);
 
     rocksdb_writebatch_t *wb = rocksdb_writebatch_create();
-
     for (i = 0; i < numkeys; i++) {
         rocksdb_writebatch_delete(wb,rawkeys[i],sdslen(rawkeys[i]));
     }
 
     RIOInitWrite(rio, wb);
     retval = doRIO(rio);
+    RIODeinit(rio);
 
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in.del","numkeys=%d,retval=%d",
             numkeys, retval);
@@ -513,7 +550,9 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
-        DEBUG_MSGS_APPEND(req->msgs,"execswap-in-multiget","numkeys=%d,rio=ok",numkeys);
+        DEBUG_MSGS_APPEND(req->msgs,"execswap-in-multiget",
+                "numkeys=%d,rio=ok", numkeys);
+
         if (swapDataDecodeData(data,rio->multiget.numkeys,
                     rio->multiget.rawkeys,rio->multiget.rawvals,&decoded)) {
             retval = EXEC_FAIL;
@@ -547,7 +586,6 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
-        zfree(rawkeys);
         DEBUG_MSGS_APPEND(req->msgs,"execswap-in-decodedata","decoded=%p",(void*)decoded);
 
         if (req->intention_flags & INTENTION_IN_DEL) {
@@ -556,6 +594,8 @@ static int executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
         }
+        /* rawkeys not moved, only rakeys[0] moved, free when done. */
+        zfree(rawkeys);
     } else if (action == ROCKS_SCAN) {
         serverAssert(numkeys == 1);
         RIOInitScan(rio, rawkeys[0]);
@@ -569,7 +609,6 @@ static int executeSwapInRequest(swapRequest *req) {
             retval = EXEC_FAIL;
             goto end;
         }
-        zfree(rawkeys);
         DEBUG_MSGS_APPEND(req->msgs,"execswap-in-decodedata", "decoded=%p",(void*)decoded);
 
         if (req->intention_flags & INTENTION_IN_DEL) {
@@ -578,6 +617,8 @@ static int executeSwapInRequest(swapRequest *req) {
                 goto end;
             }
         }
+        /* rawkeys not moved, only rakeys[0] moved, free when done. */
+        zfree(rawkeys);
     } else {
         retval = EXEC_FAIL;
         goto end;
@@ -586,10 +627,9 @@ static int executeSwapInRequest(swapRequest *req) {
     req->result = swapDataCreateOrMergeObject(data,decoded,req->datactx);
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in-createormerge","result=%p",(void*)req->result);
 
-    doNotify(req);
-
 end:
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in-end","retval=%d",retval);
+    doNotify(req);
     RIODeinit(rio);
     return retval;
 }

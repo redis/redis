@@ -30,8 +30,8 @@
 
 typedef unsigned int keylen_t;
 
-int typeR2O(char rocks_type) {
-    switch (rocks_type) {
+int rocksGetObjectType(unsigned char enc_type) {
+    switch (enc_type) {
     case 'K': return OBJ_STRING;
     case 'L': return OBJ_LIST;
     case 'S': return OBJ_SET;
@@ -44,7 +44,7 @@ int typeR2O(char rocks_type) {
     }
 }
 
-char typeO2R(int obj_type) {
+static inline char rocksGetKeyEncType(int obj_type) {
     switch (obj_type) {
     case OBJ_STRING : return 'K';
     case OBJ_LIST   : return 'L'; 
@@ -57,7 +57,7 @@ char typeO2R(int obj_type) {
     }
 }
 
-char typeO2S(int obj_type) {
+static inline char rocksGetSubkeyEncType(int obj_type) {
     switch (obj_type) {
     case OBJ_STRING : return 'k';
     case OBJ_LIST   : return 'l'; 
@@ -70,21 +70,26 @@ char typeO2S(int obj_type) {
     }
 }
 
-sds rocksEncodeKey(int obj_type, sds key) {
+unsigned char rocksGetEncType(int obj_type, int big) {
+    return big ? rocksGetSubkeyEncType(obj_type) : rocksGetKeyEncType(obj_type);
+}
+
+sds rocksEncodeKey(unsigned char enc_type, sds key) {
     sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
-    rawkey[0] = typeO2R(obj_type);
+    rawkey[0] = enc_type;
     memcpy(rawkey+1, key, sdslen(key));
     return rawkey;
 }
 
-sds rocksEncodeSubkey(int obj_type, sds key, sds subkey) {
+sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds subkey) {
     size_t subkeylen = subkey ? sdslen(subkey) : 0;
-    size_t rawkeylen = 1+sizeof(keylen_t)+sdslen(key)+subkeylen;
+    size_t rawkeylen = 1+sizeof(version)+sizeof(keylen_t)+sdslen(key)+subkeylen;
     sds rawkey = sdsnewlen(SDS_NOINIT,rawkeylen);
             
     char *ptr = rawkey;
     keylen_t keylen = (keylen_t)sdslen(key);
-    ptr[0] = typeO2S(obj_type), ptr++;
+    ptr[0] = enc_type, ptr++;
+    memcpy(ptr, &version, sizeof(version)), ptr += sizeof(version);
     memcpy(ptr, &keylen, sizeof(keylen_t)), ptr += sizeof(keylen_t);
     memcpy(ptr, key, sdslen(key)), ptr += sdslen(key);
     if (subkey) {
@@ -115,27 +120,37 @@ int rocksDecodeKey(const char *raw, size_t rawlen, const char **key,
         size_t *klen) {
     int obj_type;
     if (rawlen < 2) return -1;
-    if ((obj_type = typeR2O(raw[0])) < 0) return -1;
+    if ((obj_type = rocksGetObjectType(raw[0])) < 0) return -1;
     raw++, rawlen--;
     if (key) *key = raw;
     if (klen) *klen = rawlen;
     return obj_type;
 }
 
-int rocksDecodeSubkey(const char *raw, size_t rawlen, const char **key,
-        size_t *klen, const char **sub, size_t *slen) {
+int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version,
+        const char **key, size_t *klen, const char **sub, size_t *slen) {
     int obj_type;
     keylen_t _klen;
-    if (rawlen <= 1+sizeof(keylen_t)) return -1;
-    if ((obj_type = typeR2O(raw[0])) < 0) return -1;
+    uint64_t _version;
+    if (rawlen <= 1+sizeof(uint64_t)+sizeof(keylen_t)) return -1;
+
+    if ((obj_type = rocksGetObjectType(raw[0])) < 0) return -1;
     raw++, rawlen--;
+
+    _version = *(uint64_t*)raw;
+    if (version) *version = _version;
+    raw += sizeof(uint64_t);
+    rawlen -= sizeof(uint64_t);
+
     _klen = *(keylen_t*)raw;
     if (klen) *klen = (size_t)_klen;
     raw += sizeof(keylen_t);
     rawlen -= sizeof(keylen_t);
+
     if (key) *key = raw;
     raw += _klen;
     rawlen-= _klen;
+
     if (rawlen <= 0) return -1;
     if (sub) *sub = raw;
     if (slen) *slen = rawlen;
@@ -181,3 +196,16 @@ robj *unshareStringValue(robj *o) {
         return o;
     }
 }
+
+const char *strObjectType(int type) {
+    switch (type) {
+    case OBJ_STRING: return "string";
+    case OBJ_HASH: return "hash";
+    case OBJ_LIST: return "list";
+    case OBJ_SET: return "set";
+    case OBJ_ZSET: return "zset";
+    case OBJ_STREAM: return "stream";
+    default: return "unknown";
+    }
+}
+

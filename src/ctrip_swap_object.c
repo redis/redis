@@ -78,13 +78,18 @@ int objectIsDirty(robj *o) {
 /* Db->meta */
 int dictExpandAllowed(size_t moreMem, double usedRatio);
 
+void dictObjectMetaFree(void *privdata, void *val) {
+    DICT_NOTUSED(privdata);
+    freeObjectMeta(val);
+}
+
 dictType dbMetaDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
-    NULL,                       /* val destructor */
+    dictObjectMetaFree,         /* val destructor */
     dictExpandAllowed           /* allow to expand */
 };
 
@@ -143,14 +148,13 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
         char *key1raw = "key1", *val1raw = "val1";
         robj *key1 = createStringObject(key1raw, sizeof(key1raw)); 
         robj *val1 = createStringObject(val1raw, sizeof(val1raw)); 
-        objectMeta *m = createObjectMeta(1);
 
         dbAdd(db,key1,val1);
-        dbAddMeta(db,key1,m);
+        dbAddMeta(db,key1,createObjectMeta(1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDeleteMeta(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);
-        dbAddMeta(db,key1,m);
+        dbAddMeta(db,key1,createObjectMeta(1));
         test_assert(lookupMeta(db,key1) != NULL);
         dbDelete(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);

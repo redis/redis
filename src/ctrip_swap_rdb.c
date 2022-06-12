@@ -442,7 +442,7 @@ int dbAddEvictRDBLoad(redisDb* db, sds key, robj* evict, sds rawval) {
     if (retval != DICT_OK) return 0;
     if (server.cluster_enabled) slotToKeyAdd(key);
     /* Add to rocksdb. */
-    sds rawkey = rocksEncodeKey(evict->type,key);
+    sds rawkey = rocksEncodeKey(rocksGetEncType(evict->type,0), key);
     ctripRdbLoadCtxFeed(server.rdb_load_ctx, rawkey, rawval);
     return 1;
 }
