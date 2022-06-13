@@ -1570,6 +1570,46 @@ start_server {tags {"scripting"}} {
         r config set min-replicas-to-write 0
     }
 
+    test "not enough good replicas state change during long script" {
+        r set x "pre-script value"
+        r config set min-replicas-to-write 1
+        r config set lua-time-limit 10
+        start_server {tags {"external:skip"}} {
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_for_condition 50 100 {
+                [s role] eq {slave} &&
+                [string match {*master_link_status:up*} [r info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            set rd [redis_deferring_client -1]
+            $rd eval {
+                    redis.call('set','x',"script value")
+                    while true do
+                        local info = redis.call('info','replication')
+                        if (string.match(info, "connected_slaves:0")) then
+                            redis.call('set','x',info)
+                            break
+                        end
+                    end
+                return 1
+            } 1 x
+
+            after 100
+            catch {r -1 ping} e
+            assert_match {BUSY*} $e
+
+            r slaveof no one
+            assert_equal [$rd read] 1
+            assert_match {*connected_slaves:0*} [r -1 get x]
+
+            $rd close
+        }
+        r config set min-replicas-to-write 0
+        r config set lua-time-limit 5000
+    } {OK} {external:skip needs:repl}
+
     test "allow-stale shebang flag" {
         r config set replica-serve-stale-data no
         r replicaof 127.0.0.1 1
