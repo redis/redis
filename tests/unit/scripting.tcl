@@ -1599,19 +1599,19 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
         
-        assert_match {*redis_version*} [
+        assert_match {foobar} [
             r eval {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             } 0
         ]
         
         # Test again with EVALSHA
         set sha [
             r script load {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             }
         ]
-        assert_match {*redis_version*} [r evalsha $sha 0]
+        assert_match {foobar} [r evalsha $sha 0]
         
         r replicaof no one
         r config set replica-serve-stale-data yes
