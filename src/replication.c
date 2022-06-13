@@ -3310,7 +3310,7 @@ void replicationDiscardCachedMaster(void) {
  * passed as argument as the socket for the new master.
  *
  * This function is called when successfully setup a partial resynchronization
- * so the stream of data that we'll receive will start from were this
+ * so the stream of data that we'll receive will start from where this
  * master left. */
 void replicationResurrectCachedMaster(connection *conn) {
     server.master = server.cached_master;
