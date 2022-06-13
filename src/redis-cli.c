@@ -192,7 +192,6 @@ typedef enum {
 typedef struct commandArg {
     char *name;
     commandArgType type;
-    int key_spec_index;
     char *token;
     int optional;
     int multiple;
@@ -200,10 +199,11 @@ typedef struct commandArg {
     struct commandArg *subargs;
     int numsubargs;
 
-    /* How many words of the input have been matched against this argument? */
-    int matched;
+    /* Fields used to keep track of input word matches for command-line hinting. */
+    int matched;  /* How many input words have been matched by this argument? */
     int matched_token;  /* Has the token been matched? */
-    int matched_all;  /* Has the whole argument been matched? */
+    int matched_name;  /* Has the name been matched? */
+    int matched_all;  /* Has the whole argument been consumed (no hint needed)? */
 } commandArg;
 
 /* Command documentation info used for help output */
@@ -948,7 +948,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-static sds addHintForArgument(sds hint, commandArg *arg, int unfiltered);
+static sds addHintForArgument(sds hint, commandArg *arg);
 
 /* Adds a separator character between words of a string under construction.
  * A separator is added if the string length is greater than its previously-recorded
@@ -962,41 +962,56 @@ static sds addSeparator(sds str, size_t *len, char *separator, int is_last) {
     return str;
 }
 
-/* Builds a completion hint string describing the arguments, skipping those already matched.
- * If unfiltered==1, doesn't skip already-matched arguments.
- *
- * This algorithm does sensible things for most common argument patterns, but not all of them.
- * There's still room for improvement. For example, it's not good at handling partial matches
- * of repeated argument blocks. But it's a significant improvement over the previous implementation.
+/* Recursively zeros the matched* fields of all arguments. */
+static void clearMatchedArgs(commandArg *args, int numargs) {
+    for (int i = 0; i != numargs; ++i) {
+        args[i].matched = 0;
+        args[i].matched_token = 0;
+        args[i].matched_name = 0;
+        args[i].matched_all = 0;
+        if (args[i].subargs) {
+            clearMatchedArgs(args[i].subargs, args[i].numsubargs);
+        }
+    }
+}
+
+/* Builds a completion hint string describing the arguments, skipping parts already matched.
+ * Hints for all arguments are added to the input 'hint' parameter, separated by 'separator'.
  */
-static sds addHintForArguments(sds hint, commandArg *args, int numargs, char *separator, int unfiltered) {
+static sds addHintForArguments(sds hint, commandArg *args, int numargs, char *separator) {
     int i, j, incomplete;
     size_t len=sdslen(hint);
     for (i = 0; i < numargs; i++) {
-        if (!args[i].optional || unfiltered) {
-            hint = addHintForArgument(hint, &args[i], unfiltered);
+        if (!args[i].optional) {
+            hint = addHintForArgument(hint, &args[i]);
             hint = addSeparator(hint, &len, separator, i == numargs-1);
             continue;
         }
 
-        /* Handle all successive optional args together. This lets us show the completion of the
-         * currently-incomplete optional arg first, if there is one.
+        /* The rule is that successive "optional" arguments can appear in any order.
+         * But if they are followed by a required argument, no more of those optional arguments
+         * can appear after that.
+         * 
+         * This code handles all successive optional args together. This lets us show the
+         * completion of the currently-incomplete optional arg first, if there is one.
          */
         for (j = i, incomplete = -1; j < numargs; j++) {
             if (!args[j].optional) break;
             if (args[j].matched != 0 && args[j].matched_all == 0) {
                 /* User has started typing this arg; show its completion first. */
-                hint = addHintForArgument(hint, &args[j], 0);
+                hint = addHintForArgument(hint, &args[j]);
                 hint = addSeparator(hint, &len, separator, i == numargs-1);
                 incomplete = j;
             }
         }
 
-        /* If the following non-optional arg has not been matched, add hints for remaining optional args in this group. */
+        /* If the following non-optional arg has not been matched, add hints for
+         * any remaining optional args in this group. 
+         */
         if (j == numargs || args[j].matched == 0) {
             for (; i < j; i++) {
                 if (incomplete != i) {
-                    hint = addHintForArgument(hint, &args[i], 0);
+                    hint = addHintForArgument(hint, &args[i]);
                     hint = addSeparator(hint, &len, separator, i == numargs-1);
                 }
             }
@@ -1007,7 +1022,7 @@ static sds addHintForArguments(sds hint, commandArg *args, int numargs, char *se
     return hint;
 }
 
-/* Adds the repeated section of the hint string for a multiple-typed argument: [ABC def ...]
+/* Adds the "repeating" section of the hint string for a multiple-typed argument: [ABC def ...]
  * The repeating part is a fixed unit; we don't filter matched elements from it.
  */
 static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
@@ -1015,10 +1030,14 @@ static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
         return hint;
     }
 
+    /* The repeating part is always shown at the end of the argument's hint,
+     * so we can safely clear its matched flags before printing it.
+     */
+    clearMatchedArgs(arg, 1);
+        
     if (hint[0] != '\0') {
         hint = sdscat(hint, " ");
     }
-
     hint = sdscat(hint, "[");
 
     if (arg->multiple_token) {
@@ -1030,11 +1049,11 @@ static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
 
     switch (arg->type) {
      case ARG_TYPE_ONEOF:
-        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, "|", 1);
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, "|");
         break;
 
     case ARG_TYPE_BLOCK:
-        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, " ", 1);
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, " ");
         break;
 
     case ARG_TYPE_PURE_TOKEN:
@@ -1049,77 +1068,61 @@ static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
     return hint;
 }
 
-/* Adds hint string for one argument, if not already matched (unless unfiltered==1). */
-static sds addHintForArgument(sds hint, commandArg *arg, int unfiltered) {
-    sds namePart = sdsempty();
-    sds optionalPart = sdsempty();
+/* Adds hint string for one argument, if not already matched. */
+static sds addHintForArgument(sds hint, commandArg *arg) {
+    if (arg->matched_all) {
+        return hint;
+    }
 
-    /* Build the "name part" of the syntax string. */
+    /* Surround an optional arg with brackets, unless it's partially matched. */
+    if (arg->optional && !arg->matched) {
+        hint = sdscat(hint, "[");
+    }
+
+    /* Start with the token, if present and not matched. */
+    if (arg->token != NULL && !arg->matched_token) {
+        hint = sdscat_orempty(hint, arg->token);
+        if (arg->type != ARG_TYPE_PURE_TOKEN) {
+            hint = sdscat(hint, " ");
+        }
+    }
+
+    /* Add the body of the syntax string. */
     switch (arg->type) {
      case ARG_TYPE_ONEOF:
-        if (arg->matched == 0 || unfiltered) {
-            namePart = addHintForArguments(namePart, arg->subargs, arg->numsubargs, "|", unfiltered);
+        if (arg->matched == 0) {
+            hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, "|");
         } else {
             int i;
             for (i = 0; i < arg->numsubargs; i++) {
                 if (arg->subargs[i].matched != 0) {
-                    /* Bypass the logic below that sets the optionalPart, since argument matching will be
-                     * handled in this nested call. */
-                    optionalPart = addHintForArgument(optionalPart, &arg->subargs[i], 0);
+                    hint = addHintForArgument(hint, &arg->subargs[i]);
                 }
             }
         }
         break;
 
     case ARG_TYPE_BLOCK:
-        namePart = addHintForArguments(namePart, arg->subargs, arg->numsubargs, " ", unfiltered);
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, " ");
         break;
 
     case ARG_TYPE_PURE_TOKEN:
         break;
 
     default:
-        namePart = sdscat_orempty(namePart, arg->name);
+        if (!arg->matched_name) {
+            hint = sdscat_orempty(hint, arg->name);
+        }
         break;
     }
 
-    /* Add the token and name parts, if those words aren't already matched. */
-    if (arg->token != NULL && (!arg->matched_token || unfiltered)) {
-        optionalPart = sdscat_orempty(optionalPart, arg->token);
-        if (arg->type != ARG_TYPE_PURE_TOKEN) {
-            optionalPart = sdscat(optionalPart, " ");
-        }
-    }
-    if (!arg->matched_all || unfiltered) {
-        optionalPart = sdscat(optionalPart, namePart);
-    }
+    hint = addHintForRepeatedArgument(hint, arg);
 
-    optionalPart = addHintForRepeatedArgument(optionalPart, arg);
-
-    /* Add "[" and "]" around optional part, if it's not already partly matched. */
-    if (arg->optional && optionalPart[0] != '\0' && (!arg->matched || unfiltered)) {
-        hint = sdscat(hint, "[");
-        hint = sdscat(hint, optionalPart);
+    if (arg->optional && !arg->matched) {
         hint = sdscat(hint, "]");
-    } else {
-        hint = sdscat(hint, optionalPart);
     }
-    sdsfree(namePart);
-    sdsfree(optionalPart);
 
     return hint;
-}
-
-/* Recursively zeros the matched fields of all arguments to prepare for matching. */
-static void clearMatchedArgs(commandArg *args, int numargs) {
-    for (int i = 0; i != numargs; ++i) {
-        args[i].matched = 0;
-        args[i].matched_token = 0;
-        args[i].matched_all = 0;
-        if (args[i].subargs) {
-            clearMatchedArgs(args[i].subargs, args[i].numsubargs);
-        }
-    }
 }
 
 static int matchArg(char **nextword, int numwords, commandArg *arg);
@@ -1160,6 +1163,7 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
         long long value;
         if (sscanf(*nextword, "%lld", &value)) {
             arg->matched = 1;
+            arg->matched_name = 1;
             arg->matched_all = 1;
         }
         break;
@@ -1169,6 +1173,7 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
         double value;
         if (sscanf(*nextword, "%lf", &value)) {
             arg->matched = 1;
+            arg->matched_name = 1;
             arg->matched_all = 1;
         }
         break;
@@ -1176,6 +1181,7 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
 
     default:
         arg->matched = 1;
+        arg->matched_name = 1;
         arg->matched_all = 1;
         break;
     }
@@ -1243,6 +1249,7 @@ static int matchArg(char **nextword, int numwords, commandArg *arg) {
         }
         matchedWords += matchedOnce;
     }
+    arg->matched_all = 0;  /* Because more repetitions are still possible. */
     return matchedWords;
 }
 
@@ -1328,7 +1335,7 @@ static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandD
         hint = sdsempty();
         int matchedWords = matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
         if (matchedWords == inputargc - cmdlen) {
-            hint = addHintForArguments(hint, docs.args, docs.numargs, " ", 0);
+            hint = addHintForArguments(hint, docs.args, docs.numargs, " ");
         }
         return hint;
     }
