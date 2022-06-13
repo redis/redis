@@ -1596,7 +1596,11 @@ start_server {tags {"scripting"}} {
                 return 1
             } 1 x
 
-            after 100
+            wait_for_condition 50 100 {
+                [catch {r -1 ping} e] == 1
+            } else {
+                fail "Can't wait for script to start running"
+            }
             catch {r -1 ping} e
             assert_match {BUSY*} $e
 
