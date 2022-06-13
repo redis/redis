@@ -1585,14 +1585,14 @@ start_server {tags {"scripting"}} {
 
             set rd [redis_deferring_client -1]
             $rd eval {
-                    redis.call('set','x',"script value")
-                    while true do
-                        local info = redis.call('info','replication')
-                        if (string.match(info, "connected_slaves:0")) then
-                            redis.call('set','x',info)
-                            break
-                        end
+                redis.call('set','x',"script value")
+                while true do
+                    local info = redis.call('info','replication')
+                    if (string.match(info, "connected_slaves:0")) then
+                        redis.call('set','x',info)
+                        break
                     end
+                end
                 return 1
             } 1 x
 
