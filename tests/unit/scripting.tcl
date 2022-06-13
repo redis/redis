@@ -1575,14 +1575,12 @@ start_server {tags {"scripting"}} {
         r config set min-replicas-to-write 1
         r config set lua-time-limit 10
         start_server {tags {"external:skip"}} {
+            # add a replica and wait for the master to recognize it's online
             r slaveof [srv -1 host] [srv -1 port]
-            wait_for_condition 50 100 {
-                [s role] eq {slave} &&
-                [string match {*master_link_status:up*} [r info replication]]
-            } else {
-                fail "Can't turn the instance into a replica"
-            }
+            wait_replica_online [srv -1 client]
 
+            # run a slow script that does one write, then waits for INFO to indicate
+            # that the replica dropped, and then runs another write
             set rd [redis_deferring_client -1]
             $rd eval {
                 redis.call('set','x',"script value")
@@ -1596,6 +1594,7 @@ start_server {tags {"scripting"}} {
                 return 1
             } 1 x
 
+            # wait for the script to time out and yield
             wait_for_condition 100 100 {
                 [catch {r -1 ping} e] == 1
             } else {
@@ -1604,7 +1603,10 @@ start_server {tags {"scripting"}} {
             catch {r -1 ping} e
             assert_match {BUSY*} $e
 
+            # cause the replica to disconnect (triggering the busy script to exit)
             r slaveof no one
+
+            # make sure the script was able to write after the replica dropped
             assert_equal [$rd read] 1
             assert_match {*connected_slaves:0*} [r -1 get x]
 
