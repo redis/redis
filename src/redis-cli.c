@@ -1133,10 +1133,9 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
     int i;
     switch (arg->type) {
     case ARG_TYPE_BLOCK: {
-        int matchedWords = matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
-        arg->matched = matchedWords;
+        arg->matched += matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
 
-        /* Have all the subargs been matched? */
+        /* All the subargs must be matched for the block to match. */
         arg->matched_all = 1;
         for (i = 0; i < arg->numsubargs; i++) {
             if (arg->subargs[i].matched_all == 0) {
@@ -1146,11 +1145,9 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
         break;
     }
     case ARG_TYPE_ONEOF: {
-        int matchedWords = 0;
         for (i = 0; i < arg->numsubargs; i++) {
-            matchedWords = matchArg(nextword, numwords, &arg->subargs[i]);
-            if (matchedWords > 0) {
-                arg->matched = matchedWords;
+            if (matchArg(nextword, numwords, &arg->subargs[i])) {
+                arg->matched += arg->subargs[i].matched;
                 arg->matched_all = arg->subargs[i].matched_all;
                 break;
             }
@@ -1162,9 +1159,13 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
     case ARG_TYPE_UNIX_TIME: {
         long long value;
         if (sscanf(*nextword, "%lld", &value)) {
-            arg->matched = 1;
+            arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
+        } else {
+            /* Matching failed due to incorrect arg type. */
+            arg->matched = 0;
+            arg->matched_name = 0;
         }
         break;
     }
@@ -1172,15 +1173,19 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
     case ARG_TYPE_DOUBLE: {
         double value;
         if (sscanf(*nextword, "%lf", &value)) {
-            arg->matched = 1;
+            arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
+        } else {
+            /* Matching failed due to incorrect arg type. */
+            arg->matched = 0;
+            arg->matched_name = 0;
         }
         break;
     }
 
     default:
-        arg->matched = 1;
+        arg->matched += 1;
         arg->matched_name = 1;
         arg->matched_all = 1;
         break;
@@ -1200,12 +1205,12 @@ static int matchToken(char **nextword, commandArg *arg) {
 
 /* Tries to match the next words of the input against the next argument.
  * If the arg is repeated ("multiple"), it will be matched only once.
+ * If the next input word(s) can't be matched, returns 0 for failure.
  */
 static int matchArgOnce(char **nextword, int numwords, commandArg *arg) {
-    int matchedWords = 0;
+    /* First match the token, if present. */
     if (arg->token != NULL) {
-        matchedWords = matchToken(nextword, arg);
-        if (matchedWords == 0) {
+        if (!matchToken(nextword, arg)) {
             return 0;
         }
         if (arg->type == ARG_TYPE_PURE_TOKEN) {
@@ -1219,9 +1224,11 @@ static int matchArgOnce(char **nextword, int numwords, commandArg *arg) {
         numwords--;
     }
 
-    matchedWords += matchNoTokenArg(nextword, numwords, arg);
-    arg->matched = matchedWords;
-    return matchedWords;
+    /* Then match the rest of the argument. */
+    if (!matchNoTokenArg(nextword, numwords, arg)) {
+        return 0;
+    }
+    return arg->matched;
 }
 
 /* Tries to match the next words of the input against the next argument.
@@ -1239,7 +1246,9 @@ static int matchArg(char **nextword, int numwords, commandArg *arg) {
     while (arg->matched_all && matchedWords < numwords) {
         clearMatchedArgs(arg, 1);
         if (arg->token != NULL && !arg->multiple_token) {
-            /* The token only appears the first time; the rest of the times, pretend we saw it. */
+            /* The token only appears the first time; the rest of the times,
+             * pretend we saw it so we don't hint it.
+             */
             matchedOnce = matchNoTokenArg(nextword + matchedWords, numwords - matchedWords, arg);
             if (arg->matched) {
                 arg->matched_token = 1;
