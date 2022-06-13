@@ -1596,7 +1596,7 @@ start_server {tags {"scripting"}} {
                 return 1
             } 1 x
 
-            wait_for_condition 50 100 {
+            wait_for_condition 100 100 {
                 [catch {r -1 ping} e] == 1
             } else {
                 fail "Can't wait for script to start running"
