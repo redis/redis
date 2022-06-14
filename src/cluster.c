@@ -6583,7 +6583,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     int multiple_keys = 0;
     multiState *ms, _ms;
     multiCmd mc;
-    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
+    int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
+        existing_keys = 0;
 
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
@@ -6695,10 +6696,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
             int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY;
-            if ((migrating_slot || importing_slot) && !is_pubsubshard &&
-                lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL)
+            if ((migrating_slot || importing_slot) && !is_pubsubshard)
             {
-                missing_keys++;
+                if (lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL) missing_keys++;
+                else existing_keys++;
             }
         }
         getKeysFreeResult(&result);
@@ -6742,10 +6743,16 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         return myself;
 
     /* If we don't have all the keys and we are migrating the slot, send
-     * an ASK redirection. */
+     * an ASK redirection or TRYAGAIN. */
     if (migrating_slot && missing_keys) {
-        if (error_code) *error_code = CLUSTER_REDIR_ASK;
-        return server.cluster->migrating_slots_to[slot];
+        /* If we have keys but we don't have all keys, we return TRYAGAIN */
+        if (existing_keys) {
+            if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
+            return NULL;
+        } else {
+            if (error_code) *error_code = CLUSTER_REDIR_ASK;
+            return server.cluster->migrating_slots_to[slot];
+        }
     }
 
     /* If we are receiving the slot, and the client correctly flagged the
