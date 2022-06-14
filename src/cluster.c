@@ -5534,12 +5534,6 @@ NULL
             (unsigned long long) myepoch
         );
 
-        if (nodeIsSlave(myself) && myself->slaveof) {
-            info = sdscatprintf(info,
-                                "cluster_my_replica_epoch:%llu\r\n",
-                                (unsigned long long) myself->configEpoch);
-        }
-
         /* Show stats about messages sent and received. */
         long long tot_msg_sent = 0;
         long long tot_msg_received = 0;
