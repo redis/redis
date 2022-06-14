@@ -95,6 +95,11 @@ typedef struct ConnectionType {
     /* pending data */
     int (*has_pending_data)(void);
     int (*process_pending_data)(void);
+
+    /* TLS specified methods */
+    sds (*get_peer_cert)(struct connection *conn);
+    void* (*get_ctx)(void);
+    void* (*get_client_ctx)(void);
 } ConnectionType;
 
 struct connection {
@@ -335,7 +340,17 @@ int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
 
 /* Helpers for tls special considerations */
-sds connTLSGetPeerCert(connection *conn);
+void *connTypeGetCtx(int type);
+void *connTypeGetClientCtx(int type);
+
+/* Get cert for the secure connection */
+static inline sds connGetPeerCert(connection *conn) {
+    if (conn->type->get_peer_cert) {
+        return conn->type->get_peer_cert(conn);
+    }
+
+    return NULL;
+}
 
 /* Initialize the redis connection framework */
 int connTypeInitialize();

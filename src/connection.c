@@ -132,3 +132,23 @@ int connTypeProcessPendingData(void) {
 
     return ret;
 }
+
+void *connTypeGetCtx(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->get_ctx) {
+        return ct->get_ctx();
+    }
+
+    return NULL;
+}
+
+void *connTypeGetClientCtx(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    if (ct && ct->get_client_ctx) {
+        return ct->get_client_ctx();
+    }
+
+    return NULL;
+}

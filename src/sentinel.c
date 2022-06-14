@@ -44,11 +44,6 @@
 
 extern char **environ;
 
-#ifdef USE_OPENSSL
-extern SSL_CTX *redis_tls_ctx;
-extern SSL_CTX *redis_tls_client_ctx;
-#endif
-
 #define REDIS_SENTINEL_PORT 26379
 
 /* ======================== Sentinel global state =========================== */
@@ -2381,6 +2376,9 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context) {
 #ifndef USE_OPENSSL
     (void) context;
 #else
+    SSL_CTX *redis_tls_ctx = connTypeGetCtx(CONN_TYPE_TLS);
+    SSL_CTX *redis_tls_client_ctx = connTypeGetClientCtx(CONN_TYPE_TLS);
+
     if (!redis_tls_ctx) return C_ERR;
     SSL *ssl = SSL_new(redis_tls_client_ctx ? redis_tls_client_ctx : redis_tls_ctx);
     if (!ssl) return C_ERR;
