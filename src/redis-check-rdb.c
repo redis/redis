@@ -283,7 +283,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             robj *auxkey, *auxval;
             rdbstate.doing = RDB_CHECK_DOING_READ_AUX;
             if ((auxkey = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) {
+                decrRefCount(auxkey);
+                goto eoferr;
+            }
 
             rdbCheckInfo("AUX FIELD %s = '%s'",
                 (char*)auxkey->ptr, (char*)auxval->ptr);
@@ -297,6 +300,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             if ((moduleid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when_opcode = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
             if ((when = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            if (when_opcode != RDB_MODULE_OPCODE_UINT) {
+                rdbCheckError("bad when_opcode");
+                goto err;
+            }
 
             char name[10];
             moduleTypeNameByID(name,moduleid);

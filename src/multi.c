@@ -56,7 +56,7 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
-void queueMultiCommand(client *c) {
+void queueMultiCommand(client *c, uint64_t cmd_flags) {
     multiCmd *mc;
 
     /* No sense to waste memory if the transaction is already aborted.
@@ -75,8 +75,8 @@ void queueMultiCommand(client *c) {
     mc->argv_len = c->argv_len;
 
     c->mstate.count++;
-    c->mstate.cmd_flags |= c->cmd->flags;
-    c->mstate.cmd_inv_flags |= ~c->cmd->flags;
+    c->mstate.cmd_flags |= cmd_flags;
+    c->mstate.cmd_inv_flags |= ~cmd_flags;
     c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
 
     /* Reset the client's args since we copied them into the mstate and shouldn't

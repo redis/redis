@@ -1953,7 +1953,13 @@ int writeToClient(client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    atomicIncr(server.stat_net_output_bytes, totwritten);
+
+    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        atomicIncr(server.stat_net_repl_output_bytes, totwritten);
+    } else {
+        atomicIncr(server.stat_net_output_bytes, totwritten);
+    }
+
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
@@ -2499,7 +2505,7 @@ int processInputBuffer(client *c) {
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
-        if (scriptIsTimedout() && c->flags & CLIENT_MASTER) break;
+        if (isInsideYieldingLongCommand() && c->flags & CLIENT_MASTER) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
@@ -2655,8 +2661,13 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    atomicIncr(server.stat_net_input_bytes, nread);
+    if (c->flags & CLIENT_MASTER) {
+        c->read_reploff += nread;
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
+    } else {
+        atomicIncr(server.stat_net_input_bytes, nread);
+    }
+
     if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -3557,7 +3568,6 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
     retainOriginalCommandVector(c);
     freeClientArgv(c);
-    zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
     c->argv_len_sum = 0;

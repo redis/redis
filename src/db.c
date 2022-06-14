@@ -1084,7 +1084,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    if (!(flags & SHUTDOWN_NOSAVE) && scriptIsTimedout()) {
+    if (!(flags & SHUTDOWN_NOSAVE) && isInsideYieldingLongCommand()) {
         /* Script timed out. Shutdown allowed only with the NOSAVE flag. See
          * also processCommand where these errors are returned. */
         if (server.busy_module_yield_flags && server.busy_module_yield_reply) {

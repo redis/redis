@@ -1142,10 +1142,21 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL || (!server.sentinel_mode && !lookupConfig(argv[0]))) {
-            /* Apparently the line is unparsable for some reason, for
-             * instance it may have unbalanced quotes, or may contain a
-             * config that doesn't exist anymore. Load it as a comment. */
+
+        if (argv == NULL ||
+            (!lookupConfig(argv[0]) &&
+             /* The following is a list of config features that are only supported in
+              * config file parsing and are not recognized by lookupConfig */
+             strcasecmp(argv[0],"include") &&
+             strcasecmp(argv[0],"rename-command") &&
+             strcasecmp(argv[0],"user") &&
+             strcasecmp(argv[0],"loadmodule") &&
+             strcasecmp(argv[0],"sentinel")))
+        {
+            /* The line is either unparsable for some reason, for
+             * instance it may have unbalanced quotes, may contain a
+             * config that doesn't exist anymore, for instance a module that got
+             * unloaded. Load it as a comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
             if (argv) sdsfreesplitres(argv, argc);
@@ -1160,18 +1171,13 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
          * Append the line and populate the option -> line numbers map. */
         rewriteConfigAppendLine(state,line);
 
-        /* Translate options using the word "slave" to the corresponding name
-         * "replica", before adding such option to the config name -> lines
-         * mapping. */
-        char *p = strstr(argv[0],"slave");
-        if (p) {
-            sds alt = sdsempty();
-            alt = sdscatlen(alt,argv[0],p-argv[0]);
-            alt = sdscatlen(alt,"replica",7);
-            alt = sdscatlen(alt,p+5,strlen(p+5));
+        /* If this is a alias config, replace it with the original name. */
+        standardConfig *s_conf = lookupConfig(argv[0]);
+        if (s_conf && s_conf->flags & ALIAS_CONFIG) {
             sdsfree(argv[0]);
-            argv[0] = alt;
+            argv[0] = sdsnew(s_conf->alias);
         }
+
         /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
             to avoid messing up the sequence. */
         if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
@@ -1813,7 +1819,7 @@ static int boolConfigSet(standardConfig *config, sds *argv, int argc, const char
         *(config->data.yesno.config) = yn;
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds boolConfigGet(standardConfig *config) {
@@ -1855,7 +1861,7 @@ static int stringConfigSet(standardConfig *config, sds *argv, int argc, const ch
         zfree(prev);
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds stringConfigGet(standardConfig *config) {
@@ -1892,7 +1898,7 @@ static int sdsConfigSet(standardConfig *config, sds *argv, int argc, const char 
         return 1;
     }
     if (config->flags & MODULE_CONFIG && prev) sdsfree(prev);
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds sdsConfigGet(standardConfig *config) {
@@ -1976,7 +1982,7 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
         *(config->data.enumd.config) = enumval;
         return 1;
     }
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds enumConfigGet(standardConfig *config) {
@@ -2172,7 +2178,7 @@ static int numericConfigSet(standardConfig *config, sds *argv, int argc, const c
         return setNumericType(config, ll, err);
     }
 
-    return 2;
+    return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
 }
 
 static sds numericConfigGet(standardConfig *config) {
@@ -3097,15 +3103,15 @@ standardConfig static_configs[] = {
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
     createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, applyTlsCfg),
-    createStringConfig("tls-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-key-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-key-file-pass", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.key_file_pass, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-client-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-client-key-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-client-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-client-key-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-client-key-file-pass", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.client_key_file_pass, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-dh-params-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-ca-cert-file", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-ca-cert-dir", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-dh-params-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.dh_params_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-ca-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_file, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-ca-cert-dir", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ca_cert_dir, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),

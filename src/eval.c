@@ -285,6 +285,124 @@ void scriptingReset(int async) {
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
 
+static void evalCalcFunctionName(int evalsha, sds script, char *out_funcname) {
+    /* We obtain the script SHA1, then check if this function is already
+     * defined into the Lua state */
+    out_funcname[0] = 'f';
+    out_funcname[1] = '_';
+    if (!evalsha) {
+        /* Hash the code if this is an EVAL call */
+        sha1hex(out_funcname+2,script,sdslen(script));
+    } else {
+        /* We already have the SHA if it is an EVALSHA */
+        int j;
+        char *sha = script;
+
+        /* Convert to lowercase. We don't use tolower since the function
+         * managed to always show up in the profiler output consuming
+         * a non trivial amount of time. */
+        for (j = 0; j < 40; j++)
+            out_funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+                sha[j]+('a'-'A') : sha[j];
+        out_funcname[42] = '\0';
+    }
+}
+
+/* Helper function to try and extract shebang flags from the script body.
+ * If no shebang is found, return with success and COMPAT mode flag.
+ * The err arg is optional, can be used to get a detailed error string.
+ * The out_shebang_len arg is optional, can be used to trim the shebang from the script.
+ * Returns C_OK on success, and C_ERR on error. */
+int evalExtractShebangFlags(sds body, uint64_t *out_flags, ssize_t *out_shebang_len, sds *err) {
+    ssize_t shebang_len = 0;
+    uint64_t script_flags = SCRIPT_FLAG_EVAL_COMPAT_MODE;
+    if (!strncmp(body, "#!", 2)) {
+        int numparts,j;
+        char *shebang_end = strchr(body, '\n');
+        if (shebang_end == NULL) {
+            if (err)
+                *err = sdsnew("Invalid script shebang");
+            return C_ERR;
+        }
+        shebang_len = shebang_end - body;
+        sds shebang = sdsnewlen(body, shebang_len);
+        sds *parts = sdssplitargs(shebang, &numparts);
+        sdsfree(shebang);
+        if (!parts || numparts == 0) {
+            if (err)
+                *err = sdsnew("Invalid engine in script shebang");
+            sdsfreesplitres(parts, numparts);
+            return C_ERR;
+        }
+        /* Verify lua interpreter was specified */
+        if (strcmp(parts[0], "#!lua")) {
+            if (err)
+                *err = sdscatfmt(sdsempty(), "Unexpected engine in script shebang: %s", parts[0]);
+            sdsfreesplitres(parts, numparts);
+            return C_ERR;
+        }
+        script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
+        for (j = 1; j < numparts; j++) {
+            if (!strncmp(parts[j], "flags=", 6)) {
+                sdsrange(parts[j], 6, -1);
+                int numflags, jj;
+                sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
+                for (jj = 0; jj < numflags; jj++) {
+                    scriptFlag *sf;
+                    for (sf = scripts_flags_def; sf->flag; sf++) {
+                        if (!strcmp(flags[jj], sf->str)) break;
+                    }
+                    if (!sf->flag) {
+                        if (err)
+                            *err = sdscatfmt(sdsempty(), "Unexpected flag in script shebang: %s", flags[jj]);
+                        sdsfreesplitres(flags, numflags);
+                        sdsfreesplitres(parts, numparts);
+                        return C_ERR;
+                    }
+                    script_flags |= sf->flag;
+                }
+                sdsfreesplitres(flags, numflags);
+            } else {
+                /* We only support function flags options for lua scripts */
+                if (err)
+                    *err = sdscatfmt(sdsempty(), "Unknown lua shebang option: %s", parts[j]);
+                sdsfreesplitres(parts, numparts);
+                return C_ERR;
+            }
+        }
+        sdsfreesplitres(parts, numparts);
+    }
+    if (out_shebang_len)
+        *out_shebang_len = shebang_len;
+    *out_flags = script_flags;
+    return C_OK;
+}
+
+/* Try to extract command flags if we can, returns the modified flags.
+ * Note that it does not guarantee the command arguments are right. */
+uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
+    char funcname[43];
+    int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
+    if (evalsha && sdslen(c->argv[1]->ptr) != 40)
+        return cmd_flags;
+    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    char *lua_cur_script = funcname + 2;
+    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    uint64_t script_flags;
+    if (!de) {
+        if (evalsha)
+            return cmd_flags;
+        if (evalExtractShebangFlags(c->argv[1]->ptr, &script_flags, NULL, NULL) == C_ERR)
+            return cmd_flags;
+    } else {
+        luaScript *l = dictGetVal(de);
+        script_flags = l->flags;
+    }
+    if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
+        return cmd_flags;
+    return scriptFlagsToCmdFlags(cmd_flags, script_flags);
+}
+
 /* Define a Lua function with the specified body.
  * The function name will be generated in the following form:
  *
@@ -305,7 +423,7 @@ void scriptingReset(int async) {
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
-    uint64_t script_flags = SCRIPT_FLAG_EVAL_COMPAT_MODE;
+    uint64_t script_flags;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -317,56 +435,10 @@ sds luaCreateFunction(client *c, robj *body) {
 
     /* Handle shebang header in script code */
     ssize_t shebang_len = 0;
-    if (!strncmp(body->ptr, "#!", 2)) {
-        int numparts,j;
-        char *shebang_end = strchr(body->ptr, '\n');
-        if (shebang_end == NULL) {
-            addReplyError(c,"Invalid script shebang");
-            return NULL;
-        }
-        shebang_len = shebang_end - (char*)body->ptr;
-        sds shebang = sdsnewlen(body->ptr, shebang_len);
-        sds *parts = sdssplitargs(shebang, &numparts);
-        sdsfree(shebang);
-        if (!parts || numparts == 0) {
-            addReplyError(c,"Invalid engine in script shebang");
-            sdsfreesplitres(parts, numparts);
-            return NULL;
-        }
-        /* Verify lua interpreter was specified */
-        if (strcmp(parts[0], "#!lua")) {
-            addReplyErrorFormat(c,"Unexpected engine in script shebang: %s", parts[0]);
-            sdsfreesplitres(parts, numparts);
-            return NULL;
-        }
-        script_flags &= ~SCRIPT_FLAG_EVAL_COMPAT_MODE;
-        for (j = 1; j < numparts; j++) {
-            if (!strncmp(parts[j], "flags=", 6)) {
-                sdsrange(parts[j], 6, -1);
-                int numflags, jj;
-                sds *flags = sdssplitlen(parts[j], sdslen(parts[j]), ",", 1, &numflags);
-                for (jj = 0; jj < numflags; jj++) {
-                    scriptFlag *sf;
-                    for (sf = scripts_flags_def; sf->flag; sf++) {
-                        if (!strcmp(flags[jj], sf->str)) break;
-                    }
-                    if (!sf->flag) {
-                        addReplyErrorFormat(c,"Unexpected flag in script shebang: %s", flags[jj]);
-                        sdsfreesplitres(flags, numflags);
-                        sdsfreesplitres(parts, numparts);
-                        return NULL;
-                    }
-                    script_flags |= sf->flag;
-                }
-                sdsfreesplitres(flags, numflags);
-            } else {
-                /* We only support function flags options for lua scripts */
-                addReplyErrorFormat(c,"Unknown lua shebang option: %s", parts[j]);
-                sdsfreesplitres(parts, numparts);
-                return NULL;
-            }
-        }
-        sdsfreesplitres(parts, numparts);
+    sds err = NULL;
+    if (evalExtractShebangFlags(body->ptr, &script_flags, &shebang_len, &err) == C_ERR) {
+        addReplyErrorSds(c, err);
+        return NULL;
     }
 
     /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
@@ -430,26 +502,7 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    /* We obtain the script SHA1, then check if this function is already
-     * defined into the Lua state */
-    funcname[0] = 'f';
-    funcname[1] = '_';
-    if (!evalsha) {
-        /* Hash the code if this is an EVAL call */
-        sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
-    } else {
-        /* We already have the SHA if it is an EVALSHA */
-        int j;
-        char *sha = c->argv[1]->ptr;
-
-        /* Convert to lowercase. We don't use tolower since the function
-         * managed to always show up in the profiler output consuming
-         * a non trivial amount of time. */
-        for (j = 0; j < 40; j++)
-            funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
-                sha[j]+('a'-'A') : sha[j];
-        funcname[42] = '\0';
-    }
+    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");

@@ -528,7 +528,10 @@ CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_d
 
 /* Create a new CallReply struct from the reply blob representing an error message.
  * Automatically creating deferred_error_list and set a copy of the reply in it.
- * Refer to callReplyCreate for detailed explanation. */
+ * Refer to callReplyCreate for detailed explanation.
+ * Reply string can come in one of two forms:
+ * 1. A protocol reply starting with "-CODE" and ending with "\r\n"
+ * 2. A plain string, in which case this function adds the protocol header and footer. */
 CallReply *callReplyCreateError(sds reply, void *private_data) {
     sds err_buff = reply;
     if (err_buff[0] != '-') {

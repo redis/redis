@@ -55,6 +55,8 @@ void zlibc_free(void *ptr) {
 #include "zmalloc.h"
 #include "atomicvar.h"
 
+#define UNUSED(x) ((void)(x))
+
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #define ASSERT_NO_SIZE_OVERFLOW(sz)
@@ -395,35 +397,58 @@ void zmadvise_dontneed(void *ptr) {
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#endif
 
-size_t zmalloc_get_rss(void) {
-    int page = sysconf(_SC_PAGESIZE);
-    size_t rss;
+/* Get the i'th field from "/proc/self/stats" note i is 1 based as appears in the 'proc' man page */
+int get_proc_stat_ll(int i, long long *res) {
+#if defined(HAVE_PROC_STAT)
     char buf[4096];
-    char filename[256];
-    int fd, count;
+    int fd, l;
     char *p, *x;
 
-    snprintf(filename,256,"/proc/%ld/stat",(long) getpid());
-    if ((fd = open(filename,O_RDONLY)) == -1) return 0;
-    if (read(fd,buf,4096) <= 0) {
+    if ((fd = open("/proc/self/stat",O_RDONLY)) == -1) return 0;
+    if ((l = read(fd,buf,sizeof(buf)-1)) <= 0) {
         close(fd);
         return 0;
     }
     close(fd);
+    buf[l] = '\0';
+    if (buf[l-1] == '\n') buf[l-1] = '\0';
 
-    p = buf;
-    count = 23; /* RSS is the 24th field in /proc/<pid>/stat */
-    while(p && count--) {
-        p = strchr(p,' ');
-        if (p) p++;
-    }
+    /* Skip pid and process name (surrounded with parentheses) */
+    p = strrchr(buf, ')');
     if (!p) return 0;
-    x = strchr(p,' ');
-    if (!x) return 0;
-    *x = '\0';
+    p++;
+    while (*p == ' ') p++;
+    if (*p == '\0') return 0;
+    i -= 3;
+    if (i < 0) return 0;
 
-    rss = strtoll(p,NULL,10);
+    while (p && i--) {
+        p = strchr(p, ' ');
+        if (p) p++;
+        else return 0;
+    }
+    x = strchr(p,' ');
+    if (x) *x = '\0';
+
+    *res = strtoll(p,&x,10);
+    if (*x != '\0') return 0;
+    return 1;
+#else
+    UNUSED(i);
+    UNUSED(res);
+    return 0;
+#endif
+}
+
+#if defined(HAVE_PROC_STAT)
+size_t zmalloc_get_rss(void) {
+    int page = sysconf(_SC_PAGESIZE);
+    long long rss;
+
+    /* RSS is the 24th field in /proc/<pid>/stat */
+    if (!get_proc_stat_ll(24, &rss)) return 0;
     rss *= page;
     return rss;
 }
@@ -748,7 +773,6 @@ size_t zmalloc_get_memory_size(void) {
 }
 
 #ifdef REDIS_TEST
-#define UNUSED(x) ((void)(x))
 int zmalloc_test(int argc, char **argv, int flags) {
     void *ptr;
 

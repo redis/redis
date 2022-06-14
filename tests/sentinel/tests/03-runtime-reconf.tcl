@@ -79,8 +79,10 @@ test "Sentinels (re)connection following SENTINEL SET mymaster auth-pass" {
     restart_instance sentinel $sent2re
 
     # Verify sentinel that restarted failed to connect master
-    if {![string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]]} {
-       fail "Expected to be disconnected from master due to wrong password"
+    wait_for_condition 100 50 {
+        [string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]] != 0
+    } else {
+        fail "Expected to be disconnected from master due to wrong password"
     }
 
     # Update restarted sentinel with master password

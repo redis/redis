@@ -231,14 +231,14 @@ sds getAofManifestAsString(aofManifest *am) {
 void aofLoadManifestFromDisk(void) {
     server.aof_manifest = aofManifestCreate();
     if (!dirExists(server.aof_dirname)) {
-        serverLog(LL_NOTICE, "The AOF directory %s doesn't exist", server.aof_dirname);
+        serverLog(LL_DEBUG, "The AOF directory %s doesn't exist", server.aof_dirname);
         return;
     }
 
     sds am_name = getAofManifestFileName();
     sds am_filepath = makePath(server.aof_dirname, am_name);
     if (!fileExist(am_filepath)) {
-        serverLog(LL_NOTICE, "The AOF manifest file %s doesn't exist", am_name);
+        serverLog(LL_DEBUG, "The AOF manifest file %s doesn't exist", am_name);
         sdsfree(am_name);
         sdsfree(am_filepath);
         return;
@@ -714,15 +714,16 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 
     /* If we start with an empty dataset, we will force create a BASE file. */
-    if (!server.aof_manifest->base_aof_info &&
-        !listLength(server.aof_manifest->incr_aof_list))
-    {
+    size_t incr_aof_len = listLength(server.aof_manifest->incr_aof_list);
+    if (!server.aof_manifest->base_aof_info && !incr_aof_len) {
         sds base_name = getNewBaseFileNameAndMarkPreAsHistory(server.aof_manifest);
         sds base_filepath = makePath(server.aof_dirname, base_name);
         if (rewriteAppendOnlyFile(base_filepath) != C_OK) {
             exit(1);
         }
         sdsfree(base_filepath);
+        serverLog(LL_NOTICE, "Creating AOF base file %s on server start",
+            base_name);
     }
 
     /* Because we will 'exit(1)' if open AOF or persistent manifest fails, so
@@ -746,6 +747,12 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 
     server.aof_last_incr_size = getAppendOnlyFileSize(aof_name, NULL);
+
+    if (incr_aof_len) {
+        serverLog(LL_NOTICE, "Opening AOF incr file %s on server start", aof_name);
+    } else {
+        serverLog(LL_NOTICE, "Creating AOF incr file %s on server start", aof_name);
+    }
 }
 
 int aofFileExist(char *filename) {
@@ -801,6 +808,9 @@ int openNewIncrAofForAppend(void) {
             goto cleanup;
         }
     }
+
+    serverLog(LL_NOTICE, "Creating AOF incr file %s on background rewrite",
+            new_aof_name);
     sdsfree(new_aof_name);
 
     /* If reaches here, we can safely modify the `server.aof_manifest`
@@ -1343,7 +1353,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
-    int ret = C_OK;
+    int ret = AOF_OK;
 
     sds aof_filepath = makePath(server.aof_dirname, filename);
     FILE *fp = fopen(aof_filepath, "r");
@@ -1492,7 +1502,10 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
-            queueMultiCommand(fakeClient);
+            /* Note: we don't have to attempt calling evalGetCommandFlags,
+             * since this is AOF, the checks in processCommand are not made
+             * anyway.*/
+            queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
         }
@@ -1523,7 +1536,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         goto uxeof;
     }
 
-loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
+loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
     goto cleanup;
@@ -1584,7 +1597,7 @@ cleanup:
 /* Load the AOF files according the aofManifest pointed by am. */
 int loadAppendOnlyFiles(aofManifest *am) {
     serverAssert(am != NULL);
-    int status, ret = C_OK;
+    int status, ret = AOF_OK;
     long long start;
     off_t total_size = 0, base_size = 0;
     sds aof_name;
@@ -2258,7 +2271,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             }
 
             /* In fork child process, we can try to release memory back to the
-             * OS and possibly avoid or decrease COW. We guve the dismiss
+             * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
@@ -2348,7 +2361,6 @@ int rewriteAppendOnlyFile(char *filename) {
         stopSaving(0);
         return C_ERR;
     }
-    serverLog(LL_NOTICE,"SYNC append only file rewrite performed");
     stopSaving(1);
 
     return C_OK;
@@ -2403,6 +2415,8 @@ int rewriteAppendOnlyFileBackground(void) {
         redisSetCpuAffinity(server.aof_rewrite_cpulist);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
+            serverLog(LL_NOTICE,
+                "Successfully created the temporary AOF base file %s", tmpfile);
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
             exitFromChild(0);
         } else {
@@ -2543,7 +2557,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyStartMonitor(latency);
         if (rename(tmpfile, new_base_filepath) == -1) {
             serverLog(LL_WARNING,
-                "Error trying to rename the temporary AOF file %s into %s: %s",
+                "Error trying to rename the temporary AOF base file %s into %s: %s",
                 tmpfile,
                 new_base_filepath,
                 strerror(errno));
@@ -2553,20 +2567,21 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-rename", latency);
+        serverLog(LL_NOTICE,
+            "Successfully renamed the temporary AOF base file %s into %s", tmpfile, new_base_filename);
 
         /* Rename the temporary incr aof file to 'new_incr_filename'. */
         if (server.aof_state == AOF_WAIT_REWRITE) {
             /* Get temporary incr aof name. */
             sds temp_incr_aof_name = getTempIncrAofName();
             sds temp_incr_filepath = makePath(server.aof_dirname, temp_incr_aof_name);
-            sdsfree(temp_incr_aof_name);
             /* Get next new incr aof name. */
             sds new_incr_filename = getNewIncrAofName(temp_am);
             new_incr_filepath = makePath(server.aof_dirname, new_incr_filename);
             latencyStartMonitor(latency);
             if (rename(temp_incr_filepath, new_incr_filepath) == -1) {
                 serverLog(LL_WARNING,
-                    "Error trying to rename the temporary incr AOF file %s into %s: %s",
+                    "Error trying to rename the temporary AOF incr file %s into %s: %s",
                     temp_incr_filepath,
                     new_incr_filepath,
                     strerror(errno));
@@ -2575,11 +2590,15 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 aofManifestFree(temp_am);
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
+                sdsfree(temp_incr_aof_name);
                 goto cleanup;
             }
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("aof-rename", latency);
+            serverLog(LL_NOTICE,
+                "Successfully renamed the temporary AOF incr file %s into %s", temp_incr_aof_name, new_incr_filename);
             sdsfree(temp_incr_filepath);
+            sdsfree(temp_incr_aof_name);
         }
 
         /* Change the AOF file type in 'incr_aof_list' from AOF_FILE_TYPE_INCR

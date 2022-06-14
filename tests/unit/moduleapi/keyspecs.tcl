@@ -31,6 +31,20 @@ start_server {tags {"modules"}} {
         assert_equal [r command getkeys kspec.tworanges foo bar baz quux] {foo bar}
     }
 
+    test "Module key specs: Two ranges with gap" {
+        set reply [lindex [r command info kspec.tworangeswithgap] 0]
+        # Verify (first, last, step) and movablekeys
+        assert_equal [lindex $reply 2] {module movablekeys}
+        assert_equal [lindex $reply 3] 1
+        assert_equal [lindex $reply 4] 1
+        assert_equal [lindex $reply 5] 1
+        # Verify key-specs
+        set keyspecs [lindex $reply 8]
+        assert_equal [lindex $keyspecs 0] {flags {RO access} begin_search {type index spec {index 1}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [lindex $keyspecs 1] {flags {RW update} begin_search {type index spec {index 3}} find_keys {type range spec {lastkey 0 keystep 1 limit 0}}}
+        assert_equal [r command getkeys kspec.tworangeswithgap foo bar baz quux] {foo baz}
+    }
+
     test "Module key specs: Keyword-only spec clears the legacy triple" {
         set reply [lindex [r command info kspec.keyword] 0]
         # Verify (first, last, step) and movablekeys
@@ -79,7 +93,7 @@ start_server {tags {"modules"}} {
     test "Module command list filtering" {
         ;# Note: we piggyback this tcl file to test the general functionality of command list filtering
         set reply [r command list filterby module keyspecs]
-        assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.tworanges}
+        assert_equal [lsort $reply] {kspec.complex1 kspec.complex2 kspec.keyword kspec.none kspec.nonewithgetkeys kspec.tworanges kspec.tworangeswithgap}
         assert_equal [r command getkeys kspec.complex2 foo bar 2 baz quux banana STORE dst dummy MOREKEYS hey ho] {dst foo bar baz quux hey ho}
     }
 
@@ -106,6 +120,20 @@ start_server {tags {"modules"}} {
         assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges rw rw]
         assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.tworanges rw read]
         assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.tworanges write rw]
+    }
+
+    foreach cmd {kspec.none kspec.tworanges} {
+        test "$cmd command will not be marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_no_match {*movablekeys*} [lindex $info 2]
+        }
+    }
+
+    foreach cmd {kspec.keyword kspec.complex1 kspec.complex2 kspec.nonewithgetkeys} {
+        test "$cmd command is marked with movablekeys" {
+            set info [lindex [r command info $cmd] 0]
+            assert_match {*movablekeys*} [lindex $info 2]
+        }
     }
 
     test "Unload the module - keyspecs" {
