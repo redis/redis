@@ -75,7 +75,7 @@ When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
 command in order to really clean everything and rebuild from scratch:
 
-    make distclean
+    % make distclean
 
 This will clean: jemalloc, lua, hiredis, linenoise.
 
@@ -319,13 +319,15 @@ As you can see in the client structure above, arguments in a command
 are described as `robj` structures. The following is the full `robj`
 structure, which defines a *Redis object*:
 
-    typedef struct redisObject {
-        unsigned type:4;
-        unsigned encoding:4;
-        unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
-        int refcount;
-        void *ptr;
-    } robj;
+```c
+typedef struct redisObject {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
+    int refcount;
+    void *ptr;
+} robj;
+```
 
 Basically this structure can represent all the basic Redis data types like
 strings, lists, sets, sorted sets and so forth. The interesting thing is that
@@ -451,6 +453,7 @@ replicas, or to continue the replication after a disconnection.
 
 Script
 ---
+
 The script unit is compose of 3 units
 * `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ..)
 * `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
@@ -476,14 +479,18 @@ Anatomy of a Redis command
 
 All the Redis commands are defined in the following way:
 
-    void foobarCommand(client *c) {
-        printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
-        addReply(c,shared.ok); /* Reply something to the client. */
-    }
+```c
+void foobarCommand(client *c) {
+    printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
+    addReply(c,shared.ok); /* Reply something to the client. */
+}
+```
 
 The command is then referenced inside `server.c` in the command table:
 
-    {"foobar",foobarCommand,2,"rtF",0,NULL,0,0,0,0,0},
+```c
+{"foobar",foobarCommand,2,"rtF",0,NULL,0,0,0,0,0},
+```
 
 In the above example `2` is the number of arguments the command takes,
 while `"rtF"` are the command flags, as documented in the command table
