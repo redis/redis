@@ -1570,6 +1570,52 @@ start_server {tags {"scripting"}} {
         r config set min-replicas-to-write 0
     }
 
+    test "not enough good replicas state change during long script" {
+        r set x "pre-script value"
+        r config set min-replicas-to-write 1
+        r config set lua-time-limit 10
+        start_server {tags {"external:skip"}} {
+            # add a replica and wait for the master to recognize it's online
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_replica_online [srv -1 client]
+
+            # run a slow script that does one write, then waits for INFO to indicate
+            # that the replica dropped, and then runs another write
+            set rd [redis_deferring_client -1]
+            $rd eval {
+                redis.call('set','x',"script value")
+                while true do
+                    local info = redis.call('info','replication')
+                    if (string.match(info, "connected_slaves:0")) then
+                        redis.call('set','x',info)
+                        break
+                    end
+                end
+                return 1
+            } 1 x
+
+            # wait for the script to time out and yield
+            wait_for_condition 100 100 {
+                [catch {r -1 ping} e] == 1
+            } else {
+                fail "Can't wait for script to start running"
+            }
+            catch {r -1 ping} e
+            assert_match {BUSY*} $e
+
+            # cause the replica to disconnect (triggering the busy script to exit)
+            r slaveof no one
+
+            # make sure the script was able to write after the replica dropped
+            assert_equal [$rd read] 1
+            assert_match {*connected_slaves:0*} [r -1 get x]
+
+            $rd close
+        }
+        r config set min-replicas-to-write 0
+        r config set lua-time-limit 5000
+    } {OK} {external:skip needs:repl}
+
     test "allow-stale shebang flag" {
         r config set replica-serve-stale-data no
         r replicaof 127.0.0.1 1
