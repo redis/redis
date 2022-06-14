@@ -882,7 +882,7 @@ int aofRewriteLimited(void) {
     }
 
     next_rewrite_time = server.unixtime + next_delay_minutes * 60;
-    serverLog(LL_NOTICE,
+    serverLog(LL_WARNING,
         "Background AOF rewrite has repeatedly failed and triggered the limit, will retry in %d minutes", next_delay_minutes);
     return 1;
 }
