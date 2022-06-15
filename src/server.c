@@ -6930,8 +6930,6 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        serverLog(LL_WARNING, "options: \n %s", options);
-
         loadServerConfig(server.configfile, config_from_stdin, options);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
