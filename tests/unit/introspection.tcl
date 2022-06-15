@@ -503,8 +503,30 @@ start_server {tags {"introspection"}} {
         assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
+    test {redis-server command line arguments - allow passing option name and option value in the same arg} {
+        start_server {config "default.conf" args {"--maxmemory 700mb" "--maxmemory-policy volatile-lru"}} {
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - wrong usage} {
+        start_server {config "default.conf" args {loglevel verbose "--maxmemory '700mb'" "--maxmemory-policy 'volatile-lru'"}} {
+            assert_match [r config get loglevel] {loglevel verbose}
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
     test {redis-server command line arguments - allow option value to use the `--` prefix} {
         start_server {config "default.conf" args {--proc-title-template --my--title--template --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - option name and option value in the same arg and `--` prefix} {
+        start_server {config "default.conf" args {"--proc-title-template --my--title--template" "--loglevel verbose"}} {
             assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
             assert_match [r config get loglevel] {loglevel verbose}
         }
