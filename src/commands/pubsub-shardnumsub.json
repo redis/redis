@@ -1,7 +1,7 @@
 {
     "SHARDNUMSUB": {
         "summary": "Get the count of subscribers for shard channels",
-        "complexity": "O(N) for the SHARDNUMSUB subcommand, where N is the number of requested channels",
+        "complexity": "O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels",
         "group": "pubsub",
         "since": "7.0.0",
         "arity": -2,
@@ -14,7 +14,7 @@
         ],
         "arguments": [
             {
-                "name": "channel",
+                "name": "shardchannel",
                 "type": "string",
                 "optional": true,
                 "multiple": true

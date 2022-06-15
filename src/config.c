@@ -1142,10 +1142,21 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
-        if (argv == NULL || (!server.sentinel_mode && !lookupConfig(argv[0]))) {
-            /* Apparently the line is unparsable for some reason, for
-             * instance it may have unbalanced quotes, or may contain a
-             * config that doesn't exist anymore. Load it as a comment. */
+
+        if (argv == NULL ||
+            (!lookupConfig(argv[0]) &&
+             /* The following is a list of config features that are only supported in
+              * config file parsing and are not recognized by lookupConfig */
+             strcasecmp(argv[0],"include") &&
+             strcasecmp(argv[0],"rename-command") &&
+             strcasecmp(argv[0],"user") &&
+             strcasecmp(argv[0],"loadmodule") &&
+             strcasecmp(argv[0],"sentinel")))
+        {
+            /* The line is either unparsable for some reason, for
+             * instance it may have unbalanced quotes, may contain a
+             * config that doesn't exist anymore, for instance a module that got
+             * unloaded. Load it as a comment. */
             sds aux = sdsnew("# ??? ");
             aux = sdscatsds(aux,line);
             if (argv) sdsfreesplitres(argv, argc);
@@ -1160,18 +1171,13 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
          * Append the line and populate the option -> line numbers map. */
         rewriteConfigAppendLine(state,line);
 
-        /* Translate options using the word "slave" to the corresponding name
-         * "replica", before adding such option to the config name -> lines
-         * mapping. */
-        char *p = strstr(argv[0],"slave");
-        if (p) {
-            sds alt = sdsempty();
-            alt = sdscatlen(alt,argv[0],p-argv[0]);
-            alt = sdscatlen(alt,"replica",7);
-            alt = sdscatlen(alt,p+5,strlen(p+5));
+        /* If this is a alias config, replace it with the original name. */
+        standardConfig *s_conf = lookupConfig(argv[0]);
+        if (s_conf && s_conf->flags & ALIAS_CONFIG) {
             sdsfree(argv[0]);
-            argv[0] = alt;
+            argv[0] = sdsnew(s_conf->alias);
         }
+
         /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
             to avoid messing up the sequence. */
         if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
