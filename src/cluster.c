@@ -2867,8 +2867,8 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip information. */
 void clusterSendPing(clusterLink *link, int type) {
-    static unsigned long long call_times = 0;
-    call_times++;
+    static unsigned long long cluster_pings_sent = 0;
+    cluster_pings_sent++;
     unsigned char *buf;
     clusterMsg *hdr;
     int gossipcount = 0; /* Number of gossip sections added so far. */
@@ -2958,11 +2958,11 @@ void clusterSendPing(clusterLink *link, int type) {
         }
 
         /* Do not add a node we already have. */
-        if (this->last_in_ping_message == call_times) continue;
+        if (this->last_in_ping_message == cluster_pings_sent) continue;
 
         /* Add it */
         clusterSetGossipEntry(hdr,gossipcount,this);
-        this->last_in_ping_message = call_times;
+        this->last_in_ping_message = cluster_pings_sent;
         freshnodes--;
         gossipcount++;
     }
