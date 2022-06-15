@@ -1642,6 +1642,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     const char *tmp_suffix = ".XXXXXX";
     size_t offset = 0;
     ssize_t written_bytes = 0;
+    int old_errno;
 
     int tmp_path_len = snprintf(tmp_conffile, sizeof(tmp_conffile), "%s%s", configfile, tmp_suffix);
     if (tmp_path_len <= 0 || (unsigned int)tmp_path_len >= sizeof(tmp_conffile)) {
@@ -1686,7 +1687,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     }
 
 cleanup:
-    int old_errno = errno;
+    old_errno = errno;
     close(fd);
     if (retval) unlink(tmp_conffile);
     errno = old_errno;
