@@ -533,14 +533,33 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
 
     test {redis-server command line arguments - save with empty input} {
-        # Take `--loglevel` as the save option value.
-        catch {exec src/redis-server --save --loglevel verbose} err
-        assert_match {*'save "--loglevel" "verbose"'*Invalid save parameters*} $err
+        start_server {config "default.conf" args {--save --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--loglevel verbose --save}} {
+            # --save is the last arg, in this case we won't reset the save params
+            assert_match [r config get save] {save {900 1}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
 
         start_server {config "default.conf" args {--save {} --loglevel verbose}} {
             assert_match [r config get save] {save {}}
             assert_match [r config get loglevel] {loglevel verbose}
         }
+
+        start_server {config "default.conf" args {--loglevel verbose --save {}}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--proc-title-template --save --save {} --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --save}
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
     } {} {external:skip}
 
     test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {

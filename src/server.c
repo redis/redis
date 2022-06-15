@@ -6904,6 +6904,17 @@ int main(int argc, char **argv) {
                 if (argc_tmp == 1) {
                     /* Means that we only have one option name, like --port or "--port " */
                     handled_last_config_arg = 0;
+
+                    if ((j != argc-1) && argv[j+1][0] == '-' && argv[j+1][1] == '-' &&
+                        !strcasecmp(argv[j], "--save"))
+                    {
+                        /* Special case: handle some thing like `--save --config value`.
+                         * In this case, if next argument starts with `--`, we will reset
+                         * handled_last_config_arg flag and append an empty "" config value
+                         * to the options, so it will become `--save "" --config value`. */
+                        options = sdscat(options, "\"\"");
+                        handled_last_config_arg = 1;
+                    }
                 } else {
                     /* Means that we are passing both config name and it's value in the same arg,
                      * like "--port 6380", so we need to reset handled_last_config_arg flag. */
@@ -6918,6 +6929,8 @@ int main(int argc, char **argv) {
             }
             j++;
         }
+
+        serverLog(LL_WARNING, "options: \n %s", options);
 
         loadServerConfig(server.configfile, config_from_stdin, options);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
