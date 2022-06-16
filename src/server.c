@@ -6919,7 +6919,7 @@ int main(int argc, char **argv) {
                         handled_last_config_arg = 1;
                     }
                     else if ((j == argc-1) && !strcasecmp(argv[j], "--save")) {
-                        /* Special case: when emtpy save is the last argument.
+                        /* Special case: when empty save is the last argument.
                          * In this case, we append an empty "" config value to the options,
                          * so it will become `--save ""` and will follow the same reset thing. */
                         options = sdscat(options, "\"\"");
