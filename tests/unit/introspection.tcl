@@ -510,7 +510,7 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
-    test {redis-server command line arguments - wrong usage} {
+    test {redis-server command line arguments - wrong usage that we support anyway} {
         start_server {config "default.conf" args {loglevel verbose "--maxmemory '700mb'" "--maxmemory-policy 'volatile-lru'"}} {
             assert_match [r config get loglevel] {loglevel verbose}
             assert_match [r config get maxmemory] {maxmemory 734003200}
@@ -539,8 +539,7 @@ start_server {tags {"introspection"}} {
         }
 
         start_server {config "default.conf" args {--loglevel verbose --save}} {
-            # --save is the last arg, in this case we won't reset the save params
-            assert_match [r config get save] {save {900 1}}
+            assert_match [r config get save] {save {}}
             assert_match [r config get loglevel] {loglevel verbose}
         }
 
