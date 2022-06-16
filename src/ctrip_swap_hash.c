@@ -700,3 +700,175 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
 
 #endif
 
+/* big hash rdb swap */
+rdbKeyType bigHashRdbType = {
+    .save_start = bighashSaveStart,
+    .save = bighashSave,
+    .save_end = NULL,
+    .save_deinit = bighashSaveDeinit,
+    .load = bighashRdbLoad,
+    .load_end = NULL,
+    .load_dbadd = bighashRdbLoadDbAdd,
+    .load_deinit = NULL,
+};
+
+int bighashSaveStart(rdbKeyData *keydata, rio *rdb) {
+    robj *x;
+    robj *key = keydata->savectx.bighash.key;
+    size_t nfields = 0;
+    int ret = 0;
+
+    if (keydata->savectx.value)
+        x = keydata->savectx.value;
+    else
+        x = keydata->savectx.evict;
+    
+    /* save header */
+    if (rdbSaveKeyHeader(rdb,key,x,RDB_TYPE_HASH,
+                keydata->savectx.expire) == -1)
+        return -1;
+
+    /* nfields */
+    if (keydata->savectx.value)
+        nfields += hashTypeLength(keydata->savectx.value);
+    if (keydata->savectx.bighash.meta)
+        nfields += keydata->savectx.bighash.meta->len;
+    if (rdbSaveLen(rdb,nfields) == -1)
+        return -1;
+
+    if (!keydata->savectx.value)
+        return 0;
+
+    /* save fields from value (db.dict) */
+    hashTypeIterator *hi = hashTypeInitIterator(keydata->savectx.value);
+    while (hashTypeNext(hi) != C_ERR) {
+        sds subkey = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+        sds subval = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+        if (rdbSaveRawString(rdb,(unsigned char*)subkey,
+                    sdslen(subkey)) == -1) {
+            sdsfree(subkey);
+            sdsfree(subval);
+            ret = -1;
+            break;
+        }
+        if (rdbSaveRawString(rdb,(unsigned char*)subval,
+                    sdslen(subval)) == -1) {
+            sdsfree(subkey);
+            sdsfree(subval);
+            ret = -1;
+            break;
+        }
+        sdsfree(subkey);
+        sdsfree(subval);
+    }
+    hashTypeReleaseIterator(hi);
+
+    return ret;
+}
+
+/* return 1 if bighash still need to consume more rawkey. */
+int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
+        int *error) {
+    objectMeta *meta = keydata->savectx.bighash.meta;
+    robj *key = keydata->savectx.bighash.key;
+    if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
+            decoded->version != meta->version ||
+            decoded->rdbtype != RDB_TYPE_STRING ||
+            sdslen(decoded->key) != sdslen(key->ptr) ||
+            sdscmp(decoded->key,key->ptr)) {
+        *error = -1;
+        return 0;
+    }
+
+    if (rdbSaveRawString(rdb,(unsigned char*)decoded->subkey,
+                sdslen(decoded->subkey)) == -1) {
+        *error = -1;
+        return 0;
+    }
+
+    if (rdbWriteRaw(rdb,(unsigned char*)decoded->rdbraw,
+                sdslen(decoded->rdbraw)) == -1) {
+        *error = -1;
+        return 0;
+    }
+
+    *error = 0;
+    keydata->savectx.bighash.saved++;
+    return keydata->savectx.bighash.saved < meta->len;
+}
+
+void bighashSaveDeinit(rdbKeyData *keydata) {
+    if (keydata->savectx.bighash.key) {
+        decrRefCount(keydata->savectx.bighash.key);
+        keydata->savectx.bighash.key = NULL;
+    }
+}
+
+void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict,
+        objectMeta *meta, long long expire, sds keystr) {
+    rdbKeyDataInitSaveKey(keydata,value,evict,expire);
+    keydata->savectx.type = RDB_KEY_TYPE_BIGHASH;
+    keydata->savectx.bighash.meta = meta;
+    keydata->savectx.bighash.key = createStringObject(keystr,sdslen(keystr));
+    keydata->savectx.bighash.saved = 0;
+}
+
+void rdbKeyDataInitLoadBigHash(rdbKeyData *keydata, int rdbtype, sds key) {
+    rdbKeyDataInitLoadKey(keydata,rdbtype,key);
+    keydata->type = &bigHashRdbType;
+    keydata->loadctx.type = RDB_KEY_TYPE_BIGHASH;
+    keydata->loadctx.bighash.evict = NULL;
+    keydata->loadctx.bighash.hash_nfields = 0;
+    keydata->loadctx.bighash.meta = createObjectMeta(0);
+    keydata->loadctx.bighash.scanned_fields = 0;
+}
+
+int bighashRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
+        sds *rawval, int *error) {
+    sds subkey, rdbval, key = keydata->loadctx.key;
+    uint64_t version = keydata->loadctx.bighash.meta->version;
+
+    *error = RDB_LOAD_ERR_OTHER;
+    if ((subkey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+        return 0;
+    }
+
+    rdbval = rdbVerbatimNew('h');
+    if (rdbLoadStringVerbatim(rdb,&rdbval)) {
+        sdsfree(rdbval);
+        sdsfree(subkey);
+        return 0;
+    }
+
+    *rawkey = rocksEncodeSubkey(ENC_TYPE_HASH_SUB,version,key,subkey);
+    *rawval = rdbval;
+    sdsfree(subkey);
+    keydata->loadctx.bighash.scanned_fields++;
+    return keydata->loadctx.bighash.scanned_fields < keydata->loadctx.bighash.hash_nfields;
+}
+
+int bighashRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db) {
+    robj keyobj;
+    sds key = keydata->loadctx.key;
+    initStaticStringObject(keyobj,key);
+    if (lookupKey(db,&keyobj,LOOKUP_NOTOUCH) || lookupEvictKey(db,&keyobj))
+        return 0;
+    dbDeleteMeta(db,&keyobj);
+    serverAssert(dbAddEvictRDBLoad(db,key,keydata->loadctx.wholekey.evict));
+    dbAddMeta(db,&keyobj,keydata->loadctx.bighash.meta);
+    return 1;
+}
+
+void bighashRdbLoadExpired(struct rdbKeyData *keydata) {
+    robj *evict = keydata->loadctx.bighash.evict;
+    objectMeta *meta = keydata->loadctx.bighash.meta;
+    if (evict) {
+        decrRefCount(evict);
+        keydata->loadctx.bighash.evict = NULL;
+    }
+    if (meta) {
+        freeObjectMeta(meta);
+        keydata->loadctx.bighash.meta = NULL;
+    }
+}
+

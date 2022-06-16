@@ -2489,9 +2489,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
     while(1) {
         sds key;
-        robj *val;
-		int vtype;
-		sds rawval = NULL;
+        robj *val = NULL;
 
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
@@ -2670,11 +2668,12 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             goto eoferr;
 
         /* Read value */
+        rdbKeyData _keydata, *keydata = &_keydata;
         if (server.swap_mode == SWAP_MODE_MEMORY) {
             val = rdbLoadObject(type,rdb,key,&error);
         } else {
             /*could be evict or value */
-            error = ctripRdbLoadObject(type,rdb,key,&vtype,&val,&rawval);
+            error = ctripRdbLoadObject(type,rdb,key,keydata);
         }
 
         /* Check if the key already expired. This function is used when loading
@@ -2685,19 +2684,17 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
          * Similarly if the RDB is the preamble of an AOF file, we want to
          * load all the keys as they are, since the log of operations later
          * assume to work in an exact keyspace state. */
-        if (val == NULL) {
+        if (error) {
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
              * in an RDB file, instead we will silently discard it and
              * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
-                if(empty_keys_skipped++ < 10)
+                if (empty_keys_skipped++ < 10)
                     serverLog(LL_WARNING, "rdbLoadObject skipping empty key: %s", key);
                 sdsfree(key);
-                sdsfree(rawval);
             } else {
                 sdsfree(key);
-                sdsfree(rawval);
                 goto eoferr;
             }
         } else if (iAmMaster() &&
@@ -2705,8 +2702,10 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             expiretime != -1 && expiretime < now)
         {
             sdsfree(key);
-            sdsfree(rawval);
-            decrRefCount(val);
+            if (server.swap_mode == SWAP_MODE_MEMORY)
+                decrRefCount(val);
+            else
+                rdbKeyLoadExpired(keydata);
             expired_keys_skipped++;
         } else {
             robj keyobj;
@@ -2716,7 +2715,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             if (server.swap_mode == SWAP_MODE_MEMORY)
                 added = dbAddRDBLoad(db,key,val);
             else
-                added = ctripDbAddRDBLoad(vtype,db,key,val,rawval);
+                added = rdbKeyLoadDbAdd(keydata,db);
             keys_loaded++;
             if (!added) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -2727,8 +2726,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                     if (server.swap_mode == SWAP_MODE_MEMORY)
                         dbAddRDBLoad(db,key,val);
                     else
-                        ctripDbAddRDBLoad(vtype,db,key,val,rawval);
-
+                        rdbKeyLoadDbAdd(keydata,db);
                 } else {
                     serverLog(LL_WARNING,
                             "RDB has duplicated key '%s' in DB %d",key,db->id);
@@ -2741,11 +2739,19 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
                 setExpire(NULL,db,&keyobj,expiretime);
             }
 
+            if (server.swap_mode != SWAP_MODE_MEMORY) {
+                val = rdbKeyLoadGetObject(keydata);
+            }
+
             /* Set usage information (for eviction). */
             objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock,1000);
 
             /* call key space notification on key loaded for modules only */
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
+        }
+
+        if (server.swap_mode != SWAP_MODE_MEMORY) {
+            rdbKeyDataDeinitLoad(keydata);
         }
 
         /* Loading the database more slowly is useful in order to test

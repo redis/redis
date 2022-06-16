@@ -145,6 +145,9 @@ int swapDataSwapDel(swapData *d, void *datactx);
 robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
 int swapDataCleanObject(swapData *d, void *datactx);
 void swapDataFree(swapData *data, void *datactx);
+int dbAddEvictRDBLoad(redisDb* db, sds key, robj* evict);
+int rdbLoadStringVerbatim(rio *rdb, sds *verbatim);
+int rdbLoadHashFieldsVerbatim(rio *rdb, unsigned long long len, sds *verbatim);
 
 /* Debug msgs */
 #ifdef SWAP_DEBUG
@@ -541,7 +544,7 @@ int swapRateLimit(client *c);
 int swapRateLimited(client *c);
 
 /* --- Rdb --- */
-/* save */
+/* rocks iter thread */
 #define ITER_BUFFER_CAPACITY_DEFAULT 4096
 #define ITER_CACHED_MAX_KEY_LEN 1000
 #define ITER_CACHED_MAX_VAL_LEN 4000
@@ -581,11 +584,7 @@ void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds 
 void rocksReleaseIter(rocksIter *it);
 void rocksIterGetError(rocksIter *it, char **error);
 
-int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags);
-
-/* load */
-#define RDB_LOAD_VTYPE_VERBATIM 0
-#define RDB_LOAD_VTYPE_OBJECT 1
+/* ctrip rdb load swap data */
 #define RDB_LOAD_BATCH_COUNT 50
 #define RDB_LOAD_BATCH_CAPACITY  (4*1024*1024)
 
@@ -602,15 +601,152 @@ typedef struct ctripRdbLoadCtx {
   } batch;
 } ctripRdbLoadCtx;
 
-int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, int *vtype, robj **val, sds *rawval);
-int ctripDbAddRDBLoad(int vtype, redisDb* db, sds key, robj* val, sds rawval);
-
 void evictStartLoading(void);
 void evictStopLoading(int success);
+
+/* rdb key type. */ 
+#define DEFAULT_HASH_FIELD_SIZE 256
+
+#define RDB_KEY_TYPE_WHOLEKEY 0
+#define RDB_KEY_TYPE_BIGHASH 1
+#define RDB_KEY_TYPE_MEMKEY 2
+
+typedef struct decodeResult {
+    int enc_type;
+    size_t version;
+    sds key;
+    sds subkey;
+    unsigned char rdbtype;
+    sds rdbraw; /* ref, owned by rocksIter */
+} decodeResult;
+
+void decodeResultDeinit(decodeResult *decoded);
+
+struct rdbKeyData;
+typedef struct rdbKeyType {
+    int (*save_start)(struct rdbKeyData *keydata, rio *rdb);
+    int (*save)(struct rdbKeyData *keydata, rio *rdb, decodeResult *decoded, int *error);
+    int (*save_end)(struct rdbKeyData *keydata);
+    void (*save_deinit)(struct rdbKeyData *keydata);
+    int (*load)(struct rdbKeyData *keydata, rio *rdb, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
+    int (*load_end)(struct rdbKeyData *keydata,rio *rdb);
+    int (*load_dbadd)(struct rdbKeyData *keydata, redisDb *db);
+    void (*load_expired)(struct rdbKeyData *keydata);
+    int (*load_deinit)(struct rdbKeyData *keydata);
+} rdbKeyType;
+
+typedef struct rdbKeyData {
+    rdbKeyType *type;
+    union {
+        int type;
+        robj *value; /* ref: incrRefcount will cause cow */
+        robj *evict; /* ref: incrRefcount will cause cow */
+        long long expire;
+        struct {
+          int nop;
+        } wholekey;
+        struct {
+          objectMeta *meta; /* ref */
+          robj *key; /* own */
+          int saved;
+        } bighash;
+    } savectx;
+    union {
+        int type;
+        int rdbtype;
+        sds key; /* ref */
+        struct {
+            robj *value; /* moved to db.dict */
+        } memkey;
+        struct {
+            robj *evict; /* moved (to db.evict) */
+            int hash_nfields; /* parsed hash nfields from header */
+            sds hash_header; /* moved (to rdbLoadSwapData) */
+        } wholekey;
+        struct {
+            int hash_nfields;
+            int scanned_fields;
+            robj *evict; /* moved (to db.evict) */
+            objectMeta *meta; /* moved (to db.meta) */
+        } bighash;
+    } loadctx;
+} rdbKeyData;
+
+/* rdb save */
+int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags);
+
+int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
+void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
+int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, sds key);
+void rdbKeyDataDeinitSave(rdbKeyData *keydata);
+
+int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb);
+int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d, int *error);
+int rdbKeySaveEnd(struct rdbKeyData *keydata);
+/* whole key */
+void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
+int wholekeySaveStart(rdbKeyData *keydata, rio *rdb);
+int wholekeySave(rdbKeyData *keydata,  rio *rdb, decodeResult *d, int *error);
+int wholekeySaveEnd(rdbKeyData *keydata); 
+/* big hash */
+void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict, objectMeta *meta, long long expire, sds keystr);
+int bighashSaveStart(rdbKeyData *keydata, rio *rdb);
+int bighashSave(rdbKeyData *keydata,  rio *rdb, decodeResult *d, int *error);
+int bighashSaveEnd(rdbKeyData *keydata); 
+void bighashSaveDeinit(rdbKeyData *keydata);
+
+static inline sds rdbVerbatimNew(unsigned char rdbtype) {
+    return sdsnewlen(&rdbtype,1);
+}
+int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, rdbKeyData *keydata);
+robj *rdbKeyLoadGetObject(rdbKeyData *keydata);
+int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, sds key);
+void rdbKeyDataDeinitLoad(rdbKeyData *keydata);
+void rdbKeyDataInitLoadKey(rdbKeyData *keydata, int rdbtype, sds key);
+int rdbKeyLoadStart(struct rdbKeyData *keydata, rio *rdb, int rdbtype, sds key);
+int rdbKeyLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+int rdbKeyLoadEnd(struct rdbKeyData *keydata, rio *rdb);
+int rdbKeyLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
+void rdbKeyLoadExpired(struct rdbKeyData *keydata);
+/* mem key */
+void rdbKeyDataInitLoadMemkey(rdbKeyData *keydata, int rdbtype, sds key);
+int memkeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+int memkeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
+void memkeyRdbLoadExpired(struct rdbKeyData *keydata);
+/* whole key */
+void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key);
+int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
+void wholekeyRdbLoadExpired(struct rdbKeyData *keydata);
+/* big hash */
+void rdbKeyDataInitLoadBigHash(rdbKeyData *keydata, int rdbtype, sds key);
+int bighashRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey, sds *rawval, int *error);
+int bighashRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db);
+void bighashRdbLoadExpired(struct rdbKeyData *keydata);
+
 
 /* --- Util --- */
 #define ROCKS_VAL_TYPE_LEN 1
 
+#define ENC_TYPE_STRING       'K'
+#define ENC_TYPE_LIST         'L'
+#define ENC_TYPE_SET          'S'
+#define ENC_TYPE_ZSET         'Z'
+#define ENC_TYPE_HASH         'H'
+#define ENC_TYPE_MODULE       'M'
+#define ENC_TYPE_STREAM       'X'
+#define ENC_TYPE_UNKNOWN      '?'
+
+#define ENC_TYPE_STRING_SUB       'k'
+#define ENC_TYPE_LIST_SUB         'l'
+#define ENC_TYPE_SET_SUB          's'
+#define ENC_TYPE_ZSET_SUB         'z'
+#define ENC_TYPE_HASH_SUB         'h'
+#define ENC_TYPE_MODULE_SUB       'm'
+#define ENC_TYPE_STREAM_SUB       'x'
+#define ENC_TYPE_UNKNOWN_SUB      '?'
+
+#define isSubkeyEncType(enc_type) ((enc_type) <= 'z' && (enc_type) >= 'a')
 unsigned char rocksGetEncType(int obj_type, int big);
 sds rocksEncodeKey(unsigned char enc_type, sds key);
 sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds subkey);

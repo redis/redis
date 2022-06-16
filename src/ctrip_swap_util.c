@@ -32,41 +32,40 @@ typedef unsigned int keylen_t;
 
 int rocksGetObjectType(unsigned char enc_type) {
     switch (enc_type) {
-    case 'K': return OBJ_STRING;
-    case 'L': return OBJ_LIST;
-    case 'S': return OBJ_SET;
-    case 'Z': return OBJ_ZSET;
-    case 'H': return OBJ_HASH;
-    case 'h': return OBJ_HASH;
-    case 'M': return OBJ_MODULE;
-    case 'X': return OBJ_STREAM;
+    case ENC_TYPE_STRING: return OBJ_STRING;
+    case ENC_TYPE_LIST: return OBJ_LIST;
+    case ENC_TYPE_SET: return OBJ_SET;
+    case ENC_TYPE_ZSET: return OBJ_ZSET;
+    case ENC_TYPE_HASH: return OBJ_HASH;
+    case ENC_TYPE_HASH_SUB: return OBJ_HASH;
+    case ENC_TYPE_MODULE: return OBJ_MODULE;
+    case ENC_TYPE_STREAM: return OBJ_STREAM;
     default: return -1;
     }
 }
 
 static inline char rocksGetKeyEncType(int obj_type) {
     switch (obj_type) {
-    case OBJ_STRING : return 'K';
-    case OBJ_LIST   : return 'L'; 
-    case OBJ_SET    : return 'S'; 
-    case OBJ_ZSET   : return 'Z'; 
-    case OBJ_HASH   : return 'H'; 
-    case OBJ_MODULE : return 'M'; 
-    case OBJ_STREAM : return 'X'; 
-    default         : return '?';
+    case OBJ_STRING : return ENC_TYPE_STRING  ;
+    case OBJ_LIST   : return ENC_TYPE_LIST    ;
+    case OBJ_SET    : return ENC_TYPE_SET     ;
+    case OBJ_ZSET   : return ENC_TYPE_ZSET    ;
+    case OBJ_HASH   : return ENC_TYPE_HASH    ;
+    case OBJ_MODULE : return ENC_TYPE_MODULE  ;
+    case OBJ_STREAM : return ENC_TYPE_STREAM  ;
+    default         : return ENC_TYPE_UNKNOWN ;
     }
 }
 
 static inline char rocksGetSubkeyEncType(int obj_type) {
     switch (obj_type) {
-    case OBJ_STRING : return 'k';
-    case OBJ_LIST   : return 'l'; 
-    case OBJ_SET    : return 's'; 
-    case OBJ_ZSET   : return 'z'; 
-    case OBJ_HASH   : return 'h'; 
-    case OBJ_MODULE : return 'm'; 
-    case OBJ_STREAM : return 'x'; 
-    default         : return '?';
+    case OBJ_LIST   : return ENC_TYPE_LIST_SUB  ; 
+    case OBJ_SET    : return ENC_TYPE_SET_SUB   ; 
+    case OBJ_ZSET   : return ENC_TYPE_ZSET_SUB  ; 
+    case OBJ_HASH   : return ENC_TYPE_HASH_SUB  ; 
+    case OBJ_MODULE : return ENC_TYPE_MODULE_SUB; 
+    case OBJ_STREAM : return ENC_TYPE_STREAM_SUB; 
+    default         : return ENC_TYPE_UNKNOWN_SUB;
     }
 }
 
