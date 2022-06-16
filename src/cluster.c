@@ -2957,6 +2957,8 @@ void clusterSendPing(clusterLink *link, int type) {
     estlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     estlen += (sizeof(clusterMsgDataGossip)*(wanted + pfail_wanted));
     estlen += sizeof(clusterMsgPingExt) + getHostnamePingExtSize();
+    estlen += dictSize(server.cluster->nodes_black_list) *
+        (sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode));
 
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
