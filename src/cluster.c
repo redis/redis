@@ -1999,10 +1999,25 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
     uint32_t extension_size = getHostnamePingExtSize();
 
     /* Move the write cursor */
-    (*cursor)->type = CLUSTERMSG_EXT_TYPE_HOSTNAME;
+    (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_HOSTNAME);
     (*cursor)->length = htonl(extension_size);
     /* Make sure the string is NULL terminated by adding 1 */
     *cursor = (clusterMsgPingExt *) (ext->hostname + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
+    return extension_size;
+}
+
+/* Write the forgotten node ping extension at the start of the cursor, update
+ * the cursor to point to the end of the written extension and return the number
+ * of bytes written. */
+int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl) {
+    serverAssert(sdslen(name) == CLUSTER_NAMELEN);
+    clusterMsgPingExtForgottenNode *ext = &(*cursor)->ext[0].forgotten_node;
+    memcpy(ext->name, name, CLUSTER_NAMELEN);
+    ext->ttl = htonu64(ttl);
+    uint32_t extension_size = sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode);
+    (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE);
+    (*cursor)->length = htonl(extension_size);
+    *cursor = (clusterMsgPingExt *) (ext->name + sizeof(clusterMsgPingExtForgottenNode));
     return extension_size;
 }
 
@@ -2019,6 +2034,19 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
             ext_hostname = hostname_ext->hostname;
+        } else if (type == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
+            clusterMsgPingExtForgottenNode *forgotten_node_ext = &(ext->ext[0].forgotten_node);
+            clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
+            if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
+                sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
+                dictEntry *de = dictAddRaw(server.cluster->nodes_black_list, id, NULL);
+                serverAssert(de != NULL);
+                uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
+                dictSetUnsignedIntegerVal(de, expire);
+                clusterDelNode(n);
+                clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                                     CLUSTER_TODO_SAVE_CONFIG);
+            }
         } else {
             /* Unknown type, we will ignore it but log what happened. */
             serverLog(LL_WARNING, "Received unknown extension type %d", type);
@@ -3007,6 +3035,21 @@ void clusterSendPing(clusterLink *link, int type) {
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
         totlen += writeHostnamePingExt(&cursor);
         extensions++;
+    }
+
+    /* Gossip forgotten nodes */
+    if (dictSize(server.cluster->nodes_black_list) > 0) {
+        dictIterator *di = dictGetIterator(server.cluster->nodes_black_list);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            sds name = dictGetKey(de);
+            uint64_t expire = dictGetUnsignedIntegerVal(de);
+            if ((time_t)expire < server.unixtime) continue; /* already expired */
+            uint64_t ttl = expire - server.unixtime;
+            hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
+            totlen += writeForgottenNodePingExt(&cursor, name, ttl);
+            extensions++;
+        }
     }
 
     /* Compute the actual total length and send! */

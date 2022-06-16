@@ -1,14 +1,26 @@
 source "../tests/includes/init-tests.tcl"
 
+# Returns 1 if no node knows node_id, 0 if any node known it.
+proc node_is_forgotten {node_id} {
+    for {set j 0} {$j < 20} {incr j} {
+        set cluster_nodes [R $j CLUSTER NODES]
+        if { [string match "*$node_id*" $cluster_nodes] } {
+            return 0
+        }
+    }
+    return 1
+}
+
 # Isolate a node from the cluster and give it a new nodeid
 proc isolate_node {id} {
     set node_id [R $id CLUSTER MYID]
     R 6 CLUSTER RESET HARD
-    for {set j 0} {$j < 20} {incr j} {
-        if { $j eq $id } {
-            continue
-        }
-        R $j CLUSTER FORGET $node_id
+    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
+    R 0 CLUSTER FORGET $node_id
+    wait_for_condition 50 100 {
+        [node_is_forgotten $node_id]
+    } else {
+        fail "CLUSTER FORGET was not propagated to all nodes"
     }
 }
 

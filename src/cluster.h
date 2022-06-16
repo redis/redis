@@ -252,6 +252,7 @@ typedef struct {
  * consistent manner. */
 typedef enum {
     CLUSTERMSG_EXT_TYPE_HOSTNAME,
+    CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE,
 } clusterMsgPingtypes; 
 
 /* Helper function for making sure extensions are eight byte aligned. */
@@ -262,11 +263,17 @@ typedef struct {
 } clusterMsgPingExtHostname;
 
 typedef struct {
+    char name[CLUSTER_NAMELEN];
+    uint64_t ttl;
+} clusterMsgPingExtForgottenNode;
+
+typedef struct {
     uint32_t length; /* Total length of this extension message (including this header) */
     uint16_t type; /* Type of this extension message (see clusterMsgPingExtTypes) */
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
+        clusterMsgPingExtForgottenNode forgotten_node;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
               * byte aligned, regardless of its content. */
 } clusterMsgPingExt;
