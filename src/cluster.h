@@ -267,6 +267,8 @@ typedef struct {
     uint64_t ttl;
 } clusterMsgPingExtForgottenNode;
 
+static_assert(sizeof(clusterMsgPingExtForgottenNode) % 8 == 0);
+
 typedef struct {
     uint32_t length; /* Total length of this extension message (including this header) */
     uint16_t type; /* Type of this extension message (see clusterMsgPingExtTypes) */

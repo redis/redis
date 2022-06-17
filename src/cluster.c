@@ -3052,6 +3052,7 @@ void clusterSendPing(clusterLink *link, int type) {
             totlen += writeForgottenNodePingExt(&cursor, name, ttl);
             extensions++;
         }
+        dictReleaseIterator(di);
     }
 
     /* Compute the actual total length and send! */
