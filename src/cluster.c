@@ -6803,7 +6803,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
         /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
-        addReplyError(c,"-UNSTABLE TRYAGAIN Multiple keys request during rehashing of slot");
+        addReplyError(c,"-TRYAGAIN Multiple keys request during rehashing of slot");
     } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
         addReplyError(c,"-CLUSTERDOWN The cluster is down");
     } else if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {

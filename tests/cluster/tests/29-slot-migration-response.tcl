@@ -19,20 +19,20 @@ catch {unset nodeto}
 $cluster refresh_nodes_map
 
 test "Set many keys" {
-    for {set i 0} {$i < 30000} {incr i} {
+    for {set i 0} {$i < 5000} {incr i} {
         $cluster set $i $i
     }
 }
 
 test "Keys are accessible" {
-    for {set i 0} {$i < 30000} {incr i} {
+    for {set i 0} {$i < 5000} {incr i} {
         assert { [$cluster get $i] eq $i }
     }
 }
 
 test "Migration of slot x" {
 
-    set slot 200
+    set slot 10
     array set nodefrom [$cluster masternode_for_slot $slot]
     array set nodeto [$cluster masternode_notfor_slot $slot]
 
@@ -56,7 +56,7 @@ test "Migration of slot x" {
 
     # UNSTABLE REPLY
     catch {[$nodefrom(link) mset "a{$key}" "newVal" $key "newVal2"]} f
-    if {![string match "*UNSTABLE*" $f]} {
-        fail "Should contain UNSTABLE when migrating"
+    if {![string match "*TRYAGAIN*" $f]} {
+        fail "It is in UNSTABLE status, client should see TRYAGAIN  error message when migrating"
     }
 }
