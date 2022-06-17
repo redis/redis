@@ -275,10 +275,11 @@ int test_getname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 1) return RedisModule_WrongArity(ctx);
     unsigned long long id = RedisModule_GetClientId(ctx);
     RedisModuleString *name = RedisModule_GetClientNameById(ctx, id);
-    if (name != NULL)
-        return RedisModule_ReplyWithString(ctx, name);
-    else
+    if (name == NULL)
         return RedisModule_ReplyWithError(ctx, "-ERR No name");
+    RedisModule_ReplyWithString(ctx, name);
+    RedisModule_FreeString(ctx, name);
+    return REDISMODULE_OK;
 }
 
 int test_setname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
