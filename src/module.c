@@ -3400,28 +3400,6 @@ int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
     return REDISMODULE_OK;
 }
 
-/* Sets the RESP protocol version of the client with the given ID. This is equivalent to the client calling
- * `HELLO 3` or `HELLO 2`.
- *
- * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
- * and errno is set as follows:
- *
- * - ENOENT if the client does not exist
- * - EDOM if proto is anything other than 2 or 3. */
-int RM_SetClientProtocolById(uint64_t id, int proto) {
-    client *client = lookupClientByID(id);
-    if (client == NULL) {
-        errno = ENOENT;
-        return REDISMODULE_ERR;
-    }
-    if (proto < 2 || proto > 3) {
-        errno = EDOM;
-        return REDISMODULE_ERR;
-    }
-    client->resp = proto;
-    return REDISMODULE_OK;
-}
-
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
@@ -12642,7 +12620,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
     REGISTER_API(SetClientNameById);
-    REGISTER_API(SetClientProtocolById);
     REGISTER_API(PublishMessage);
     REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToServerEvent);
