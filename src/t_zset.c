@@ -2621,7 +2621,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             {
                 j++; remaining--;
                 withscores = 1;
-            } else if (cardinality_only && remaining >= 2 &&
+            } else if (remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr, "limit"))
             {
                 j++; remaining--;
@@ -2692,6 +2692,17 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     dictAdd(dstzset->dict,tmp,&znode->score);
                     totelelen += sdslen(tmp);
                     if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
+
+                    if (limit) {
+                        cardinality++;
+                        /* We stop the searching after reaching the limit. */
+                        if (cardinality >= (unsigned long)limit)
+                        {
+                            /* Cleanup before we break the zuiNext loop. */
+                            zuiDiscardDirtyValue(&zval);
+                            break;
+                        }
+                    }
                 }
             }
             zuiClearIterator(&src[0]);
@@ -2713,6 +2724,12 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         for (i = 0; i < setnum; i++) {
             if (zuiLength(&src[i]) == 0) continue;
 
+
+            /* We stop the searching after reaching the limit. */
+            if (limit && cardinality >= (unsigned long)limit) {
+                break;
+            }
+
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
                 /* Initialize value */
@@ -2732,6 +2749,18 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     /* Update the element with its initial score. */
                     dictSetKey(accumulator, de, tmp);
                     dictSetDoubleVal(de,score);
+
+                    if (limit) {
+
+                        cardinality++;
+                        /* We stop the searching after reaching the limit.
+                           Exit the inner loop, then the for loop */
+                        if (cardinality >= (unsigned long)limit) {
+                            /* Cleanup before we break the zuiNext loop. */
+                            zuiDiscardDirtyValue(&zval);
+                            break;
+                        }
+                    }
                 } else {
                     /* Update the score with the score of the new instance
                      * of the element found in the current sorted set.
@@ -2810,12 +2839,12 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zfree(src);
 }
 
-/* ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
+/* ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [LIMIT limit] */
 void zunionstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
-/* ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
+/* ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [LIMIT limit] */
 void zinterstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
@@ -2825,12 +2854,12 @@ void zdiffstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
-/* ZUNION numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
+/* ZUNION numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] [LIMIT limit] */
 void zunionCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
-/* ZINTER numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
+/* ZINTER numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] [LIMIT limit] */
 void zinterCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
 }
