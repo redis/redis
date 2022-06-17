@@ -290,6 +290,116 @@ swapData *createWholeKeySwapData(redisDb *db, robj *key, robj *value,
     return (swapData*)data;
 }
 
+/* ------------------- whole key rdb swap -------------------------------- */
+rdbKeyType wholekeyRdbType = {
+    .save_start = NULL,
+    .save = wholekeySave,
+    .save_end = NULL,
+    .save_deinit = NULL,
+    .load = wholekeyRdbLoad,
+    .load_end = NULL,
+    .load_dbadd = wholekeyRdbLoadDbAdd,
+    .load_expired = wholekeyRdbLoadExpired,
+    .load_deinit = NULL,
+};
+
+void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
+        long long expire) {
+    rdbKeyDataInitSaveKey(keydata,value,evict,expire);
+    keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
+}
+
+int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
+        int *error) {
+    robj keyobj;
+
+    initStaticStringObject(keyobj,decoded->key);
+    if (rdbSaveKeyHeader(rdb,&keyobj,keydata->savectx.evict,
+                decoded->rdbtype,keydata->savectx.expire) == -1) {
+        goto werr;
+    }
+
+    if (rdbWriteRaw(rdb,decoded->rdbraw,sdslen(decoded->rdbraw)) == -1) {
+        goto werr;
+    }
+
+    *error = 0;
+    return 0;
+
+werr:
+    *error = -1;
+    return 0;
+}
+
+void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key) {
+    rdbKeyDataInitLoadKey(keydata,rdbtype,key);
+    keydata->type = &wholekeyRdbType;
+    keydata->loadctx.type = RDB_KEY_TYPE_WHOLEKEY;
+    keydata->loadctx.wholekey.evict = NULL;
+    keydata->loadctx.wholekey.hash_header = NULL;
+    keydata->loadctx.wholekey.hash_nfields = 0;
+}
+
+int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
+        sds *rawval, int *error) {
+    robj *evict = NULL;
+    *error = RDB_LOAD_ERR_OTHER;
+    int hash_nfields, rdbtype = keydata->loadctx.rdbtype;
+    sds verbatim = NULL, key = keydata->loadctx.key;
+    switch (rdbtype) {
+    case RDB_TYPE_STRING:
+        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
+        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
+        evict = createObject(OBJ_STRING, NULL);
+        break;
+    case RDB_TYPE_HASH:
+        /* small hash is a bit different: hash len is already consumed and
+         * saved into loadctx when judging small/big hash. */
+        verbatim = keydata->loadctx.wholekey.hash_header;
+        hash_nfields = keydata->loadctx.wholekey.hash_nfields;
+        if (hash_nfields == 0) {
+            *error = RDB_LOAD_ERR_EMPTY_KEY;
+            goto err;
+        }
+        if (rdbLoadHashFieldsVerbatim(rdb,hash_nfields,&verbatim)) goto err;
+        evict = createObject(OBJ_HASH,NULL);
+        break;
+    case RDB_TYPE_HASH_ZIPLIST:
+        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
+        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
+        evict = createObject(OBJ_HASH,NULL);
+        break;
+    default:
+        serverPanic("unsupported rdbtype:%d", rdbtype);
+        break;
+    }
+
+    *error = 0;
+    *rawkey = rocksEncodeKey(rocksGetEncType(evict->type,0),key);
+    *rawval = verbatim;
+    keydata->loadctx.wholekey.evict = evict;
+    return 0;
+
+err:
+    if (verbatim) sdsfree(verbatim);
+    if (evict) decrRefCount(evict);
+    return 0;
+}
+
+int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db) {
+    return dbAddEvictRDBLoad(db,keydata->loadctx.key,
+            keydata->loadctx.wholekey.evict);
+}
+
+void wholekeyRdbLoadExpired(struct rdbKeyData *keydata) {
+    robj *evict = keydata->loadctx.wholekey.evict;
+    if (evict) {
+        decrRefCount(evict);
+        keydata->loadctx.wholekey.evict = NULL;
+    }
+}
+
+
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include <limits.h>
@@ -611,113 +721,51 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
 
     TEST("wholeKey swapdelete (evict and exist expire)") {
     }
+
+    int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw, decodeResult *decoded);
+
+    TEST("wholeKey rdb save & load") {
+        int err;
+        rdbKeyData _keydata, *keydata = &_keydata;
+        rio sdsrdb;
+        robj *evict = createObject(OBJ_HASH,NULL);
+        decodeResult _decoded, *decoded = &_decoded;
+
+		robj *myhash;
+		sds myhash_key;
+		myhash_key = sdsnew("myhash");
+        myhash = createHashObject();
+
+        hashTypeSet(myhash,sdsnew("f1"),sdsnew("v1"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+        hashTypeSet(myhash,sdsnew("f2"),sdsnew("v2"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+        hashTypeSet(myhash,sdsnew("f3"),sdsnew("v3"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+
+        sds rawkey = rocksEncodeKey(ENC_TYPE_HASH,myhash_key);
+        sds rawval = rocksEncodeValRdb(myhash);
+
+        sds rdbraw = sdsnewlen(rawval+1,sdslen(rawval)-1);
+        rocksDecodeRaw(rawkey,rawval[0],rdbraw,decoded);
+        test_assert(decoded->enc_type == ENC_TYPE_HASH);
+        test_assert(!sdscmp(decoded->key,myhash_key));
+
+        rioInitWithBuffer(&sdsrdb, sdsempty());
+        rdbKeyDataInitSaveWholeKey(keydata,NULL,evict,-1);
+        wholekeySave(keydata,&sdsrdb,decoded,&err);
+        test_assert(err == 0);
+
+        sds rawkey2, rawval2;
+        rio sdsrdb2;
+        rioInitWithBuffer(&sdsrdb2, rdbraw);
+        rdbKeyDataInitLoadWholeKey(keydata,rawval[0],myhash_key);
+        wholekeyRdbLoad(keydata,&sdsrdb2,&rawkey2,&rawval2,&err);
+        test_assert(err == 0);
+        test_assert(sdscmp(rawkey2,rawkey) == 0);
+        test_assert(sdscmp(rawval2,rawval) == 0);
+        test_assert(keydata->loadctx.wholekey.evict->type == OBJ_HASH);
+    }
+
     return error;
 }
 
 #endif
-
-/* whole key rdb swap */
-rdbKeyType wholekeyRdbType = {
-    .save_start = NULL,
-    .save = wholekeySave,
-    .save_end = NULL,
-    .save_deinit = NULL,
-    .load = wholekeyRdbLoad,
-    .load_end = NULL,
-    .load_dbadd = wholekeyRdbLoadDbAdd,
-    .load_expired = wholekeyRdbLoadExpired,
-    .load_deinit = NULL,
-};
-
-void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
-        long long expire) {
-    rdbKeyDataInitSaveKey(keydata,value,evict,expire);
-    keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
-}
-
-int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
-        int *error) {
-    int err = 0;
-    robj keyobj;
-
-    initStaticStringObject(keyobj,decoded->key);
-    if (!err) {
-        err = rdbSaveKeyHeader(rdb,&keyobj,keydata->savectx.evict,
-            decoded->rdbtype,keydata->savectx.expire);
-    }
-    if (!err) {
-        err = rdbWriteRaw(rdb,decoded->rdbraw,sdslen(decoded->rdbraw));
-    }
-
-    *error = err;
-    return 0;
-}
-
-void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key) {
-    rdbKeyDataInitLoadKey(keydata,rdbtype,key);
-    keydata->type = &wholekeyRdbType;
-    keydata->loadctx.type = RDB_KEY_TYPE_WHOLEKEY;
-    keydata->loadctx.wholekey.evict = NULL;
-    keydata->loadctx.wholekey.hash_header = NULL;
-    keydata->loadctx.wholekey.hash_nfields = 0;
-}
-
-int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
-        sds *rawval, int *error) {
-    robj *evict = NULL;
-    *error = RDB_LOAD_ERR_OTHER;
-    int hash_nfields, rdbtype = keydata->loadctx.rdbtype;
-    sds verbatim = NULL, key = keydata->loadctx.key;
-    switch (rdbtype) {
-    case RDB_TYPE_STRING:
-        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
-        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
-        evict = createObject(OBJ_STRING, NULL);
-        break;
-    case RDB_TYPE_HASH:
-        /* small hash is a bit different: hash len is already consumed and
-         * saved into loadctx when judging small/big hash. */
-        verbatim = keydata->loadctx.wholekey.hash_header;
-        hash_nfields = keydata->loadctx.wholekey.hash_nfields;
-        if (hash_nfields == 0) {
-            *error = RDB_LOAD_ERR_EMPTY_KEY;
-            goto err;
-        }
-        if (rdbLoadHashFieldsVerbatim(rdb,hash_nfields,&verbatim)) goto err;
-        evict = createObject(OBJ_HASH,NULL);
-        break;
-    case RDB_TYPE_HASH_ZIPLIST:
-        verbatim = rdbVerbatimNew((unsigned char)rdbtype);
-        if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
-        evict = createObject(OBJ_HASH,NULL);
-        break;
-    default:
-        serverPanic("unsupported rdbtype:%d", rdbtype);
-        break;
-    }
-
-    *error = 0;
-    *rawkey = rocksEncodeKey(rocksGetEncType(evict->type,0),key);
-    *rawval = verbatim;
-    keydata->loadctx.wholekey.evict = evict;
-    return 0;
-
-err:
-    if (verbatim) sdsfree(verbatim);
-    if (evict) decrRefCount(evict);
-    return 0;
-}
-
-int wholekeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db) {
-    return dbAddEvictRDBLoad(db,keydata->loadctx.key,
-            keydata->loadctx.wholekey.evict);
-}
-
-void wholekeyRdbLoadExpired(struct rdbKeyData *keydata) {
-    robj *evict = keydata->loadctx.wholekey.evict;
-    if (evict) {
-        decrRefCount(evict);
-        keydata->loadctx.wholekey.evict = NULL;
-    }
-}
 

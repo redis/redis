@@ -882,7 +882,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
    }
 
 
-   return 0;
+   return error;
 }
 
 #endif

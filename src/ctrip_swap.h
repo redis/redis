@@ -637,38 +637,43 @@ typedef struct rdbKeyType {
 
 typedef struct rdbKeyData {
     rdbKeyType *type;
-    union {
+    struct {
         int type;
         robj *value; /* ref: incrRefcount will cause cow */
         robj *evict; /* ref: incrRefcount will cause cow */
         long long expire;
-        struct {
-          int nop;
-        } wholekey;
-        struct {
-          objectMeta *meta; /* ref */
-          robj *key; /* own */
-          int saved;
-        } bighash;
+        union {
+          struct {
+            int nop;
+          } wholekey;
+          struct {
+            objectMeta *meta; /* ref */
+            robj *key; /* own */
+            int saved;
+          } bighash;
+        };
     } savectx;
-    union {
+    struct {
         int type;
         int rdbtype;
         sds key; /* ref */
-        struct {
+        int nfeeds;
+        union {
+          struct {
             robj *value; /* moved to db.dict */
-        } memkey;
-        struct {
+          } memkey;
+          struct {
             robj *evict; /* moved (to db.evict) */
             int hash_nfields; /* parsed hash nfields from header */
             sds hash_header; /* moved (to rdbLoadSwapData) */
-        } wholekey;
-        struct {
+          } wholekey;
+          struct {
             int hash_nfields;
             int scanned_fields;
             robj *evict; /* moved (to db.evict) */
             objectMeta *meta; /* moved (to db.meta) */
-        } bighash;
+          } bighash;
+        };
     } loadctx;
 } rdbKeyData;
 
@@ -781,7 +786,6 @@ int clearTestRedisServer(void);
 
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataBigHashTest(int argc, char **argv, int accurate);
-int swapDataTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);

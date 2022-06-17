@@ -497,7 +497,7 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         test_assert(!requestWouldBlock(NULL,NULL));
     }
 
-    return 0;
+    return error;
 }
 
 #endif

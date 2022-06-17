@@ -146,8 +146,8 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
 
     TEST("object: meta can be deleted specificly or by effect") {
         char *key1raw = "key1", *val1raw = "val1";
-        robj *key1 = createStringObject(key1raw, sizeof(key1raw)); 
-        robj *val1 = createStringObject(val1raw, sizeof(val1raw)); 
+        robj *key1 = createStringObject(key1raw, strlen(key1raw)); 
+        robj *val1 = createStringObject(val1raw, strlen(val1raw)); 
 
         dbAdd(db,key1,val1);
         dbAddMeta(db,key1,createObjectMeta(1));
@@ -159,6 +159,6 @@ int swapObjectTest(int argc, char *argv[], int accurate) {
         dbDelete(db,key1);
         test_assert(lookupMeta(db,key1) == NULL);
     }
-    return 0;
+    return error;
 }
 #endif

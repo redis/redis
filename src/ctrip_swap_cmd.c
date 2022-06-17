@@ -380,7 +380,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         discardTransaction(c);
     }
 
-    return 0;
+    return error;
 }
 
 #endif

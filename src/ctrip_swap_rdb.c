@@ -45,10 +45,10 @@ int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw,
     decoded->enc_type = rawkey[0];
     if (isSubkeyEncType(decoded->enc_type)) {
         if (rocksDecodeSubkey(rawkey,sdslen(rawkey),&version,&key,&klen,
-                &subkey,&slen))
+                &subkey,&slen) == -1)
             return -1;
     } else {
-        if (rocksDecodeKey(rawkey,sdslen(rawkey),&key,&klen))
+        if (rocksDecodeKey(rawkey,sdslen(rawkey),&key,&klen) == -1)
             return -1;
     }
     decoded->key = sdsnewlen(key,klen);
@@ -614,10 +614,10 @@ void rdbKeyDataDeinitLoad(struct rdbKeyData *keydata) {
         keydata->type->load_deinit(keydata);
 }
 
-void rdbKeyDataInitLoadKey(rdbKeyData *keydata,
-        int rdbtype, sds key) {
+void rdbKeyDataInitLoadKey(rdbKeyData *keydata, int rdbtype, sds key) {
     keydata->loadctx.rdbtype = rdbtype;
     keydata->loadctx.key = key;
+    keydata->loadctx.nfeeds = 0;
 }
 
 int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, sds key) {
@@ -685,6 +685,7 @@ int ctripRdbLoadObject(int rdbtype, rio *rdb, sds key, rdbKeyData *keydata) {
         if (!error && rawkey) {
             serverAssert(rawval);
             ctripRdbLoadCtxFeed(server.rdb_load_ctx,rawkey,rawval);
+            keydata->loadctx.nfeeds++;
         }
     } while (!error && cont);
     if (!error) error = rdbKeyLoadEnd(keydata,rdb);
@@ -707,6 +708,7 @@ void rdbKeyDataInitLoadMemkey(rdbKeyData *keydata, int rdbtype, sds key) {
     rdbKeyDataInitLoadKey(keydata,rdbtype,key);
     keydata->type = &memkeyRdbType;
     keydata->loadctx.type = RDB_KEY_TYPE_MEMKEY;
+    keydata->loadctx.memkey.value = NULL;
 }
 
 int memkeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
@@ -732,6 +734,22 @@ int memkeyRdbLoadDbAdd(struct rdbKeyData *keydata, redisDb *db) {
 
 #ifdef REDIS_TEST
 
+sds dumpHashObject(robj *o) {
+    hashTypeIterator *hi;
+
+    sds repr = sdsempty();
+    hi = hashTypeInitIterator(o);
+    while (hashTypeNext(hi) != C_ERR) {
+        sds subkey = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+        sds subval = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+        repr = sdscatprintf(repr, "(%s=>%s),",subkey,subval);
+        sdsfree(subkey);
+        sdsfree(subval);
+    }
+    hashTypeReleaseIterator(hi);
+    return repr;
+}
+
 void initServerConfig(void);
 int swapRdbTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
@@ -740,16 +758,18 @@ int swapRdbTest(int argc, char *argv[], int accurate) {
 
     int error = 0;
     robj *myhash;
+    sds myhash_key;
 
     TEST("rdb: init") {
         initServerConfig();
         ACLInit();
         server.hz = 10;
 
+        myhash_key = sdsnew("myhash");
         myhash = createHashObject();
-        hashTypeSet(myhash,"f1","v1",HASH_SET_COPY);
-        hashTypeSet(myhash,"f2","v2",HASH_SET_COPY);
-        hashTypeSet(myhash,"f3","v3",HASH_SET_COPY);
+        hashTypeSet(myhash,sdsnew("f1"),sdsnew("v1"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+        hashTypeSet(myhash,sdsnew("f2"),sdsnew("v2"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
+        hashTypeSet(myhash,sdsnew("f3"),sdsnew("v3"),HASH_SET_TAKE_FIELD|HASH_SET_TAKE_VALUE);
         hashTypeConvert(myhash, OBJ_ENCODING_HT);
     }
 
@@ -758,24 +778,44 @@ int swapRdbTest(int argc, char *argv[], int accurate) {
         robj *decoded = rocksDecodeValRdb(rawval);
         test_assert(myhash->encoding != decoded->encoding);
         test_assert(hashTypeLength(myhash) == hashTypeLength(decoded));
-
     } 
+
+    TEST("rdb: memkey load") {
+        rio sdsrdb;
+        int err, rdbtype;
+        rdbKeyData _keydata, *keydata = &_keydata;
+        sds rawkey, rawval;
+        robj *loaded;
+        rawval = rocksEncodeValRdb(myhash);
+        rioInitWithBuffer(&sdsrdb, rawval);
+        rdbtype = rdbLoadObjectType(&sdsrdb);
+        rdbKeyDataInitLoadMemkey(keydata,rdbtype,myhash_key);
+        memkeyRdbLoad(keydata,&sdsrdb,&rawkey,&rawval,&err);
+        loaded = keydata->loadctx.memkey.value;
+        test_assert(loaded != NULL && loaded->type == OBJ_HASH);
+        test_assert(hashTypeLength(loaded) == 3);
+        memkeyRdbLoadExpired(keydata);
+        test_assert(keydata->loadctx.memkey.value == NULL);
+    }
 
     TEST("rdb: save&load object ok in rocks format") {
         rio sdsrdb;
-        int rdbtype, vtype;
-        robj *evict = NULL;
-        sds decoded_rawval;
+        int rdbtype;
+        robj *evict;
         sds rawval = rocksEncodeValRdb(myhash);
         rioInitWithBuffer(&sdsrdb, rawval);
+        rdbKeyData _keydata, *keydata = &_keydata;
+
+        evictStartLoading();
         rdbtype = rdbLoadObjectType(&sdsrdb);
-        ctripRdbLoadObject(rdbtype,&sdsrdb,NULL,&vtype,&evict,&decoded_rawval);
-        test_assert(vtype == RDB_LOAD_VTYPE_VERBATIM);
-        test_assert(evict != NULL && evict->type == myhash->type);
-        test_assert(sdscmp(decoded_rawval,rawval) == 0);
+        ctripRdbLoadObject(rdbtype,&sdsrdb,myhash_key,keydata);
+        test_assert(keydata->loadctx.type == RDB_KEY_TYPE_WHOLEKEY);
+        evict = keydata->loadctx.wholekey.evict;
+        test_assert(evict && evict->type == OBJ_HASH);
+        test_assert(keydata->loadctx.nfeeds == 1);
     }
 
-    return 0;
+    return error;
 }
 
 #endif
