@@ -306,6 +306,7 @@ rdbKeyType wholekeyRdbType = {
 void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
         long long expire) {
     rdbKeyDataInitSaveKey(keydata,value,evict,expire);
+    keydata->type = &wholekeyRdbType;
     keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
 }
 

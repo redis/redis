@@ -38,11 +38,38 @@ proc object_is_dirty {r key} {
     }
 }
 
+proc object_is_cold {r key} {
+    set str [$r swap object $key]
+    if { [swap_object_property $str evict at] != "" } {
+        set _ 1
+    } else {
+        set _ 0
+    }
+}
+
+proc wait_key_evicted {r key} {
+    wait_for_condition 50 100 {
+        [object_is_cold $r $key]
+    } else {
+        fail "evict $key failed."
+    }
+}
+
 proc object_meta_version {r key} {
     set str [$r swap object $key]
     set meta_version [swap_object_property $str meta version]
     if {$meta_version != ""} {
         set _ $meta_version
+    } else {
+        set _ 0
+    }
+}
+
+proc object_meta_len {r key} {
+    set str [$r swap object $key]
+    set meta_len [swap_object_property $str meta len]
+    if {$meta_len != ""} {
+        set _ $meta_len
     } else {
         set _ 0
     }

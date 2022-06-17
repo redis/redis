@@ -1293,6 +1293,8 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
             long long expire;
 
             initStaticStringObject(key,keystr);
+            /* bighash will be saved later in rdbSaveRocks. */
+            if (lookupMeta(db,&key) != NULL) continue;
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);

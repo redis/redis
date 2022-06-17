@@ -602,6 +602,7 @@ void bighashSaveDeinit(rdbKeyData *keydata) {
 void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict,
         objectMeta *meta, long long expire, sds keystr) {
     rdbKeyDataInitSaveKey(keydata,value,evict,expire);
+    keydata->type = &bigHashRdbType;
     keydata->savectx.type = RDB_KEY_TYPE_BIGHASH;
     keydata->savectx.bighash.meta = meta;
     keydata->savectx.bighash.key = createStringObject(keystr,sdslen(keystr));
@@ -609,12 +610,15 @@ void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict,
 }
 
 void rdbKeyDataInitLoadBigHash(rdbKeyData *keydata, int rdbtype, sds key) {
+    robj *evict;
     rdbKeyDataInitLoadKey(keydata,rdbtype,key);
     keydata->type = &bigHashRdbType;
     keydata->loadctx.type = RDB_KEY_TYPE_BIGHASH;
     keydata->loadctx.bighash.hash_nfields = 0;
     keydata->loadctx.bighash.meta = createObjectMeta(0);
-    keydata->loadctx.bighash.evict = createObject(OBJ_HASH,NULL);
+    evict = createObject(OBJ_HASH,NULL);
+    evict->big = 1;
+    keydata->loadctx.bighash.evict = evict;
 }
 
 int bighashRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
@@ -627,7 +631,7 @@ int bighashRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
         return 0;
     }
 
-    rdbval = rdbVerbatimNew(ENC_TYPE_HASH_SUB);
+    rdbval = rdbVerbatimNew(RDB_TYPE_STRING);
     if (rdbLoadStringVerbatim(rdb,&rdbval)) {
         sdsfree(rdbval);
         sdsfree(subkey);

@@ -149,10 +149,10 @@ void rdbKeyDataDeinitSave(rdbKeyData *keydata) {
 int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     rocksIter *it;
     sds rawkey, rawval;
-    int error;
+    int error, init_result;
     sds errstr;
     long long decode_raw_failed = 0, init_key_save_failed = 0;
-    long long stat_rawkeys = 0, stats_skipped = 0, stat_keys = 0;
+    long long stat_rawkeys = 0, stat_obseletes = 0, stats_skipped = 0, stat_keys = 0;
 
     if (db->id > 0) return C_OK; /*TODO support multi-db */
 
@@ -161,10 +161,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         return C_ERR;
     }
 
-    if (!rocksIterSeekToFirst(it)) {
-        errstr = sdsnew("init rocksdb iterator failed.");
-        goto err;
-    }
+    if (!rocksIterSeekToFirst(it)) return C_OK;
 
     do {
         int cont, key_ready;
@@ -186,8 +183,10 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         }
 
         key = decoded->key;
-        if (rdbKeyDataInitSave(keydata,db,decoded->key)) {
-            if (init_key_save_failed++ < 10) {
+        if ((init_result = rdbKeyDataInitSave(keydata,db,decoded->key))) {
+            if (init_result == -2) {
+                stat_obseletes++;
+            } else if (init_key_save_failed++ < 10) {
                 sds repr = sdscatrepr(sdsempty(),key,sdslen(key));
                 serverLog(LL_WARNING, "Init rdb save key failed: %s", repr);
                 sdsfree(repr);
@@ -208,7 +207,8 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         cont = 1, key_ready = 1;
         while (!error && cont) {
             if (!key_ready) { /* prepare next key. */
-                if (rocksIterNext(it)) break; /* iter finished.*/
+                if (!rocksIterNext(it)) /* iter finished.*/
+                    break;
                 rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
                 stat_rawkeys++;
                 if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
@@ -241,8 +241,8 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     } while (!error && rocksIterNext(it));
 
     serverLog(LL_NOTICE,"Rdb save keys from rocksdb finished:"
-            "rawkey(iterated:%lld,skipped:%lld), key(saved:%lld).",
-            stat_rawkeys, stats_skipped, stat_keys);
+            "rawkey(iterated:%lld,obselete:%lld,skipped:%lld), key(saved:%lld).",
+            stat_rawkeys, stat_obseletes, stats_skipped, stat_keys);
     return C_OK;
 
 err:
@@ -292,7 +292,7 @@ int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, sds keystr) {
             rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,expire,keystr);
         } else {
             /* hot key */
-            return -1;
+            return -2;
         }
     } else {
         /* key not exists */
