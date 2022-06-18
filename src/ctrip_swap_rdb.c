@@ -649,7 +649,6 @@ int rdbKeyDataInitLoad(rdbKeyData *keydata, rio *rdb, int rdbtype, sds key) {
     if (!rdbIsObjectType(rdbtype)) return RDB_LOAD_ERR_OTHER;
     switch(rdbtype) {
     case RDB_TYPE_STRING:
-    case RDB_TYPE_HASH_ZIPMAP:
     case RDB_TYPE_HASH_ZIPLIST:
         rdbKeyDataInitLoadWholeKey(keydata,rdbtype,key);
         break;
