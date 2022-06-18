@@ -571,7 +571,8 @@ int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
             decoded->rdbtype != RDB_TYPE_STRING ||
             sdslen(decoded->key) != sdslen(key->ptr) ||
             sdscmp(decoded->key,key->ptr)) {
-        *error = -1;
+        /* check failed, skip this key */
+        *error = 0;
         return 0;
     }
 

@@ -355,6 +355,7 @@ void swapInit() {
 
     server.rdb_load_ctx = NULL;
     server.request_listeners = serverRequestListenersCreate();
+
 }
 
 

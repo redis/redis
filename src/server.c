@@ -3483,6 +3483,7 @@ void InitServerLast() {
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
     swapInit();
+    initSwapWholeKey();
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();

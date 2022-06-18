@@ -612,7 +612,7 @@ void evictStopLoading(int success);
 #define RDB_KEY_TYPE_MEMKEY 2
 
 typedef struct decodeResult {
-    int enc_type;
+    unsigned char enc_type;
     size_t version;
     sds key;
     sds subkey;
@@ -679,10 +679,11 @@ typedef struct rdbKeyData {
 
 /* rdb save */
 int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags);
+void initSwapWholeKey();
 
 int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
 void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
-int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, sds key);
+int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded);
 void rdbKeyDataDeinitSave(rdbKeyData *keydata);
 
 int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb);
@@ -753,6 +754,8 @@ void bighashRdbLoadExpired(struct rdbKeyData *keydata);
 
 #define isSubkeyEncType(enc_type) ((enc_type) <= 'z' && (enc_type) >= 'a')
 unsigned char rocksGetEncType(int obj_type, int big);
+int rocksGetObjectType(unsigned char enc_type);
+unsigned char rocksGetObjectEncType(robj *o);
 sds rocksEncodeKey(unsigned char enc_type, sds key);
 sds rocksEncodeSubkey(unsigned char enc_type, uint64_t version, sds key, sds subkey);
 sds rocksEncodeValRdb(robj *value);

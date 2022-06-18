@@ -165,14 +165,10 @@ foreach sanitize_dump {no yes} {
         exec cp tests/assets/corrupt_empty_keys.rdb $server_path
         start_server [list overrides [list "dir" $server_path "dbfilename" "corrupt_empty_keys.rdb" "sanitize-dump-payload" $sanitize_dump]] {
             r select 0
-            if {$::swap_mode == "memory"} {
-                assert_equal [r dbsize] 0
-                verify_log_message 0 "*skipping empty key: hash*" 0
-                verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
-                verify_log_message 0 "*empty keys skipped: 8*" 0
-            } else {
-                assert_equal [r dbsize] 2
-            }
+            assert_equal [r dbsize] 0
+            verify_log_message 0 "*skipping empty key: hash*" 0
+            verify_log_message 0 "*skipping empty key: hash_ziplist*" 0
+            verify_log_message 0 "*empty keys skipped: 8*" 0
             
             verify_log_message 0 "*skipping empty key: set*" 0
             verify_log_message 0 "*skipping empty key: list_quicklist*" 0

@@ -308,6 +308,7 @@ void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
     rdbKeyDataInitSaveKey(keydata,value,evict,expire);
     keydata->type = &wholekeyRdbType;
     keydata->savectx.type = RDB_KEY_TYPE_WHOLEKEY;
+    serverAssert(value == NULL && evict->big == 0);
 }
 
 int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
@@ -341,6 +342,18 @@ void rdbKeyDataInitLoadWholeKey(rdbKeyData *keydata, int rdbtype, sds key) {
     keydata->loadctx.wholekey.hash_nfields = 0;
 }
 
+sds empty_hash_ziplist_verbatim;
+
+void initSwapWholeKey() {
+    robj *emptyhash = createHashObject();
+    empty_hash_ziplist_verbatim = rocksEncodeValRdb(emptyhash);
+    decrRefCount(emptyhash);
+}
+
+static inline int hashZiplistVerbatimIsEmpty(sds verbatim) {
+    return !sdscmp(empty_hash_ziplist_verbatim, verbatim);
+}
+
 int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
         sds *rawval, int *error) {
     robj *evict = NULL;
@@ -368,6 +381,10 @@ int wholekeyRdbLoad(struct rdbKeyData *keydata, rio *rdb, sds *rawkey,
     case RDB_TYPE_HASH_ZIPLIST:
         verbatim = rdbVerbatimNew((unsigned char)rdbtype);
         if (rdbLoadStringVerbatim(rdb,&verbatim)) goto err;
+        if (hashZiplistVerbatimIsEmpty(verbatim)) {
+            *error = RDB_LOAD_ERR_EMPTY_KEY;
+            goto err;
+        }
         evict = createObject(OBJ_HASH,NULL);
         break;
     default:

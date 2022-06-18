@@ -73,6 +73,10 @@ unsigned char rocksGetEncType(int obj_type, int big) {
     return big ? rocksGetSubkeyEncType(obj_type) : rocksGetKeyEncType(obj_type);
 }
 
+unsigned char rocksGetObjectEncType(robj *o) {
+    return rocksGetEncType(o->type,o->big);
+}
+
 sds rocksEncodeKey(unsigned char enc_type, sds key) {
     sds rawkey = sdsnewlen(SDS_NOINIT,1+sdslen(key));
     rawkey[0] = enc_type;

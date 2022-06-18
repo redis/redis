@@ -134,13 +134,13 @@ void *rocksIterIOThreadMain(void *arg) {
             }
             itered++;
 
-//#ifdef SWAP_DEBUG
+#ifdef SWAP_DEBUG
             sds rawkeyrepr = sdscatrepr(sdsempty(),rawkey,rklen);
             sds rawvalrepr = sdscatrepr(sdsempty(),rawval,rvlen);
             serverLog(LL_WARNING, "iterated: rawkey=%s, rawva=%s", rawkeyrepr, rawvalrepr);
             sdsfree(rawkeyrepr);
             sdsfree(rawvalrepr);
-//#endif
+#endif
             if (rklen > ITER_CACHED_MAX_KEY_LEN) {
                 cur->rawkey = sdsnewlen(rawkey, rklen);
             } else {

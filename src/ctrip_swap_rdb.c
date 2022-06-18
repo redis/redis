@@ -169,6 +169,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         unsigned char rdbtype;
         rdbKeyData _keydata, *keydata = &_keydata;
         decodeResult _decoded, *decoded = &_decoded;
+        error = 0;
 
         rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
         stat_rawkeys++;
@@ -183,7 +184,7 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
         }
 
         key = decoded->key;
-        if ((init_result = rdbKeyDataInitSave(keydata,db,decoded->key))) {
+        if ((init_result = rdbKeyDataInitSave(keydata,db,decoded))) {
             if (init_result == -2) {
                 stat_obseletes++;
             } else if (init_key_save_failed++ < 10) {
@@ -260,10 +261,12 @@ void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict,
     keydata->savectx.expire = expire;
 }
 
-int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, sds keystr) {
+int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded) {
     robj *evict, *value, key;
     objectMeta *meta;
     long long expire;
+    sds keystr = decoded->key;
+    unsigned char enc_type = decoded->enc_type;
 
     initStaticStringObject(key,keystr);
     evict = lookupEvictKey(db,&key);
@@ -272,23 +275,45 @@ int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, sds keystr) {
     expire = getExpire(db,&key);
 
     if (evict != NULL && value != NULL) {
-        serverPanic("evict and value both null");
+        /* skip orphane rocks key, e.g. lazy deleted big hash. */
+        return -2;
     } else if (evict != NULL && value == NULL) {
-        /* cold key, could be cold wholekey/bighash */
+        if (rocksGetObjectEncType(evict) != enc_type) {
+            /* key type in rocksdb does not match type in memory, key in
+             * rocksdb is obselete. e.g. deleted bighash fields. */
+            return -2;
+        }
         if (evict->type != OBJ_STRING && evict->type != OBJ_HASH) {
+            /* cold key, must be cold wholekey or bighash */
             serverPanic("unsupported cold key type.");
         } else if (evict->type == OBJ_STRING) {
             serverAssert(meta == NULL);
             rdbKeyDataInitSaveWholeKey(keydata,value,evict,expire);
         } else if (evict->type == OBJ_HASH && evict->big == 0) {
             serverAssert(meta == NULL);
+            if (decoded->enc_type != ENC_TYPE_HASH)
+                return -2;
             rdbKeyDataInitSaveWholeKey(keydata,value,evict,expire);
         } else { /* bighash */
             serverAssert(meta != NULL);
+            if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
+                    decoded->version != meta->version ||
+                    decoded->rdbtype != RDB_TYPE_STRING) {
+                return -2;
+            }
             rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,expire,keystr);
         }
     } else if (evict == NULL && value != NULL) {
+        if (rocksGetObjectEncType(value) != enc_type) {
+            return -2;
+        }
+
         if (meta != NULL) {
+            if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
+                    decoded->version != meta->version ||
+                    decoded->rdbtype != RDB_TYPE_STRING) {
+                return -2;
+            }
             rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,expire,keystr);
         } else {
             /* hot key */
