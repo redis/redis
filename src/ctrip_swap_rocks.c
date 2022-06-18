@@ -132,10 +132,15 @@ void rocksCreateSnapshot() {
 
 void rocksReleaseCheckpoint() {
     rocks *rocks = server.rocks; 
+    char* err = NULL;
     if (rocks->checkpoint != NULL) {
         serverLog(LL_NOTICE, "[rocks] releasing checkpoint in (%s).", rocks->checkpoint_dir);
         rocksdb_checkpoint_object_destroy(rocks->checkpoint);
         rocks->checkpoint = NULL;
+        rocksdb_destroy_db(rocks->db_opts, rocks->checkpoint_dir, &err);
+        if (err != NULL) {
+            serverLog(LL_WARNING, "[rocks] destory db fail: %s", rocks->checkpoint_dir);
+        }
         sdsfree(rocks->checkpoint_dir);
         rocks->checkpoint_dir = NULL;
     }

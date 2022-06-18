@@ -1447,7 +1447,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
 
-    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%i", ROCKS_DATA, ustime())) == 0) return C_ERR;
+    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%lld", ROCKS_DATA, ustime())) == 0) return C_ERR;
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -2970,7 +2970,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         }
     }
 
-    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%i", ROCKS_DATA, ustime())) == 0) return C_ERR;
+    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%lld", ROCKS_DATA, ustime())) == 0) return C_ERR;
 
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {

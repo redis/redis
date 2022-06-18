@@ -219,7 +219,12 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     it->db = db;
     it->checkpoint_db = NULL;
     if (rocks->checkpoint != NULL) {
-        rocksdb_t* db = rocksdb_open(rocks->db_opts, rocks->checkpoint_dir, err);
+        char* error = NULL;
+        rocksdb_t* db = rocksdb_open(rocks->db_opts, rocks->checkpoint_dir, &error);
+        if (error != NULL) {
+            serverLog(LL_WARNING, "[rocks]rocksdb open db fail, dir:%s, err:%s", rocks->checkpoint_dir, error);
+            goto err;
+        }
         rocksdb_iter = rocksdb_create_iterator(db, rocks->ropts);
         it->checkpoint_db = db;
     } else {
