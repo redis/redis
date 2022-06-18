@@ -1446,7 +1446,8 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
-    rocksCreateSnapshot();
+
+    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%i", ROCKS_DATA, ustime())) == 0) return C_ERR;
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -1455,7 +1456,6 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        rocksUseSnapshot();
 
         retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
@@ -2970,7 +2970,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         }
     }
 
-    rocksCreateSnapshot();
+    if (rocksCreateCheckpoint(sdscatprintf(sdsempty(), "%s/tmp_%i", ROCKS_DATA, ustime())) == 0) return C_ERR;
+
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         /* Child */
@@ -2982,7 +2983,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        rocksUseSnapshot();
+
 
         retval = rdbSaveRioWithEOFMark(&rdb,NULL,rsi);
         if (retval == C_OK && rioFlush(&rdb) == 0)

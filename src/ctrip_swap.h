@@ -493,13 +493,18 @@ typedef struct rocks {
     rocksdb_readoptions_t *ropts;
     rocksdb_writeoptions_t *wopts;
     const rocksdb_snapshot_t *snapshot;
+    rocksdb_checkpoint_t* checkpoint;
+    sds checkpoint_dir;
 } rocks;
 
 int rocksInit(void);
 void rocksRelease(void);
+void rocksReinit(void);
 int rocksFlushAll(void);
 void rocksCron(void);
 void rocksCreateSnapshot(void);
+int rocksCreateCheckpoint(sds checkpoint_dir);
+void rocksReleaseCheckpoint(void);
 void rocksUseSnapshot(void);
 void rocksReleaseSnapshot(void);
 rocksdb_t *rocksGetDb(void);
@@ -575,6 +580,7 @@ typedef struct rocksIter{
     pthread_t io_thread;
     bufferedIterCompleteQueue *buffered_cq;
     rocksdb_iterator_t *rocksdb_iter;
+    rocksdb_t* checkpoint_db;
 } rocksIter;
 
 rocksIter *rocksCreateIter(struct rocks *rocks, redisDb *db);

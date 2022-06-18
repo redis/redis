@@ -217,7 +217,15 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
 
     it->rocks = rocks;
     it->db = db;
-    rocksdb_iter = rocksdb_create_iterator(rocks->db, rocks->ropts);
+    it->checkpoint_db = NULL;
+    if (rocks->checkpoint != NULL) {
+        rocksdb_t* db = rocksdb_open(rocks->db_opts, rocks->checkpoint_dir, err);
+        rocksdb_iter = rocksdb_create_iterator(db, rocks->ropts);
+        it->checkpoint_db = db;
+    } else {
+        rocksdb_iter = rocksdb_create_iterator(rocks->db, rocks->ropts);
+    }
+    
     if (rocksdb_iter == NULL) {
         serverLog(LL_WARNING, "Create rocksdb iterator failed.");
         goto err;
@@ -302,6 +310,10 @@ void rocksReleaseIter(rocksIter *it) {
        it->rocksdb_iter = NULL;
    }
 
+   if (it->checkpoint_db != NULL) {
+     rocksdb_close(it->checkpoint_db);
+     it->checkpoint_db = NULL;
+   }
    zfree(it);
 }
 

@@ -2049,6 +2049,7 @@ void checkChildrenDone(void) {
                 exit(1);
             }
             if (!bysignal && exitcode == 0) receiveChildInfo();
+            rocksReleaseCheckpoint();
             resetChildState();
         } else {
             if (!ldbRemoveChild(pid)) {

@@ -41,6 +41,7 @@ int rocksInit() {
     rocksdb_cache_t *block_cache;
 
     rocks->snapshot = NULL;
+    rocks->checkpoint = NULL;
     rocks->db_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->db_opts, 1); 
     rocksdb_options_enable_statistics(rocks->db_opts);
@@ -106,6 +107,18 @@ void rocksRelease() {
     server.rocks = NULL;
 }
 
+void rocksReinit() {
+    rocksdb_checkpoint_t* checkpoint = server.rocks->checkpoint;
+    sds checkpoint_dir = server.rocks->checkpoint_dir;
+    server.rocks->checkpoint = NULL;
+    server.rocks->checkpoint_dir = NULL;
+    rocksRelease();
+    server.rocksdb_epoch++;
+    rocksInit();
+    server.rocks->checkpoint = checkpoint;
+    server.rocks->checkpoint_dir = checkpoint_dir;
+}
+
 void rocksCreateSnapshot() {
     rocks *rocks = server.rocks;
     if (rocks->snapshot) {
@@ -114,6 +127,48 @@ void rocksCreateSnapshot() {
     }
     rocks->snapshot = rocksdb_create_snapshot(rocks->db);
     serverLog(LL_NOTICE, "[rocks] create rocksdb snapshot ok.");
+}
+
+
+void rocksReleaseCheckpoint() {
+    rocks *rocks = server.rocks; 
+    if (rocks->checkpoint != NULL) {
+        serverLog(LL_NOTICE, "[rocks] releasing checkpoint in (%s).", rocks->checkpoint_dir);
+        rocksdb_checkpoint_object_destroy(rocks->checkpoint);
+        rocks->checkpoint = NULL;
+        sdsfree(rocks->checkpoint_dir);
+        rocks->checkpoint_dir = NULL;
+    }
+    
+}
+
+int rocksCreateCheckpoint(sds checkpoint_dir) {
+    rocksdb_checkpoint_t* checkpoint = NULL;
+    rocks *rocks = server.rocks; 
+    if (rocks->checkpoint != NULL) {
+        serverLog(LL_WARNING, "[rocks] release checkpoint before create.");
+        rocksReleaseCheckpoint();
+    }
+    char* err = NULL;
+    checkpoint = rocksdb_checkpoint_object_create(rocks->db, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[rocks] checkpoint object create fail :%s\n", err);
+        goto error;
+    }
+    rocksdb_checkpoint_create(checkpoint, checkpoint_dir, 0, &err);
+    if (err != NULL) {
+        serverLog(LL_WARNING, "[rocks] checkpoint %s create fail: %s", checkpoint_dir, err);
+        goto error;
+    }
+    rocks->checkpoint = checkpoint;
+    rocks->checkpoint_dir = checkpoint_dir;
+    return 1;
+error:
+    if(checkpoint != NULL) {
+        rocksdb_checkpoint_object_destroy(checkpoint);
+    } 
+    sdsfree(checkpoint_dir);
+    return 0;
 }
 
 void rocksUseSnapshot() {
@@ -179,9 +234,7 @@ int rocksFlushAll() {
 
     snprintf(odir,ROCKS_DIR_MAX_LEN,"%s/%d",ROCKS_DATA,server.rocksdb_epoch);
     asyncCompleteQueueDrain(-1);
-    rocksRelease();
-    server.rocksdb_epoch++;
-    rocksInit();
+    rocksReinit();
     rmdirRecursive(odir);
     serverLog(LL_NOTICE,"[ROCKS] remove rocks data in (%s).",odir);
     return 0;
