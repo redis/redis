@@ -768,8 +768,8 @@ int rocksDecodeKey(const char *rawkey, size_t rawlen, const char **key, size_t *
 int rocksDecodeSubkey(const char *raw, size_t rawlen, uint64_t *version, const char **key, size_t *klen, const char **sub, size_t *slen);
 robj *rocksDecodeValRdb(sds raw);
 robj *unshareStringValue(robj *value);
-size_t objectComputeSize(robj *o, size_t sample_size);
-size_t keyComputeSize(redisDb *db, robj *key);
+size_t objectEstimateSize(robj *o);
+size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
 const char *strObjectType(int type);
 

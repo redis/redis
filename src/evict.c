@@ -682,7 +682,7 @@ int performEvictions(void) {
             latencyStartMonitor(eviction_latency);
             /* Note that tryEvictKey might directly free key if it's not dirty,
              * so we need to compute key size before tryEvictKey. */
-            mem_freed += keyComputeSize(db, keyobj);
+            mem_freed += keyEstimateSize(db, keyobj);
             /* Trigger swap key from memory to rocksdb */
             swap_trigged += tryEvictKey(db, keyobj, &evict_result);
             if (evict_result < 0)

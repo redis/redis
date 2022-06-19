@@ -32,7 +32,7 @@ void hashTransformBig(robj *o, objectMeta *m) {
     size_t hash_size;
     serverAssert(o && o->type == OBJ_HASH);
     if (m != NULL) return;
-    hash_size = objectComputeSize(o,8);
+    hash_size = objectEstimateSize(o);
     if (hash_size > server.swap_big_hash_threshold) {
         o->big = 1;
     } else {

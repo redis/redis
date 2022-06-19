@@ -181,9 +181,24 @@ sds objectDump(robj *o) {
     return repr;
 }
 
-size_t keyComputeSize(redisDb *db, robj *key) {
+/* For big Hash/Set/Zset object, object might changed by swap thread in
+ * createOrMergeObject, so iterating those big objects in main thread without
+ * requestWait is not safe. intead we just estimate those object size. */
+size_t objectComputeSize(robj *o, size_t sample_size);
+size_t objectEstimateSize(robj *o) {
+    size_t asize = 0;
+    if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
+        dict *d = o->ptr;
+        asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+        asize += DEFAULT_HASH_FIELD_SIZE*dictSize(d);
+    } else {
+        objectComputeSize(o,5);
+    }
+    return asize;
+}
+size_t keyEstimateSize(redisDb *db, robj *key) {
     robj *val = lookupKey(db, key, LOOKUP_NOTOUCH);
-    return val ? objectComputeSize(val, 5): 0;
+    return val ? objectEstimateSize(val): 0;
 }
 
 /* Create an unshared object from src, note that o.refcount decreased. */
