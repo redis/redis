@@ -1964,7 +1964,6 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
             si->runid = sdsnew(argv[4]);
             sentinelTryConnectionSharing(si);
         }
-      /* rename-command config is deprecated in Redis server and sentinel, using ACL instead */
     } else if (!strcasecmp(argv[0],"rename-command") && argc == 4) {
         /* rename-command <name> <command> <renamed-command> */
         ri = sentinelGetMasterByName(argv[1]);
