@@ -192,7 +192,7 @@ size_t objectEstimateSize(robj *o) {
         asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
         asize += DEFAULT_HASH_FIELD_SIZE*dictSize(d);
     } else {
-        objectComputeSize(o,5);
+        asize = objectComputeSize(o,5);
     }
     return asize;
 }
