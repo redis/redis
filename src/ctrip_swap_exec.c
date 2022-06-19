@@ -744,6 +744,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
         incrRefCount(val1);
         dbAdd(db,key1,val1);
         rocksInit();
+        initStatsSwap();
     }
 
    TEST("exec: rio") {

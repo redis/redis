@@ -7,6 +7,26 @@ on:
     branches: [ xredis_2_ror ]
 
 jobs:
+   unit:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+          submodules: true
+    - name: cache rocksdb
+      id: cache-rocksdb
+      uses: actions/cache@v3
+      with:
+        path: deps/rocksdb
+        key: rocksdb
+    - name: unit-test
+      run: |
+          sudo apt-get update
+          sudo apt-get -y install libsnappy-dev zlib1g-dev libstdc++6
+          make unit-test -j8
    mem:
     strategy:
       matrix:

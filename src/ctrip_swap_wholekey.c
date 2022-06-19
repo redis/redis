@@ -429,6 +429,9 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
     initTestRedisServer();
     redisDb* db = server.db + 0;
     int error = 0;
+
+    initSwapWholeKey();
+
     TEST("wholeKey SwapAna value = NULL and evict = NULL") {
         void* ctx = NULL;
         swapData* data = createWholeKeySwapData(db, NULL, NULL, NULL, &ctx);
