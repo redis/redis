@@ -198,6 +198,7 @@ contains the updated topology & last heartbeat times of the other nodes in the s
 owning the same slots). The node is responsible for promoting itself by writing the updated status to the Failover Coordinator if it
 detects that its current primary has not sent a heartbeat for a long enough time.
 
+The node will mark itself as "down" when it unable to reach the FC for X number of seconds (this can't be ticks since it isn't receiving them). It will either stop serving all traffic, or stop serving write traffic based off of the `cluster-allow-reads-during-cluster-down`.
 #### Interfaces
 
 - With the Failover Coordinator for topology updates and setting primary status
