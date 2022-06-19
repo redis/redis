@@ -534,9 +534,9 @@ uint8_t raxIteratorPopChildOffset(raxIterator *it) {
 }
 
 /* See cmts in raxLowWalk() above */
-static inline size_t raxLowWalkSeek(
-    unsigned char *s, size_t len, int *splitpos, raxIterator* it
-) {
+static inline size_t raxLowWalkSeek(raxIterator* it, unsigned char *s,
+                                    size_t len, int *splitpos)
+{
     raxNode *h = it->rt->head;
 
     size_t i = 0;
