@@ -97,7 +97,7 @@ consistent & timely manner.
 Maintaining these two tiers allows scaling the number of nodes while:
 - Maintaining an upper bound over the time required to decide and propagate failover decisions.
 While the time required to propagate the updated primary/replica status depends on the number of Failover Coordinators in the deployment
-the maximum number of these should always be small enough to allow us to guarantee a substantially better SLA then what
+the maximum number of these should always be small enough to allow us to guarantee a substantially better SLA than what
 the current implementation provides.
 - Limiting the clustering overhead on individual nodes in the deployment.
 Depending on pub/sub mode, an individual node only needs to maintain a connection to its Failover Coordinator (and primary/replicas).
