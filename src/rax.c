@@ -527,7 +527,7 @@ int raxIteratorPushChildOffset(raxIterator *it, uint8_t child_offset) {
     return 1;
 }
 
- uint8_t raxIteratorPopChildOffset(raxIterator *it) {
+uint8_t raxIteratorPopChildOffset(raxIterator *it) {
     if (it->cpos == 0) return 0;
     it->cpos--;
     return it->child_offset_stack[it->cpos];
