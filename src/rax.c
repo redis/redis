@@ -1646,7 +1646,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
      * perform a lookup, and later invoke the prev/next key code that
      * we already use for iteration. */
     int splitpos = 0;
-    size_t i = raxLowWalkSeek(ele,len,&splitpos, it);
+    size_t i = raxLowWalkSeek(it, ele, len, &splitpos);
 
     /* Return OOM on incomplete stack info. */
     if (it->stack.oom) return 0;
