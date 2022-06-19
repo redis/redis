@@ -136,7 +136,7 @@ With the administrator, directly for creating the cluster / updating and removin
 
 **FLOTILLA.TOPOLOGY**: Similar to CLUSTER.SLOTS/NODES - response lists all the Flotilla nodes and their metadata  
 **FLOTILLA.REMOVE_NODE**: Remove a given node from the cluster  
-**FLOTILLA.ASSIGN_SLOTS**: Assign a set slots to specified Shard  
+**FLOTILLA.ASSIGN_SLOTS**: Assign a set of slots to specified Shard  
 **FLOTILLA.UPDATE_NODES**: Change the topology of a list of nodes    
 
     Update/Assign_slots commands can specify the epoch they are based on in order to allow flotilla to reject outdated requests.
