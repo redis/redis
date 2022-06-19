@@ -291,6 +291,7 @@ typedef struct swapRequest {
   void *notify_pd;
   swapRequestFinishedCallback finish_cb;
   void *finish_pd;
+  redisAtomic size_t swap_memory;
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
@@ -327,6 +328,7 @@ int swapThreadsDrained();
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
+#define ROCKS_TYPES             7
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
@@ -530,19 +532,16 @@ int submitNormalClientRequests(client *c);
 #define SWAP_RL_STOP    2
 
 typedef struct swapStat {
-    char *name;
-    long long started;
-    long long finished;
-    mstime_t last_start_time;
-    mstime_t last_finish_time;
-    size_t started_rawkey_bytes;
-    size_t started_rawval_bytes;
-    size_t finished_rawkey_bytes;
-    size_t finished_rawval_bytes;
+    const char *name;
+    redisAtomic size_t count;
+    redisAtomic size_t memory;
 } swapStat;
 
-void updateStatsSwapStart(int type, sds rawkey, sds rawval);
-void updateStatsSwapFinish(int type, sds rawkey, sds rawval);
+void initStatsSwap(void);
+void resetStatsSwap(void);
+void updateStatsSwapStart(swapRequest *req);
+void updateStatsSwapRIO(swapRequest *req, RIO *rio);
+void updateStatsSwapFinish(swapRequest *req);
 
 int swapRateLimitState(void);
 int swapRateLimit(client *c);

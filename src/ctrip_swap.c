@@ -229,11 +229,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
         swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
-
-        //TODO refactor evict asap: swapdata or swapthread should notify
-        // key swapped in and register those keys to be evict asap.
         if (key) clientHoldKey(c,key,0);
-
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;
 #endif
@@ -293,20 +289,8 @@ int dbSwap(client *c) {
 
 void swapInit() {
     int i;
-    char *swap_type_names[] = {"nop", "get", "put", "del"};
 
-    server.swap_stats = zmalloc(SWAP_TYPES*sizeof(swapStat));
-    for (i = 0; i < SWAP_TYPES; i++) {
-        server.swap_stats[i].name = swap_type_names[i];
-        server.swap_stats[i].started = 0;
-        server.swap_stats[i].finished = 0;
-        server.swap_stats[i].last_start_time = 0;
-        server.swap_stats[i].last_finish_time = 0;
-        server.swap_stats[i].started_rawkey_bytes = 0;
-        server.swap_stats[i].finished_rawkey_bytes = 0;
-        server.swap_stats[i].started_rawval_bytes = 0;
-        server.swap_stats[i].finished_rawval_bytes = 0;
-    }
+    initStatsSwap();
 
     server.evict_clients = zmalloc(server.dbnum*sizeof(client*));
     for (i = 0; i < server.dbnum; i++) {

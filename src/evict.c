@@ -325,7 +325,7 @@ unsigned long LFUDecrAndReturn(robj *o) {
 }
 
 static size_t getUsedMemory() {
-    return zmalloc_used_memory() - server.swap_memory;
+    return zmalloc_used_memory() - server.swap_inprogress_memory;
 }
 
 static int updateEvictionSwapRateLimitState() {
@@ -335,7 +335,7 @@ static int updateEvictionSwapRateLimitState() {
         isEvictionSwapPaused = eviction_swap_pause;
         serverLog(LL_NOTICE, "[ratelimit] Eviction %s: redis_mem(%ld) swap_mem(%ld)",
                 eviction_swap_pause ? "paused" : "resumed",
-				getUsedMemory(), server.swap_memory);
+				getUsedMemory(), server.swap_inprogress_memory);
     }
     return isEvictionSwapPaused;
 }
@@ -749,7 +749,7 @@ int performEvictions(void) {
     if (server.mstime - prev > 1000) {
         serverLog(LL_VERBOSE,
                 "Eviction loop=%ld,scaned=%ld,swapped=%ld,redis_mem=%ld,swap_mem=%ld",
-                nloop, nscaned, nswap, mem_used, server.swap_memory);
+                nloop, nscaned, nswap, mem_used, server.swap_inprogress_memory);
         prev = server.mstime;
         nscaned = 0, nloop = 0, nswap = 0;
     }

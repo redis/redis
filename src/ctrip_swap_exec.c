@@ -424,6 +424,7 @@ static int executeSwapDelRequest(swapRequest *req) {
         goto end;
     }
 
+    updateStatsSwapRIO(req, rio);
     if (doRIO(rio)) {
         retval = EXEC_FAIL;
         goto end;
@@ -486,6 +487,7 @@ static int executeSwapOutRequest(swapRequest *req) {
         goto end;
     }
 
+    updateStatsSwapRIO(req,rio);
     if (doRIO(rio)) {
         retval = EXEC_FAIL;
         goto end;
@@ -499,6 +501,7 @@ static int executeSwapOutRequest(swapRequest *req) {
 
 
 end:
+
     DEBUG_MSGS_APPEND(req->msgs,"execswap-out-end","retval=%d",retval);
     doNotify(req);
     if (rawkeys) {
@@ -528,6 +531,7 @@ static int doSwapIntentionDel(swapRequest *req, int numkeys, sds *rawkeys) {
     }
 
     RIOInitWrite(rio, wb);
+    updateStatsSwapRIO(req,rio);
     retval = doRIO(rio);
     RIODeinit(rio);
 
@@ -638,6 +642,7 @@ static int executeSwapInRequest(swapRequest *req) {
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in-createormerge","result=%p",(void*)req->result);
 
 end:
+    updateStatsSwapRIO(req,rio);
     DEBUG_MSGS_APPEND(req->msgs,"execswap-in-end","retval=%d",retval);
     doNotify(req);
     RIODeinit(rio);
@@ -678,6 +683,7 @@ void submitSwapRequest(int mode, int intention, uint32_t intention_flags,
         swapData* data, void *datactx,
         swapRequestFinishedCallback cb, void *pd, void *msgs) {
     swapRequest *req = swapRequestNew(intention,intention_flags,data,datactx,cb,pd,msgs);
+    updateStatsSwapStart(req);
     if (mode == SWAP_MODE_ASYNC) {
         asyncSwapRequestSubmit(req);
     } else {
@@ -696,6 +702,7 @@ swapRequest *swapRequestNew(int intention, uint32_t intention_flags, swapData *d
     req->result = NULL;
     req->finish_cb = cb;
     req->finish_pd = pd;
+    req->swap_memory = 0;
 #ifdef SWAP_DEBUG
     req->msgs = msgs;
 #endif

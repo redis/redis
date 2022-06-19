@@ -35,6 +35,7 @@
 #include <errno.h>
 #include <string.h>
 
+int rmdirRecursive(const char *path);
 int rocksInit() {
     rocks *rocks = zmalloc(sizeof(struct rocks));
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
@@ -72,8 +73,10 @@ int rocksInit() {
 
     struct stat statbuf;
     if (!stat(ROCKS_DATA, &statbuf) && S_ISDIR(statbuf.st_mode)) {
-        /* "data.rocks" folder already exists, no need to create */
-    } else if (mkdir(ROCKS_DATA, 0755)) {
+        /* "data.rocks" folder already exists, remove it on start */
+        rmdirRecursive(ROCKS_DATA);
+    }
+    if (mkdir(ROCKS_DATA, 0755)) {
         serverLog(LL_WARNING, "[ROCKS] mkdir %s failed: %s",
                 ROCKS_DATA, strerror(errno));
         return -1;
@@ -195,7 +198,7 @@ void rocksReleaseSnapshot() {
     }
 }
 
-static int rmdirRecursive(const char *path) {
+int rmdirRecursive(const char *path) {
 	struct dirent *p;
 	DIR *d = opendir(path);
 	size_t path_len = strlen(path);

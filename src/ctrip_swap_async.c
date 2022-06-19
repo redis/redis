@@ -48,6 +48,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
         /* currently async mode are only used by cmd swap. */
         finishSwapRequest(req);
         req->finish_cb(req->data, req->finish_pd);
+        updateStatsSwapFinish(req);
         swapRequestFree(req);
     }
 

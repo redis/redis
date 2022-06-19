@@ -1702,9 +1702,11 @@ struct redisServer {
     client **rksget_clients; /* array of rocks get clients (one for each db). */
     client **dummy_clients; /* array of dummy clients (one for each db). */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
+    struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
     /* swap rate limiting */
-    size_t swap_memory;     /* swap consumed memory in bytes */
+    redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
+    redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
     unsigned long long swap_memory_slowdown; /* swap memory to slowdown swap requests */
     unsigned long long swap_memory_stop; /* swap memory to (almost) stop swap requests */
     int maxmemory_oom_percentage; /* reject denyoom commands if server used more memory than

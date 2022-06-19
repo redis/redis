@@ -2534,6 +2534,7 @@ standardConfig configs[] = {
     createIntConfig("ps-parallism-rdb", NULL, MODIFIABLE_CONFIG, 4, 16384, server.ps_parallism_rdb, 32, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("maxmemory-oom-percentage", NULL, MODIFIABLE_CONFIG, 100, INT_MAX, server.maxmemory_oom_percentage, 200, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("swap-evict-step-max-subkeys", NULL, MODIFIABLE_CONFIG, 0, 65536, server.swap_evict_step_max_subkeys, 1024, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("debug-rio-latency", NULL, MODIFIABLE_CONFIG, -1, INT_MAX, server.debug_rio_latency, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),

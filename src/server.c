@@ -3399,7 +3399,8 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
-    server.swap_memory = 0;
+    server.swap_inprogress_count = 0;
+    server.swap_inprogress_memory = 0;
     server.in_swap_cb = 0;
 
     /* Create the timer callback, this is our way to process many background
@@ -5478,41 +5479,31 @@ sds genRedisInfoString(const char *section) {
 
    /* Swaps */
     if (allsections || !strcasecmp(section,"swaps")) {
-        long long swap_inprogress = 0;
-        time_t swap_last_finish = 0, swap_last_start = 0;
-
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Swaps\r\n");
-        for (j = 1; j < SWAP_TYPES; j++) {
-            swapStat *s = &server.swap_stats[j];
-            swap_inprogress += (s->started > s->finished) ? (s->started - s->finished) : 0;
-            swap_last_start = (s->last_start_time > swap_last_start) ? s->last_start_time : swap_last_start;
-            swap_last_finish = (s->last_finish_time > swap_last_finish) ? s->last_finish_time : swap_last_finish;
-        }
 
         info = sdscatprintf(info,
-                "swap_inprogress:%lld\r\n"
-                "swap_last_start:%ld\r\n"
-                "swap_last_finish:%ld\r\n"
-                "swap_memory:%ld\r\n",
-                swap_inprogress,
-                swap_last_start/1000,
-                swap_last_finish/1000,
-                server.swap_memory);
+                "swap_inprogress_count:%ld\r\n"
+                "swap_inprogress_memory:%ld\r\n",
+                server.swap_inprogress_count,
+                server.swap_inprogress_memory);
 
         for (j = 1; j < SWAP_TYPES; j++) {
             swapStat *s = &server.swap_stats[j];
-            size_t inprogress_rawval_bytes = 0;
-            if (j == SWAP_OUT) inprogress_rawval_bytes = s->started_rawval_bytes - s->finished_rawval_bytes;
-            info = sdscatprintf(info,
-                    "swap_%s:finished=%lld,inprogress=%lld,finished_rawkey_bytes=%ld,inprogress_rawkey_bytes=%ld,finished_rawval_bytes=%ld,inprogress_rawval_bytes:%ld\r\n",
-                    s->name,
-                    s->finished,
-                    s->started - s->finished,
-                    s->finished_rawkey_bytes,
-                    s->started_rawkey_bytes - s->finished_rawkey_bytes,
-                    s->finished_rawval_bytes,
-                    inprogress_rawval_bytes);
+            size_t count, memory;
+            atomicGet(s->count,count);
+            atomicGet(s->memory,memory);
+            info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld\r\n",
+                    s->name,count,memory);
+        }
+
+        for (j = 1; j < ROCKS_TYPES; j++) {
+            swapStat *s = &server.rio_stats[j];
+            size_t count, memory;
+            atomicGet(s->count,count);
+            atomicGet(s->memory,memory);
+            info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld\r\n",
+                    s->name,count,memory);
         }
     }
 

@@ -31,46 +31,113 @@
 /* Estimate memory used for one swap action, server will slow down event
  * processing if swap consumed too much memory(i.e. server is generating
  * io requests faster than rocksdb can handle). */
-#define SWAP_MEM_ESTMIATED_ZMALLOC_OVERHEAD   512
-#define SWAP_MEM_INFLIGHT_BASE (                                    \
-        /* db.evict store scs */                                    \
-        sizeof(moduleValue) + sizeof(robj) + sizeof(dictEntry) +    \
-        sizeof(swapClient) + sizeof(swappingClients) +              \
-        sizeof(rocksPrivData) +                                     \
-        sizeof(RIO) +                                               \
-        /* link in scs, pending_rios, processing_rios */            \
-        (sizeof(list) + sizeof(listNode))*3 )
 
-void updateStatsSwapStart(int type, sds rawkey, sds rawval) {
-    serverAssert(type < SWAP_TYPES);
-    size_t rawkey_bytes = rawkey == NULL ? 0 : sdslen(rawkey);
-    size_t rawval_bytes = rawval == NULL ? 0 : sdslen(rawval);
-    server.swap_stats[type].started++;
-    server.swap_stats[type].last_start_time = server.mstime;
-    server.swap_stats[type].started_rawkey_bytes += rawkey_bytes;
-    server.swap_stats[type].started_rawval_bytes += rawval_bytes;
+/* swap stats */
+#define SWAP_REQUEST_MEMORY_OVERHEAD (sizeof(swapRequest)+sizeof(swapCtx)+ \
+                                      sizeof(wholeKeySwapData)/*typical*/+ \
+                                      sizeof(requestListener))
+
+static inline size_t estimateRIOSwapMemory(RIO *rio) {
+    size_t memory = 0;
+    int i;
+    switch (rio->action) {
+    case ROCKS_GET:
+        memory += sdsalloc(rio->get.rawkey);
+        if (rio->get.rawval) memory += sdsalloc(rio->get.rawval);
+        break;
+    case ROCKS_PUT:
+        memory += sdsalloc(rio->put.rawkey);
+        memory += sdsalloc(rio->put.rawval);
+        break;
+    case ROCKS_DEL:
+        memory += sdsalloc(rio->del.rawkey);
+        break;
+    case ROCKS_WRITE:
+        rocksdb_writebatch_data(rio->write.wb,&memory);
+        break;
+    case ROCKS_MULTIGET:
+        for (i = 0; i < rio->multiget.numkeys; i++) {
+            memory += sdsalloc(rio->multiget.rawkeys[i]);
+            if (rio->multiget.rawvals && rio->multiget.rawvals[i])
+                memory += sdsalloc(rio->multiget.rawvals[i]);
+        }
+        break;
+    case ROCKS_SCAN:
+        memory += sdsalloc(rio->scan.prefix);
+        for (i = 0; i < rio->scan.numkeys; i++) {
+            memory += sdsalloc(rio->scan.rawkeys[i]);
+            memory += sdsalloc(rio->scan.rawvals[i]);
+        }
+        break;
+    default:
+        break;
+    }
+
+    return memory;
 }
 
-void updateStatsSwapFinish(int type, sds rawkey, sds rawval) {
-    serverAssert(type < SWAP_TYPES);
-    size_t rawkey_bytes = rawkey == NULL ? 0 : sdslen(rawkey);
-    size_t rawval_bytes = rawval == NULL ? 0 : sdslen(rawval);
-    server.swap_stats[type].finished++;
-    server.swap_stats[type].last_finish_time = server.mstime;
-    server.swap_stats[type].finished_rawkey_bytes += rawkey_bytes;
-    server.swap_stats[type].finished_rawval_bytes += rawval_bytes;
+void initStatsSwap() {
+    int i;
+
+    server.swap_stats = zmalloc(SWAP_TYPES*sizeof(swapStat));
+    for (i = 0; i < SWAP_TYPES; i++) {
+        server.swap_stats[i].name = swapIntentionName(i);
+        server.swap_stats[i].count = 0;
+        server.swap_stats[i].memory = 0;
+    }
+    server.rio_stats = zmalloc(ROCKS_TYPES*sizeof(swapStat));
+    for (i = 0; i < ROCKS_TYPES; i++) {
+        server.rio_stats[i].name = rocksActionName(i);
+        server.rio_stats[i].count = 0;
+        server.rio_stats[i].memory = 0;
+    }
 }
 
+/* Note that swap thread upadates swap stats, reset when there are swapRequest
+ * inprogress would result swap_in_progress overflow when swap finishs. */ 
+void resetStatsSwap() {
+    int i;
+    for (i = 0; i < SWAP_TYPES; i++) {
+        server.swap_stats[i].count = 0;
+        server.swap_stats[i].memory = 0;
+    }
+    for (i = 0; i < ROCKS_TYPES; i++) {
+        server.rio_stats[i].count = 0;
+        server.rio_stats[i].memory = 0;
+    }
+}
+
+void updateStatsSwapStart(swapRequest *req) {
+    req->swap_memory += SWAP_REQUEST_MEMORY_OVERHEAD;
+    atomicIncr(server.swap_inprogress_count,1);
+    atomicIncr(server.swap_inprogress_memory,req->swap_memory);
+    atomicIncr(server.swap_stats[req->intention].count,1);
+    atomicIncr(server.swap_stats[req->intention].memory,req->swap_memory);
+}
+
+void updateStatsSwapFinish(swapRequest *req) {
+    atomicDecr(server.swap_inprogress_count,1);
+    atomicDecr(server.swap_inprogress_memory,req->swap_memory);
+}
+
+void updateStatsSwapRIO(swapRequest *req, RIO *rio) {
+    int intention = req->intention, action = rio->action;
+    size_t rio_memory = estimateRIOSwapMemory(rio);
+    req->swap_memory += rio_memory;
+    atomicIncr(server.swap_inprogress_memory,rio_memory);
+    atomicIncr(server.swap_stats[intention].memory,rio_memory);
+    atomicIncr(server.rio_stats[action].count,1);
+    atomicIncr(server.rio_stats[action].memory,rio_memory);
+}
 
 /* ----------------------------- ratelimit ------------------------------ */
-/* sleep 100us~100ms if current swap memory is (slowdown, stop). */
 #define SWAP_RATELIMIT_DELAY_SLOW 1
 #define SWAP_RATELIMIT_DELAY_STOP 10
 
 int swapRateLimitState() {
-    if (server.swap_memory < server.swap_memory_slowdown) {
+    if (server.swap_inprogress_memory < server.swap_memory_slowdown) {
         return SWAP_RL_NO;
-    } else if (server.swap_memory < server.swap_memory_stop) {
+    } else if (server.swap_inprogress_memory < server.swap_memory_stop) {
         return SWAP_RL_SLOW;
     } else {
         return SWAP_RL_STOP;
@@ -87,7 +154,7 @@ int swapRateLimit(client *c) {
         delay = 0;
         break;
     case SWAP_RL_SLOW:
-        pct = ((float)server.swap_memory - server.swap_memory_slowdown) / ((float)server.swap_memory_stop - server.swap_memory_slowdown);
+        pct = ((float)server.swap_inprogress_memory - server.swap_memory_slowdown) / ((float)server.swap_memory_stop - server.swap_memory_slowdown);
         delay = (int)(SWAP_RATELIMIT_DELAY_SLOW + pct*(SWAP_RATELIMIT_DELAY_STOP - SWAP_RATELIMIT_DELAY_SLOW));
         break;
     case SWAP_RL_STOP:
@@ -100,8 +167,8 @@ int swapRateLimit(client *c) {
 
     if (delay > 0) {
         if (c) c->swap_rl_until = server.mstime + delay;
-        serverLog(LL_VERBOSE, "[ratelimit] client(%ld) swap_memory(%ld) delay(%d)ms",
-                c ? (int64_t)c->id:-2, server.swap_memory, delay);
+        serverLog(LL_VERBOSE, "[ratelimit] client(%ld) swap_inprogress_memory(%ld) delay(%d)ms",
+                c ? (int64_t)c->id:-2, server.swap_inprogress_memory, delay);
     } else {
         if (c) c->swap_rl_until = 0;
     }

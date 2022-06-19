@@ -28,7 +28,6 @@
 
 #include "ctrip_swap.h"
 
-int typeR2O(char rocks_type);
 int doRIO(RIO *rio);
 
 static sds getSwapObjectInfo(robj *o) {
@@ -67,6 +66,8 @@ void swapCommand(client *c) {
 "    Get raw value from rocksdb.",
 "RIO-SCAN <prefix>",
 "    Scan rocksdb with prefix.",
+"RESET-STATS",
+"    Reset swap stats.",
 NULL
         };
         addReplyHelp(c, help);
@@ -171,6 +172,9 @@ NULL
             addReplyBulkSds(c,repr);
         }
         RIODeinit(rio);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reset-stats") && c->argc == 2) {
+        resetStatsSwap();
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
