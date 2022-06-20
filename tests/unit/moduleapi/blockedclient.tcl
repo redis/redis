@@ -87,7 +87,7 @@ start_server {tags {"modules"}} {
         r config set maxmemory 0
         # now its should be OK to call OOM commands
         r do_bg_oom_rm_call hset k1 foo bar
-    } {1}
+    } {1} {needs:config-maxmemory}
 
     test {RESP version carries through to blocked client} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
