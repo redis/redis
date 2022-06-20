@@ -5788,8 +5788,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 /* On background thread we can not count on server.pre_command_oom_state.
                  * Because it is only set on the main thread, in such case we will check
                  * the actual memory usage. */
-                float level;
-                oom_state = (getMaxmemoryState(NULL,NULL,NULL,&level) == C_ERR);
+                oom_state = (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR);
             } else {
                 oom_state = server.pre_command_oom_state;
             }
