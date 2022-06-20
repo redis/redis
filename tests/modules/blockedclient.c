@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <strings.h>
 
 #define UNUSED(V) ((void) V)
 
@@ -97,7 +98,6 @@ typedef struct {
     RedisModuleString **argv;
     int argc;
     RedisModuleBlockedClient *bc;
-    const char *rm_call_format;
 } bg_call_data;
 
 void *bg_call_worker(void *arg) {
@@ -120,8 +120,20 @@ void *bg_call_worker(void *arg) {
     }
 
     // Call the command
-    const char* cmd = RedisModule_StringPtrLen(bg->argv[1], NULL);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, bg->rm_call_format, bg->argv + 2, bg->argc - 2);
+    const char *module_cmd = RedisModule_StringPtrLen(bg->argv[0], NULL);
+    int cmd_pos = 1;
+    RedisModuleString *format_redis_str = RedisModule_CreateString(NULL, "v", 1);
+    if (!strcasecmp(module_cmd, "do_bg_rm_call_format")) {
+        cmd_pos = 2;
+        size_t format_len;
+        const char *format = RedisModule_StringPtrLen(bg->argv[1], &format_len);
+        RedisModule_StringAppendBuffer(NULL, format_redis_str, format, format_len);
+        RedisModule_StringAppendBuffer(NULL, format_redis_str, "E", 1);
+    }
+    const char *format = RedisModule_StringPtrLen(format_redis_str, NULL);
+    const char* cmd = RedisModule_StringPtrLen(bg->argv[cmd_pos], NULL);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
+    RedisModule_FreeString(NULL, format_redis_str);
 
     // Release GIL
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -149,7 +161,7 @@ void *bg_call_worker(void *arg) {
     return NULL;
 }
 
-int do_bg_rm_call_internal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, const char *rm_call_format)
+int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     UNUSED(argv);
     UNUSED(argc);
@@ -170,7 +182,6 @@ int do_bg_rm_call_internal(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     /* Make a copy of the arguments and pass them to the thread. */
     bg_call_data *bg = RedisModule_Alloc(sizeof(bg_call_data));
-    bg->rm_call_format = rm_call_format;
     bg->argv = RedisModule_Alloc(sizeof(RedisModuleString*)*argc);
     bg->argc = argc;
     for (int i=0; i<argc; i++)
@@ -185,18 +196,6 @@ int do_bg_rm_call_internal(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     assert(res == 0);
 
     return REDISMODULE_OK;
-}
-
-int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    return do_bg_rm_call_internal(ctx, argv, argc, "v");
-}
-
-int do_bg_script_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    return do_bg_rm_call_internal(ctx, argv, argc, "SEv");
-}
-
-int do_bg_oom_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    return do_bg_rm_call_internal(ctx, argv, argc, "MEv");
 }
 
 int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
@@ -320,10 +319,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "do_bg_rm_call", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "do_bg_script_rm_call", do_bg_script_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "do_bg_oom_rm_call", do_bg_oom_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "do_bg_rm_call_format", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_fake_bg_true", do_fake_bg_true, "", 0, 0, 0) == REDISMODULE_ERR)
