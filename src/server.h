@@ -1727,6 +1727,7 @@ struct redisServer {
     int swap_evict_step_max_subkeys; /* max subkeys evict in one step. */
     unsigned long long swap_evict_step_max_memory; /* max memory evict in one step. */
     unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */
+    int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
 };
 
 #define MAX_KEYS_BUFFER 256

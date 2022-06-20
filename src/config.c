@@ -132,6 +132,13 @@ configEnum swap_mode_enum[] = {
     {NULL, 0}
 };
 
+configEnum rocksdb_compression_enum[] = {
+    {"no", rocksdb_no_compression},
+    {"snappy", rocksdb_snappy_compression},
+    {"zlib", rocksdb_zlib_compression},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -2495,6 +2502,7 @@ standardConfig configs[] = {
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, USER_FLAG_ALLCHANNELS, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
     createEnumConfig("swap-mode", NULL, IMMUTABLE_CONFIG, swap_mode_enum, server.swap_mode, SWAP_MODE_MEMORY, isValidSwapMode, NULL),
+    createEnumConfig("rocksdb-compression", NULL, IMMUTABLE_CONFIG, rocksdb_compression_enum, server.rocksdb_compression, rocksdb_no_compression, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

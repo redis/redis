@@ -64,6 +64,12 @@ int rocksInit() {
     rocksdb_options_compaction_readahead_size(rocks->db_opts, 2*1024*1024); /* default 0 */
     rocksdb_options_set_optimize_filters_for_hits(rocks->db_opts, 1); /* default false */
 
+    if (server.rocksdb_compression == rocksdb_no_compression) {
+        int compression_per_level[] = {0,0,0,0,0,0,0,0};
+        rocksdb_options_set_compression_per_level(rocks->db_opts,
+                compression_per_level, sizeof(compression_per_level)/sizeof(int));
+    }
+
     rocks->ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->ropts, 0);
     rocksdb_readoptions_set_fill_cache(rocks->ropts, 0);
