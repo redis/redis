@@ -35,6 +35,9 @@
 #include <errno.h>
 #include <string.h>
 
+#define KB 1024
+#define MB (1024*1024)
+
 int rmdirRecursive(const char *path);
 int rocksInit() {
     rocks *rocks = zmalloc(sizeof(struct rocks));
@@ -48,27 +51,28 @@ int rocksInit() {
     rocksdb_options_enable_statistics(rocks->db_opts);
     rocksdb_options_set_stats_dump_period_sec(rocks->db_opts, 60);
     rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
-    rocksdb_options_set_max_bytes_for_level_base(rocks->db_opts, 512*1024*1024); 
     struct rocksdb_block_based_table_options_t *block_opts = rocksdb_block_based_options_create();
-    rocksdb_block_based_options_set_block_size(block_opts, 8192);
-    block_cache = rocksdb_cache_create_lru(1*1024*1024);
+    rocksdb_block_based_options_set_block_size(block_opts, 8*KB);
+    block_cache = rocksdb_cache_create_lru(1*MB);
     rocks->block_cache = block_cache;
     rocksdb_block_based_options_set_block_cache(block_opts, block_cache);
     rocksdb_block_based_options_set_cache_index_and_filter_blocks(block_opts, 0);
     rocksdb_options_set_block_based_table_factory(rocks->db_opts, block_opts);
     rocks->block_opts = block_opts;
-
     rocksdb_options_optimize_for_point_lookup(rocks->db_opts, 1);
-    rocksdb_options_optimize_level_style_compaction(rocks->db_opts, 256*1024*1024);
+
+    /* rocksdb_options_optimize_level_style_compaction(rocks->db_opts, 256*1024*1024); */
+    rocksdb_options_set_min_write_buffer_number_to_merge(rocks->db_opts, 2);
+    rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
+    rocksdb_options_set_level0_file_num_compaction_trigger(rocks->db_opts, 2);
+    rocksdb_options_set_target_file_size_base(rocks->db_opts, 32*MB);
+    rocksdb_options_set_max_bytes_for_level_base(rocks->db_opts, 256*MB);
+
     rocksdb_options_set_max_background_compactions(rocks->db_opts, 4); /* default 1 */
     rocksdb_options_compaction_readahead_size(rocks->db_opts, 2*1024*1024); /* default 0 */
     rocksdb_options_set_optimize_filters_for_hits(rocks->db_opts, 1); /* default false */
 
-    if (server.rocksdb_compression == rocksdb_no_compression) {
-        int compression_per_level[] = {0,0,0,0,0,0,0,0};
-        rocksdb_options_set_compression_per_level(rocks->db_opts,
-                compression_per_level, sizeof(compression_per_level)/sizeof(int));
-    }
+    rocksdb_options_set_compression(rocks->db_opts, server.rocksdb_compression);
 
     rocks->ropts = rocksdb_readoptions_create();
     rocksdb_readoptions_set_verify_checksums(rocks->ropts, 0);
