@@ -572,6 +572,16 @@ int writeAofManifestFile(sds buf) {
             tmp_am_name, am_name, strerror(errno));
 
         ret = C_ERR;
+        goto cleanup;
+    }
+
+    /* Also sync the AOF directory as new AOF files may be added in the directory */
+    if (fsyncFileDir(am_filepath) == -1) {
+        serverLog(LL_WARNING, "Fail to fsync AOF directory %s: %s.",
+            am_filepath, strerror(errno));
+
+        ret = C_ERR;
+        goto cleanup;
     }
 
 cleanup:

@@ -2151,6 +2151,16 @@ void readSyncBulkPayload(connection *conn) {
         /* Close old rdb asynchronously. */
         if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd);
 
+        /* Sync the directory to ensure rename is persisted */
+        if (fsyncFileDir(server.rdb_filename) == -1) {
+            serverLog(LL_WARNING,
+                "Failed trying to sync DB directory %s in "
+                "MASTER <-> REPLICA synchronization: %s",
+                server.rdb_filename, strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
+        }
+
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "

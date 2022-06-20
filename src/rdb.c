@@ -1397,6 +1397,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     FILE *fp = NULL;
     rio rdb;
     int error = 0;
+    char *err_op;    /* For a detailed log */
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
@@ -1420,13 +1421,14 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
+        err_op = "rdbSaveRio";
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) goto werr;
-    if (fsync(fileno(fp))) goto werr;
-    if (fclose(fp)) { fp = NULL; goto werr; }
+    if (fflush(fp)) { err_op = "fflush"; goto werr; }
+    if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
+    if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
     
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -1445,6 +1447,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
+    if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -1454,7 +1457,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    serverLog(LL_WARNING,"Write error saving DB on disk(%s): %s", err_op, strerror(errno));
     if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
