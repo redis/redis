@@ -157,6 +157,7 @@ start_server {tags {"introspection"}} {
             bgsave_cpulist
             set-proc-title
             swap-mode
+            rocksdb-compression
         }
 
         if {!$::tls} {
