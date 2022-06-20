@@ -95,9 +95,11 @@ static void rocksIterNotifyVacant(rocksIter* it) {
     pthread_mutex_unlock(&cq->buffer_lock);
 }
 
+#define ITER_RATE_LIMIT_INTERVAL_MS 100
 void *rocksIterIOThreadMain(void *arg) {
     rocksIter *it = arg;
-    size_t itered = 0;
+    size_t itered = 0, accumulated_memory = 0;
+    mstime_t last_ratelimit_time = mstime();
     int signal;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
 
@@ -133,6 +135,7 @@ void *rocksIterIOThreadMain(void *arg) {
                 rvlen--;
             }
             itered++;
+            accumulated_memory += rklen+rvlen;
 
 #ifdef SWAP_DEBUG
             sds rawkeyrepr = sdscatrepr(sdsempty(),rawkey,rklen);
@@ -160,6 +163,23 @@ void *rocksIterIOThreadMain(void *arg) {
             }
             signal = (itered & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
             rocksIterNotifyReady(it, signal);
+
+            if (server.swap_max_iter_rate && signal &&
+                    mstime() - last_ratelimit_time >
+                    ITER_RATE_LIMIT_INTERVAL_MS) {
+                mstime_t minimal_timespan = accumulated_memory*1000/server.swap_max_iter_rate;
+                mstime_t elapsed_timespan = mstime() - last_ratelimit_time;
+                mstime_t sleep_timespan = minimal_timespan - elapsed_timespan;
+                if (sleep_timespan > 0) {
+                    usleep(sleep_timespan*1000);
+                    serverLog(LL_DEBUG, "Rocks iter thread sleep %lld ms: "
+                            "memory=%lu, elapsed=%lld, minimal=%lld",
+                            sleep_timespan, accumulated_memory,
+                            elapsed_timespan, minimal_timespan);
+                }
+                last_ratelimit_time = mstime();
+                accumulated_memory = 0;
+            }
 
             rocksdb_iter_next(it->rocksdb_iter);
         }
