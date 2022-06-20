@@ -97,6 +97,7 @@ typedef struct {
     RedisModuleString **argv;
     int argc;
     RedisModuleBlockedClient *bc;
+    const char *rm_call_format;
 } bg_call_data;
 
 void *bg_call_worker(void *arg) {
@@ -120,7 +121,7 @@ void *bg_call_worker(void *arg) {
 
     // Call the command
     const char* cmd = RedisModule_StringPtrLen(bg->argv[1], NULL);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "v", bg->argv + 2, bg->argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, bg->rm_call_format, bg->argv + 2, bg->argc - 2);
 
     // Release GIL
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -148,7 +149,7 @@ void *bg_call_worker(void *arg) {
     return NULL;
 }
 
-int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+int do_bg_rm_call_internal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, const char *rm_call_format)
 {
     UNUSED(argv);
     UNUSED(argc);
@@ -169,6 +170,7 @@ int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     /* Make a copy of the arguments and pass them to the thread. */
     bg_call_data *bg = RedisModule_Alloc(sizeof(bg_call_data));
+    bg->rm_call_format = rm_call_format;
     bg->argv = RedisModule_Alloc(sizeof(RedisModuleString*)*argc);
     bg->argc = argc;
     for (int i=0; i<argc; i++)
@@ -183,6 +185,18 @@ int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     assert(res == 0);
 
     return REDISMODULE_OK;
+}
+
+int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return do_bg_rm_call_internal(ctx, argv, argc, "v");
+}
+
+int do_bg_script_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return do_bg_rm_call_internal(ctx, argv, argc, "SEv");
+}
+
+int do_bg_oom_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return do_bg_rm_call_internal(ctx, argv, argc, "MEv");
 }
 
 int do_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
@@ -304,6 +318,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_bg_rm_call", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_bg_script_rm_call", do_bg_script_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_bg_oom_rm_call", do_bg_oom_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_fake_bg_true", do_fake_bg_true, "", 0, 0, 0) == REDISMODULE_ERR)

@@ -76,6 +76,19 @@ start_server {tags {"modules"}} {
         r do_bg_rm_call hgetall hash
     } {foo bar}
 
+    test {RM_Call from blocked client with script mode} {
+        r do_bg_script_rm_call hset k foo bar
+    } {1}
+
+    test {RM_Call from blocked client with oom mode} {
+        r config set maxmemory 1
+        # will set server.pre_command_oom_state to 1
+        assert_error {OOM command not allowed*} {r hset hash foo bar}
+        r config set maxmemory 0
+        # now its should be OK to call OOM commands
+        r do_bg_oom_rm_call hset k1 foo bar
+    } {1}
+
     test {RESP version carries through to blocked client} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             r hello $client_proto
