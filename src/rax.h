@@ -147,6 +147,8 @@ typedef struct raxStack {
      * and use this static array of pointers instead. */
     void *static_items[RAX_STACK_STATIC_ITEMS];
     int oom; /* True if pushing into this stack failed for OOM at some point. */
+    uint8_t *offsets; /* stack (vector) of offsets */
+    uint8_t static_offsets[RAX_STACK_STATIC_ITEMS];
 } raxStack;
 
 /* Optional callback used for iterators and be notified on each rax node,
@@ -172,7 +174,6 @@ typedef int (*raxNodeCallback)(raxNode **noderef);
 #define RAX_ITER_EOF (1<<1)    /* End of iteration reached. */
 #define RAX_ITER_SAFE (1<<2)   /* Safe iterator, allows operations while
                                   iterating. But it is slower. */
-#define RAX_ITER_CHILD_STATIC_LEN 32
 
 typedef struct raxIterator {
     int flags;
@@ -185,11 +186,7 @@ typedef struct raxIterator {
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
-    size_t child_offset;    /* current child offset */
-    size_t cpos_max;        /* max number of child offsets the current stack can hold */
-    size_t cpos;            /* current position in the stack of child offsets */
-    uint8_t *child_offset_stack; /* stack (vector) of child offsets */
-    uint8_t child_offset_stack_static[RAX_ITER_CHILD_STATIC_LEN];
+    uint8_t child_offset;    /* Current child offset. */
 } raxIterator;
 
 /* A special pointer returned for not found items. */

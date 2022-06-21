@@ -96,10 +96,11 @@ static inline void raxStackInit(raxStack *ts) {
     ts->items = 0;
     ts->maxitems = RAX_STACK_STATIC_ITEMS;
     ts->oom = 0;
+    ts->offsets = ts->static_offsets;
 }
 
 /* Push an item into the stack, returns 1 on success, 0 on out of memory. */
-static inline int raxStackPush(raxStack *ts, void *ptr) {
+static inline int raxStackPush(raxStack *ts, void *ptr, uint8_t offset) {
     if (ts->items == ts->maxitems) {
         if (ts->stack == ts->static_items) {
             ts->stack = rax_malloc(sizeof(void*)*ts->maxitems*2);
@@ -119,18 +120,38 @@ static inline int raxStackPush(raxStack *ts, void *ptr) {
             }
             ts->stack = newalloc;
         }
+
+        uint8_t *old = ts->offsets == ts->static_offsets ? NULL : ts->offsets;
+        size_t new_max = ts->maxitems * 2;
+        ts->offsets = rax_realloc(old, new_max);
+
+        if (ts->offsets == NULL) {
+            ts->offsets = (!old) ? ts->static_offsets : old;
+            ts->oom = 1;
+            errno = ENOMEM;
+            return 0;
+        }
+
+        if (old == NULL) memcpy(ts->offsets, ts->static_offsets, ts->maxitems);
         ts->maxitems *= 2;
     }
+
     ts->stack[ts->items] = ptr;
+    ts->offsets[ts->items] = offset;
     ts->items++;
     return 1;
 }
 
 /* Pop an item from the stack, the function returns NULL if there are no
  * items to pop. */
-static inline void *raxStackPop(raxStack *ts) {
-    if (ts->items == 0) return NULL;
+static inline void *raxStackPop(raxStack *ts, uint8_t* poffset) {
+    if (ts->items == 0) {
+        if (poffset != NULL) *poffset = 0;
+        return NULL;
+    }
+
     ts->items--;
+    if (poffset != NULL) *poffset = ts->offsets[ts->items];
     return ts->stack[ts->items];
 }
 
@@ -144,6 +165,7 @@ static inline void *raxStackPeek(raxStack *ts) {
 /* Free the stack in case we used heap allocation. */
 static inline void raxStackFree(raxStack *ts) {
     if (ts->stack != ts->static_items) rax_free(ts->stack);
+    if (ts->offsets != ts->static_offsets) rax_free(ts->offsets);
 }
 
 /* ----------------------------------------------------------------------------
@@ -482,9 +504,9 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
             i++;
         }
 
-        if (ts) raxStackPush(ts,h); /* Save stack of parent nodes. */
         raxNode **children = raxNodeFirstChildPtr(h);
         if (h->iscompr) j = 0; /* Compressed node only child is at index 0. */
+        if (ts) raxStackPush(ts,h,j); /* Save stack of parent nodes. */
         memcpy(&h,children+j,sizeof(h));
         parentlink = children+j;
         j = 0; /* If the new node is non compressed and we do not
@@ -497,40 +519,6 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
     if (plink) *plink = parentlink;
     if (splitpos && h->iscompr) *splitpos = j;
     return i;
-}
-
-int raxIteratorPushChildOffset(raxIterator *it, uint8_t child_offset) {
-    if (it->cpos == it->cpos_max) {
-        uint8_t *old = (
-            (it->child_offset_stack == it->child_offset_stack_static) ?
-            NULL :
-            it->child_offset_stack
-        );
-
-        size_t new_max = it->cpos_max * 2;
-        it->child_offset_stack = rax_realloc(old, new_max);
-
-        if (it->child_offset_stack == NULL) {
-            it->child_offset_stack = (!old) ? it->child_offset_stack_static : old;
-            errno = ENOMEM;
-            return 0;
-        }
-
-        if (old == NULL)
-            memcpy(it->child_offset_stack, it->child_offset_stack_static, it->cpos_max);
-
-        it->cpos_max = new_max;
-    }
-
-    it->child_offset_stack[it->cpos] = child_offset;
-    it->cpos++;
-    return 1;
-}
-
-uint8_t raxIteratorPopChildOffset(raxIterator *it) {
-    if (it->cpos == 0) return 0;
-    it->cpos--;
-    return it->child_offset_stack[it->cpos];
 }
 
 /* See cmts in raxLowWalk() above */
@@ -572,8 +560,7 @@ static inline size_t raxLowWalkSeek(raxIterator* it, unsigned char *s,
         }
 
         if (h->iscompr) j = 0;
-        raxIteratorPushChildOffset(it, j);
-        raxStackPush(&it->stack,h);
+        raxStackPush(&it->stack,h,j);
         raxNode **children = raxNodeFirstChildPtr(h);
         memcpy(&h,children+j,sizeof(h));
         j = 0;
@@ -1139,7 +1126,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 (int)child->size, (char*)child->data, child->iskey);
             rax_free(child);
             rax->numnodes--;
-            h = raxStackPop(&ts);
+            h = raxStackPop(&ts, NULL);
              /* If this node has more then one child, or actually holds
               * a key, stop here. */
             if (h->iskey || (!h->iscompr && h->size != 1)) break;
@@ -1229,7 +1216,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
          * can try to compress and 'parent' to its parent. */
         raxNode *parent;
         while(1) {
-            parent = raxStackPop(&ts);
+            parent = raxStackPop(&ts, NULL);
             if (!parent || parent->iskey ||
                 (!parent->iscompr && parent->size != 1)) break;
             h = parent;
@@ -1351,9 +1338,6 @@ void raxStart(raxIterator *it, rax *rt) {
     it->node_cb = NULL;
     raxStackInit(&it->stack);
     it->child_offset = 0;
-    it->cpos = 0;
-    it->cpos_max = RAX_ITER_CHILD_STATIC_LEN;
-    it->child_offset_stack = it->child_offset_stack_static;
 }
 
 /* Append characters at the current key string of the iterator 'it'. This
@@ -1422,12 +1406,12 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             /* Seek the lexicographically smaller key in this subtree, which
              * is the first one found always going towards the first child
              * of every successive node. */
-            if (!raxIteratorPushChildOffset(it, 0)) return 0;
-            if (!raxStackPush(&it->stack,it->node)) return 0;
+            if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
             raxNode **cp = raxNodeFirstChildPtr(it->node);
             if (!raxIteratorAddChars(it,it->node->data,
                 it->node->iscompr ? it->node->size : 1)) return 0;
             memcpy(&it->node,cp,sizeof(it->node));
+            it->child_offset = 0;
             /* Call the node callback if any, and replace the node pointer
              * if the callback returns true. */
             if (it->node_cb && it->node_cb(&it->node))
@@ -1458,8 +1442,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                 /* If there are no children at the current node, try parent's
                  * next child. */
                 if (!noup) {
-                    it->node = raxStackPop(&it->stack);
-                    it->child_offset = raxIteratorPopChildOffset(it);
+                    it->node = raxStackPop(&it->stack, &it->child_offset);
                 } else {
                     noup = 0;
                 }
@@ -1477,10 +1460,9 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
                         debugf("SCAN found a new node\n");
                         raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
-                        if (!raxIteratorPushChildOffset(it, it->child_offset)) return 0;
-                        it->child_offset = 0;
-                        if (!raxStackPush(&it->stack,it->node)) return 0;
+                        if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
                         memcpy(&it->node,cp,sizeof(it->node));
+                        it->child_offset = 0;
                         /* Call the node callback if any, and replace the node
                          * pointer if the callback returns true. */
                         if (it->node_cb && it->node_cb(&it->node))
@@ -1502,18 +1484,19 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
  * iteration functions below. */
 int raxSeekGreatest(raxIterator *it) {
     while(it->node->size) {
+        uint8_t child_offset;
         if (it->node->iscompr) {
-            if (!raxIteratorAddChars(it,it->node->data,
-                it->node->size)) return 0;
-            if (!raxIteratorPushChildOffset(it, 0)) return 0;
+            if (!raxIteratorAddChars(it,it->node->data, it->node->size)) return 0;
+            child_offset = 0;
         } else {
             if (!raxIteratorAddChars(it,it->node->data+it->node->size-1,1))
                 return 0;
-            if (!raxIteratorPushChildOffset(it, it->node->size - 1)) return 0;
+            child_offset = it->node->size - 1;
         }
         raxNode **cp = raxNodeLastChildPtr(it->node);
-        if (!raxStackPush(&it->stack,it->node)) return 0;
+        if (!raxStackPush(&it->stack, it->node, child_offset)) return 0;
         memcpy(&it->node,cp,sizeof(it->node));
+        it->child_offset = 0; /* placeholder will be overwritten on next iteration */
     }
     return 1;
 }
@@ -1548,8 +1531,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
         }
 
         if (!noup) {
-            it->node = raxStackPop(&it->stack);
-            it->child_offset = raxIteratorPopChildOffset(it);
+            it->node = raxStackPop(&it->stack, &it->child_offset);
         } else {
             noup = 0;
         }
@@ -1563,13 +1545,12 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
          * child. */
         if (!it->node->iscompr && it->node->size > (old_noup ? 0 : 1)) {
             if (it->child_offset != 0) {
-                it->child_offset -= 1;
-                if (!raxIteratorPushChildOffset(it, it->child_offset)) return 0;
+                it-> child_offset -= 1;
                 raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
                 debugf("SCAN found a new node\n");
                 /* Enter the node we just found. */
                 if (!raxIteratorAddChars(it,it->node->data + it->child_offset, 1)) return 0;
-                if (!raxStackPush(&it->stack,it->node)) return 0;
+                if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
                 memcpy(&it->node,cp,sizeof(it->node));
                 /* Seek sub-tree max. */
                 if (!raxSeekGreatest(it)) return 0;
@@ -1599,7 +1580,6 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     it->key_len = 0;
     it->node = NULL;
     it->child_offset = 0;
-    it->cpos = 0;
 
     /* Set flags according to the operator used to perform the seek. */
     if (op[0] == '>') {
@@ -1808,13 +1788,15 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
     }
 
     raxNode *n = it->node;
+    uint8_t child_offset = it->child_offset;
+
     while(steps > 0 || !n->iskey) {
         int numchildren = n->iscompr ? 1 : n->size;
-        int r = rand() % (numchildren+(n != it->rt->head));
+        child_offset = rand() % (numchildren+(n != it->rt->head));
 
-        if (r == numchildren) {
+        if (child_offset == numchildren) {
             /* Go up to parent. */
-            n = raxStackPop(&it->stack);
+            n = raxStackPop(&it->stack, &child_offset);
             int todel = n->iscompr ? n->size : 1;
             raxIteratorDelChars(it,todel);
         } else {
@@ -1822,15 +1804,17 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
             if (n->iscompr) {
                 if (!raxIteratorAddChars(it,n->data,n->size)) return 0;
             } else {
-                if (!raxIteratorAddChars(it,n->data+r,1)) return 0;
+                if (!raxIteratorAddChars(it,n->data+child_offset,1)) return 0;
             }
-            raxNode **cp = raxNodeFirstChildPtr(n)+r;
-            if (!raxStackPush(&it->stack,n)) return 0;
+            raxNode **cp = raxNodeFirstChildPtr(n)+child_offset;
+            if (!raxStackPush(&it->stack,n, child_offset)) return 0;
             memcpy(&n,cp,sizeof(n));
+            child_offset = 0;
         }
         if (n->iskey) steps--;
     }
     it->node = n;
+    it->child_offset = child_offset;
     it->data = raxGetData(it->node);
     return 1;
 }
