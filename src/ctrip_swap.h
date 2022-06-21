@@ -499,6 +499,14 @@ typedef struct rocks {
     sds checkpoint_dir;
 } rocks;
 
+typedef struct rocksdbMemOverhead {
+  size_t total;
+  size_t block_cache;
+  size_t index_and_filter;
+  size_t memtable;
+  size_t pinned_blocks;
+} rocksdbMemOverhead;
+
 int rocksInit(void);
 void rocksRelease(void);
 void rocksReinit(void);
@@ -509,6 +517,8 @@ int rocksCreateCheckpoint(sds checkpoint_dir);
 void rocksReleaseCheckpoint(void);
 void rocksUseSnapshot(void);
 void rocksReleaseSnapshot(void);
+struct rocksdbMemOverhead *rocksGetMemoryOverhead();
+void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 rocksdb_t *rocksGetDb(void);
 
 /* --- Repl --- */

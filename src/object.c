@@ -979,6 +979,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
 
 /* Release data obtained with getMemoryOverheadData(). */
 void freeMemoryOverheadData(struct redisMemOverhead *mh) {
+    rocksFreeMemoryOverhead(mh->rocks);
     zfree(mh->db);
     zfree(mh);
 }
@@ -988,7 +989,7 @@ void freeMemoryOverheadData(struct redisMemOverhead *mh) {
  * structure pointer should be freed calling freeMemoryOverheadData(). */
 struct redisMemOverhead *getMemoryOverheadData(void) {
     int j;
-    size_t mem_total = 0, rocks_total = 0;
+    size_t mem_total = 0;
     size_t mem = 0;
     size_t zmalloc_used = zmalloc_used_memory();
     struct redisMemOverhead *mh = zcalloc(sizeof(*mh));
@@ -1086,41 +1087,20 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->num_dbs++;
     }
 
-    /* rocksdb stats */
-    if (!rocksdb_property_int(rocksGetDb(),
-                "rocksdb.cur-size-all-mem-tables", &mem)) {
-        mh->rocks_memtable = mem;
-        rocks_total += mem;
+    /* rocksdb memory & rectified fragmentation */
+    mh->rocks = rocksGetMemoryOverhead();
+    if (mh->rocks) {
+        mh->overhead_total = mem_total + mh->rocks->total;
+        mh->rectified_frag = (float)server.cron_malloc_stats.process_rss /
+            (server.cron_malloc_stats.zmalloc_used + mh->rocks->total);
+        mh->rectified_frag_bytes = server.cron_malloc_stats.process_rss -
+            server.cron_malloc_stats.zmalloc_used - mh->rocks->total;
     } else {
-        mh->rocks_memtable = -1;
+        mh->overhead_total = mem_total;
+        mh->rectified_frag = mh->total_frag;
+        mh->rectified_frag_bytes = mh->total_frag_bytes;
     }
 
-    if (!rocksdb_property_int(rocksGetDb(),
-                "rocksdb.block-cache-usage", &mem)) {
-        mh->rocks_block_cache = mem;
-        rocks_total += mem;
-    } else {
-        mh->rocks_block_cache = -1;
-    }
-
-    if (!rocksdb_property_int(rocksGetDb(),
-                "rocksdb.estimate-table-readers-mem", &mem)) {
-        mh->rocks_index_and_filter = mem;
-        rocks_total += mem;
-    } else {
-        mh->rocks_index_and_filter = -1;
-    }
-
-    if (!rocksdb_property_int(rocksGetDb(),
-                "rocksdb.block-cache-pinned-usage", &mem)) {
-        mh->rocks_pinned_blocks = mem;
-        rocks_total += mem;
-    } else {
-        mh->rocks_pinned_blocks = -1;
-    }
-
-    mh->rocks_total = rocks_total;
-    mh->overhead_total = mem_total+rocks_total;
     mh->dataset = zmalloc_used - mem_total;
     mh->peak_perc = (float)zmalloc_used*100/mh->peak_allocated;
 
@@ -1411,7 +1391,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,25+mh->num_dbs);
+        addReplyMapLen(c,32+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1503,6 +1483,27 @@ NULL
 
         addReplyBulkCString(c,"fragmentation.bytes");
         addReplyLongLong(c,mh->total_frag_bytes);
+
+        addReplyBulkCString(c,"rocksdb.total");
+        addReplyLongLong(c,mh->rocks->total);
+
+        addReplyBulkCString(c,"rocksdb.memtable");
+        addReplyLongLong(c,mh->rocks->memtable);
+
+        addReplyBulkCString(c,"rocksdb.blockcache");
+        addReplyLongLong(c,mh->rocks->block_cache);
+
+        addReplyBulkCString(c,"rocksdb.index_and_filter");
+        addReplyLongLong(c,mh->rocks->index_and_filter);
+
+        addReplyBulkCString(c,"rocksdb.pinned_blocks");
+        addReplyLongLong(c,mh->rocks->pinned_blocks);
+
+        addReplyBulkCString(c,"rectified-fragmentation.ratio");
+        addReplyDouble(c,mh->rectified_frag);
+
+        addReplyBulkCString(c,"rectified-fragmentaion.bytes");
+        addReplyLongLong(c,mh->rectified_frag_bytes);
 
         freeMemoryOverheadData(mh);
     } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {

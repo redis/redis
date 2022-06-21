@@ -4903,6 +4903,7 @@ sds genRedisInfoString(const char *section) {
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = server.lua ? (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024 : 0;
         struct redisMemOverhead *mh = getMemoryOverheadData();
+        size_t mem_rocksdb = mh->rocks ? mh->rocks->total : 0;
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -4959,6 +4960,9 @@ sds genRedisInfoString(const char *section) {
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
+            "mem_rocksdb:%zu\r\n"
+            "rectified_frag_ratio:%.2f\r\n"
+            "rectified_frag_bytes:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n"
@@ -5003,6 +5007,9 @@ sds genRedisInfoString(const char *section) {
             mh->clients_slaves,
             mh->clients_normal,
             mh->aof_buffer,
+            mem_rocksdb,
+            mh->rectified_frag,
+            mh->rectified_frag_bytes,
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount(),

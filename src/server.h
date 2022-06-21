@@ -1112,6 +1112,8 @@ struct redisMemOverhead {
     size_t bytes_per_key;
     float dataset_perc;
     float peak_perc;
+    float rectified_frag;
+    ssize_t rectified_frag_bytes;
     float total_frag;
     ssize_t total_frag_bytes;
     float allocator_frag;
@@ -1128,11 +1130,7 @@ struct redisMemOverhead {
         size_t overhead_ht_evict;
         size_t overhead_ht_meta;
     } *db;
-    size_t rocks_total;
-    size_t rocks_block_cache;
-    size_t rocks_index_and_filter;
-    size_t rocks_memtable;
-    size_t rocks_pinned_blocks;
+    struct rocksdbMemOverhead *rocks;
 };
 
 /* This structure can be optionally passed to RDB save/load functions in

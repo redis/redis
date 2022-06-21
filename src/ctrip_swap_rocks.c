@@ -262,6 +262,52 @@ rocksdb_t *rocksGetDb() {
     return server.rocks->db;
 }
 
+struct rocksdbMemOverhead *rocksGetMemoryOverhead() {
+    rocksdbMemOverhead *mh;
+    rocksdb_t *db;
+    size_t total = 0, mem;
+
+    if (server.rocks->db == NULL)
+        return NULL;
+
+    mh = zmalloc(sizeof(struct rocksdbMemOverhead));
+    db = server.rocks->db;
+    if (!rocksdb_property_int(db, "rocksdb.cur-size-all-mem-tables", &mem)) {
+        mh->memtable = mem;
+        total += mem;
+    } else {
+        mh->memtable = -1;
+    }
+
+    if (!rocksdb_property_int(db, "rocksdb.block-cache-usage", &mem)) {
+        mh->block_cache = mem;
+        total += mem;
+    } else {
+        mh->block_cache = -1;
+    }
+
+    if (!rocksdb_property_int(db, "rocksdb.estimate-table-readers-mem", &mem)) {
+        mh->index_and_filter = mem;
+        total += mem;
+    } else {
+        mh->index_and_filter = -1;
+    }
+
+    if (!rocksdb_property_int(db, "rocksdb.block-cache-pinned-usage", &mem)) {
+        mh->pinned_blocks = mem;
+        total += mem;
+    } else {
+        mh->pinned_blocks = -1;
+    }
+
+    mh->total = total;
+    return mh;
+}
+
+void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh) {
+    if (mh) zfree(mh);
+}
+
 #define ROCKSDB_DISK_USED_UPDATE_PERIOD 60
 #define ROCKSDB_DISK_HEALTH_DETECT_PERIOD 1
 
