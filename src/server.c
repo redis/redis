@@ -2156,6 +2156,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 stat_net_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
                 stat_net_output_bytes);
+        trackSwapInstantaneousMetrics();
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -5481,30 +5482,7 @@ sds genRedisInfoString(const char *section) {
     if (allsections || !strcasecmp(section,"swaps")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Swaps\r\n");
-
-        info = sdscatprintf(info,
-                "swap_inprogress_count:%ld\r\n"
-                "swap_inprogress_memory:%ld\r\n",
-                server.swap_inprogress_count,
-                server.swap_inprogress_memory);
-
-        for (j = 1; j < SWAP_TYPES; j++) {
-            swapStat *s = &server.swap_stats[j];
-            size_t count, memory;
-            atomicGet(s->count,count);
-            atomicGet(s->memory,memory);
-            info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld\r\n",
-                    s->name,count,memory);
-        }
-
-        for (j = 1; j < ROCKS_TYPES; j++) {
-            swapStat *s = &server.rio_stats[j];
-            size_t count, memory;
-            atomicGet(s->count,count);
-            atomicGet(s->memory,memory);
-            info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld\r\n",
-                    s->name,count,memory);
-        }
+        info = genSwapInfoString(info);
     }
 
     /* Rocks */

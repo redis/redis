@@ -140,7 +140,9 @@ typedef long long ustime_t; /* microsecond time type. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_COUNT 3
+#define STATS_METRIC_COUNT_MEM 3
+#define STATS_METRIC_COUNT_SWAP 22 /* define directly here to avoid dependcy cycle, will be checked later. */
+#define STATS_METRIC_COUNT (STATS_METRIC_COUNT_SWAP + STATS_METRIC_COUNT_MEM)
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
@@ -2887,8 +2889,14 @@ int iAmMaster(void);
 
 void rdbSaveProgress(rio *rdb, int rdbflags);
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
+void trackInstantaneousMetric(int metric, long long current_reading);
+long long getInstantaneousMetric(int metric);
 
 #include "ctrip.h"
 #include "ctrip_swap.h"
+
+#if defined(SWAP_STATS_METRIC_COUNT) && (STATS_METRIC_COUNT_SWAP != SWAP_STATS_METRIC_COUNT)
+#error swap stats metric count inconsist
+#endif
 
 #endif

@@ -77,20 +77,76 @@ static inline size_t estimateRIOSwapMemory(RIO *rio) {
 }
 
 void initStatsSwap() {
-    int i;
-
+    int i, metric_offset;
     server.swap_stats = zmalloc(SWAP_TYPES*sizeof(swapStat));
     for (i = 0; i < SWAP_TYPES; i++) {
+        metric_offset = SWAP_SWAP_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.swap_stats[i].name = swapIntentionName(i);
         server.swap_stats[i].count = 0;
         server.swap_stats[i].memory = 0;
+        server.swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.swap_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
     }
     server.rio_stats = zmalloc(ROCKS_TYPES*sizeof(swapStat));
     for (i = 0; i < ROCKS_TYPES; i++) {
+        metric_offset = SWAP_RIO_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.rio_stats[i].name = rocksActionName(i);
         server.rio_stats[i].count = 0;
         server.rio_stats[i].memory = 0;
+        server.rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.rio_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
     }
+}
+
+void trackSwapInstantaneousMetrics() {
+    int i;
+    swapStat *s;
+    size_t count, memory;
+    for (i = 1; i < SWAP_TYPES; i++) {
+        s = server.swap_stats + i;
+        atomicGet(s->count,count);
+        atomicGet(s->memory,memory);
+        trackInstantaneousMetric(s->stats_metric_idx_count,count);
+        trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
+    }
+    for (i = 1; i < ROCKS_TYPES; i++) {
+        s = server.rio_stats + i;
+        atomicGet(s->count,count);
+        atomicGet(s->memory,memory);
+        trackInstantaneousMetric(s->stats_metric_idx_count,count);
+        trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
+    }
+}
+
+sds genSwapInfoString(sds info) {
+    int j;
+    size_t count, memory;
+    info = sdscatprintf(info,
+            "swap_inprogress_count:%ld\r\n"
+            "swap_inprogress_memory:%ld\r\n",
+            server.swap_inprogress_count,
+            server.swap_inprogress_memory);
+
+    for (j = 1; j < SWAP_TYPES; j++) {
+        swapStat *s = &server.swap_stats[j];
+        atomicGet(s->count,count);
+        atomicGet(s->memory,memory);
+        info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld,ops=%lld,Bps=%lld\r\n",
+                s->name,count,memory,
+                getInstantaneousMetric(s->stats_metric_idx_count),
+                getInstantaneousMetric(s->stats_metric_idx_memory));
+    }
+
+    for (j = 1; j < ROCKS_TYPES; j++) {
+        swapStat *s = &server.rio_stats[j];
+        atomicGet(s->count,count);
+        atomicGet(s->memory,memory);
+        info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld,ops=%lld,Bps=%lld\r\n",
+                s->name,count,memory,
+                getInstantaneousMetric(s->stats_metric_idx_count),
+                getInstantaneousMetric(s->stats_metric_idx_memory));
+    }
+    return info;
 }
 
 /* Note that swap thread upadates swap stats, reset when there are swapRequest

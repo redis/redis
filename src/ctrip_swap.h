@@ -531,10 +531,24 @@ int submitNormalClientRequests(client *c);
 #define SWAP_RL_SLOW    1
 #define SWAP_RL_STOP    2
 
+#define SWAP_STAT_METRIC_COUNT 0
+#define SWAP_STAT_METRIC_MEMORY 1
+#define SWAP_STAT_METRIC_SIZE 2
+
+#define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
+#define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
+/* stats metrics are ordered mem>swap>rio */ 
+#define SWAP_SWAP_STATS_METRIC_OFFSET STATS_METRIC_COUNT_MEM
+#define SWAP_RIO_STATS_METRIC_OFFSET (SWAP_SWAP_STATS_METRIC_OFFSET+SWAP_SWAP_STATS_METRIC_COUNT)
+
+#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT)
+
 typedef struct swapStat {
     const char *name;
     redisAtomic size_t count;
     redisAtomic size_t memory;
+    int stats_metric_idx_count;
+    int stats_metric_idx_memory;
 } swapStat;
 
 void initStatsSwap(void);
@@ -542,6 +556,9 @@ void resetStatsSwap(void);
 void updateStatsSwapStart(swapRequest *req);
 void updateStatsSwapRIO(swapRequest *req, RIO *rio);
 void updateStatsSwapFinish(swapRequest *req);
+
+void trackSwapInstantaneousMetrics();
+sds genSwapInfoString(sds info);
 
 int swapRateLimitState(void);
 int swapRateLimit(client *c);
