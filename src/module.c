@@ -5783,7 +5783,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     if (flags & REDISMODULE_ARGV_RESPECT_DENY_OOM) {
         if (cmd->flags & CMD_DENYOOM) {
-            if (server.pre_command_oom_state) {
+            int oom_state;
+            if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
+                /* On background thread we can not count on server.pre_command_oom_state.
+                 * Because it is only set on the main thread, in such case we will check
+                 * the actual memory usage. */
+                oom_state = (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR);
+            } else {
+                oom_state = server.pre_command_oom_state;
+            }
+            if (oom_state) {
                 errno = ENOSPC;
                 if (error_as_call_replies) {
                     sds msg = sdsdup(shared.oomerr->ptr);
@@ -5823,7 +5832,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
 
             int deny_write_type = writeCommandsDeniedByDiskError();
-            int obey_client = mustObeyClient(server.current_client);
+            int obey_client = (server.current_client && mustObeyClient(server.current_client));
 
             if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 errno = ESPIPE;
