@@ -1075,7 +1075,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * * **"blocking"**: The command has the potential to block the client.
  * * **"allow-busy"**: Permit the command while the server is blocked either by
  *                     a script or by a slow module command, see
- *                     RM_Yield.
+ *                     `RedisModule_Yield`.
  * * **"getchannels-api"**: The command implements the interface to return
  *                          the arguments that are channels.
  *
@@ -1329,12 +1329,13 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
  *   will which arguments are keys. Additionally, there are key specific flags.
  *
  *     Key-specs cause the triplet (firstkey, lastkey, keystep) given in
- *     RM_CreateCommand to be recomputed, but it is still useful to provide
- *     these three parameters in RM_CreateCommand, to better support old Redis
- *     versions where RM_SetCommandInfo is not available.
+ *     RedisModule_CreateCommand to be recomputed, but it is still useful to provide
+ *     these three parameters in RedisModule_CreateCommand, to better support old Redis
+ *     versions where RedisModule_SetCommandInfo is not available.
  *
  *     Note that key-specs don't fully replace the "getkeys-api" (see
- *     RM_CreateCommand, RM_IsKeysPositionRequest and RM_KeyAtPosWithFlags) so
+ *     RedisModule_CreateCommand, RedisModule_IsKeysPositionRequest and
+ *     RedisModule_KeyAtPosWithFlags) so
  *     it may be a good idea to supply both key-specs and implement the
  *     getkeys-api.
  *
@@ -3052,7 +3053,7 @@ int RM_ReplyWithBool(RedisModuleCtx *ctx, int b) {
  *   In case of an error, it's the module writer responsibility to translate the reply
  *   to RESP2 (or handle it differently by returning an error). Notice that for
  *   module writer convenience, it is possible to pass `0` as a parameter to the fmt
- *   argument of `RM_Call` so that the RedisModuleCallReply will return in the same
+ *   argument of `RedisModule_Call` so that the RedisModuleCallReply will return in the same
  *   protocol (RESP2 or RESP3) as set in the current client's context. */
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     client *c = moduleGetReplyClient(ctx);
@@ -3969,7 +3970,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  *
  * This enables iteration to be done efficiently using a simple for loop:
  *
- *     long n = RM_ValueLength(key);
+ *     long n = RedisModule_ValueLength(key);
  *     for (long i = 0; i < n; i++) {
  *         RedisModuleString *elem = RedisModule_ListGet(key, i);
  *         // Do stuff...
@@ -6261,7 +6262,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *
  *      int RedisModule_OnLoad(RedisModuleCtx *ctx) {
  *          // some code here ...
- *          BalancedTreeType = RM_CreateDataType(...);
+ *          BalancedTreeType = RedisModule_CreateDataType(...);
  *      }
  */
 moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr) {
@@ -7566,7 +7567,7 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  * no RedisModule_Reply* call should be made at all.
  *
  * NOTE: If you're creating a detached thread safe context (bc is NULL),
- * consider using `RM_GetDetachedThreadSafeContext` which will also retain
+ * consider using `RedisModule_GetDetachedThreadSafeContext` which will also retain
  * the module ID and thus be more useful for logging. */
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
@@ -7728,8 +7729,8 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
  *                               Notice, when this event fires, the given key
- *                               can not be retained, use RM_CreateStringFromString
- *                               instead.
+ *                               can not be retained, use
+ *                               `RedisModule_CreateStringFromString` instead.
  *
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key.
@@ -8344,7 +8345,7 @@ static void eventLoopCbWritable(struct aeEventLoop *ae, int fd, void *user_data,
  *         int bytes = read(fd,buf,sizeof(buf));
  *         printf("Read %d bytes \n", bytes);
  *     }
- *     RM_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
+ *     RedisModule_EventLoopAdd(fd, REDISMODULE_EVENTLOOP_READABLE, onReadable, NULL);
  */
 int RM_EventLoopAdd(int fd, int mask, RedisModuleEventLoopFunc func, void *user_data) {
     if (fd < 0 || fd >= aeGetSetSize(server.el)) {
@@ -9643,7 +9644,7 @@ int moduleUnregisterFilters(RedisModule *module) {
  * registering the filter.
  *
  * The `REDISMODULE_CMDFILTER_NOSELF` flag prevents execution flows that
- * originate from the module's own `RM_Call()` from reaching the filter.  This
+ * originate from the module's own `RedisModule_Call()` from reaching the filter.  This
  * flag is effective for all execution flows, including nested ones, as long as
  * the execution begins from the module's command context or a thread-safe
  * context that is associated with a blocking command.
@@ -11945,7 +11946,7 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  * by the redis server version in use.
  * Example:
  *
- *        int supportedFlags = RM_GetContextFlagsAll();
+ *        int supportedFlags = RedisModule_GetContextFlagsAll();
  *        if (supportedFlags & REDISMODULE_CTX_FLAGS_MULTI) {
  *              // REDISMODULE_CTX_FLAGS_MULTI is supported
  *        } else{
@@ -11962,7 +11963,7 @@ int RM_GetContextFlagsAll() {
  * by the redis server version in use.
  * Example:
  *
- *        int supportedFlags = RM_GetKeyspaceNotificationFlagsAll();
+ *        int supportedFlags = RedisModule_GetKeyspaceNotificationFlagsAll();
  *        if (supportedFlags & REDISMODULE_NOTIFY_LOADED) {
  *              // REDISMODULE_NOTIFY_LOADED is supported
  *        } else{
