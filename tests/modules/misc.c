@@ -239,14 +239,16 @@ int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     (void) argv;
     (void) argc;
 
-    RedisModuleClientInfo ci = REDISMODULE_CLIENTINFO_INITIALIZER;
+    RedisModuleClientInfoV1 ci = REDISMODULE_CLIENTINFO_INITIALIZER_V1;
     uint64_t client_id = RedisModule_GetClientId(ctx);
 
+    /* Check expected result from the V1 initializer. */
+    assert(ci.version == 1);
     /* Trying to populate a future version of the struct should fail. */
-    ci.version++;
+    ci.version = REDISMODULE_CLIENTINFO_VERSION + 1;
     assert(RedisModule_GetClientInfoById(&ci, client_id) == REDISMODULE_ERR);
-    ci.version--;
 
+    ci.version = 1;
     if (RedisModule_GetClientInfoById(&ci, client_id) == REDISMODULE_ERR) {
             RedisModule_ReplyWithError(ctx, "failed to get client info");
             return REDISMODULE_OK;
