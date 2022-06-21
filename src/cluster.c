@@ -964,7 +964,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->numslaves = 0;
     node->slaves = NULL;
     node->slaveof = NULL;
-    node->last_in_ping_message = 0;
+    node->last_in_ping_gossip = 0;
     node->ping_sent = node->pong_received = 0;
     node->data_received = 0;
     node->fail_time = 0;
@@ -2958,11 +2958,11 @@ void clusterSendPing(clusterLink *link, int type) {
         }
 
         /* Do not add a node we already have. */
-        if (this->last_in_ping_message == cluster_pings_sent) continue;
+        if (this->last_in_ping_gossip == cluster_pings_sent) continue;
 
         /* Add it */
         clusterSetGossipEntry(hdr,gossipcount,this);
-        this->last_in_ping_message = cluster_pings_sent;
+        this->last_in_ping_gossip = cluster_pings_sent;
         freshnodes--;
         gossipcount++;
     }
