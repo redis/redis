@@ -131,8 +131,8 @@ void *bg_call_worker(void *arg) {
         RedisModule_StringAppendBuffer(NULL, format_redis_str, "E", 1);
     }
     const char *format = RedisModule_StringPtrLen(format_redis_str, NULL);
-    const char* cmd = RedisModule_StringPtrLen(bg->argv[cmd_pos], NULL);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
+    const char *cmd = RedisModule_StringPtrLen(bg->argv[cmd_pos], NULL);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
     RedisModule_FreeString(NULL, format_redis_str);
 
     // Release GIL
