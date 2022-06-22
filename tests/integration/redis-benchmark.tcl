@@ -116,6 +116,15 @@ start_server {tags {"benchmark network external:skip"}} {
             # ensure the keyspace has the desired size
             assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         }
+        
+        test {benchmark: clients idle mode should return error when reached maxclients limit} {
+            set cmd [redisbenchmark $master_host $master_port "-c 2 -I"]
+            set original_maxclients [lindex [r config get maxclients] 1]
+            r config set maxclients 1
+            catch { exec {*}$cmd } error
+            assert_match "*ERR max number of clients reached*" $error
+            r config set maxclients $original_maxclients
+        }
 
         # tls specific tests
         if {$::tls} {
