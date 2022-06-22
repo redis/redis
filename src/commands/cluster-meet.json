@@ -23,6 +23,12 @@
             {
                 "name": "port",
                 "type": "integer"
+            },
+	    {
+                "name": "cport",
+                "token": "cport",
+                "type": "integer",
+                "optional": true
             }
         ]
     }
