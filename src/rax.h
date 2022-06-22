@@ -142,12 +142,12 @@ typedef struct rax {
 #define RAX_STACK_STATIC_ITEMS 32
 typedef struct raxStack {
     void **stack; /* Points to static_items or an heap allocated array. */
+    uint8_t *offsets; /* stack (vector) of offsets */
     size_t items, maxitems; /* Number of items contained and total space. */
     /* Up to RAXSTACK_STACK_ITEMS items we avoid to allocate on the heap
      * and use this static array of pointers instead. */
     void *static_items[RAX_STACK_STATIC_ITEMS];
     int oom; /* True if pushing into this stack failed for OOM at some point. */
-    uint8_t *offsets; /* stack (vector) of offsets */
     uint8_t static_offsets[RAX_STACK_STATIC_ITEMS];
 } raxStack;
 
