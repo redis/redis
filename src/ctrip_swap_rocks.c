@@ -48,8 +48,9 @@ int rocksInit() {
     rocks->checkpoint = NULL;
     rocks->db_opts = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(rocks->db_opts, 1); 
-    rocksdb_options_enable_statistics(rocks->db_opts);
-    rocksdb_options_set_stats_dump_period_sec(rocks->db_opts, 60);
+    /* enable stats might cause fork hang. */
+    /* rocksdb_options_enable_statistics(rocks->db_opts); */
+    /* rocksdb_options_set_stats_dump_period_sec(rocks->db_opts, 60); */
     rocksdb_options_set_max_write_buffer_number(rocks->db_opts, 6);
     struct rocksdb_block_based_table_options_t *block_opts = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_block_size(block_opts, 8*KB);
