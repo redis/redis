@@ -847,7 +847,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     if (config.idlemode == 0)
         aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
     else
-        /*in idle mode, clients still need to register readHandler for catching error */
+        /* In idle mode, clients still need to register readHandler for catching errors */
         aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
 
     listAddNodeTail(config.clients,c);
