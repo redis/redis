@@ -144,7 +144,7 @@ static inline int raxStackPush(raxStack *ts, void *ptr, uint8_t offset) {
 
 /* Pop an item from the stack, the function returns NULL if there are no
  * items to pop. */
-static inline void *raxStackPop(raxStack *ts, uint8_t* poffset) {
+static inline void *raxStackPop(raxStack *ts, uint8_t *poffset) {
     if (ts->items == 0) {
         if (poffset != NULL) *poffset = 0;
         return NULL;
