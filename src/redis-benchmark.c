@@ -848,7 +848,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
     else
         /*in idle mode, clients still need to register readHandler for catching error */
-        aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,readHandler,c);
+        aeCreateFileEvent(el,c->context->fd,AE_READABLE,readHandler,c);
 
     listAddNodeTail(config.clients,c);
     atomicIncr(config.liveclients, 1);
