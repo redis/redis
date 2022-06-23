@@ -6097,6 +6097,7 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n\n");
     fprintf(stderr,"Examples:\n");
     fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
+    fprintf(stderr,"       echo 'maxmemory 128mb' | ./redis-server -\n");
     fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
     fprintf(stderr,"       ./redis-server --port 7777\n");
     fprintf(stderr,"       ./redis-server --port 7777 --replicaof 127.0.0.1 8888\n");
