@@ -158,6 +158,8 @@ start_server {tags {"introspection"}} {
             set-proc-title
             swap-mode
             rocksdb-compression
+            jemalloc-max-bg-threads
+            swap-threads
         }
 
         if {!$::tls} {

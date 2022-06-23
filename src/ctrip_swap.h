@@ -304,7 +304,7 @@ int finishSwapRequest(swapRequest *req);
 void submitSwapRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* --- Threads (encode/rio/decode/finish) --- */
-#define SWAP_THREADS_DEFAULT     6
+#define SWAP_THREADS_DEFAULT     4
 #define SWAP_THREADS_MAX         64
 
 typedef struct swapThread {

@@ -64,13 +64,10 @@ void *swapThreadMain (void *arg) {
 }
 
 int swapThreadsInit() {
-    int i, nthd = SWAP_THREADS_DEFAULT;
+    int i;
 
-    if (nthd > SWAP_THREADS_MAX) nthd = SWAP_THREADS_MAX;
-    server.swap_threads_num = nthd;
-
-    server.swap_threads = zcalloc(sizeof(swapThread)*nthd);
-    for (i = 0; i < nthd; i++) {
+    server.swap_threads = zcalloc(sizeof(swapThread)*server.swap_threads_num);
+    for (i = 0; i < server.swap_threads_num; i++) {
         swapThread *thread = server.swap_threads+i;
         thread->id = i;
         thread->pending_reqs = listCreate();

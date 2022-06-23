@@ -1374,6 +1374,7 @@ struct redisServer {
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disables checksum validateion for RDB and RESTORE payload. */
     int jemalloc_bg_thread;         /* Enable jemalloc background thread */
+    int jemalloc_max_bg_threads;    /* Maximum jemalloc background threads num */
     size_t active_defrag_ignore_bytes; /* minimum amount of fragmentation waste to start active defrag */
     int active_defrag_threshold_lower; /* minimum percentage of fragmentation to start active defrag */
     int active_defrag_threshold_upper; /* maximum percentage of fragmentation at which we use maximum effort */

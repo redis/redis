@@ -3488,6 +3488,7 @@ void InitServerLast() {
     swapInit();
     initSwapWholeKey();
     initThreadedIO();
+    set_jemalloc_max_bg_threads(server.jemalloc_max_bg_threads);
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
 }

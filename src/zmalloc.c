@@ -503,6 +503,12 @@ void set_jemalloc_bg_thread(int enable) {
     je_mallctl("background_thread", NULL, 0, &val, 1);
 }
 
+void set_jemalloc_max_bg_threads(size_t threads) {
+    /* let jemalloc do purging asynchronously, required when there's no traffic 
+     * after flushdb */
+    je_mallctl("max_background_threads", NULL, 0, &threads, sizeof(size_t));
+}
+
 int jemalloc_purge() {
     /* return all unused (reserved) pages to the OS */
     char tmp[32];
@@ -526,6 +532,10 @@ int zmalloc_get_allocator_info(size_t *allocated,
 }
 
 void set_jemalloc_bg_thread(int enable) {
+    ((void)(enable));
+}
+
+void set_jemalloc_max_bg_threads(size_t threads) {
     ((void)(enable));
 }
 
