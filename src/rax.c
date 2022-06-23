@@ -95,43 +95,23 @@ static inline void raxStackInit(raxStack *ts) {
     ts->stack = ts->static_items;
     ts->items = 0;
     ts->maxitems = RAX_STACK_STATIC_ITEMS;
-    ts->oom = 0;
     ts->offsets = ts->static_offsets;
 }
 
-/* Push an item into the stack, returns 1 on success, 0 on out of memory. */
-static inline int raxStackPush(raxStack *ts, void *ptr, uint8_t offset) {
+/* Push an item into the stack. */
+static inline void raxStackPush(raxStack *ts, void *ptr, uint8_t offset) {
     if (ts->items == ts->maxitems) {
         if (ts->stack == ts->static_items) {
             ts->stack = rax_malloc(sizeof(void*)*ts->maxitems*2);
-            if (ts->stack == NULL) {
-                ts->stack = ts->static_items;
-                ts->oom = 1;
-                errno = ENOMEM;
-                return 0;
-            }
             memcpy(ts->stack,ts->static_items,sizeof(void*)*ts->maxitems);
         } else {
             void **newalloc = rax_realloc(ts->stack,sizeof(void*)*ts->maxitems*2);
-            if (newalloc == NULL) {
-                ts->oom = 1;
-                errno = ENOMEM;
-                return 0;
-            }
             ts->stack = newalloc;
         }
 
         uint8_t *old = ts->offsets == ts->static_offsets ? NULL : ts->offsets;
         size_t new_max = ts->maxitems * 2;
         ts->offsets = rax_realloc(old, new_max);
-
-        if (ts->offsets == NULL) {
-            ts->offsets = (!old) ? ts->static_offsets : old;
-            ts->oom = 1;
-            errno = ENOMEM;
-            return 0;
-        }
-
         if (old == NULL) memcpy(ts->offsets, ts->static_offsets, ts->maxitems);
         ts->maxitems *= 2;
     }
@@ -139,7 +119,7 @@ static inline int raxStackPush(raxStack *ts, void *ptr, uint8_t offset) {
     ts->stack[ts->items] = ptr;
     ts->offsets[ts->items] = offset;
     ts->items++;
-    return 1;
+    return;
 }
 
 /* Pop an item from the stack, the function returns NULL if there are no
@@ -155,7 +135,7 @@ static inline void *raxStackPop(raxStack *ts, uint8_t *poffset) {
     return ts->stack[ts->items];
 }
 
-/* Return the stack item at the top of the stack without actually consuming
+/* Return the stack item and offset at the top of the stack without actually consuming
  * it. */
 static inline void *raxStackPeek(raxStack *ts) {
     if (ts->items == 0) return NULL;
@@ -212,7 +192,6 @@ raxNode *raxNewNode(size_t children, int datafield) {
                       sizeof(raxNode*)*children;
     if (datafield) nodesize += sizeof(void*);
     raxNode *node = rax_malloc(nodesize);
-    if (node == NULL) return NULL;
     node->iskey = 0;
     node->isnull = 0;
     node->iscompr = 0;
@@ -228,16 +207,11 @@ rax *raxNew(void) {
     rax->numele = 0;
     rax->numnodes = 1;
     rax->head = raxNewNode(0,0);
-    if (rax->head == NULL) {
-        rax_free(rax);
-        return NULL;
-    } else {
-        return rax;
-    }
+    return rax;
 }
 
 /* realloc the node to make room for auxiliary data in order
- * to store an item in that node. On out of memory NULL is returned. */
+ * to store an item in that node. */
 raxNode *raxReallocForData(raxNode *n, void *data) {
     if (data == NULL) return n; /* No reallocation needed, setting isnull=1 */
     size_t curlen = raxNodeCurrentLength(n);
@@ -274,7 +248,7 @@ void *raxGetData(raxNode *n) {
  *
  * On success the new parent node pointer is returned (it may change because
  * of the realloc, so the caller should discard 'n' and use the new value).
- * On out of memory NULL is returned, and the old node is still valid. */
+ */
 raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
     assert(n->iscompr == 0);
 
@@ -286,14 +260,9 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
 
     /* Alloc the new child we will link to 'n'. */
     raxNode *child = raxNewNode(0,0);
-    if (child == NULL) return NULL;
 
     /* Make space in the original node. */
     raxNode *newn = rax_realloc(n,newlen);
-    if (newn == NULL) {
-        rax_free(child);
-        return NULL;
-    }
     n = newn;
 
     /* After the reallocation, we have up to 8/16 (depending on the system
@@ -425,7 +394,6 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
 
     /* Allocate the child to link to this node. */
     *child = raxNewNode(0,0);
-    if (*child == NULL) return NULL;
 
     /* Make space in the parent node. */
     newsize = sizeof(raxNode)+len+raxPadding(len)+sizeof(raxNode*);
@@ -434,10 +402,6 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
         if (!n->isnull) newsize += sizeof(void*);
     }
     raxNode *newn = rax_realloc(n,newsize);
-    if (newn == NULL) {
-        rax_free(*child);
-        return NULL;
-    }
     n = newn;
 
     n->iscompr = 1;
@@ -601,10 +565,6 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         if (!h->iskey || (h->isnull && overwrite)) {
             h = raxReallocForData(h,data);
             if (h) memcpy(parentlink,&h,sizeof(h));
-        }
-        if (h == NULL) {
-            errno = ENOMEM;
-            return 0;
         }
 
         /* Update the existing key if there is already one. */
@@ -789,17 +749,6 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             postfix = rax_malloc(nodesize);
         }
 
-        /* OOM? Abort now that the tree is untouched. */
-        if (splitnode == NULL ||
-            (trimmedlen && trimmed == NULL) ||
-            (postfixlen && postfix == NULL))
-        {
-            rax_free(splitnode);
-            rax_free(trimmed);
-            rax_free(postfix);
-            errno = ENOMEM;
-            return 0;
-        }
         splitnode->data[0] = h->data[j];
 
         if (j == 0) {
@@ -869,13 +818,6 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         if (h->iskey && !h->isnull) nodesize += sizeof(void*);
         raxNode *trimmed = rax_malloc(nodesize);
 
-        if (postfix == NULL || trimmed == NULL) {
-            rax_free(postfix);
-            rax_free(trimmed);
-            errno = ENOMEM;
-            return 0;
-        }
-
         /* 1: Save next pointer. */
         raxNode **childfield = raxNodeLastChildPtr(h);
         raxNode *next;
@@ -930,7 +872,6 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             if (comprsize > RAX_NODE_MAX_SIZE)
                 comprsize = RAX_NODE_MAX_SIZE;
             raxNode *newh = raxCompressNode(h,s+i,comprsize,&child);
-            if (newh == NULL) goto oom;
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
             parentlink = raxNodeLastChildPtr(h);
@@ -939,7 +880,6 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             debugf("Inserting normal node\n");
             raxNode **new_parentlink;
             raxNode *newh = raxAddChild(h,s[i],&child,&new_parentlink);
-            if (newh == NULL) goto oom;
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
             parentlink = new_parentlink;
@@ -949,27 +889,11 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         h = child;
     }
     raxNode *newh = raxReallocForData(h,data);
-    if (newh == NULL) goto oom;
     h = newh;
     if (!h->iskey) rax->numele++;
     raxSetData(h,data);
     memcpy(parentlink,&h,sizeof(h));
     return 1; /* Element inserted. */
-
-oom:
-    /* This code path handles out of memory after part of the sub-tree was
-     * already modified. Set the node as a key, and then remove it. However we
-     * do that only if the node is a terminal node, otherwise if the OOM
-     * happened reallocating a node in the middle, we don't need to free
-     * anything. */
-    if (h->size == 0) {
-        h->isnull = 1;
-        h->iskey = 1;
-        rax->numele++; /* Compensate the next remove. */
-        assert(raxRemove(rax,s,i,NULL) != 0);
-    }
-    errno = ENOMEM;
-    return 0;
 }
 
 /* Overwriting insert. Just a wrapper for raxGenericInsert() that will
@@ -1085,9 +1009,7 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
     if (newnode) {
         debugnode("raxRemoveChild after", newnode);
     }
-    /* Note: if rax_realloc() fails we just return the old address, which
-     * is valid. */
-    return newnode ? newnode : parent;
+    return newnode;
 }
 
 /* Remove the specified item. Returns 1 if the item was found and
@@ -1158,10 +1080,6 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
          * further compression with adjacent nodes is potentially possible. */
         trycompress = 1;
     }
-
-    /* Don't try node compression if our nodes pointers stack is not
-     * complete because of OOM while executing raxLowWalk() */
-    if (trycompress && ts.oom) trycompress = 0;
 
     /* Recompression: if trycompress is true, 'h' points to a radix tree node
      * that changed in a way that could allow to compress nodes in this
@@ -1342,19 +1260,14 @@ void raxStart(raxIterator *it, rax *rt) {
 
 /* Append characters at the current key string of the iterator 'it'. This
  * is a low level function used to implement the iterator, not callable by
- * the user. Returns 0 on out of memory, otherwise 1 is returned. */
-int raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
-    if (len == 0) return 1;
+ * the user. */
+void raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
+    if (len == 0) return;
     if (it->key_max < it->key_len+len) {
         unsigned char *old = (it->key == it->key_static_string) ? NULL :
                                                                   it->key;
         size_t new_max = (it->key_len+len)*2;
         it->key = rax_realloc(old,new_max);
-        if (it->key == NULL) {
-            it->key = (!old) ? it->key_static_string : old;
-            errno = ENOMEM;
-            return 0;
-        }
         if (old == NULL) memcpy(it->key,it->key_static_string,it->key_len);
         it->key_max = new_max;
     }
@@ -1362,7 +1275,7 @@ int raxIteratorAddChars(raxIterator *it, unsigned char *s, size_t len) {
      * it->key when we use the current key in order to re-seek. */
     memmove(it->key+it->key_len,s,len);
     it->key_len += len;
-    return 1;
+    return;
 }
 
 /* Remove the specified number of chars from the right of the current
@@ -1382,15 +1295,13 @@ void raxIteratorDelChars(raxIterator *it, size_t count) {
  * the parent will be skipped. This option is used by raxSeek() when
  * implementing seeking a non existing element with the ">" or "<" options:
  * the starting node is not a key in that particular case, so we start the scan
- * from a node that does not represent the key set.
- *
- * The function returns 1 on success or 0 on out of memory. */
-int raxIteratorNextStep(raxIterator *it, int noup) {
+ * from a node that does not represent the key set. */
+void raxIteratorNextStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
-        return 1;
+        return;
     } else if (it->flags & RAX_ITER_JUST_SEEKED) {
         it->flags &= ~RAX_ITER_JUST_SEEKED;
-        return 1;
+        return;
     }
 
     /* Save key len, stack items and the node where we are currently
@@ -1406,10 +1317,10 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             /* Seek the lexicographically smaller key in this subtree, which
              * is the first one found always going towards the first child
              * of every successive node. */
-            if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
+            raxStackPush(&it->stack, it->node, it->child_offset);
             raxNode **cp = raxNodeFirstChildPtr(it->node);
-            if (!raxIteratorAddChars(it,it->node->data,
-                it->node->iscompr ? it->node->size : 1)) return 0;
+            raxIteratorAddChars(it,it->node->data,
+                it->node->iscompr ? it->node->size : 1);
             memcpy(&it->node,cp,sizeof(it->node));
             it->child_offset = 0;
             /* Call the node callback if any, and replace the node pointer
@@ -1421,7 +1332,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
              * what follows in the sub-children. */
             if (it->node->iskey) {
                 it->data = raxGetData(it->node);
-                return 1;
+                return;
             }
         } else {
             /* If we finished exploring the previous sub-tree, switch to the
@@ -1437,7 +1348,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                     it->stack.items = orig_stack_items;
                     it->key_len = orig_key_len;
                     it->node = orig_node;
-                    return 1;
+                    return;
                 }
                 /* If there are no children at the current node, try parent's
                  * next child. */
@@ -1460,7 +1371,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
                         debugf("SCAN found a new node\n");
                         raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
-                        if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
+                        raxStackPush(&it->stack, it->node, it->child_offset);
                         memcpy(&it->node,cp,sizeof(it->node));
                         it->child_offset = 0;
                         /* Call the node callback if any, and replace the node
@@ -1469,7 +1380,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                             memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);
-                            return 1;
+                            return;
                         }
                         break;
                     }
@@ -1482,34 +1393,33 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
 /* Seek the greatest key in the subtree at the current node. Return 0 on
  * out of memory, otherwise 1. This is a helper function for different
  * iteration functions below. */
-int raxSeekGreatest(raxIterator *it) {
+void raxSeekGreatest(raxIterator *it) {
     while(it->node->size) {
         uint8_t child_offset;
         if (it->node->iscompr) {
-            if (!raxIteratorAddChars(it,it->node->data, it->node->size)) return 0;
+            raxIteratorAddChars(it,it->node->data, it->node->size);
             child_offset = 0;
         } else {
-            if (!raxIteratorAddChars(it,it->node->data+it->node->size-1,1))
-                return 0;
+            raxIteratorAddChars(it,it->node->data+it->node->size-1,1);
             child_offset = it->node->size - 1;
         }
         raxNode **cp = raxNodeLastChildPtr(it->node);
-        if (!raxStackPush(&it->stack, it->node, child_offset)) return 0;
+        raxStackPush(&it->stack, it->node, child_offset);
         memcpy(&it->node,cp,sizeof(it->node));
         it->child_offset = 0; /* placeholder will be overwritten on next iteration */
     }
-    return 1;
+    return;
 }
 
 /* Like raxIteratorNextStep() but implements an iteration step moving
  * to the lexicographically previous element. The 'noup' option has a similar
  * effect to the one of raxIteratorNextStep(). */
-int raxIteratorPrevStep(raxIterator *it, int noup) {
+void raxIteratorPrevStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
-        return 1;
+        return;
     } else if (it->flags & RAX_ITER_JUST_SEEKED) {
         it->flags &= ~RAX_ITER_JUST_SEEKED;
-        return 1;
+        return;
     }
 
     /* Save key len, stack items and the node where we are currently
@@ -1527,7 +1437,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
             it->stack.items = orig_stack_items;
             it->key_len = orig_key_len;
             it->node = orig_node;
-            return 1;
+            return;
         }
 
         if (!noup) {
@@ -1549,11 +1459,11 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
                 raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
                 debugf("SCAN found a new node\n");
                 /* Enter the node we just found. */
-                if (!raxIteratorAddChars(it,it->node->data + it->child_offset, 1)) return 0;
-                if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
+                raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
+                raxStackPush(&it->stack, it->node, it->child_offset);
                 memcpy(&it->node,cp,sizeof(it->node));
                 /* Seek sub-tree max. */
-                if (!raxSeekGreatest(it)) return 0;
+                raxSeekGreatest(it);
             }
         }
 
@@ -1562,15 +1472,14 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
          * before giving up with this node, check if it's a key itself. */
         if (it->node->iskey) {
             it->data = raxGetData(it->node);
-            return 1;
+            return;
         }
     }
 }
 
 /* Seek an iterator at the specified element.
- * Return 0 if the seek failed for syntax error or out of memory. Otherwise
- * 1 is returned. When 0 is returned for out of memory, errno is set to
- * the ENOMEM value. */
+ * Return 0 if the seek failed for syntax error. Otherwise
+ * 1 is returned. */
 int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     int eq = 0, lt = 0, gt = 0, first = 0, last = 0;
 
@@ -1616,7 +1525,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
         /* Find the greatest key taking always the last child till a
          * final node is found. */
         it->node = it->rt->head;
-        if (!raxSeekGreatest(it)) return 0;
+        raxSeekGreatest(it);
         assert(it->node->iskey);
         it->data = raxGetData(it->node);
         return 1;
@@ -1628,15 +1537,12 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     int splitpos = 0;
     size_t i = raxLowWalkSeek(it, ele, len, &splitpos);
 
-    /* Return OOM on incomplete stack info. */
-    if (it->stack.oom) return 0;
-
     if (eq && i == len && (!it->node->iscompr || splitpos == 0) &&
         it->node->iskey)
     {
         /* We found our node, since the key matches and we have an
          * "equal" condition. */
-        if (!raxIteratorAddChars(it,ele,len)) return 0; /* OOM. */
+        raxIteratorAddChars(it,ele,len);
         it->data = raxGetData(it->node);
     } else if (lt || gt) {
         /* Exact key not found or eq flag not set. We have to set as current
@@ -1654,13 +1560,13 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
              * and call the iterator with the 'noup' flag so that it will try
              * to seek the next/prev child in the current node directly based
              * on the mismatching character. */
-            if (!raxIteratorAddChars(it,ele+i,1)) return 0;
+            raxIteratorAddChars(it,ele+i,1);
             debugf("Seek normal node on mismatch: %.*s\n",
                 (int)it->key_len, (char*)it->key);
 
             it->flags &= ~RAX_ITER_JUST_SEEKED;
-            if (lt && !raxIteratorPrevStep(it,1)) return 0;
-            if (gt && !raxIteratorNextStep(it,1)) return 0;
+            if (lt) raxIteratorPrevStep(it,1);
+            if (gt) raxIteratorNextStep(it,1);
             it->flags |= RAX_ITER_JUST_SEEKED; /* Ignore next call. */
         } else if (i != len && it->node->iscompr) {
             debugf("Compressed mismatch: %.*s\n",
@@ -1674,11 +1580,10 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  * than our seek element, continue forward, otherwise set the
                  * state in order to go back to the next sub-tree. */
                 if (nodechar > keychar) {
-                    if (!raxIteratorNextStep(it,0)) return 0;
+                    raxIteratorNextStep(it,0);
                 } else {
-                    if (!raxIteratorAddChars(it,it->node->data,it->node->size))
-                        return 0;
-                    if (!raxIteratorNextStep(it,1)) return 0;
+                    raxIteratorAddChars(it,it->node->data,it->node->size);
+                    raxIteratorNextStep(it,1);
                 }
             }
             if (lt) {
@@ -1687,12 +1592,11 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  * subtree, otherwise set the state in order to go back to
                  * the previous sub-tree. */
                 if (nodechar < keychar) {
-                    if (!raxSeekGreatest(it)) return 0;
+                    raxSeekGreatest(it);
                     it->data = raxGetData(it->node);
                 } else {
-                    if (!raxIteratorAddChars(it,it->node->data,it->node->size))
-                        return 0;
-                    if (!raxIteratorPrevStep(it,1)) return 0;
+                    raxIteratorAddChars(it,it->node->data,it->node->size);
+                    raxIteratorPrevStep(it,1);
                 }
             }
             it->flags |= RAX_ITER_JUST_SEEKED; /* Ignore next call. */
@@ -1720,8 +1624,8 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  * So in that case, we don't seek backward. */
                 it->data = raxGetData(it->node);
             } else {
-                if (gt && !raxIteratorNextStep(it,0)) return 0;
-                if (lt && !raxIteratorPrevStep(it,0)) return 0;
+                if (gt) raxIteratorNextStep(it,0);
+                if (lt) raxIteratorPrevStep(it,0);
             }
             it->flags |= RAX_ITER_JUST_SEEKED; /* Ignore next call. */
         }
@@ -1737,10 +1641,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
  * If EOF (or out of memory) is reached, 0 is returned, otherwise 1 is
  * returned. In case 0 is returned because of OOM, errno is set to ENOMEM. */
 int raxNext(raxIterator *it) {
-    if (!raxIteratorNextStep(it,0)) {
-        errno = ENOMEM;
-        return 0;
-    }
+    raxIteratorNextStep(it,0);
     if (it->flags & RAX_ITER_EOF) {
         errno = 0;
         return 0;
@@ -1752,10 +1653,7 @@ int raxNext(raxIterator *it) {
  * If EOF (or out of memory) is reached, 0 is returned, otherwise 1 is
  * returned. In case 0 is returned because of OOM, errno is set to ENOMEM. */
 int raxPrev(raxIterator *it) {
-    if (!raxIteratorPrevStep(it,0)) {
-        errno = ENOMEM;
-        return 0;
-    }
+    raxIteratorPrevStep(it,0);
     if (it->flags & RAX_ITER_EOF) {
         errno = 0;
         return 0;
@@ -1764,7 +1662,7 @@ int raxPrev(raxIterator *it) {
 }
 
 /* Perform a random walk starting in the current position of the iterator.
- * Return 0 if the tree is empty or on out of memory. Otherwise 1 is returned
+ * Return 0 if the tree is empty. Otherwise 1 is returned
  * and the iterator is set to the node reached after doing a random walk
  * of 'steps' steps. If the 'steps' argument is 0, the random walk is performed
  * using a random number of steps between 1 and two times the logarithm of
@@ -1802,12 +1700,12 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
         } else {
             /* Select a random child. */
             if (n->iscompr) {
-                if (!raxIteratorAddChars(it,n->data,n->size)) return 0;
+                raxIteratorAddChars(it,n->data,n->size);
             } else {
-                if (!raxIteratorAddChars(it,n->data+child_offset,1)) return 0;
+                raxIteratorAddChars(it,n->data+child_offset,1);
             }
             raxNode **cp = raxNodeFirstChildPtr(n)+child_offset;
-            if (!raxStackPush(&it->stack,n, child_offset)) return 0;
+            raxStackPush(&it->stack,n, child_offset);
             memcpy(&n,cp,sizeof(n));
             child_offset = 0;
         }
