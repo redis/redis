@@ -6097,7 +6097,7 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
 
     /* Create the socket */
     conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
-    if (connBlockingConnect(conn, c->argv[1]->ptr, atoi(c->argv[2]->ptr), timeout)
+    if (connBlockingConnect(conn, host->ptr, atoi(port->ptr), timeout)
             != C_OK) {
         addReplyError(c,"-IOERR error or timeout connecting to the client");
         connClose(conn);
