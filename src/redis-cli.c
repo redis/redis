@@ -7269,7 +7269,10 @@ static int clusterManagerCommandCall(int argc, char **argv) {
             } else if (config.output == OUTPUT_CSV) {
                 formatted_reply = cliFormatReplyCSV(reply);
                 formatted_reply = sdscat(formatted_reply,"\n");
-            }
+            } else if (mode == OUTPUT_JSON || mode == OUTPUT_QUOTED_JSON) {
+                out = cliFormatReplyJson(sdsempty(), reply, mode);
+                out = sdscatlen(out, "\n", 1);
+            } 
             printf("%s:%d:\n", n->ip, n->port);
             printf("%s\n", (char *) formatted_reply);
             sdsfree(formatted_reply);
