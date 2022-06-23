@@ -126,7 +126,7 @@ void zmadvise_dontneed(void *ptr);
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);
-void *zmalloc_no_tcache(size_t size);
+void *zmalloc_arena_no_tcache(size_t size, unsigned int arena_ind);
 #endif
 
 #ifndef HAVE_MALLOC_SIZE

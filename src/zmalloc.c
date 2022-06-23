@@ -148,9 +148,9 @@ void *zmalloc_usable(size_t size, size_t *usable) {
  * and go straight to the allocator arena bins.
  * Currently implemented only for jemalloc. Used for online defragmentation. */
 #ifdef HAVE_DEFRAG
-void *zmalloc_no_tcache(size_t size) {
+void *zmalloc_arena_no_tcache(size_t size, unsigned int arena_ind) {
     ASSERT_NO_SIZE_OVERFLOW(size);
-    void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_TCACHE_NONE);
+    void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_ARENA(arena_ind) | MALLOCX_TCACHE_NONE);
     if (!ptr) zmalloc_oom_handler(size);
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;

@@ -50,7 +50,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r config set maxmemory-policy allkeys-lru
 
             populate 700000 asdf1 150
-            populate 170000 asdf2 300
+            populate 300000 asdf2 300
             after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {

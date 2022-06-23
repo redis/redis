@@ -43,7 +43,10 @@
 
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
-int je_get_defrag_hint(void* ptr);
+int je_get_defrag_hint(void* ptr, unsigned int *arena_ind);
+void je_init_defrag(void);
+int je_init_defrag_step(long long max_time);
+void je_finish_defrag(void);
 
 /* forward declarations*/
 void defragDictBucketCallback(dict *d, dictEntry **bucketref);
@@ -57,7 +60,8 @@ dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, s
 void* activeDefragAlloc(void *ptr) {
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr)) {
+    unsigned int arena_ind;
+    if(!je_get_defrag_hint(ptr, &arena_ind)) {
         server.stat_active_defrag_misses++;
         return NULL;
     }
@@ -65,7 +69,7 @@ void* activeDefragAlloc(void *ptr) {
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
     size = zmalloc_size(ptr);
-    newptr = zmalloc_no_tcache(size);
+    newptr = zmalloc_arena_no_tcache(size, arena_ind);
     memcpy(newptr, ptr, size);
     zfree_no_tcache(ptr);
     return newptr;
@@ -1088,6 +1092,8 @@ void computeDefragCycles() {
      /* We allow increasing the aggressiveness during a scan, but don't
       * reduce it. */
     if (cpu_pct > server.active_defrag_running) {
+        if (!server.active_defrag_running)
+            je_init_defrag();
         server.active_defrag_running = cpu_pct;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
@@ -1114,6 +1120,7 @@ void activeDefragCycle(void) {
         if (server.active_defrag_running) {
             /* if active defrag was disabled mid-run, start from fresh next time. */
             server.active_defrag_running = 0;
+            je_finish_defrag();
             if (db)
                 listEmpty(db->defrag_later);
             defrag_later_current_key = NULL;
@@ -1144,6 +1151,9 @@ void activeDefragCycle(void) {
     endtime = start + timelimit;
     latencyStartMonitor(latency);
 
+    if (je_init_defrag_step(timelimit))
+        return;
+
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor) {
@@ -1162,7 +1172,7 @@ void activeDefragCycle(void) {
                 size_t frag_bytes;
                 float frag_pct = getAllocatorFragmentation(&frag_bytes);
                 serverLog(LL_VERBOSE,
-                    "Active defrag done in %dms, reallocated=%d, frag=%.0f%%, frag_bytes=%zu",
+                    "Active defrag done in %dms, reallocated=%d, frag=%.3f%%, frag_bytes=%zu",
                     (int)((now - start_scan)/1000), (int)(server.stat_active_defrag_hits - start_stat), frag_pct, frag_bytes);
 
                 start_scan = now;
@@ -1170,10 +1180,14 @@ void activeDefragCycle(void) {
                 cursor = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
+                je_finish_defrag();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
-                if (server.active_defrag_running != 0 && ustime() < endtime)
+                if (server.active_defrag_running != 0 && ustime() < endtime) {
+                    if (je_init_defrag_step(endtime - ustime()))
+                        break;
                     continue;
+                }
                 break;
             }
             else if (current_db==0) {

@@ -202,7 +202,9 @@ a_attr a_type	*a_prefix##any(a_ph_type *ph);				\
 a_attr void	a_prefix##insert(a_ph_type *ph, a_type *phn);		\
 a_attr a_type	*a_prefix##remove_first(a_ph_type *ph);			\
 a_attr a_type	*a_prefix##remove_any(a_ph_type *ph);			\
-a_attr void	a_prefix##remove(a_ph_type *ph, a_type *phn);
+a_attr void	a_prefix##remove(a_ph_type *ph, a_type *phn); \
+a_attr void	a_prefix##remove_either(a_ph_type *ph1, a_ph_type *ph2, a_type *phn); \
+a_attr void	a_prefix##merge(a_ph_type *target, a_ph_type *source);
 
 /*
  * The ph_gen() macro generates a type-specific pairing heap implementation,
@@ -307,6 +309,19 @@ a_prefix##remove_any(a_ph_type *ph) {					\
 	return ret;							\
 }									\
 a_attr void								\
+a_prefix##remove_either(a_ph_type *ph1, a_ph_type *ph2, a_type *phn) { \
+	if (ph1->ph_root == phn) {                                      \
+		/* If we're the root of ph1 then remove from ph1 */         \
+		a_prefix##remove(ph1, phn);                                 \
+	} else {                                                        \
+		/* We're either the root of ph2 in which case we can safely \
+		 * remove from ph2, or we're not a root of any ph so we can \
+		 * safely unlink ourselves regardless of where we are.      \
+		 */                                                         \
+		 a_prefix##remove(ph2, phn);                                \
+	}                                                               \
+}                                                                   \
+a_attr void								\
 a_prefix##remove(a_ph_type *ph, a_type *phn) {				\
 	a_type *replace, *parent;					\
 									\
@@ -386,6 +401,15 @@ a_prefix##remove(a_ph_type *ph, a_type *phn) {				\
 			    phn_prev_get(a_type, a_field, phn));	\
 		}							\
 	}								\
+} \
+a_attr void \
+a_prefix##merge(a_ph_type *target, a_ph_type *source) { \
+	a_type *r0 = a_prefix##first(target); \
+	a_type *r1 = a_prefix##first(source); \
+	phn_merge(a_type, a_field, r0, r1, a_cmp, target->ph_root); \
+\
+	/* Clear the source heap after merge */ \
+	a_prefix##new(source); \
 }
 
 #endif /* PH_H_ */

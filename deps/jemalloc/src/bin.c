@@ -71,11 +71,16 @@ bin_init(bin_t *bin) {
 		return true;
 	}
 	bin->slabcur = NULL;
-	extent_heap_new(&bin->slabs_nonfull);
+    extent_heap_new(&bin->slabs_nonfull);
+    extent_heap_new(&bin->slabs_nonfull_temp);
 	extent_list_init(&bin->slabs_full);
 	if (config_stats) {
 		memset(&bin->stats, 0, sizeof(bin_stats_t));
 	}
+    bin->highest_slab_to_retain_inited = false;
+    bin->initing_defrag = false;
+    bin->defrag_slabs_to_retain = 0;
+
 	return false;
 }
 
