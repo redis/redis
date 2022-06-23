@@ -182,11 +182,11 @@ typedef struct raxIterator {
     void *data;             /* Data associated to this key. */
     size_t key_len;         /* Current key length. */
     size_t key_max;         /* Max key len the current key buffer can hold. */
-    unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
-    raxStack stack;         /* Stack used for unsafe iteration. */
-    raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
     uint8_t child_offset;    /* Current child offset. */
+    raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
+    unsigned char key_static_string[RAX_ITER_STATIC_LEN];
+    raxStack stack;         /* Stack used for unsafe iteration. */
 } raxIterator;
 
 /* A special pointer returned for not found items. */
