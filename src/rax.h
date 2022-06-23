@@ -58,7 +58,7 @@
  * successive nodes having a single child are "compressed" into the node
  * itself as a string of characters, each representing a next-level child,
  * and only the link to the node representing the last character node is
- * provided inside the representation. So the above representation is turend
+ * provided inside the representation. So the above representation is turned
  * into:
  *
  *                  ["foo"] ""
@@ -123,7 +123,7 @@ typedef struct raxNode {
      * nodes).
      *
      * If the node has an associated key (iskey=1) and is not NULL
-     * (isnull=0), then after the raxNode pointers poiting to the
+     * (isnull=0), then after the raxNode pointers pointing to the
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */

@@ -26,7 +26,7 @@
  * Zero initializer required for tsd initialization only.  Proper initialization
  * done via rtree_ctx_data_init().
  */
-#define RTREE_CTX_ZERO_INITIALIZER {{{0}}, {{0}}}
+#define RTREE_CTX_ZERO_INITIALIZER {{{0, 0}}, {{0, 0}}}
 
 
 typedef struct rtree_leaf_elm_s rtree_leaf_elm_t;

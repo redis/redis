@@ -1,0 +1,23 @@
+{
+    "STATS": {
+        "summary": "Return information about the function currently running (name, description, duration)",
+        "complexity": "O(1)",
+        "group": "scripting",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "FUNCTION",
+        "function": "functionStatsCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "ALLOW_BUSY"
+        ],
+        "acl_categories": [
+            "SCRIPTING"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL"
+        ]
+    }
+}

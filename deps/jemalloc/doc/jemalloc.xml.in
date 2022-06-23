@@ -424,7 +424,7 @@ for (i = 0; i < nbins; i++) {
       called repeatedly.  General information that never changes during
       execution can be omitted by specifying <quote>g</quote> as a character
       within the <parameter>opts</parameter> string.  Note that
-      <function>malloc_message()</function> uses the
+      <function>malloc_stats_print()</function> uses the
       <function>mallctl*()</function> functions internally, so inconsistent
       statistics can be reported if multiple threads use these functions
       simultaneously.  If <option>--enable-stats</option> is specified during
@@ -433,10 +433,11 @@ for (i = 0; i < nbins; i++) {
       arena statistics, respectively; <quote>b</quote> and <quote>l</quote> can
       be specified to omit per size class statistics for bins and large objects,
       respectively; <quote>x</quote> can be specified to omit all mutex
-      statistics.  Unrecognized characters are silently ignored.  Note that
-      thread caching may prevent some statistics from being completely up to
-      date, since extra locking would be required to merge counters that track
-      thread cache operations.</para>
+      statistics; <quote>e</quote> can be used to omit extent statistics.
+      Unrecognized characters are silently ignored.  Note that thread caching
+      may prevent some statistics from being completely up to date, since extra
+      locking would be required to merge counters that track thread cache
+      operations.</para>
 
       <para>The <function>malloc_usable_size()</function> function
       returns the usable size of the allocation pointed to by
@@ -903,6 +904,23 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         </para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.confirm_conf">
+        <term>
+          <mallctl>opt.confirm_conf</mallctl>
+          (<type>bool</type>)
+          <literal>r-</literal>
+        </term>
+	<listitem><para>Confirm-runtime-options-when-program-starts
+	enabled/disabled.  If true, the string specified via
+	<option>--with-malloc-conf</option>, the string pointed to by the
+	global variable <varname>malloc_conf</varname>, the <quote>name</quote>
+	of the file referenced by the symbolic link named
+	<filename class="symlink">/etc/malloc.conf</filename>, and the value of
+	the environment variable <envar>MALLOC_CONF</envar>, will be printed in
+	order.  Then, each option being set will be individually printed.  This
+	option is disabled by default.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.abort_conf">
         <term>
           <mallctl>opt.abort_conf</mallctl>
@@ -943,16 +961,19 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         <citerefentry><refentrytitle>munmap</refentrytitle>
         <manvolnum>2</manvolnum></citerefentry> or equivalent (see <link
         linkend="stats.retained">stats.retained</link> for related details).
-        This option is disabled by default unless discarding virtual memory is
-        known to trigger
-        platform-specific performance problems, e.g. for [64-bit] Linux, which
-        has a quirk in its virtual memory allocation algorithm that causes
-        semi-permanent VM map holes under normal jemalloc operation.  Although
-        <citerefentry><refentrytitle>munmap</refentrytitle>
-        <manvolnum>2</manvolnum></citerefentry> causes issues on 32-bit Linux as
-        well, retaining virtual memory for 32-bit Linux is disabled by default
-        due to the practical possibility of address space exhaustion.
-        </para></listitem>
+        It also makes jemalloc use <citerefentry>
+        <refentrytitle>mmap</refentrytitle><manvolnum>2</manvolnum>
+        </citerefentry> or equivalent in a more greedy way, mapping larger
+        chunks in one go.  This option is disabled by default unless discarding
+        virtual memory is known to trigger platform-specific performance
+        problems, namely 1) for [64-bit] Linux, which has a quirk in its virtual
+        memory allocation algorithm that causes semi-permanent VM map holes
+        under normal jemalloc operation; and 2) for [64-bit] Windows, which
+        disallows split / merged regions with
+        <parameter><constant>MEM_RELEASE</constant></parameter>.  Although the
+        same issues may present on 32-bit platforms as well, retaining virtual
+        memory for 32-bit Linux and Windows is disabled by default due to the
+        practical possibility of address space exhaustion.  </para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.dss">
@@ -988,6 +1009,24 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         number of CPUs, or one if there is a single CPU.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.oversize_threshold">
+        <term>
+          <mallctl>opt.oversize_threshold</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>The threshold in bytes of which requests are considered
+        oversize.  Allocation requests with greater sizes are fulfilled from a
+        dedicated arena (automatically managed, however not within
+        <literal>narenas</literal>), in order to reduce fragmentation by not
+        mixing huge allocations with small ones.  In addition, the decay API
+        guarantees on the extents greater than the specified threshold may be
+        overridden.  Note that requests with arena index specified via
+        <constant>MALLOCX_ARENA</constant>, or threads associated with explicit
+        arenas will not be considered.  The default threshold is 8MiB.  Values
+        not within large size classes disables this feature.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.percpu_arena">
         <term>
           <mallctl>opt.percpu_arena</mallctl>
@@ -1009,7 +1048,7 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
       <varlistentry id="opt.background_thread">
         <term>
           <mallctl>opt.background_thread</mallctl>
-          (<type>const bool</type>)
+          (<type>bool</type>)
           <literal>r-</literal>
         </term>
         <listitem><para>Internal background worker threads enabled/disabled.
@@ -1024,7 +1063,7 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
       <varlistentry id="opt.max_background_threads">
         <term>
           <mallctl>opt.max_background_threads</mallctl>
-          (<type>const size_t</type>)
+          (<type>size_t</type>)
           <literal>r-</literal>
         </term>
         <listitem><para>Maximum number of background threads that will be created
@@ -1055,7 +1094,11 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         linkend="arena.i.dirty_decay_ms"><mallctl>arena.&lt;i&gt;.dirty_decay_ms</mallctl></link>
         for related dynamic control options.  See <link
         linkend="opt.muzzy_decay_ms"><mallctl>opt.muzzy_decay_ms</mallctl></link>
-        for a description of muzzy pages.</para></listitem>
+        for a description of muzzy pages.for a description of muzzy pages.  Note
+        that when the <link
+        linkend="opt.oversize_threshold"><mallctl>oversize_threshold</mallctl></link>
+        feature is enabled, the arenas reserved for oversize requests may have
+        its own default decay settings.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.muzzy_decay_ms">
@@ -1763,10 +1806,11 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         to control allocation for arenas explicitly created via <link
         linkend="arenas.create"><mallctl>arenas.create</mallctl></link> such
         that all extents originate from an application-supplied extent allocator
-        (by specifying the custom extent hook functions during arena creation),
-        but the automatically created arenas will have already created extents
-        prior to the application having an opportunity to take over extent
-        allocation.</para>
+        (by specifying the custom extent hook functions during arena creation).
+        However, the API guarantees for the automatically created arenas may be
+        relaxed -- hooks set there may be called in a "best effort" fashion; in
+        addition there may be extents created prior to the application having an
+        opportunity to take over extent allocation.</para>
 
         <programlisting language="C"><![CDATA[
 typedef extent_hooks_s extent_hooks_t;
@@ -2593,6 +2637,17 @@ struct extent_hooks_s {
         details.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="stats.arenas.i.extent_avail">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.extent_avail</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Number of allocated (but unused) extent structs in this
+	arena.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="stats.arenas.i.base">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.base</mallctl>
@@ -2760,6 +2815,28 @@ struct extent_hooks_s {
         all bin size classes.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="stats.arenas.i.small.nfills">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.small.nfills</mallctl>
+          (<type>uint64_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Cumulative number of tcache fills by all small size
+	classes.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.small.nflushes">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.small.nflushes</mallctl>
+          (<type>uint64_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Cumulative number of tcache flushes by all small size
+        classes.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="stats.arenas.i.large.allocated">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.large.allocated</mallctl>
@@ -2808,6 +2885,28 @@ struct extent_hooks_s {
         </term>
         <listitem><para>Cumulative number of allocation requests satisfied by
         all large size classes.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.large.nfills">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.large.nfills</mallctl>
+          (<type>uint64_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Cumulative number of tcache fills by all large size
+	classes.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.large.nflushes">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.large.nflushes</mallctl>
+          (<type>uint64_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Cumulative number of tcache flushes by all large size
+        classes.</para></listitem>
       </varlistentry>
 
       <varlistentry id="stats.arenas.i.bins.j.nmalloc">
@@ -2909,6 +3008,17 @@ struct extent_hooks_s {
         <listitem><para>Current number of slabs.</para></listitem>
       </varlistentry>
 
+
+      <varlistentry id="stats.arenas.i.bins.j.nonfull_slabs">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nonfull_slabs</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Current number of nonfull slabs.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="stats.arenas.i.bins.mutex">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.mutex.{counter}</mallctl>
@@ -2920,6 +3030,30 @@ struct extent_hooks_s {
         scope; bin operation related).  <mallctl>{counter}</mallctl> is one of
         the counters in <link linkend="mutex_counters">mutex profiling
         counters</link>.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.extents.n">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.extents.&lt;j&gt;.n{extent_type}</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para> Number of extents of the given type in this arena in
+	the bucket corresponding to page size index &lt;j&gt;. The extent type
+	is one of dirty, muzzy, or retained.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.extents.bytes">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.extents.&lt;j&gt;.{extent_type}_bytes</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+	<listitem><para> Sum of the bytes managed by extents of the given type
+	in this arena in the bucket corresponding to page size index &lt;j&gt;.
+	The extent type is one of dirty, muzzy, or retained.</para></listitem>
       </varlistentry>
 
       <varlistentry id="stats.arenas.i.lextents.j.nmalloc">

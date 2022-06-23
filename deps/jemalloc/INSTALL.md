@@ -221,13 +221,6 @@ any of the following arguments (not a definitive list) to 'configure':
     system page size may change between configuration and execution, e.g. when
     cross compiling.
 
-* `--with-lg-page-sizes=<lg-page-sizes>`
-
-    Specify the comma-separated base 2 logs of the page sizes to support.  This
-    option may be useful when cross compiling in combination with
-    `--with-lg-page`, but its primary use case is for integration with FreeBSD's
-    libc, wherein jemalloc is embedded.
-
 * `--with-lg-hugepage=<lg-hugepage>`
 
     Specify the base 2 log of the system huge page size.  This option is useful
@@ -275,6 +268,11 @@ any of the following arguments (not a definitive list) to 'configure':
     Note that in this case, there will be two malloc implementations operating
     in the same process, which will almost certainly result in confusing runtime
     crashes if pointers leak from one implementation to the other.
+
+* `--disable-libdl`
+
+    Disable the usage of libdl, namely dlsym(3) which is required by the lazy
+    lock option.  This can allow building static binaries.
 
 The following environment variables (not a definitive list) impact configure's
 behavior:

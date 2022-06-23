@@ -13,8 +13,6 @@ mtx_init(mtx_t *mtx) {
 	}
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 	mtx->lock = OS_UNFAIR_LOCK_INIT;
-#elif (defined(JEMALLOC_OSSPIN))
-	mtx->lock = 0;
 #else
 	pthread_mutexattr_t attr;
 
@@ -35,7 +33,6 @@ void
 mtx_fini(mtx_t *mtx) {
 #ifdef _WIN32
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
-#elif (defined(JEMALLOC_OSSPIN))
 #else
 	pthread_mutex_destroy(&mtx->lock);
 #endif
@@ -47,8 +44,6 @@ mtx_lock(mtx_t *mtx) {
 	EnterCriticalSection(&mtx->lock);
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 	os_unfair_lock_lock(&mtx->lock);
-#elif (defined(JEMALLOC_OSSPIN))
-	OSSpinLockLock(&mtx->lock);
 #else
 	pthread_mutex_lock(&mtx->lock);
 #endif
@@ -60,8 +55,6 @@ mtx_unlock(mtx_t *mtx) {
 	LeaveCriticalSection(&mtx->lock);
 #elif (defined(JEMALLOC_OS_UNFAIR_LOCK))
 	os_unfair_lock_unlock(&mtx->lock);
-#elif (defined(JEMALLOC_OSSPIN))
-	OSSpinLockUnlock(&mtx->lock);
 #else
 	pthread_mutex_unlock(&mtx->lock);
 #endif

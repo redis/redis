@@ -1,0 +1,19 @@
+{
+    "GETREDIR": {
+        "summary": "Get tracking notifications redirection client ID if any",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "6.0.0",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ]
+    }
+}

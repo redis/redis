@@ -3,7 +3,7 @@
 source "../tests/includes/init-tests.tcl"
 
 test "We can failover with Sentinel 1 crashed" {
-    set old_port [RI $master_id tcp_port]
+    set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
 

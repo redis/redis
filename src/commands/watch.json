@@ -1,0 +1,47 @@
+{
+    "WATCH": {
+        "summary": "Watch the given keys to determine execution of the MULTI/EXEC block",
+        "complexity": "O(1) for every key.",
+        "group": "transactions",
+        "since": "2.2.0",
+        "arity": -2,
+        "function": "watchCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "ALLOW_BUSY"
+        ],
+        "acl_categories": [
+            "TRANSACTION"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ]
+    }
+}

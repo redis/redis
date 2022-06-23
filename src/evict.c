@@ -33,15 +33,17 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "script.h"
+#include <math.h>
 
 /* ----------------------------------------------------------------------------
  * Data structures
  * --------------------------------------------------------------------------*/
 
 /* To improve the quality of the LRU approximation we take a set of keys
- * that are good candidate for eviction across freeMemoryIfNeeded() calls.
+ * that are good candidate for eviction across performEvictions() calls.
  *
- * Entries inside the eviciton pool are taken ordered by idle time, putting
+ * Entries inside the eviction pool are taken ordered by idle time, putting
  * greater idle times to the right (ascending order).
  *
  * When an LFU policy is used instead, a reverse frequency indication is used
@@ -97,25 +99,7 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     }
 }
 
-/* freeMemoryIfNeeded() gets called when 'maxmemory' is set on the config
- * file to limit the max memory used by the server, before processing a
- * command.
- *
- * The goal of the function is to free enough memory to keep Redis under the
- * configured memory limit.
- *
- * The function starts calculating how many bytes should be freed to keep
- * Redis under the limit, and enters a loop selecting the best keys to
- * evict accordingly to the configured policy.
- *
- * If all the bytes needed to return back under the limit were freed the
- * function returns C_OK, otherwise C_ERR is returned, and the caller
- * should block the execution of commands that will result in more memory
- * used by the server.
- *
- * ------------------------------------------------------------------------
- *
- * LRU approximation algorithm
+/* LRU approximation algorithm
  *
  * Redis uses an approximation of the LRU algorithm that runs in constant
  * memory. Every time there is a key to expire, we sample N keys (with
@@ -150,9 +134,9 @@ void evictionPoolAlloc(void) {
     EvictionPoolLRU = ep;
 }
 
-/* This is an helper function for freeMemoryIfNeeded(), it is used in order
+/* This is a helper function for performEvictions(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
- * expire a key. Keys with idle time smaller than one of the current
+ * expire a key. Keys with idle time bigger than one of the current
  * keys are added. Keys are always added if there are free entries.
  *
  * We insert keys on place in ascending order, so keys with the smaller
@@ -242,7 +226,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
         /* Try to reuse the cached SDS string allocated in the pool entry,
          * because allocating and deallocating this object is costly
          * (according to the profiler, not my fantasy. Remember:
-         * premature optimizbla bla bla bla. */
+         * premature optimization bla bla bla. */
         int klen = sdslen(key);
         if (klen > EVPOOL_CACHED_SDS_SIZE) {
             pool[k].key = sdsdup(key);
@@ -282,14 +266,14 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * has a low value.
  *
  * New keys don't start at zero, in order to have the ability to collect
- * some accesses before being trashed away, so they start at COUNTER_INIT_VAL.
- * The logarithmic increment performed on LOG_C takes care of COUNTER_INIT_VAL
- * when incrementing the key, so that keys starting at COUNTER_INIT_VAL
+ * some accesses before being trashed away, so they start at LFU_INIT_VAL.
+ * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
+ * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
  * on access.
  *
  * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the COUNTER_INIT_VAL, otherwise
+ * its current value is greater than two times the LFU_INIT_VAL, otherwise
  * it is just decremented by one.
  * --------------------------------------------------------------------------*/
 
@@ -311,7 +295,7 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 }
 
 /* Logarithmically increment a counter. The greater is the current counter value
- * the less likely is that it gets really implemented. Saturate it at 255. */
+ * the less likely is that it gets really incremented. Saturate it at 255. */
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
@@ -341,30 +325,47 @@ unsigned long LFUDecrAndReturn(robj *o) {
     return counter;
 }
 
-/* ----------------------------------------------------------------------------
- * The external API for eviction: freeMemroyIfNeeded() is called by the
- * server when there is data to add in order to make space if needed.
- * --------------------------------------------------------------------------*/
-
 /* We don't want to count AOF buffers and slaves output buffers as
- * used memory: the eviction should use mostly data size. This function
- * returns the sum of AOF and slaves buffer. */
+ * used memory: the eviction should use mostly data size, because
+ * it can cause feedback-loop when we push DELs into them, putting
+ * more and more DELs will make them bigger, if we count them, we
+ * need to evict more keys, and then generate more DELs, maybe cause
+ * massive eviction loop, even all keys are evicted.
+ *
+ * This function returns the sum of AOF and replication buffer. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
-    int slaves = listLength(server.slaves);
 
-    if (slaves) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = listNodeValue(ln);
-            overhead += getClientOutputBufferMemoryUsage(slave);
+    /* Since all replicas and replication backlog share global replication
+     * buffer, we think only the part of exceeding backlog size is the extra
+     * separate consumption of replicas.
+     *
+     * Note that although the backlog is also initially incrementally grown
+     * (pushing DELs consumes memory), it'll eventually stop growing and
+     * remain constant in size, so even if its creation will cause some
+     * eviction, it's capped, and also here to stay (no resonance effect)
+     *
+     * Note that, because we trim backlog incrementally in the background,
+     * backlog size may exceeds our setting if slow replicas that reference
+     * vast replication buffer blocks disconnect. To avoid massive eviction
+     * loop, we don't count the delayed freed replication backlog into used
+     * memory even if there are no replicas, i.e. we still regard this memory
+     * as replicas'. */
+    if ((long long)server.repl_buffer_mem > server.repl_backlog_size) {
+        /* We use list structure to manage replication buffer blocks, so backlog
+         * also occupies some extra memory, we can't know exact blocks numbers,
+         * we only get approximate size according to per block size. */
+        size_t extra_approx_size =
+            (server.repl_backlog_size/PROTO_REPLY_CHUNK_BYTES + 1) *
+            (sizeof(replBufBlock)+sizeof(listNode));
+        size_t counted_mem = server.repl_backlog_size + extra_approx_size;
+        if (server.repl_buffer_mem > counted_mem) {
+            overhead += (server.repl_buffer_mem - counted_mem);
         }
     }
+
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsalloc(server.aof_buf)+aofRewriteBufferSize();
+        overhead += sdsAllocSize(server.aof_buf);
     }
     return overhead;
 }
@@ -402,8 +403,11 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     if (total) *total = mem_reported;
 
     /* We may return ASAP if there is no need to compute the level. */
-    int return_ok_asap = !server.maxmemory || mem_reported <= server.maxmemory;
-    if (return_ok_asap && !level) return C_OK;
+    if (!server.maxmemory) {
+        if (level) *level = 0;
+        return C_OK;
+    }
+    if (mem_reported <= server.maxmemory && !level) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -412,15 +416,9 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
     /* Compute the ratio of memory usage. */
-    if (level) {
-        if (!server.maxmemory) {
-            *level = 0;
-        } else {
-            *level = (float)mem_used / (float)server.maxmemory;
-        }
-    }
+    if (level) *level = (float)mem_used / (float)server.maxmemory;
 
-    if (return_ok_asap) return C_OK;
+    if (mem_reported <= server.maxmemory) return C_OK;
 
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
@@ -434,40 +432,152 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     return C_ERR;
 }
 
-/* This function is periodically called to see if there is memory to free
- * according to the current "maxmemory" settings. In case we are over the
- * memory limit, the function will try to free some memory to return back
- * under the limit.
- *
- * The function returns C_OK if we are under the memory limit or if we
- * were over the limit, but the attempt to free memory was successful.
- * Otehrwise if we are over the memory limit, but not enough memory
- * was freed to return back under the limit, the function returns C_ERR. */
-int freeMemoryIfNeeded(void) {
-    /* By default slaves should ignore maxmemory and just be masters excat
-     * copies. */
-    if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
+/* Return 1 if used memory is more than maxmemory after allocating more memory,
+ * return 0 if not. Redis may reject user's requests or evict some keys if used
+ * memory exceeds maxmemory, especially, when we allocate huge memory at once. */
+int overMaxmemoryAfterAlloc(size_t moremem) {
+    if (!server.maxmemory) return  0; /* No limit. */
 
-    size_t mem_reported, mem_tofree, mem_freed;
-    mstime_t latency, eviction_latency;
-    long long delta;
-    int slaves = listLength(server.slaves);
+    /* Check quickly. */
+    size_t mem_used = zmalloc_used_memory();
+    if (mem_used + moremem <= server.maxmemory) return 0;
+
+    size_t overhead = freeMemoryGetNotCountedMemory();
+    mem_used = (mem_used > overhead) ? mem_used - overhead : 0;
+    return mem_used + moremem > server.maxmemory;
+}
+
+/* The evictionTimeProc is started when "maxmemory" has been breached and
+ * could not immediately be resolved.  This will spin the event loop with short
+ * eviction cycles until the "maxmemory" condition has resolved or there are no
+ * more evictable items.  */
+static int isEvictionProcRunning = 0;
+static int evictionTimeProc(
+        struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    UNUSED(eventLoop);
+    UNUSED(id);
+    UNUSED(clientData);
+
+    if (performEvictions() == EVICT_RUNNING) return 0;  /* keep evicting */
+
+    /* For EVICT_OK - things are good, no need to keep evicting.
+     * For EVICT_FAIL - there is nothing left to evict.  */
+    isEvictionProcRunning = 0;
+    return AE_NOMORE;
+}
+
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
+}
+
+/* Check if it's safe to perform evictions.
+ *   Returns 1 if evictions can be performed
+ *   Returns 0 if eviction processing should be skipped
+ */
+static int isSafeToPerformEvictions(void) {
+    /* - There must be no script in timeout condition.
+     * - Nor we are loading data right now.  */
+    if (isInsideYieldingLongCommand() || server.loading) return 0;
+
+    /* By default replicas should ignore maxmemory
+     * and just be masters exact copies. */
+    if (server.masterhost && server.repl_slave_ignore_maxmemory) return 0;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
-    if (clientsArePaused()) return C_OK;
-    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK)
-        return C_OK;
+    if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
+
+    return 1;
+}
+
+/* Algorithm for converting tenacity (0-100) to a time limit.  */
+static unsigned long evictionTimeLimitUs() {
+    serverAssert(server.maxmemory_eviction_tenacity >= 0);
+    serverAssert(server.maxmemory_eviction_tenacity <= 100);
+
+    if (server.maxmemory_eviction_tenacity <= 10) {
+        /* A linear progression from 0..500us */
+        return 50uL * server.maxmemory_eviction_tenacity;
+    }
+
+    if (server.maxmemory_eviction_tenacity < 100) {
+        /* A 15% geometric progression, resulting in a limit of ~2 min at tenacity==99  */
+        return (unsigned long)(500.0 * pow(1.15, server.maxmemory_eviction_tenacity - 10.0));
+    }
+
+    return ULONG_MAX;   /* No limit to eviction time */
+}
+
+/* Check that memory usage is within the current "maxmemory" limit.  If over
+ * "maxmemory", attempt to free memory by evicting data (if it's safe to do so).
+ *
+ * It's possible for Redis to suddenly be significantly over the "maxmemory"
+ * setting.  This can happen if there is a large allocation (like a hash table
+ * resize) or even if the "maxmemory" setting is manually adjusted.  Because of
+ * this, it's important to evict for a managed period of time - otherwise Redis
+ * would become unresponsive while evicting.
+ *
+ * The goal of this function is to improve the memory situation - not to
+ * immediately resolve it.  In the case that some items have been evicted but
+ * the "maxmemory" limit has not been achieved, an aeTimeProc will be started
+ * which will continue to evict items until memory limits are achieved or
+ * nothing more is evictable.
+ *
+ * This should be called before execution of commands.  If EVICT_FAIL is
+ * returned, commands which will result in increased memory usage should be
+ * rejected.
+ *
+ * Returns:
+ *   EVICT_OK       - memory is OK or it's not possible to perform evictions now
+ *   EVICT_RUNNING  - memory is over the limit, but eviction is still processing
+ *   EVICT_FAIL     - memory is over the limit, and there's nothing to evict
+ * */
+int performEvictions(void) {
+    /* Note, we don't goto update_metrics here because this check skips eviction
+     * as if it wasn't triggered. it's a fake EVICT_OK. */
+    if (!isSafeToPerformEvictions()) return EVICT_OK;
+
+    int keys_freed = 0;
+    size_t mem_reported, mem_tofree;
+    long long mem_freed; /* May be negative */
+    mstime_t latency, eviction_latency;
+    long long delta;
+    int slaves = listLength(server.slaves);
+    int result = EVICT_FAIL;
+
+    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
+        result = EVICT_OK;
+        goto update_metrics;
+    }
+
+    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION) {
+        result = EVICT_FAIL;  /* We need to free memory, but policy forbids. */
+        goto update_metrics;
+    }
+
+    unsigned long eviction_time_limit_us = evictionTimeLimitUs();
 
     mem_freed = 0;
 
-    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
-        goto cant_free; /* We need to free memory, but policy forbids. */
-
     latencyStartMonitor(latency);
-    while (mem_freed < mem_tofree) {
-        int j, k, i, keys_freed = 0;
+
+    monotime evictionTimer;
+    elapsedStart(&evictionTimer);
+
+    /* Unlike active-expire and blocked client, we can reach here from 'CONFIG SET maxmemory'
+     * so we have to back-up and restore server.core_propagates. */
+    int prev_core_propagates = server.core_propagates;
+    serverAssert(server.also_propagate.numops == 0);
+    server.core_propagates = 1;
+    server.propagate_no_multi = 1;
+
+    while (mem_freed < (long long)mem_tofree) {
+        int j, k, i;
         static unsigned int next_db = 0;
         sds bestkey = NULL;
         int bestdbid;
@@ -503,10 +613,10 @@ int freeMemoryIfNeeded(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[pool[k].dbid].dict,
+                        de = dictFind(server.db[bestdbid].dict,
                             pool[k].key);
                     } else {
-                        de = dictFind(server.db[pool[k].dbid].expires,
+                        de = dictFind(server.db[bestdbid].expires,
                             pool[k].key);
                     }
 
@@ -553,12 +663,13 @@ int freeMemoryIfNeeded(void) {
         if (bestkey) {
             db = server.db+bestdbid;
             robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-            propagateExpire(db,keyobj,server.lazyfree_lazy_eviction);
             /* We compute the amount of memory freed by db*Delete() alone.
              * It is possible that actually the memory needed to propagate
              * the DEL in AOF and replication link is greater than the one
              * we are freeing removing the key, but we can't account for
              * that otherwise we would never exit the loop.
+             *
+             * Same for CSC invalidation messages generated by signalModifiedKey.
              *
              * AOF and Output buffer memory will be freed eventually so
              * we only care about memory used by the key space. */
@@ -570,55 +681,85 @@ int freeMemoryIfNeeded(void) {
                 dbSyncDelete(db,keyobj);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
-            latencyRemoveNestedEvent(latency,eviction_latency);
             delta -= (long long) zmalloc_used_memory();
             mem_freed += delta;
             server.stat_evictedkeys++;
+            signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
             decrRefCount(keyobj);
             keys_freed++;
 
-            /* When the memory to free starts to be big enough, we may
-             * start spending so much time here that is impossible to
-             * deliver data to the slaves fast enough, so we force the
-             * transmission here inside the loop. */
-            if (slaves) flushSlavesOutputBuffers();
+            if (keys_freed % 16 == 0) {
+                /* When the memory to free starts to be big enough, we may
+                 * start spending so much time here that is impossible to
+                 * deliver data to the replicas fast enough, so we force the
+                 * transmission here inside the loop. */
+                if (slaves) flushSlavesOutputBuffers();
 
-            /* Normally our stop condition is the ability to release
-             * a fixed, pre-computed amount of memory. However when we
-             * are deleting objects in another thread, it's better to
-             * check, from time to time, if we already reached our target
-             * memory, since the "mem_freed" amount is computed only
-             * across the dbAsyncDelete() call, while the thread can
-             * release the memory all the time. */
-            if (server.lazyfree_lazy_eviction && !(keys_freed % 16)) {
-                if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
-                    /* Let's satisfy our stop condition. */
-                    mem_freed = mem_tofree;
+                /* Normally our stop condition is the ability to release
+                 * a fixed, pre-computed amount of memory. However when we
+                 * are deleting objects in another thread, it's better to
+                 * check, from time to time, if we already reached our target
+                 * memory, since the "mem_freed" amount is computed only
+                 * across the dbAsyncDelete() call, while the thread can
+                 * release the memory all the time. */
+                if (server.lazyfree_lazy_eviction) {
+                    if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
+                        break;
+                    }
+                }
+
+                /* After some time, exit the loop early - even if memory limit
+                 * hasn't been reached.  If we suddenly need to free a lot of
+                 * memory, don't want to spend too much time here.  */
+                if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
+                    // We still need to free memory - start eviction timer proc
+                    startEvictionTimeProc();
+                    break;
                 }
             }
-        }
-
-        if (!keys_freed) {
-            latencyEndMonitor(latency);
-            latencyAddSampleIfNeeded("eviction-cycle",latency);
+        } else {
             goto cant_free; /* nothing to free... */
         }
     }
-    latencyEndMonitor(latency);
-    latencyAddSampleIfNeeded("eviction-cycle",latency);
-    return C_OK;
+    /* at this point, the memory is OK, or we have reached the time limit */
+    result = (isEvictionProcRunning) ? EVICT_RUNNING : EVICT_OK;
 
 cant_free:
-    /* We are here if we are not able to reclaim memory. There is only one
-     * last thing we can try: check if the lazyfree thread has jobs in queue
-     * and wait... */
-    while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
-        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
-            break;
-        usleep(1000);
+    if (result == EVICT_FAIL) {
+        /* At this point, we have run out of evictable items.  It's possible
+         * that some items are being freed in the lazyfree thread.  Perform a
+         * short wait here if such jobs exist, but don't wait long.  */
+        if (bioPendingJobsOfType(BIO_LAZY_FREE)) {
+            usleep(eviction_time_limit_us);
+            if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
+                result = EVICT_OK;
+            }
+        }
     }
-    return C_ERR;
-}
 
+    serverAssert(server.core_propagates); /* This function should not be re-entrant */
+
+    /* Propagate all DELs */
+    propagatePendingCommands();
+
+    server.core_propagates = prev_core_propagates;
+    server.propagate_no_multi = 0;
+
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("eviction-cycle",latency);
+
+update_metrics:
+    if (result == EVICT_RUNNING || result == EVICT_FAIL) {
+        if (server.stat_last_eviction_exceeded_time == 0)
+            elapsedStart(&server.stat_last_eviction_exceeded_time);
+    } else if (result == EVICT_OK) {
+        if (server.stat_last_eviction_exceeded_time != 0) {
+            server.stat_total_eviction_exceeded_time += elapsedUs(server.stat_last_eviction_exceeded_time);
+            server.stat_last_eviction_exceeded_time = 0;
+        }
+    }
+    return result;
+}

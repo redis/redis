@@ -47,7 +47,7 @@
     <ClCompile Include="..\..\..\..\src\extent_dss.c" />
     <ClCompile Include="..\..\..\..\src\extent_mmap.c" />
     <ClCompile Include="..\..\..\..\src\hash.c" />
-    <ClCompile Include="..\..\..\..\src\hooks.c" />
+    <ClCompile Include="..\..\..\..\src\hook.c" />
     <ClCompile Include="..\..\..\..\src\jemalloc.c" />
     <ClCompile Include="..\..\..\..\src\large.c" />
     <ClCompile Include="..\..\..\..\src\log.c" />
@@ -59,12 +59,15 @@
     <ClCompile Include="..\..\..\..\src\prng.c" />
     <ClCompile Include="..\..\..\..\src\prof.c" />
     <ClCompile Include="..\..\..\..\src\rtree.c" />
+    <ClCompile Include="..\..\..\..\src\sc.c" />
     <ClCompile Include="..\..\..\..\src\stats.c" />
     <ClCompile Include="..\..\..\..\src\sz.c" />
     <ClCompile Include="..\..\..\..\src\tcache.c" />
+    <ClCompile Include="..\..\..\..\src\test_hooks.c" />
     <ClCompile Include="..\..\..\..\src\ticker.c" />
     <ClCompile Include="..\..\..\..\src\tsd.c" />
     <ClCompile Include="..\..\..\..\src\witness.c" />
+    <ClCompile Include="..\..\..\..\src\safety_check.c" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8D6BB292-9E1C-413D-9F98-4864BDC1514A}</ProjectGuid>

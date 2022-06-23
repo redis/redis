@@ -180,6 +180,35 @@ pages_map(void *addr, size_t size, size_t alignment, bool *commit) {
 	assert(alignment >= PAGE);
 	assert(ALIGNMENT_ADDR2BASE(addr, alignment) == addr);
 
+#if defined(__FreeBSD__) && defined(MAP_EXCL)
+	/*
+	 * FreeBSD has mechanisms both to mmap at specific address without
+	 * touching existing mappings, and to mmap with specific alignment.
+	 */
+	{
+		if (os_overcommits) {
+			*commit = true;
+		}
+
+		int prot = *commit ? PAGES_PROT_COMMIT : PAGES_PROT_DECOMMIT;
+		int flags = mmap_flags;
+
+		if (addr != NULL) {
+			flags |= MAP_FIXED | MAP_EXCL;
+		} else {
+			unsigned alignment_bits = ffs_zu(alignment);
+			assert(alignment_bits > 1);
+			flags |= MAP_ALIGNED(alignment_bits - 1);
+		}
+
+		void *ret = mmap(addr, size, prot, flags, -1, 0);
+		if (ret == MAP_FAILED) {
+			ret = NULL;
+		}
+
+		return ret;
+	}
+#endif
 	/*
 	 * Ideally, there would be a way to specify alignment to mmap() (like
 	 * NetBSD has), but in the absence of such a feature, we have to work
@@ -261,7 +290,7 @@ pages_decommit(void *addr, size_t size) {
 
 bool
 pages_purge_lazy(void *addr, size_t size) {
-	assert(PAGE_ADDR2BASE(addr) == addr);
+	assert(ALIGNMENT_ADDR2BASE(addr, os_page) == addr);
 	assert(PAGE_CEILING(size) == size);
 
 	if (!pages_can_purge_lazy) {
@@ -391,6 +420,10 @@ os_page_detect(void) {
 	GetSystemInfo(&si);
 	return si.dwPageSize;
 #elif defined(__FreeBSD__)
+	/*
+	 * This returns the value obtained from
+	 * the auxv vector, avoiding a syscall.
+	 */
 	return getpagesize();
 #else
 	long result = sysconf(_SC_PAGESIZE);
@@ -544,6 +577,10 @@ init_thp_state(void) {
 	close(fd);
 #endif
 
+        if (nread < 0) {
+		goto label_error; 
+        }
+
 	if (strncmp(buf, sys_state_madvise, (size_t)nread) == 0) {
 		init_system_thp_mode = thp_mode_default;
 	} else if (strncmp(buf, sys_state_always, (size_t)nread) == 0) {
@@ -588,6 +625,11 @@ pages_boot(void) {
 
 	init_thp_state();
 
+#ifdef __FreeBSD__
+	/*
+	 * FreeBSD doesn't need the check; madvise(2) is known to work.
+	 */
+#else
 	/* Detect lazy purge runtime support. */
 	if (pages_can_purge_lazy) {
 		bool committed = false;
@@ -601,6 +643,7 @@ pages_boot(void) {
 		}
 		os_pages_unmap(madv_free_page, PAGE);
 	}
+#endif
 
 	return false;
 }

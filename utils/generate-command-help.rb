@@ -1,11 +1,16 @@
-#!/usr/bin/env ruby
+#!/usr/bin/env ruby -w
+# Usage: generate-command-help.r [path/to/commands.json]
+#    or: generate-commands-json.py | generate-command-help.rb -
+#
+# Defaults to downloading commands.json from the redis-doc repo if not provided
+# or STDINed.
 
 GROUPS = [
   "generic",
   "string",
   "list",
   "set",
-  "sorted_set",
+  "sorted-set",
   "hash",
   "pubsub",
   "transactions",
@@ -15,7 +20,8 @@ GROUPS = [
   "hyperloglog",
   "cluster",
   "geo",
-  "stream"
+  "stream",
+  "bitmap"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*
@@ -25,11 +31,28 @@ GROUPS_BY_NAME = Hash[*
 ].freeze
 
 def argument arg
-  name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
-  name = arg["enum"].join "|" if "enum" == arg["type"]
-  name = arg["command"] + " " + name if arg["command"]
+  if "block" == arg["type"]
+    name = arg["arguments"].map do |entry|
+      argument entry
+    end.join " "
+  elsif "oneof" == arg["type"]
+    name = arg["arguments"].map do |entry|
+      argument entry
+    end.join "|"
+  elsif "pure-token" == arg["type"]
+    name = nil    # prepended later
+  else
+    name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
+  end
   if arg["multiple"]
-    name = "#{name} [#{name} ...]"
+    if arg["multiple_token"]
+      name = "#{name} [#{arg["token"]} #{name} ...]"
+    else
+      name = "#{name} [#{name} ...]"
+    end
+  end
+  if arg["token"]
+    name = [arg["token"], name].compact.join " "
   end
   if arg["optional"]
     name = "[#{name}]"
@@ -38,7 +61,7 @@ def argument arg
 end
 
 def arguments command
-  return "-" unless command["arguments"]
+  return "" unless command["arguments"]
   command["arguments"].map do |arg|
     argument arg
   end.join " "
@@ -52,16 +75,27 @@ def commands
   require "net/https"
   require "json"
   require "uri"
-
-  url = URI.parse "https://raw.githubusercontent.com/antirez/redis-doc/master/commands.json"
-  client = Net::HTTP.new url.host, url.port
-  client.use_ssl = true
-  response = client.get url.path
-  if response.is_a?(Net::HTTPSuccess)
-    @commands = JSON.parse(response.body)
+  if ARGV.length > 0
+    if ARGV[0] == '-'
+      data = STDIN.read
+    elsif FileTest.exist? ARGV[0]
+      data = File.read(ARGV[0])
+    else
+      raise Exception.new "File not found: #{ARGV[0]}"
+    end
   else
-    response.error!
+    url = URI.parse "https://raw.githubusercontent.com/redis/redis-doc/master/commands.json"
+    client = Net::HTTP.new url.host, url.port
+    client.use_ssl = true
+    response = client.get url.path
+    if !response.is_a?(Net::HTTPSuccess)
+      response.error!
+      return
+    else
+      data = response.body
+    end
   end
+  @commands = JSON.parse(data)
 end
 
 def generate_groups

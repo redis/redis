@@ -1,6 +1,7 @@
 #ifndef JEMALLOC_INTERNAL_INLINES_C_H
 #define JEMALLOC_INTERNAL_INLINES_C_H
 
+#include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/jemalloc_internal_types.h"
 #include "jemalloc/internal/sz.h"
 #include "jemalloc/internal/witness.h"
@@ -42,7 +43,6 @@ iallocztm(tsdn_t *tsdn, size_t size, szind_t ind, bool zero, tcache_t *tcache,
     bool is_internal, arena_t *arena, bool slow_path) {
 	void *ret;
 
-	assert(size != 0);
 	assert(!is_internal || tcache == NULL);
 	assert(!is_internal || arena == NULL || arena_is_auto(arena));
 	if (!tsdn_null(tsdn) && tsd_reentrancy_level_get(tsdn_tsd(tsdn)) == 0) {
@@ -133,31 +133,20 @@ isdalloct(tsdn_t *tsdn, void *ptr, size_t size, tcache_t *tcache,
 
 JEMALLOC_ALWAYS_INLINE void *
 iralloct_realign(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size,
-    size_t extra, size_t alignment, bool zero, tcache_t *tcache,
-    arena_t *arena) {
+    size_t alignment, bool zero, tcache_t *tcache, arena_t *arena,
+    hook_ralloc_args_t *hook_args) {
 	witness_assert_depth_to_rank(tsdn_witness_tsdp_get(tsdn),
 	    WITNESS_RANK_CORE, 0);
 	void *p;
 	size_t usize, copysize;
 
-	usize = sz_sa2u(size + extra, alignment);
-	if (unlikely(usize == 0 || usize > LARGE_MAXCLASS)) {
+	usize = sz_sa2u(size, alignment);
+	if (unlikely(usize == 0 || usize > SC_LARGE_MAXCLASS)) {
 		return NULL;
 	}
 	p = ipalloct(tsdn, usize, alignment, zero, tcache, arena);
 	if (p == NULL) {
-		if (extra == 0) {
-			return NULL;
-		}
-		/* Try again, without extra this time. */
-		usize = sz_sa2u(size, alignment);
-		if (unlikely(usize == 0 || usize > LARGE_MAXCLASS)) {
-			return NULL;
-		}
-		p = ipalloct(tsdn, usize, alignment, zero, tcache, arena);
-		if (p == NULL) {
-			return NULL;
-		}
+		return NULL;
 	}
 	/*
 	 * Copy at most size bytes (not size+extra), since the caller has no
@@ -165,13 +154,26 @@ iralloct_realign(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size,
 	 */
 	copysize = (size < oldsize) ? size : oldsize;
 	memcpy(p, ptr, copysize);
+	hook_invoke_alloc(hook_args->is_realloc
+	    ? hook_alloc_realloc : hook_alloc_rallocx, p, (uintptr_t)p,
+	    hook_args->args);
+	hook_invoke_dalloc(hook_args->is_realloc
+	    ? hook_dalloc_realloc : hook_dalloc_rallocx, ptr, hook_args->args);
 	isdalloct(tsdn, ptr, oldsize, tcache, NULL, true);
 	return p;
 }
 
+/*
+ * is_realloc threads through the knowledge of whether or not this call comes
+ * from je_realloc (as opposed to je_rallocx); this ensures that we pass the
+ * correct entry point into any hooks.
+ * Note that these functions are all force-inlined, so no actual bool gets
+ * passed-around anywhere.
+ */
 JEMALLOC_ALWAYS_INLINE void *
 iralloct(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t alignment,
-    bool zero, tcache_t *tcache, arena_t *arena) {
+    bool zero, tcache_t *tcache, arena_t *arena, hook_ralloc_args_t *hook_args)
+{
 	assert(ptr != NULL);
 	assert(size != 0);
 	witness_assert_depth_to_rank(tsdn_witness_tsdp_get(tsdn),
@@ -183,24 +185,24 @@ iralloct(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t alignment,
 		 * Existing object alignment is inadequate; allocate new space
 		 * and copy.
 		 */
-		return iralloct_realign(tsdn, ptr, oldsize, size, 0, alignment,
-		    zero, tcache, arena);
+		return iralloct_realign(tsdn, ptr, oldsize, size, alignment,
+		    zero, tcache, arena, hook_args);
 	}
 
 	return arena_ralloc(tsdn, arena, ptr, oldsize, size, alignment, zero,
-	    tcache);
+	    tcache, hook_args);
 }
 
 JEMALLOC_ALWAYS_INLINE void *
 iralloc(tsd_t *tsd, void *ptr, size_t oldsize, size_t size, size_t alignment,
-    bool zero) {
+    bool zero, hook_ralloc_args_t *hook_args) {
 	return iralloct(tsd_tsdn(tsd), ptr, oldsize, size, alignment, zero,
-	    tcache_get(tsd), NULL);
+	    tcache_get(tsd), NULL, hook_args);
 }
 
 JEMALLOC_ALWAYS_INLINE bool
 ixalloc(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t extra,
-    size_t alignment, bool zero) {
+    size_t alignment, bool zero, size_t *newsize) {
 	assert(ptr != NULL);
 	assert(size != 0);
 	witness_assert_depth_to_rank(tsdn_witness_tsdp_get(tsdn),
@@ -209,14 +211,16 @@ ixalloc(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t extra,
 	if (alignment != 0 && ((uintptr_t)ptr & ((uintptr_t)alignment-1))
 	    != 0) {
 		/* Existing object alignment is inadequate. */
+		*newsize = oldsize;
 		return true;
 	}
 
-	return arena_ralloc_no_move(tsdn, ptr, oldsize, size, extra, zero);
+	return arena_ralloc_no_move(tsdn, ptr, oldsize, size, extra, zero,
+	    newsize);
 }
 
 JEMALLOC_ALWAYS_INLINE int
-iget_defrag_hint(tsdn_t *tsdn, void* ptr, int *bin_util, int *run_util) {
+iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 	int defrag = 0;
 	rtree_ctx_t rtree_ctx_fallback;
 	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
@@ -228,15 +232,38 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr, int *bin_util, int *run_util) {
 		extent_t *slab = iealloc(tsdn, ptr);
 		arena_t *arena = extent_arena_get(slab);
 		szind_t binind = extent_szind_get(slab);
-		bin_t *bin = &arena->bins[binind];
+		unsigned binshard = extent_binshard_get(slab);
+		bin_t *bin = &arena->bins[binind].bin_shards[binshard];
 		malloc_mutex_lock(tsdn, &bin->lock);
-		/* don't bother moving allocations from the slab currently used for new allocations */
+		/* Don't bother moving allocations from the slab currently used for new allocations */
 		if (slab != bin->slabcur) {
-			const bin_info_t *bin_info = &bin_infos[binind];
-			size_t availregs = bin_info->nregs * bin->stats.curslabs;
-			*bin_util = ((long long)bin->stats.curregs<<16) / availregs;
-			*run_util = ((long long)(bin_info->nregs - extent_nfree_get(slab))<<16) / bin_info->nregs;
-			defrag = 1;
+			int free_in_slab = extent_nfree_get(slab);
+			if (free_in_slab) {
+				const bin_info_t *bin_info = &bin_infos[binind];
+				/* Find number of non-full slabs and the number of regs in them */
+				unsigned long curslabs = 0;
+				size_t curregs = 0;
+				/* Run on all bin shards (usually just one) */
+				for (uint32_t i=0; i< bin_info->n_shards; i++) {
+					bin_t *bb = &arena->bins[binind].bin_shards[i];
+					curslabs += bb->stats.nonfull_slabs;
+					/* Deduct the regs in full slabs (they're not part of the game) */
+					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
+					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
+					if (bb->slabcur) {
+						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
+						curregs -= bin_info->nregs - extent_nfree_get(bb->slabcur);
+						curslabs -= 1;
+					}
+				}
+				/* Compare the utilization ratio of the slab in question to the total average
+				 * among non-full slabs. To avoid precision loss in division, we do that by
+				 * extrapolating the usage of the slab as if all slabs have the same usage.
+				 * If this slab is less used than the average, we'll prefer to move the data
+				 * to hopefully more used ones. To avoid stagnation when all slabs have the same
+				 * utilization, we give additional 12.5% weight to the decision to defrag. */
+				defrag = (bin_info->nregs - free_in_slab) * curslabs <= curregs + curregs / 8;
+			}
 		}
 		malloc_mutex_unlock(tsdn, &bin->lock);
 	}

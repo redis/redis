@@ -34,20 +34,35 @@ array set ::redis::fd {}
 array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
+array set ::redis::readraw {}
+array set ::redis::attributes {} ;# Holds the RESP3 attributes from the last call
 array set ::redis::reconnect {}
+array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 
-proc redis {{server 127.0.0.1} {port 6379} {defer 0}} {
-    set fd [socket $server $port]
+proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
+    if {$tls} {
+        package require tls
+        ::tls::init \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            {*}$tlsoptions
+        set fd [::tls::socket $server $port]
+    } else {
+        set fd [socket $server $port]
+    }
     fconfigure $fd -translation binary
     set id [incr ::redis::id]
     set ::redis::fd($id) $fd
     set ::redis::addr($id) [list $server $port]
     set ::redis::blocking($id) 1
     set ::redis::deferred($id) $defer
+    set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
+    set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
 }
@@ -70,9 +85,13 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     set fd $::redis::fd($id)
 
     # Reconnect the link if needed.
-    if {$fd eq {}} {
+    if {$fd eq {} && $method ne {close}} {
         lassign $::redis::addr($id) host port
-        set ::redis::fd($id) [socket $host $port]
+        if {$::redis::tls($id)} {
+            set ::redis::fd($id) [::tls::socket $host $port]
+        } else {
+            set ::redis::fd($id) [socket $host $port]
+        }
         fconfigure $::redis::fd($id) -translation binary
         set fd $::redis::fd($id)
     }
@@ -87,6 +106,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set argv [lrange $argv 0 end-1]
     }
     if {[info command ::redis::__method__$method] eq {}} {
+        catch {unset ::redis::attributes($id)}
         set cmd "*[expr {[llength $argv]+1}]\r\n"
         append cmd "$[string length $method]\r\n$method\r\n"
         foreach a $argv {
@@ -94,6 +114,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         }
         ::redis::redis_write $fd $cmd
         if {[catch {flush $fd}]} {
+            catch {close $fd}
             set ::redis::fd($id) {}
             return -code error "I/O error reading reply"
         }
@@ -127,6 +148,10 @@ proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $id $fd
 }
 
+proc ::redis::__method__rawread {id fd len} {
+    return [read $fd $len]
+}
+
 proc ::redis::__method__write {id fd buf} {
     ::redis::redis_write $fd $buf
 }
@@ -141,7 +166,10 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::addr($id)}
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
+    catch {unset ::redis::readraw($id)}
+    catch {unset ::redis::attributes($id)}
     catch {unset ::redis::reconnect($id)}
+    catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
@@ -154,6 +182,18 @@ proc ::redis::__method__channel {id fd} {
 
 proc ::redis::__method__deferred {id fd val} {
     set ::redis::deferred($id) $val
+}
+
+proc ::redis::__method__readraw {id fd val} {
+    set ::redis::readraw($id) $val
+}
+
+proc ::redis::__method__readingraw {id fd} {
+    return $::redis::readraw($id)
+}
+
+proc ::redis::__method__attributes {id fd} {
+    set _ $::redis::attributes($id)
 }
 
 proc ::redis::redis_write {fd buf} {
@@ -195,24 +235,80 @@ proc ::redis::redis_multi_bulk_read {id fd} {
     return $l
 }
 
+proc ::redis::redis_read_map {id fd} {
+    set count [redis_read_line $fd]
+    if {$count == -1} return {}
+    set d {}
+    set err {}
+    for {set i 0} {$i < $count} {incr i} {
+        if {[catch {
+            set k [redis_read_reply $id $fd] ; # key
+            set v [redis_read_reply $id $fd] ; # value
+            dict set d $k $v
+        } e] && $err eq {}} {
+            set err $e
+        }
+    }
+    if {$err ne {}} {return -code error $err}
+    return $d
+}
+
 proc ::redis::redis_read_line fd {
     string trim [gets $fd]
 }
 
+proc ::redis::redis_read_null fd {
+    gets $fd
+    return {}
+}
+
+proc ::redis::redis_read_bool fd {
+    set v [redis_read_line $fd]
+    if {$v == "t"} {return 1}
+    if {$v == "f"} {return 0}
+    return -code error "Bad protocol, '$v' as bool type"
+}
+
+proc ::redis::redis_read_verbatim_str fd {
+    set v [redis_bulk_read $fd]
+    # strip the first 4 chars ("txt:")
+    return [string range $v 4 end]
+}
+
 proc ::redis::redis_read_reply {id fd} {
-    set type [read $fd 1]
-    switch -exact -- $type {
-        : -
-        + {redis_read_line $fd}
-        - {return -code error [redis_read_line $fd]}
-        $ {redis_bulk_read $fd}
-        * {redis_multi_bulk_read $id $fd}
-        default {
-            if {$type eq {}} {
-                set ::redis::fd($id) {}
-                return -code error "I/O error reading reply"
+    if {$::redis::readraw($id)} {
+        return [redis_read_line $fd]
+    }
+
+    while {1} {
+        set type [read $fd 1]
+        switch -exact -- $type {
+            _ {return [redis_read_null $fd]}
+            : -
+            ( -
+            + {return [redis_read_line $fd]}
+            , {return [expr {double([redis_read_line $fd])}]}
+            # {return [redis_read_bool $fd]}
+            = {return [redis_read_verbatim_str $fd]}
+            - {return -code error [redis_read_line $fd]}
+            $ {return [redis_bulk_read $fd]}
+            > -
+            ~ -
+            * {return [redis_multi_bulk_read $id $fd]}
+            % {return [redis_read_map $id $fd]}
+            | {
+                set attrib [redis_read_map $id $fd]
+                set ::redis::attributes($id) $attrib
+                continue
             }
-            return -code error "Bad protocol, '$type' as reply type byte"
+            default {
+                if {$type eq {}} {
+                    catch {close $fd}
+                    set ::redis::fd($id) {}
+                    return -code error "I/O error reading reply"
+                }
+                return -code error "Bad protocol, '$type' as reply type byte"
+            }
         }
     }
 }
@@ -243,6 +339,7 @@ proc ::redis::redis_readable {fd id} {
             : -
             + {redis_call_callback $id reply [string range $line 1 end-1]}
             - {redis_call_callback $id err [string range $line 1 end-1]}
+            ( {redis_call_callback $id reply [string range $line 1 end-1]}
             $ {
                 dict set ::redis::state($id) bulk \
                     [expr [string range $line 1 end-1]+2]

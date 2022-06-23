@@ -1,0 +1,82 @@
+{
+    "CREATE": {
+        "summary": "Create a consumer group.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the `entries_read` named argument."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "groupname",
+                "type": "string"
+            },
+            {
+                "name": "id",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "ID",
+                        "type": "string"
+                    },
+                    {
+                        "name": "new_id",
+                        "type": "pure-token",
+                        "token": "$"
+                    }
+                ]
+            },
+            {
+                "token": "MKSTREAM",
+                "name": "mkstream",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "token": "ENTRIESREAD",
+                "name": "entries_read",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}

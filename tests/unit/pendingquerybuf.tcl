@@ -4,15 +4,7 @@ proc info_memory {r property} {
     }
 }
 
-proc prepare_value {size} {
-    set _v "c" 
-    for {set i 1} {$i < $size} {incr i} {
-        append _v 0   
-    }
-    return $_v
-}
-
-start_server {tags {"wait"}} {
+start_server {tags {"wait external:skip"}} {
 start_server {} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
@@ -25,11 +17,12 @@ start_server {} {
         $slave slaveof $master_host $master_port
         set _v [prepare_value [expr 32*1024*1024]]
         $master set key $_v 
-        after 2000
-        set m_usedmemory [info_memory $master used_memory]
-        set s_usedmemory [info_memory $slave used_memory]
-        if { $s_usedmemory > $m_usedmemory + 10*1024*1024 } {
-            fail "the used_memory of replica is much larger than master. Master:$m_usedmemory Replica:$s_usedmemory"
+        wait_for_ofs_sync $master $slave
+
+        wait_for_condition 50 100 {
+            [info_memory $slave used_memory] <= [info_memory $master used_memory] + 10*1024*1024
+        } else {
+            fail "the used_memory of replica is much larger than master."
         }
     }  
 }}

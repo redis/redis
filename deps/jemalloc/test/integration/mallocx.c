@@ -51,6 +51,16 @@ purge(void) {
 	    "Unexpected mallctl error");
 }
 
+/*
+ * GCC "-Walloc-size-larger-than" warning detects when one of the memory
+ * allocation functions is called with a size larger than the maximum size that
+ * they support. Here we want to explicitly test that the allocation functions
+ * do indeed fail properly when this is the case, which triggers the warning.
+ * Therefore we disable the warning for these tests.
+ */
+JEMALLOC_DIAGNOSTIC_PUSH
+JEMALLOC_DIAGNOSTIC_IGNORE_ALLOC_SIZE_LARGER_THAN
+
 TEST_BEGIN(test_overflow) {
 	size_t largemax;
 
@@ -71,6 +81,38 @@ TEST_BEGIN(test_overflow) {
 }
 TEST_END
 
+static void *
+remote_alloc(void *arg) {
+	unsigned arena;
+	size_t sz = sizeof(unsigned);
+	assert_d_eq(mallctl("arenas.create", (void *)&arena, &sz, NULL, 0), 0,
+	    "Unexpected mallctl() failure");
+	size_t large_sz;
+	sz = sizeof(size_t);
+	assert_d_eq(mallctl("arenas.lextent.0.size", (void *)&large_sz, &sz,
+	    NULL, 0), 0, "Unexpected mallctl failure");
+
+	void *ptr = mallocx(large_sz, MALLOCX_ARENA(arena)
+	    | MALLOCX_TCACHE_NONE);
+	void **ret = (void **)arg;
+	*ret = ptr;
+
+	return NULL;
+}
+
+TEST_BEGIN(test_remote_free) {
+	thd_t thd;
+	void *ret;
+	thd_create(&thd, remote_alloc, (void *)&ret);
+	thd_join(thd, NULL);
+	assert_ptr_not_null(ret, "Unexpected mallocx failure");
+
+	/* Avoid TCACHE_NONE to explicitly test tcache_flush(). */
+	dallocx(ret, 0);
+	mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+}
+TEST_END
+
 TEST_BEGIN(test_oom) {
 	size_t largemax;
 	bool oom;
@@ -84,7 +126,7 @@ TEST_BEGIN(test_oom) {
 	largemax = get_large_size(get_nlarge()-1);
 	oom = false;
 	for (i = 0; i < sizeof(ptrs) / sizeof(void *); i++) {
-		ptrs[i] = mallocx(largemax, 0);
+		ptrs[i] = mallocx(largemax, MALLOCX_ARENA(0));
 		if (ptrs[i] == NULL) {
 			oom = true;
 		}
@@ -112,6 +154,9 @@ TEST_BEGIN(test_oom) {
 #endif
 }
 TEST_END
+
+/* Re-enable the "-Walloc-size-larger-than=" warning */
+JEMALLOC_DIAGNOSTIC_POP
 
 TEST_BEGIN(test_basic) {
 #define MAXSZ (((size_t)1) << 23)
@@ -178,12 +223,12 @@ TEST_BEGIN(test_alignment_and_size) {
 		    sz += (alignment >> (LG_SIZEOF_PTR-1)) - 1) {
 			for (i = 0; i < NITER; i++) {
 				nsz = nallocx(sz, MALLOCX_ALIGN(alignment) |
-				    MALLOCX_ZERO);
+				    MALLOCX_ZERO | MALLOCX_ARENA(0));
 				assert_zu_ne(nsz, 0,
 				    "nallocx() error for alignment=%zu, "
 				    "size=%zu (%#zx)", alignment, sz, sz);
 				ps[i] = mallocx(sz, MALLOCX_ALIGN(alignment) |
-				    MALLOCX_ZERO);
+				    MALLOCX_ZERO | MALLOCX_ARENA(0));
 				assert_ptr_not_null(ps[i],
 				    "mallocx() error for alignment=%zu, "
 				    "size=%zu (%#zx)", alignment, sz, sz);
@@ -223,6 +268,7 @@ main(void) {
 	return test(
 	    test_overflow,
 	    test_oom,
+	    test_remote_free,
 	    test_basic,
 	    test_alignment_and_size);
 }

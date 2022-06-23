@@ -33,7 +33,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,8 +87,8 @@ int cmd_KEYRANGE(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     /* Reply with the matching items. */
     char *key;
     size_t keylen;
-    long long replylen = 0; /* Keep track of the amitted array len. */
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    long long replylen = 0; /* Keep track of the emitted array len. */
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     while((key = RedisModule_DictNextC(iter,&keylen,NULL)) != NULL) {
         if (replylen >= count) break;
         if (RedisModule_DictCompare(iter,"<=",argv[2]) == REDISMODULE_ERR)
@@ -125,7 +124,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         cmd_KEYRANGE,"readonly",1,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    /* Create our global dictionray. Here we'll set our keys and values. */
+    /* Create our global dictionary. Here we'll set our keys and values. */
     Keyspace = RedisModule_CreateDict(NULL);
 
     return REDISMODULE_OK;

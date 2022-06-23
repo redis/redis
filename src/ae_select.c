@@ -50,6 +50,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 }
 
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    AE_NOTUSED(eventLoop);
     /* Just ensure we have enough room in the fd_set type. */
     if (setsize >= FD_SETSIZE) return -1;
     return 0;
@@ -97,7 +98,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             eventLoop->fired[numevents].mask = mask;
             numevents++;
         }
+    } else if (retval == -1 && errno != EINTR) {
+        panic("aeApiPoll: select, %s", strerror(errno));
     }
+
     return numevents;
 }
 

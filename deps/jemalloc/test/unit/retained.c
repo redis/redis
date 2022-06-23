@@ -107,6 +107,9 @@ TEST_BEGIN(test_retained) {
 	atomic_store_u(&epoch, 0, ATOMIC_RELAXED);
 
 	unsigned nthreads = ncpus * 2;
+	if (LG_SIZEOF_PTR < 3 && nthreads > 16) {
+		nthreads = 16; /* 32-bit platform could run out of vaddr. */
+	}
 	VARIABLE_ARRAY(thd_t, threads, nthreads);
 	for (unsigned i = 0; i < nthreads; i++) {
 		thd_create(&threads[i], thd_start, NULL);

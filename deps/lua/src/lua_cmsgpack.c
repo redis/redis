@@ -435,6 +435,7 @@ int table_is_an_array(lua_State *L) {
 
     stacktop = lua_gettop(L);
 
+    luaL_checkstack(L, 2, "in function table_is_an_array");
     lua_pushnil(L);
     while(lua_next(L,-2)) {
         /* Stack: ... key value */

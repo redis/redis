@@ -1,0 +1,18 @@
+{
+    "LIST": {
+        "summary": "List all modules loaded by the server",
+        "complexity": "O(N) where N is the number of loaded modules.",
+        "group": "server",
+        "since": "4.0.0",
+        "arity": 2,
+        "container": "MODULE",
+        "function": "moduleCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ]
+    }
+}

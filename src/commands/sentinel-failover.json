@@ -1,0 +1,21 @@
+{
+    "FAILOVER": {
+        "summary": "Force a failover",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}

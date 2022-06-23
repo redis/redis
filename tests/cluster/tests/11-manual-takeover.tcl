@@ -14,10 +14,22 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
+# For this test, disable replica failover until
+# all of the primaries are confirmed killed. Otherwise
+# there might be enough time to elect a replica.
+set replica_ids { 5 6 7 }
+foreach id $replica_ids {
+    R $id config set cluster-replica-no-failover yes
+}
+
 test "Killing majority of master nodes" {
     kill_instance redis 0
     kill_instance redis 1
     kill_instance redis 2
+}
+
+foreach id $replica_ids {
+    R $id config set cluster-replica-no-failover no
 }
 
 test "Cluster should eventually be down" {
@@ -25,9 +37,9 @@ test "Cluster should eventually be down" {
 }
 
 test "Use takeover to bring slaves back" {
-    R 5 cluster failover takeover
-    R 6 cluster failover takeover
-    R 7 cluster failover takeover
+    foreach id $replica_ids {
+        R $id cluster failover takeover
+    }
 }
 
 test "Cluster should eventually be up again" {
@@ -39,9 +51,9 @@ test "Cluster is writable" {
 }
 
 test "Instance #5, #6, #7 are now masters" {
-    assert {[RI 5 role] eq {master}}
-    assert {[RI 6 role] eq {master}}
-    assert {[RI 7 role] eq {master}}
+    foreach id $replica_ids {
+        assert {[RI $id role] eq {master}}
+    }
 }
 
 test "Restarting the previously killed master nodes" {

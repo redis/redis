@@ -1,0 +1,25 @@
+{
+    "SETNAME": {
+        "summary": "Set the current connection name",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "2.6.9",
+        "arity": 3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "connection-name",
+                "type": "string"
+            }
+        ]
+    }
+}

@@ -1,0 +1,57 @@
+{
+    "RPOP": {
+        "summary": "Remove and get the last elements in a list",
+        "complexity": "O(N) where N is the number of elements returned",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "rpopCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `count` argument."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true,
+                "since": "6.2.0"
+            }
+        ]
+    }
+}

@@ -52,8 +52,8 @@
 static int is_leap_year(time_t year) {
     if (year % 4) return 0;         /* A year not divisible by 4 is not leap. */
     else if (year % 100) return 1;  /* If div by 4 and not 100 is surely leap. */
-    else if (year % 400) return 0;  /* If div by 100 *and* 400 is not leap. */
-    else return 1;                  /* If div by 100 and not by 400 is leap. */
+    else if (year % 400) return 0;  /* If div by 100 *and* not by 400 is not leap. */
+    else return 1;                  /* If div by 100 and 400 is leap. */
 }
 
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
@@ -108,7 +108,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
 
 int main(void) {
     /* Obtain timezone and daylight info. */
-    tzset(); /* Now 'timezome' global is populated. */
+    tzset(); /* Now 'timezone' global is populated. */
     time_t t = time(NULL);
     struct tm *aux = localtime(&t);
     int daylight_active = aux->tm_isdst;

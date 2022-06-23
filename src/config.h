@@ -31,12 +31,13 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
 #endif
 
 #ifdef __linux__
-#include <linux/version.h>
 #include <features.h>
+#include <fcntl.h>
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
@@ -54,6 +55,7 @@
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
 #define HAVE_PROC_SOMAXCONN 1
+#define HAVE_PROC_OOM_SCORE_ADJ 1
 #endif
 
 /* Test for task_info() */
@@ -61,19 +63,37 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
-#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+ || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
 
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
 #ifdef __linux__
 #define HAVE_EPOLL 1
+#endif
+
+/* Test for accept4() */
+#ifdef __linux__
+#define HAVE_ACCEPT4 1
 #endif
 
 #if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
@@ -84,32 +104,63 @@
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
 #define HAVE_EVPORT 1
+#define HAVE_PSINFO 1
 #endif
 #endif
 
 /* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
-#ifdef __linux__
-#define redis_fsync fdatasync
+#if defined(__linux__)
+#define redis_fsync(fd) fdatasync(fd)
+#elif defined(__APPLE__)
+#define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
-#define redis_fsync fsync
+#define redis_fsync(fd) fsync(fd)
+#endif
+
+#if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_RTABLE
+#endif
+#endif
+
+#if __GNUC__ >= 4
+#define redis_unreachable __builtin_unreachable
+#else
+#define redis_unreachable abort
+#endif
+
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
+#endif
+#endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
 #endif
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
-#ifdef __linux__
-#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
-#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
+#if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
 #define HAVE_SYNC_FILE_RANGE 1
-#endif
-#else
-#if (LINUX_VERSION_CODE >= 0x020611)
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#endif
-#endif
-
-#ifdef HAVE_SYNC_FILE_RANGE
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#elif defined(__APPLE__)
+#define rdb_fsync_range(fd,off,size) fcntl(fd, F_FULLFSYNC)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
@@ -121,7 +172,11 @@
 #define USE_SETPROCTITLE
 #endif
 
-#if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
+#if defined(__HAIKU__)
+#define ESOCKTNOSUPPORT 0
+#endif
+
+#if (defined __linux || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
 void spt_init(int argc, char *argv[]);
@@ -163,7 +218,7 @@ void setproctitle(const char *fmt, ...);
 #endif /* BYTE_ORDER */
 
 /* Sometimes after including an OS-specific header that defines the
- * endianess we end with __BYTE_ORDER but not with BYTE_ORDER that is what
+ * endianness we end with __BYTE_ORDER but not with BYTE_ORDER that is what
  * the Redis code uses. In this case let's define everything without the
  * underscores. */
 #ifndef BYTE_ORDER
@@ -222,6 +277,36 @@ void setproctitle(const char *fmt, ...);
 
 #if defined(__sparc__) || defined(__arm__)
 #define USE_ALIGNED_ACCESS
+#endif
+
+/* Define for redis_set_thread_title */
+#ifdef __linux__
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), name)
+#else
+#if (defined __FreeBSD__ || defined __OpenBSD__)
+#include <pthread_np.h>
+#define redis_set_thread_title(name) pthread_set_name_np(pthread_self(), name)
+#elif defined __NetBSD__
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(pthread_self(), "%s", name)
+#elif defined __HAIKU__
+#include <kernel/OS.h>
+#define redis_set_thread_title(name) rename_thread(find_thread(0), name)
+#else
+#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+int pthread_setname_np(const char *name);
+#include <pthread.h>
+#define redis_set_thread_title(name) pthread_setname_np(name)
+#else
+#define redis_set_thread_title(name)
+#endif
+#endif
+#endif
+
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char *cpulist);
 #endif
 
 #endif
