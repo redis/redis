@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include <rocksdb/c.h>
+#include <sys/statvfs.h>
 #include <stddef.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -307,6 +308,48 @@ struct rocksdbMemOverhead *rocksGetMemoryOverhead() {
 
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh) {
     if (mh) zfree(mh);
+}
+
+sds genRocksInfoKeyspaceString(sds info) {
+	char *err;
+	size_t used_db_size = 0, max_db_size = 0, disk_capacity = 0, used_disk_size = 0;
+	size_t sequence = 0;
+	float used_db_percent = 0, used_disk_percent = 0;
+	rocksdb_t *db = server.rocks->db;
+	const char *begin_key = "\x0", *end_key = "\xff";
+	const size_t begin_key_len = 1, end_key_len = 1;
+	struct statvfs stat;
+
+	if (db) {
+		sequence = rocksdb_get_latest_sequence_number(db);
+		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&used_db_size,&err);
+		max_db_size = server.maxdisk;
+		if (max_db_size) used_db_percent = (float)(used_db_size)/max_db_size;
+	}
+
+	if (statvfs(ROCKS_DATA, &stat) == 0) {
+		disk_capacity = stat.f_blocks * stat.f_frsize;
+		used_disk_size = (stat.f_blocks - stat.f_bavail) * stat.f_frsize;
+		if (disk_capacity) used_disk_percent = (float)used_disk_size * 100 / disk_capacity;
+	} 
+
+	info = sdscatprintf(info,
+			"sequence:%lu\r\n"
+			"used_db_size:%lu\r\n"
+			"max_db_size:%lu\r\n"
+			"used_percent:%0.2f%%\r\n"
+			"disk_capacity:%lu\r\n"
+			"used_disk_size:%lu\r\n"
+			"used_disk_percent:%0.2f%%\r\n",
+			sequence,
+			used_db_size,
+			max_db_size,
+			used_db_percent,
+			disk_capacity,
+			used_disk_size,
+			used_disk_percent);
+
+	return info;
 }
 
 #define ROCKSDB_DISK_USED_UPDATE_PERIOD 60

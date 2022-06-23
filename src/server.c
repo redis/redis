@@ -5484,6 +5484,7 @@ sds genRedisInfoString(const char *section) {
                     j,keys,evicts,metas,vkeys,server.db[j].avg_ttl);
             }
         }
+        info = genRocksInfoKeyspaceString(info);
     }
 
    /* Swaps */
