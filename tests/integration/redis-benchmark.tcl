@@ -122,7 +122,7 @@ start_server {tags {"benchmark network external:skip"}} {
             set original_maxclients [lindex [r config get maxclients] 1]
             r config set maxclients 1
             catch { exec {*}$cmd } error
-            assert_match "*ERR max number of clients reached*" $error
+            assert_match "*Error*" $error
             r config set maxclients $original_maxclients
         }
 
