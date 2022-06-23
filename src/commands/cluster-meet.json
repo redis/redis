@@ -10,7 +10,7 @@
         "history": [
             [
                 "4.0.0",
-                "Added the optional `bus_port` argument."
+                "Added the optional `cluster_bus_port` argument."
             ]
         ],
         "command_flags": [
@@ -31,7 +31,7 @@
                 "type": "integer"
             },
             {
-                "name": "bus_port",
+                "name": "cluster_bus_port",
                 "type": "integer",
                 "optional": true,
                 "since": "4.0.0"
