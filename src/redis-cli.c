@@ -7260,19 +7260,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
         if (status != REDIS_OK || reply == NULL )
             printf("%s:%d: Failed!\n", n->ip, n->port);
         else {
-            sds formatted_reply = sdsempty();
-            if (config.output == OUTPUT_RAW) {
-                formatted_reply = cliFormatReplyRaw(reply);
-                formatted_reply = sdscat(formatted_reply,"\n");
-            } else if (config.output == OUTPUT_STANDARD) {
-                formatted_reply = cliFormatReplyTTY(reply,"");
-            } else if (config.output == OUTPUT_CSV) {
-                formatted_reply = cliFormatReplyCSV(reply);
-                formatted_reply = sdscat(formatted_reply,"\n");
-            } else if (config.output == OUTPUT_JSON || config.output == OUTPUT_QUOTED_JSON) {
-                out = cliFormatReplyJson(sdsempty(), reply, mode);
-                out = sdscatlen(out, "\n", 1);
-            } 
+            sds formatted_reply = cliFormatReply(reply, config.output, 0);
             printf("%s:%d:\n", n->ip, n->port);
             printf("%s\n", (char *) formatted_reply);
             sdsfree(formatted_reply);
