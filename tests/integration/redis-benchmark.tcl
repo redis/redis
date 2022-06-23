@@ -118,11 +118,11 @@ start_server {tags {"benchmark network external:skip"}} {
         }
         
         test {benchmark: clients idle mode should return error when reached maxclients limit} {
-            set cmd [redisbenchmark $master_host $master_port "-c 2 -I"]
+            set cmd [redisbenchmark $master_host $master_port "-c 10 -I"]
             set original_maxclients [lindex [r config get maxclients] 1]
-            r config set maxclients 1
+            r config set maxclients 5
             catch { exec {*}$cmd } error
-            assert_match "*ERR max number of clients reached*" $error
+            assert_match "*Error*" $error
             r config set maxclients $original_maxclients
         }
 
