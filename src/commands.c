@@ -470,7 +470,10 @@ NULL
 /********** CLUSTER MEET ********************/
 
 /* CLUSTER MEET history */
-#define CLUSTER_MEET_History NULL
+commandHistory CLUSTER_MEET_History[] = {
+{"4.0.0","Added the optional `bus_port` argument."},
+{0}
+};
 
 /* CLUSTER MEET tips */
 const char *CLUSTER_MEET_tips[] = {
@@ -482,6 +485,7 @@ NULL
 struct redisCommandArg CLUSTER_MEET_Args[] = {
 {"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL},
 {0}
 };
 
