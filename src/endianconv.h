@@ -71,8 +71,4 @@ uint64_t intrev64(uint64_t v);
 #define ntohu64(v) intrev64(v)
 #endif
 
-#ifdef REDIS_TEST
-int endianconvTest(int argc, char *argv[], int flags);
-#endif
-
 #endif

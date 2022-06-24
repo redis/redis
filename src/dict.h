@@ -224,8 +224,4 @@ unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dic
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
-#ifdef REDIS_TEST
-int dictTest(int argc, char *argv[], int flags);
-#endif
-
 #endif /* __DICT_H */

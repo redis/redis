@@ -156,8 +156,4 @@ __attribute__((alloc_size(2),noinline)) void *extend_to_usable(void *ptr, size_t
 
 int get_proc_stat_ll(int i, long long *res);
 
-#ifdef REDIS_TEST
-int zmalloc_test(int argc, char **argv, int flags);
-#endif
-
 #endif /* __ZMALLOC_H */

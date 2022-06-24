@@ -318,6 +318,7 @@ else
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
+REDIS_AR=$(QUIET_AR)$(AR)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
 
@@ -352,6 +353,10 @@ REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
+REDIS_LIB_NAME=libredis.a
+REDIS_TEST_FILES := $(wildcard unit/*.c)
+REDIS_TEST_OBJ=$(sort $(patsubst unit/%.c,unit/%.o,$(REDIS_TEST_FILES)))
+REDIS_UNIT_TESTS=redis-unit-tests$(PROG_SUFFIX)
 ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(TLS_MODULE)
@@ -402,6 +407,11 @@ endif
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a $(FINAL_LIBS)
 
+# libredis.a, used for unit testing
+$(REDIS_LIB_NAME): $(REDIS_SERVER_OBJ)
+	$(REDIS_AR) rcs $@ $^
+	$(RANLIB) $@
+
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME)
@@ -426,6 +436,10 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
 
+# redis-unit-tests
+$(REDIS_UNIT_TESTS): $(REDIS_LIB_NAME) $(REDIS_TEST_OBJ)
+	$(REDIS_LD) -o $@ $^ ../deps/fpconv/libfpconv.a $(FINAL_LIBS)
+
 DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
 
@@ -435,11 +449,19 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 
+%.o: unit/%.c .make-prerequisites
+	$(REDIS_CC) -MMD -o $@ -c $<
+
 # The file commands.def is checked in and doesn't normally need to be rebuilt. It
 # is built only if python is available and its prereqs are modified.
 ifneq (,$(PYTHON))
 $(COMMANDS_DEF_FILENAME).def: commands/*.json ../utils/generate-command-code.py
 	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py $(GEN_COMMANDS_FLAGS)
+
+unit/test_files.h: unit/*.c ../utils/generate-unit-test-header.py
+	$(QUIET_GEN)$(PYTHON) ../utils/generate-unit-test-header.py
+
+unit/test_main.o: unit/test_files.h
 endif
 
 commands.c: $(COMMANDS_DEF_FILENAME).def
@@ -460,6 +482,9 @@ distclean: clean
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
 	@(cd ..; ./runtest)
+
+test-unit: $(REDIS_UNIT_TESTS)
+	@(./redis-unit-tests all)
 
 test-modules: $(REDIS_SERVER_NAME)
 	@(cd ..; ./runtest-moduleapi)

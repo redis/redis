@@ -92,8 +92,4 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length);
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 
-#ifdef REDIS_TEST
-int utilTest(int argc, char **argv, int flags);
-#endif
-
 #endif
