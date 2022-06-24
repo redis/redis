@@ -147,6 +147,7 @@ typedef struct raxStack {
     /* Up to RAXSTACK_STACK_ITEMS items we avoid to allocate on the heap
      * and use this static array of pointers instead. */
     void *static_items[RAX_STACK_STATIC_ITEMS];
+    int oom; /* True if pushing into this stack failed for OOM at some point. */
     uint8_t static_offsets[RAX_STACK_STATIC_ITEMS];
 } raxStack;
 
