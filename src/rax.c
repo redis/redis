@@ -157,9 +157,14 @@ static inline void *raxStackPop(raxStack *ts, uint8_t *poffset) {
 
 /* Return the stack item at the top of the stack without actually consuming
  * it. */
-static inline void *raxStackPeek(raxStack *ts) {
-    if (ts->items == 0) return NULL;
-    return ts->stack[ts->items-1];
+static inline void *raxStackPeek(raxStack *ts, uint8_t *poffset) {
+    if (ts->items == 0) {
+        if (poffset != NULL) *poffset = 0;
+        return NULL;
+    }
+
+    if (poffset != NULL) *poffset = ts->offsets[ts->items - 1];
+    return ts->stack[ts->items - 1];
 }
 
 /* Free the stack in case we used heap allocation. */
@@ -999,27 +1004,11 @@ void *raxFind(rax *rax, unsigned char *s, size_t len) {
     return raxGetData(h);
 }
 
-/* Return the memory address where the 'parent' node stores the specified
- * 'child' pointer, so that the caller can update the pointer with another
- * one if needed. The function assumes it will find a match, otherwise the
- * operation is an undefined behavior (it will continue scanning the
- * memory without any bound checking). */
-raxNode **raxFindParentLink(raxNode *parent, raxNode *child) {
-    raxNode **cp = raxNodeFirstChildPtr(parent);
-    raxNode *c;
-    while(1) {
-        memcpy(&c,cp,sizeof(c));
-        if (c == child) break;
-        cp++;
-    }
-    return cp;
-}
-
 /* Low level child removal from node. The new node pointer (after the child
  * removal) is returned. Note that this function does not fix the pointer
  * of the parent node in its parent, so this task is up to the caller.
  * The function never fails for out of memory. */
-raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
+raxNode *raxRemoveChild(raxNode *parent, uint8_t parent_child_offset) {
     debugnode("raxRemoveChild before", parent);
     /* If parent is a compressed node (having a single child, as for definition
      * of the data structure), the removal of the child consists into turning
@@ -1035,24 +1024,15 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
         return parent;
     }
 
-    /* Otherwise we need to scan for the child pointer and memmove()
+    /* Otherwise we need the child pointer and edge byte so we can memmove()
      * accordingly.
      *
-     * 1. To start we seek the first element in both the children
-     *    pointers and edge bytes in the node. */
+     * 1. To start we seek the first element in the children pointers */
     raxNode **cp = raxNodeFirstChildPtr(parent);
-    raxNode **c = cp;
-    unsigned char *e = parent->data;
 
-    /* 2. Search the child pointer to remove inside the array of children
-     *    pointers. */
-    while(1) {
-        raxNode *aux;
-        memcpy(&aux,c,sizeof(aux));
-        if (aux == child) break;
-        c++;
-        e++;
-    }
+    /* 2. Calculate the child pointer and the edge byte */
+    raxNode **c = cp + parent_child_offset;
+    unsigned char *e = parent->data + parent_child_offset;
 
     /* 3. Remove the edge and the pointer by memmoving the remaining children
      *    pointer and edge bytes one position before. */
@@ -1094,6 +1074,7 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
  * deleted, 0 otherwise. */
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
     raxNode *h;
+    uint8_t child_offset;
     raxStack ts;
 
     debugf("### Delete: %.*s\n", (int)len, s);
@@ -1126,7 +1107,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 (int)child->size, (char*)child->data, child->iskey);
             rax_free(child);
             rax->numnodes--;
-            h = raxStackPop(&ts, NULL);
+            h = raxStackPop(&ts, &child_offset);
              /* If this node has more then one child, or actually holds
               * a key, stop here. */
             if (h->iskey || (!h->iscompr && h->size != 1)) break;
@@ -1134,14 +1115,15 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
         if (child) {
             debugf("Unlinking child %p from parent %p\n",
                 (void*)child, (void*)h);
-            raxNode *new = raxRemoveChild(h,child);
+            raxNode *new = raxRemoveChild(h, child_offset);
             if (new != h) {
-                raxNode *parent = raxStackPeek(&ts);
+                uint8_t parent_child_offset;
+                raxNode *parent = raxStackPeek(&ts, &parent_child_offset);
                 raxNode **parentlink;
                 if (parent == NULL) {
                     parentlink = &rax->head;
                 } else {
-                    parentlink = raxFindParentLink(parent,h);
+                    parentlink = raxNodeFirstChildPtr(parent) + parent_child_offset;
                 }
                 memcpy(parentlink,&new,sizeof(new));
             }
@@ -1215,8 +1197,9 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
          * At the end of the loop 'h' will point to the first node we
          * can try to compress and 'parent' to its parent. */
         raxNode *parent;
+        uint8_t parent_child_offset;
         while(1) {
-            parent = raxStackPop(&ts, NULL);
+            parent = raxStackPop(&ts, &parent_child_offset);
             if (!parent || parent->iskey ||
                 (!parent->iscompr && parent->size != 1)) break;
             h = parent;
@@ -1277,7 +1260,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 
             /* Fix parent link. */
             if (parent) {
-                raxNode **parentlink = raxFindParentLink(parent,start);
+                raxNode **parentlink = raxNodeFirstChildPtr(parent) + parent_child_offset;
                 memcpy(parentlink,&new,sizeof(new));
             } else {
                 rax->head = new;
