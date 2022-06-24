@@ -199,9 +199,11 @@ raxNode *raxNewNode(size_t children, int datafield) {
     return node;
 }
 
-/* Allocate a new rax and return its pointer. */
+/* Allocate a new rax and return its pointer. On out of memory the function
+ * returns NULL. */
 rax *raxNew(void) {
     rax *rax = rax_malloc(sizeof(*rax));
+    if (rax == NULL) return NULL;
     rax->numele = 0;
     rax->numnodes = 1;
     rax->head = raxNewNode(0,0);
@@ -1158,6 +1160,12 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
             size_t nodesize =
                 sizeof(raxNode)+comprsize+raxPadding(comprsize)+sizeof(raxNode*);
             raxNode *new = rax_malloc(nodesize);
+            /* An out of memory here just means we cannot optimize this
+             * node, but the tree is left in a consistent state. */
+            if (new == NULL) {
+                raxStackFree(&ts);
+                return 1;
+            }
             new->iskey = 0;
             new->isnull = 0;
             new->iscompr = 1;
