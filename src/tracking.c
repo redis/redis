@@ -295,7 +295,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
     } else if (using_redirection && c->flags & CLIENT_PUBSUB) {
         /* We use a static object to speedup things, however we assume
          * that addReplyPubsubMessage() will not take a reference. */
-        addReplyPubsubMessage(c,TrackingChannelName,NULL);
+        addReplyPubsubMessage(c,TrackingChannelName,NULL,shared.messagebulk);
     } else {
         /* If are here, the client is not using RESP3, nor is
          * redirecting to another client. We can't send anything to

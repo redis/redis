@@ -41,7 +41,7 @@
             {
                 "name": "key2",
                 "type": "key",
-                "key_spec_index": 1
+                "key_spec_index": 0
             },
             {
                 "name": "len",

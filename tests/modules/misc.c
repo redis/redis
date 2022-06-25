@@ -310,6 +310,50 @@ int test_monotonic_time(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* wrapper for RM_Call */
+int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    if(!rep){
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    }else{
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* wrapper for RM_Call with flags */
+int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc < 3){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    /* Append Ev to the provided flags. */
+    RedisModuleString *flags = RedisModule_CreateStringFromString(ctx, argv[1]);
+    RedisModule_StringAppendBuffer(ctx, flags, "Ev", 2);
+
+    const char* flg = RedisModule_StringPtrLen(flags, NULL);
+    const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    if(!rep){
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    }else{
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_FreeString(ctx, flags);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -350,6 +394,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.weird:cmd", test_weird_cmd,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.monotonic_time", test_monotonic_time,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.rm_call", test_rm_call,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.rm_call_flags", test_rm_call_flags,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

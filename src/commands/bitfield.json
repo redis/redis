@@ -46,7 +46,7 @@
             {
                 "name": "operation",
                 "type": "oneof",
-                "multiple": "true",
+                "multiple": true,
                 "arguments": [
                     {
                         "token": "GET",

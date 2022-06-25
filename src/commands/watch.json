@@ -18,6 +18,9 @@
         ],
         "key_specs": [
             {
+                "flags": [
+                    "RO"
+                ],
                 "begin_search": {
                     "index": {
                         "pos": 1

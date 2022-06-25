@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <strings.h>
 
 #define UNUSED(V) ((void) V)
 
@@ -119,8 +120,20 @@ void *bg_call_worker(void *arg) {
     }
 
     // Call the command
-    const char* cmd = RedisModule_StringPtrLen(bg->argv[1], NULL);
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "v", bg->argv + 2, bg->argc - 2);
+    const char *module_cmd = RedisModule_StringPtrLen(bg->argv[0], NULL);
+    int cmd_pos = 1;
+    RedisModuleString *format_redis_str = RedisModule_CreateString(NULL, "v", 1);
+    if (!strcasecmp(module_cmd, "do_bg_rm_call_format")) {
+        cmd_pos = 2;
+        size_t format_len;
+        const char *format = RedisModule_StringPtrLen(bg->argv[1], &format_len);
+        RedisModule_StringAppendBuffer(NULL, format_redis_str, format, format_len);
+        RedisModule_StringAppendBuffer(NULL, format_redis_str, "E", 1);
+    }
+    const char *format = RedisModule_StringPtrLen(format_redis_str, NULL);
+    const char *cmd = RedisModule_StringPtrLen(bg->argv[cmd_pos], NULL);
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
+    RedisModule_FreeString(NULL, format_redis_str);
 
     // Release GIL
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -304,6 +317,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_bg_rm_call", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_bg_rm_call_format", do_bg_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "do_fake_bg_true", do_fake_bg_true, "", 0, 0, 0) == REDISMODULE_ERR)

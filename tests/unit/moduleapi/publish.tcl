@@ -11,7 +11,7 @@ start_server {tags {"modules"}} {
         assert_equal {1} [subscribe $rd2 {chan1}]
         assert_equal 1 [r publish.shard chan1 hello]
         assert_equal 1 [r publish.classic chan1 world]
-        assert_equal {message chan1 hello} [$rd1 read]
+        assert_equal {smessage chan1 hello} [$rd1 read]
         assert_equal {message chan1 world} [$rd2 read]
     }
 }

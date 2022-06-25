@@ -1,13 +1,5 @@
-/* redisassert.h -- Drop in replacements assert.h that prints the stack trace
- *                  in the Redis logs.
- *
- * This file should be included instead of "assert.h" inside libraries used by
- * Redis that are using assertions, so instead of Redis disappearing with
- * SIGABORT, we get the details and stack trace inside the log file.
- *
- * ----------------------------------------------------------------------------
- *
- * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+/*
+ * Copyright (c) 2022, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,15 +27,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __REDIS_ASSERT_H__
-#define __REDIS_ASSERT_H__
+#ifndef __SYSCHECK_H
+#define __SYSCHECK_H
 
+#include "sds.h"
 #include "config.h"
 
-#define assert(_e) (likely((_e))?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
-#define panic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
-
-void _serverAssert(const char *estr, const char *file, int line);
-void _serverPanic(const char *file, int line, const char *msg, ...);
+int syscheck(void);
+#ifdef __linux__
+int checkXenClocksource(sds *error_msg);
+int checkTHPEnabled(sds *error_msg);
+int checkOvercommit(sds *error_msg);
+#ifdef __arm64__
+int checkLinuxMadvFreeForkBug(sds *error_msg);
+#endif
+#endif
 
 #endif

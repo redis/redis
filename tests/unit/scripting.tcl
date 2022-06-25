@@ -1416,17 +1416,48 @@ start_server {tags {"scripting"}} {
         ] {123}
 
         # Fail to execute regardless of script content when we use default flags in OOM condition
-        assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {
+        assert_error {OOM *} {
             r eval {#!lua flags=
                 return 1
             } 0
         }
 
+        # Script with allow-oom can write despite being in OOM state
         assert_equal [
             r eval {#!lua flags=allow-oom
                 redis.call('set','x',1)
                 return 1
+            } 1 x
+        ] 1
+
+        # read-only scripts implies allow-oom
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
             } 0
+        ] 1
+        assert_equal [
+            r eval_ro {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state
+        assert_equal [
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+        ] 1
+
+        # Script with no shebang can read in OOM state (eval_ro variant)
+        assert_equal [
+            r eval_ro {
+                redis.call('get','x')
+                return 1
+            } 1 x
         ] 1
 
         r config set maxmemory 0
@@ -1458,13 +1489,132 @@ start_server {tags {"scripting"}} {
                 } 1 x
             ] "some value"
 
-            assert_error {ERR Can not run script with write flag on readonly replica} {
+            assert_error {READONLY You can't write against a read only replica.} {
                 r eval {#!lua
                     return redis.call('get','x')
                 } 1 x
             }
+
+            # test no-write inside multi-exec
+            r multi
+            r eval {#!lua flags=no-writes
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # test no shebang without write inside multi-exec
+            r multi
+            r eval {
+                redis.call('get','x')
+                return 1
+            } 1 x
+            assert_equal [r exec] 1
+
+            # temporarily set the server to master, so it doesn't block the queuing
+            # and we can test the evaluation of the flags on exec
+            r replicaof no one
+            set rr [redis_client]
+            set rr2 [redis_client]
+            $rr multi
+            $rr2 multi
+
+            # test write inside multi-exec
+            # we don't need to do any actual write
+            $rr eval {#!lua
+                return 1
+            } 0
+
+            # test no shebang with write inside multi-exec
+            $rr2 eval {
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+
+            r replicaof [srv -1 host] [srv -1 port]
+            assert_error {EXECABORT Transaction discarded because of: READONLY *} {$rr exec}
+            assert_error {READONLY You can't write against a read only replica. script: *} {$rr2 exec}
+            $rr close
+            $rr2 close
         }
     }
+
+    test "not enough good replicas" {
+        r set x "some value"
+        r config set min-replicas-to-write 1
+
+        assert_equal [
+            r eval {#!lua flags=no-writes
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_equal [
+            r eval {
+                return redis.call('get','x')
+            } 1 x
+        ] "some value"
+
+        assert_error {NOREPLICAS *} {
+            r eval {#!lua
+                return redis.call('get','x')
+            } 1 x
+        }
+
+        assert_error {NOREPLICAS *} {
+            r eval {
+                return redis.call('set','x', 1)
+            } 1 x
+        }
+
+        r config set min-replicas-to-write 0
+    }
+
+    test "not enough good replicas state change during long script" {
+        r set x "pre-script value"
+        r config set min-replicas-to-write 1
+        r config set lua-time-limit 10
+        start_server {tags {"external:skip"}} {
+            # add a replica and wait for the master to recognize it's online
+            r slaveof [srv -1 host] [srv -1 port]
+            wait_replica_online [srv -1 client]
+
+            # run a slow script that does one write, then waits for INFO to indicate
+            # that the replica dropped, and then runs another write
+            set rd [redis_deferring_client -1]
+            $rd eval {
+                redis.call('set','x',"script value")
+                while true do
+                    local info = redis.call('info','replication')
+                    if (string.match(info, "connected_slaves:0")) then
+                        redis.call('set','x',info)
+                        break
+                    end
+                end
+                return 1
+            } 1 x
+
+            # wait for the script to time out and yield
+            wait_for_condition 100 100 {
+                [catch {r -1 ping} e] == 1
+            } else {
+                fail "Can't wait for script to start running"
+            }
+            catch {r -1 ping} e
+            assert_match {BUSY*} $e
+
+            # cause the replica to disconnect (triggering the busy script to exit)
+            r slaveof no one
+
+            # make sure the script was able to write after the replica dropped
+            assert_equal [$rd read] 1
+            assert_match {*connected_slaves:0*} [r -1 get x]
+
+            $rd close
+        }
+        r config set min-replicas-to-write 0
+        r config set lua-time-limit 5000
+    } {OK} {external:skip needs:repl}
 
     test "allow-stale shebang flag" {
         r config set replica-serve-stale-data no
@@ -1476,7 +1626,7 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
 
-        assert_error {*'allow-stale' flag is not set on the script*} {
+        assert_error {MASTERDOWN Link with MASTER is down and replica-serve-stale-data is set to 'no'.} {
             r eval {#!lua flags=no-writes
                 return 1
             } 0
@@ -1495,19 +1645,19 @@ start_server {tags {"scripting"}} {
             } 1 x
         }
         
-        assert_match {*redis_version*} [
+        assert_match {foobar} [
             r eval {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             } 0
         ]
         
         # Test again with EVALSHA
         set sha [
             r script load {#!lua flags=allow-stale,no-writes
-                return redis.call('info','server')
+                return redis.call('echo','foobar')
             }
         ]
-        assert_match {*redis_version*} [r evalsha $sha 0]
+        assert_match {foobar} [r evalsha $sha 0]
         
         r replicaof no one
         r config set replica-serve-stale-data yes
@@ -1517,7 +1667,7 @@ start_server {tags {"scripting"}} {
     test "reject script do not cause a Lua stack leak" {
         r config set maxmemory 1
         for {set i 0} {$i < 50} {incr i} {
-            assert_error {OOM allow-oom flag is not set on the script, can not run it when used memory > 'maxmemory'} {r eval {#!lua
+            assert_error {OOM *} {r eval {#!lua
                 return 1
             } 0}
         }

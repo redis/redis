@@ -1397,6 +1397,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     FILE *fp = NULL;
     rio rdb;
     int error = 0;
+    char *err_op;    /* For a detailed log */
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
@@ -1420,13 +1421,14 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
+        err_op = "rdbSaveRio";
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) goto werr;
-    if (fsync(fileno(fp))) goto werr;
-    if (fclose(fp)) { fp = NULL; goto werr; }
+    if (fflush(fp)) { err_op = "fflush"; goto werr; }
+    if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
+    if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
     
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -1445,6 +1447,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
+    if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -1454,7 +1457,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    serverLog(LL_WARNING,"Write error saving DB on disk(%s): %s", err_op, strerror(errno));
     if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
@@ -2746,7 +2749,7 @@ void stopLoading(int success) {
 }
 
 void startSaving(int rdbflags) {
-    /* Fire the persistence modules end event. */
+    /* Fire the persistence modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
@@ -2781,6 +2784,9 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         loadingAbsProgress(r->processed_bytes);
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
+    }
+    if (server.repl_state == REPL_STATE_TRANSFER && rioCheckType(r) == RIO_TYPE_CONN) {
+        atomicIncr(server.stat_net_repl_input_bytes, len);
     }
 }
 
@@ -3476,6 +3482,9 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
+
+    server.stat_rdb_saves++;
+
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
     if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
