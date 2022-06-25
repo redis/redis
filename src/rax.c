@@ -483,21 +483,38 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
  * means that the current node represents the key (that is, none of the
  * compressed node characters are needed to represent the key, just all
  * its parents nodes). */
-static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts) {
+static inline size_t raxLowWalk(
+    rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts,
+    uint8_t *stopoffset
+) {
     raxNode *h = rax->head;
     raxNode **parentlink = &rax->head;
 
     size_t i = 0; /* Position in the string. */
     size_t j = 0; /* Position in the node children (or bytes if compressed).*/
+    size_t k = 0; /* Current child offset or mismatch offset */
     while(h->size && i < len) {
         debugnode("Lookup current node",h);
         unsigned char *v = h->data;
-
         if (h->iscompr) {
             for (j = 0; j < h->size && i < len; j++, i++) {
                 if (v[j] != s[i]) break;
             }
             if (j != h->size) break;
+        } else if (stopoffset) { /* Scan preserving stopoffset */
+            for (j = 0; j < h->size; j++) {
+                if (v[j] >= s[i]) break;
+            }
+            if (v[j] > s[i]) {
+                k = j;
+                j = h->size;
+                break;
+            }
+            if (j == h->size) {
+                k = j;
+                break;
+            }
+            i++;
         } else {
             /* Even when h->size is large, linear scan provides good
              * performances compared to other approaches that are in theory
@@ -521,59 +538,9 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
     }
     debugnode("Lookup stop node is",h);
     if (stopnode) *stopnode = h;
+    if (stopoffset) *stopoffset = k;
     if (plink) *plink = parentlink;
     if (splitpos && h->iscompr) *splitpos = j;
-    return i;
-}
-
-/* See cmts in raxLowWalk() above */
-static inline size_t raxLowWalkSeek(raxIterator* it, unsigned char *s,
-                                    size_t len, int *splitpos)
-{
-    raxNode *h = it->rt->head;
-
-    size_t i = 0;
-    size_t j = 0;
-    size_t k = 0; /* actual child offset or mismatch offset */
-    while(h->size && i < len) {
-        unsigned char *v = h->data;
-
-        if (h->iscompr) {
-            for (j = 0; j < h->size && i < len; j++, i++) {
-                if (v[j] != s[i]) break;
-            }
-
-            if (j != h->size) break;
-        }
-        else {
-            for (j = 0; j < h->size; j++) {
-                if (v[j] >= s[i]) break;
-            }
-
-            if (v[j] > s[i]) {
-                k = j;
-                j = h->size;
-                break;
-            }
-
-            if (j == h->size) {
-                k = j;
-                break;
-            }
-
-            i++;
-        }
-
-        if (h->iscompr) j = 0;
-        raxStackPush(&it->stack,h,j);
-        raxNode **children = raxNodeFirstChildPtr(h);
-        memcpy(&h,children+j,sizeof(h));
-        j = 0;
-    }
-
-    it->node = h;
-    if (h->iscompr) *splitpos = j;
-    it->child_offset = k;
     return i;
 }
 
@@ -593,7 +560,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
     raxNode *h, **parentlink;
 
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
-    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL);
+    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL, NULL);
 
     /* If i == len we walked following the whole string. If we are not
      * in the middle of a compressed node, the string is either already
@@ -998,7 +965,7 @@ void *raxFind(rax *rax, unsigned char *s, size_t len) {
 
     debugf("### Lookup: %.*s\n", (int)len, s);
     int splitpos = 0;
-    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL, NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
         return raxNotFound;
     return raxGetData(h);
@@ -1080,7 +1047,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
     debugf("### Delete: %.*s\n", (int)len, s);
     raxStackInit(&ts);
     int splitpos = 0;
-    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,&ts);
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,&ts, NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey) {
         raxStackFree(&ts);
         return 0;
@@ -1381,6 +1348,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
     size_t orig_key_len = it->key_len;
     size_t orig_stack_items = it->stack.items;
     raxNode *orig_node = it->node;
+    uint8_t orig_child_offset = it->child_offset;
 
     while(1) {
         int children = it->node->iscompr ? 1 : it->node->size;
@@ -1420,6 +1388,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                     it->stack.items = orig_stack_items;
                     it->key_len = orig_key_len;
                     it->node = orig_node;
+                    it->child_offset = orig_child_offset;
                     return 1;
                 }
                 /* If there are no children at the current node, try parent's
@@ -1500,6 +1469,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
     size_t orig_key_len = it->key_len;
     size_t orig_stack_items = it->stack.items;
     raxNode *orig_node = it->node;
+    uint8_t orig_child_offset = it->child_offset;
 
     while(1) {
         int old_noup = noup;
@@ -1510,6 +1480,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
             it->stack.items = orig_stack_items;
             it->key_len = orig_key_len;
             it->node = orig_node;
+            it->child_offset = orig_child_offset;
             return 1;
         }
 
@@ -1609,7 +1580,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
      * perform a lookup, and later invoke the prev/next key code that
      * we already use for iteration. */
     int splitpos = 0;
-    size_t i = raxLowWalkSeek(it, ele, len, &splitpos);
+    size_t i = raxLowWalk(it->rt, ele, len, &it->node, NULL, &splitpos, &it->stack, &it->child_offset);
 
     /* Return OOM on incomplete stack info. */
     if (it->stack.oom) return 0;
