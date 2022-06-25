@@ -18,7 +18,9 @@
       "arguments": [
           {
               "name": "connection-meta",
-              "type": "string"
+              "type": "string",
+              "multiple": true,
+              "optional": true
           }
       ]
   }

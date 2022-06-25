@@ -3,7 +3,7 @@
       "summary": "Get the current connection meta info",
       "complexity": "O(N) where N is the number of fields being requested.",
       "group": "connection",
-      "since": "6.2.8",
+      "since": "7.2.0",
       "arity": -2,
       "container": "CLIENT",
       "function": "clientCommand",
@@ -18,7 +18,8 @@
       "arguments": [
         {
             "name": "connection-meta",
-            "type": "string"
+            "type": "string",
+            "optional": true
         }
       ]
   }
