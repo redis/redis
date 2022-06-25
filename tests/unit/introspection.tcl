@@ -136,12 +136,12 @@ start_server {tags {"introspection"}} {
         assert_equal [r client setmeta meta foo] {OK}
         assert_equal [r client setmeta] {OK}
         r client list
-    } {*meta=0*}
+    } {*meta=*}
 
     test {CLIENT SETMETA can assign a meta to this connection} {
         assert_equal [r client setmeta meta foo] {OK}
         r client list
-    } {*meta=1*}
+    } {*meta=meta=foo;*}
 
     test {CLIENT GETMETA should return empty info for non-existing meta attributes} {
         assert_equal [r client setmeta meta foo] {OK}

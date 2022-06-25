@@ -117,7 +117,7 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-sds getAllClientMetaFields(dict *meta) {
+sds getAllClientMetaFields(dict *meta, sds scaping) {
     dictIterator *di = dictGetIterator(meta);
     dictEntry *de;
     sds result = sdsempty();
@@ -127,9 +127,10 @@ sds getAllClientMetaFields(dict *meta) {
         sds value = dictGetVal(de);
 
         result = sdscatfmt(result,
-            "%s=%s ",
+            "%s=%s%s",
             key,
-            value
+            value,
+            scaping
         );
     }
 
@@ -189,7 +190,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->meta = dictCreate(&hashDictType);
+    c->meta = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -2839,7 +2840,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%i",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2867,7 +2868,7 @@ sds catClientInfoString(sds s, client *client) {
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
-        (int) dictSize(client->meta));
+        client->meta ? (char*)getAllClientMetaFields(client->meta, ";") : "");
     return ret;
 }
 
@@ -3275,7 +3276,7 @@ NULL
         /* CLIENT GETMETA */
         sds meta = NULL;
         if (c->argc == 2) {
-            meta = c->meta ? (char*)getAllClientMetaFields(c->meta) : "";
+            meta = c->meta ? (char*)getAllClientMetaFields(c->meta, " ") : "";
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         } else {
@@ -3780,8 +3781,9 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
            dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
 
-    mem += dictSize(c->meta) * sizeof(dictEntry) +
-           dictSlots(c->meta) * sizeof(dictEntry*);
+    if (c->meta)
+        mem += dictSize(c->meta) * sizeof(dictEntry) +
+            dictSlots(c->meta) * sizeof(dictEntry*);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */
     if (c->client_tracking_prefixes)
