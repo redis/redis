@@ -7,7 +7,7 @@ start_server {tags {"swap string"}} {
         r evict k
         wait_keys_evicted r
         after 500
-        assert_equal {# Keyspace} [string trim [r info keyspace]]
+        assert [keyspace_is_empty r]
         assert_match [r get k] {}
     }
 } 

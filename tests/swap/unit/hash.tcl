@@ -108,21 +108,160 @@ start_server {tags "bighash"} {
     }
 
     test {wholekey bighash transform} {
+        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
+        r config set swap-big-hash-threshold 256k
 
-        r config set swap-big-hash-threshold 1
         r hmset hash10 a a b b 1 1 2 2 
         r evict hash10
-        assert_equal [object_is_big r hash10] 1
-        wait_keys_evicted r
+        wait_key_cold r hash10
+        assert ![object_is_big r hash10]
+
+        # evict clean hash triggers no swapout
+        set old_swap_out_count [get_info_property r Swaps swap_OUT count]
+        r hgetall hash10
+        r evict hash10
+        assert_equal $old_swap_out_count [get_info_property r Swaps swap_OUT count]
+
+        # hash could transform to big and triggers swapout(bighash format subkey)
+        r config set swap-big-hash-threshold 1
+        r hgetall hash10
+
+        r evict hash10
+        wait_key_cold r hash10
+        assert [object_is_big r hash10]
+
+        assert {[get_info_property r Swaps swap_OUT count] > $old_swap_out_count}
+        set meta_version [object_meta_version r hash10]
+        assert {[r swap rio-get [r swap encode-key h $meta_version hash10 a]] != {}}
+
+        # bighash could not tranform back too wholekey again
         r config set swap-big-hash-threshold 256k
         assert_equal [llength [r hkeys hash10]] 4;
-        assert_equal [object_is_big r hash10] 1
+        assert [object_is_big r hash10]
         r evict hash10
         wait_keys_evicted r
-        assert_equal [object_is_big r hash10] 0
+        assert [object_is_big r hash10]
         assert_equal [llength  [r hvals hash10]] 4
-        assert_equal [object_is_big r hash10] 0
+        assert [object_is_big r hash10]
         r del hash10
+
+        r config set swap-big-hash-threshold $old_swap_threshold
     }
 
+    ## we changed hash big transform policy, test case is now obselete
+    # test {wholekey bighash transform} {
+        # set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
+
+        # r config set swap-big-hash-threshold 1
+        # r hmset hash10 a a b b 1 1 2 2 
+        # r evict hash10
+        # assert_equal [object_is_big r hash10] 1
+        # wait_keys_evicted r
+        # r config set swap-big-hash-threshold 256k
+        # assert_equal [llength [r hkeys hash10]] 4;
+        # assert_equal [object_is_big r hash10] 1
+        # r evict hash10
+        # wait_keys_evicted r
+        # press_enter_to_continue
+        # assert_equal [object_is_big r hash10] 0
+        # assert_equal [llength  [r hvals hash10]] 4
+        # assert_equal [object_is_big r hash10] 0
+        # r del hash10
+
+        # r config set swap-big-hash-threshold $old_swap_threshold
+    # }
+
+    test {bighash dirty & meta} {
+        set old_swap_threshold [lindex [r config get swap-big-hash-threshold] 1]
+        set old_swap_max_subkeys [lindex [r config get swap-evict-step-max-subkeys] 1]
+
+        r config set swap-big-hash-threshold 1
+        r config set swap-evict-step-max-subkeys 2
+
+        # bighash are initialized as dirty
+        r hmset hash11 a a b b 1 1 2 2 
+        assert [object_is_dirty r hash11]
+
+        # dirty bighash partial evict remains dirty
+        r evict hash11
+        wait_key_warm r hash11
+        assert [object_is_dirty r hash11]
+        assert_equal [object_meta_len r hash11] 2
+        set hash11_version [object_meta_version r hash11]
+
+        # dirty bighash all evict is still dirty
+        r evict hash11
+        wait_key_cold r hash11
+        assert [object_is_dirty r hash11]
+        assert_equal [object_meta_len r hash11] 4
+
+        # cold bighash turns clean when swapin
+        assert_equal [r hmget hash11 a 1] {a 1}
+        assert ![object_is_dirty r hash11]
+        assert_equal [object_meta_len r hash11] 2
+
+        # clean bighash all swapin remains clean
+        assert_equal [r hmget hash11 b 2] {b 2}
+        assert ![object_is_dirty r hash11]
+        # all-swapin bighash meta remains
+        assert_equal [object_meta_len r hash11] 0
+        assert_equal [r hlen hash11] 4
+        assert_equal [object_meta_version r hash11] $hash11_version 
+
+        # clean bighash swapout does not triggers swap
+        set orig_swap_out_count [get_info_property r swaps swap_OUT count]
+
+        r evict hash11
+        assert ![object_is_dirty r hash11]
+        assert_equal $orig_swap_out_count [get_info_property r Swaps swap_OUT count]
+
+        # clean bighash swapout does not triggers swap
+        assert_equal [r hmget hash11 b 2] {b 2}
+        assert ![object_is_dirty r hash11]
+        assert_equal $orig_swap_out_count [get_info_property r Swaps swap_OUT count]
+
+        # clean bighash swapout fields can be retrieved from rocksdb
+        assert_equal [r hget hash11 1] {1}
+
+        # modify bighash makes bighash dirty
+        r hmset hash11 a A
+        assert [object_is_dirty r hash11]
+
+        # dirty bighash evict triggers swapout
+        after 100
+        assert_equal [r evict hash11] 1
+        after 100
+        assert [object_is_dirty r hash11]
+        assert_equal [r hlen hash11] 4
+        assert {[get_info_property r Swaps swap_OUT count] > $orig_swap_out_count}
+
+        r config set swap-big-hash-threshold $old_swap_threshold
+        r config set swap-evict-step-max-subkeys $old_swap_max_subkeys
+    }
+
+    test {bighash hdel & del} {
+        r hmset hash12 a a 1 1
+        assert_equal [r evict hash12] 1
+        wait_key_cold r hash12
+
+        set hash12_version [object_meta_version r hash12]
+        r hdel hash12 a
+        r hdel hash12 1
+        assert {[rocks_get_bighash r $hash12_version hash12 a] eq {}}
+        assert {[rocks_get_bighash r $hash12_version hash12 1] eq {}}
+        catch {r swap object hash12} err
+        assert_match "*ERR no such key*" $err
+
+        # re-add bighash increase version
+        r hmset hash12 a a 1 1
+        catch {r swap object hash12} err
+        r evict hash12
+        set hash12_version2 [object_meta_version r hash12]
+        assert {$hash12_version2 > $hash12_version}
+
+        # bighash swapout and swapin all reserves meta
+        r hkeys hash12
+        set hash12_version3 [object_meta_version r hash12]
+        assert {$hash12_version2 == $hash12_version3}
+    }
 }

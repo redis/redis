@@ -131,7 +131,7 @@ sds genSwapInfoString(sds info) {
         swapStat *s = &server.swap_stats[j];
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
-        info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld,ops=%lld,Bps=%lld\r\n",
+        info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld\r\n",
                 s->name,count,memory,
                 getInstantaneousMetric(s->stats_metric_idx_count),
                 getInstantaneousMetric(s->stats_metric_idx_memory));
@@ -141,7 +141,7 @@ sds genSwapInfoString(sds info) {
         swapStat *s = &server.rio_stats[j];
         atomicGet(s->count,count);
         atomicGet(s->memory,memory);
-        info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld,ops=%lld,Bps=%lld\r\n",
+        info = sdscatprintf(info,"rio_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld\r\n",
                 s->name,count,memory,
                 getInstantaneousMetric(s->stats_metric_idx_count),
                 getInstantaneousMetric(s->stats_metric_idx_memory));

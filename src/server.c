@@ -4813,6 +4813,7 @@ sds genRedisInfoString(const char *section) {
             "redis_version:%s\r\n"
             "xredis_version:%s\r\n"
             "swap_version:%s\r\n"
+            "rocksdb_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
             "redis_git_dirty:%i\r\n"
             "redis_build_id:%s\r\n"
@@ -4838,6 +4839,7 @@ sds genRedisInfoString(const char *section) {
             REDIS_VERSION,
             XREDIS_VERSION,
             SWAP_VERSION,
+            ROCKSDB_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             redisBuildIdString(),

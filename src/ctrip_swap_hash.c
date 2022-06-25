@@ -30,13 +30,18 @@
 
 void hashTransformBig(robj *o, objectMeta *m) {
     size_t hash_size;
+
     serverAssert(o && o->type == OBJ_HASH);
-    if (m != NULL) return;
+
+    //TODO bighash=>wholekey not allowed if there are rocksdb subkeys: 
+    //modify meta need requestWait, which requires extra work. support it if
+    //wholekey does have performance advantage.
+    if (m != NULL || o->big) return;
+
     hash_size = objectEstimateSize(o);
     if (hash_size > server.swap_big_hash_threshold) {
         o->big = 1;
-    } else {
-        o->big = 0;
+        o->dirty = 1; /* rocksdb format changed, set dirty to trigger PUT. */
     }
 }
 
@@ -67,7 +72,8 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
         *intention_flags = 0;
         break;
     case SWAP_IN:
-        if (data->meta == NULL) { /* No need to swap in for hot key */
+        if (data->meta == NULL || data->meta->len == 0) {
+            /* No need to swap in for hot key */
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else if (req->num_subkeys == 0) {
@@ -77,7 +83,7 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else if (cmd_intention_flags == INTENTION_IN_META) {
-                /* HSTRLEN: no need to swap in anything, hstrlen command will
+                /* HLEN: no need to swap in anything, hlen command will
                  * be modified like dbsize. */
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
@@ -130,20 +136,28 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
                     evict_memory += vlen;
                 else
                     evict_memory += sizeof(vll);
-                if (datactx->num > server.swap_evict_step_max_subkeys ||
-                        evict_memory > server.swap_evict_step_max_memory) {
+                if (datactx->num >= server.swap_evict_step_max_subkeys ||
+                        evict_memory >= server.swap_evict_step_max_memory) {
                     /* Evict big hash in small steps. */
                     break;
                 }
             }
             hashTypeReleaseIterator(hi);
 
-            /* create new meta if key is an evicting hot key, meta version
+            /* create new meta if needed, meta version
              * will be used to encode data. */
-            if (data->meta == NULL) 
+            if (data->meta == NULL)
                 datactx->new_meta = createObjectMeta(0);
 
-            *intention = SWAP_OUT;
+            if (!data->value->dirty) {
+                swapData *data_ = (swapData*)data;
+                /* directly evict value db.dict if not dirty. */
+                swapDataCleanObject(data_, datactx);
+                swapDataSwapOut(data_,datactx);
+                *intention = SWAP_NOP;
+            } else {
+                *intention = SWAP_OUT;
+            }
         }
         break;
     case SWAP_DEL:
@@ -298,22 +312,28 @@ static robj *createSwapInObject(robj *newval, robj *evict) {
     incrRefCount(newval);
     swapin->lru = evict->lru;
     swapin->big = evict->big;
+    swapin->dirty = 0;
     return swapin;
 }
 
+/* Note: meta are kept even if all subkeys are swapped in (hot) because
+ * meta.version is necessary for swapping in evicted data if not dirty.
+ * In fact, meta are kept as long as there are data in rocksdb. */
 int bigHashSwapIn(swapData *data_, robj *result, void *datactx_) {
     bigHashSwapData *data = (bigHashSwapData*)data_;
     bigHashDataCtx *datactx = datactx_;
+    objectMeta *meta = data->meta;
+
     /* hot key no need to swap in, this must be a warm or cold key. */
-    serverAssert(data->meta);
+    serverAssert(meta);
     if (!data->value && result == NULL) {
         /* cold key swapped in nothing: nop. */
     } else if (!data->value && result != NULL) {
         /* cold key swapped in fields */
         /* dup expire/meta satellites before evict deleted. */
-        objectMeta *newmeta = dupObjectMeta(data->meta);
-        newmeta->len += datactx->meta_len_delta;
-        serverAssert(newmeta->len >= 0);
+        meta = dupObjectMeta(data->meta);
+        meta->len += datactx->meta_len_delta;
+        serverAssert(meta->len >= 0);
         long long expire = getExpire(data->db,data->key);
         robj *swapin = createSwapInObject(result,data->evict);
         if (expire != -1) removeExpire(data->db,data->key);
@@ -322,19 +342,14 @@ int bigHashSwapIn(swapData *data_, robj *result, void *datactx_) {
         dbAdd(data->db,data->key,swapin);
         /* re-add expire/meta satellites for db.dict .*/
         if (expire != -1) setExpire(NULL,data->db,data->key,expire);
-        if (newmeta->len)
-            dbAddMeta(data->db,data->key,newmeta);
-        else
-            freeObjectMeta(newmeta);
+        dbAddMeta(data->db,data->key,meta);
     } else {
         /* if data.value exists, then we expect all fields merged already
          * and nothing need to be swapped in. */
         serverAssert(result == NULL);
         data->meta->len += datactx->meta_len_delta;
-        /* all subkeys are swapped in, hash is a hot key now. */
-        if (!data->meta->len)
-            dbDeleteMeta(data->db,data->key);
     }
+
     return C_OK;
 }
 
@@ -390,9 +405,10 @@ int bigHashSwapOut(swapData *data_, void *datactx_) {
             }
         } else {
             /* swap out some. */
-            data->meta += datactx->meta_len_delta;
+            data->meta->len += datactx->meta_len_delta;
         }
     }
+
     return C_OK;
 }
 

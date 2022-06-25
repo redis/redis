@@ -13,7 +13,7 @@ start_server {tags {"swap string"}} {
 
     test {swap in string} {
         r del k
-        assert_equal {# Keyspace} [string trim [r info keyspace]]
+        assert [keyspace_is_empty r]
     }
 }
 
@@ -34,6 +34,6 @@ start_server {tags {"swap  small hash"}} {
 
     test {swap in hash} {
         r del h
-        assert_equal {# Keyspace} [string trim [r info keyspace]]
+        assert [keyspace_is_empty r]
     }
 } 

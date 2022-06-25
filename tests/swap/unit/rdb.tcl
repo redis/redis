@@ -35,7 +35,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             r hmset wholekey_hot a a b b 1 1 2 2 
             r hmset wholekey_cold a a b b 1 1 2 2 
             r evict wholekey_cold
-            wait_key_evicted r wholekey_cold
+            wait_key_cold r wholekey_cold
             assert_equal [object_meta_len r wholekey_hot] 0
             assert_equal [object_meta_len r wholekey_cold] 0
 
@@ -86,7 +86,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
 
             r hmset myhash a a b b 1 1 2 2 
             r evict myhash
-            wait_key_evicted r myhash
+            wait_key_cold r myhash
             assert_equal [object_is_big r myhash] 1
             r del myhash
             after 100
@@ -115,7 +115,7 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             # init small hash
             r hmset myhash a a b b 1 1 2 2 
             r evict myhash
-            wait_key_evicted r myhash
+            wait_key_cold r myhash
             assert_equal [object_is_big r myhash] 0
             # init big hash
             r config set swap-big-hash-threshold 1
