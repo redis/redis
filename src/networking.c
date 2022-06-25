@@ -136,7 +136,7 @@ sds addReplyMeta(client *c, dict *meta) {
     return result;
 }
 
-sds addReplyMetaPerFields(client *c) {
+sds getClientMetaFields(client *c) {
     int i;
     sds result = sdsempty();            
 
@@ -189,7 +189,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->meta = dictCreate(&hashDictType);
+    c->meta = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -3272,7 +3272,7 @@ NULL
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         } else {
-            meta =addReplyMetaPerFields(c);
+            meta = getClientMetaFields(c);
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         }
