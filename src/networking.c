@@ -117,7 +117,7 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-sds addReplyMeta(client *c, dict *meta) {
+sds getAllClientMetaFields(dict *meta) {
     dictIterator *di = dictGetIterator(meta);
     dictEntry *de;
     sds result = sdsempty();
@@ -138,7 +138,7 @@ sds addReplyMeta(client *c, dict *meta) {
 
 sds getClientMetaFields(client *c) {
     int i;
-    sds result = sdsempty();            
+    sds result = sdsempty();
 
     for (i = 2; i < c->argc; i++) {
         dictEntry *de;
@@ -189,7 +189,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->meta = NULL;
+    c->meta = dictCreate(&hashDictType);
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1667,7 +1667,9 @@ void freeClient(client *c) {
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
-    dictRelease(c->meta);
+    if(c->meta){
+        dictRelease(c->meta);
+    }
     listRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
 
@@ -2934,6 +2936,11 @@ int clientSetMetaOrReply(client *c)
 {
     int len = c->argc;
 
+    if (c->meta == NULL)
+    {
+        c->meta = dictCreate(&hashDictType);
+    }
+
     /* Setting the client meta do not have params actually removes
      * the current meta. */
     if (len == 2)
@@ -2943,7 +2950,7 @@ int clientSetMetaOrReply(client *c)
     
         return C_OK;
     }
-    
+
     int i;
     for (i = 0; i < (len - 2)/2; i++) {
         robj *o1 = c->argv[2+i*2];
@@ -3268,11 +3275,11 @@ NULL
         /* CLIENT GETMETA */
         sds meta = NULL;
         if (c->argc == 2) {
-            meta = addReplyMeta(c, c->meta);
+            meta = c->meta ? (char*)getAllClientMetaFields(c->meta) : "";
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         } else {
-            meta = getClientMetaFields(c);
+            meta = c->meta ? (char*)getClientMetaFields(c) : "";
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         }
