@@ -64,7 +64,7 @@
 #include "mt19937-64.h"
 
 #include "cli_commands.h"
-#include "cli_commands.c"
+#include "commands.c"
 
 #define UNUSED(V) ((void) V)
 
@@ -496,15 +496,15 @@ static sds sdscat_orempty(sds params, char *value) {
 
 static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs);
 
-static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap);
+static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap);
 
-static void cliMakeCommandDocArgs(redisReply *arguments, commandArg *result) {
+static void cliMakeCommandDocArgs(redisReply *arguments, cliCommandArg *result) {
     for (size_t j = 0; j < arguments->elements; j++) {
         cliAddCommandDocArg(&result[j], arguments->element[j]);
     }
 }
 
-static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap) {
+static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
     if (argMap->type != REDIS_REPLY_MAP && argMap->type != REDIS_REPLY_ARRAY) {
         return;
     }
@@ -542,7 +542,7 @@ static void cliAddCommandDocArg(commandArg *cmdArg, redisReply *argMap) {
             }
         } else if (!strcmp(key, "arguments")) {
             redisReply *arguments = argMap->element[i + 1];
-            cmdArg->subargs = zcalloc(arguments->elements * sizeof(commandArg));
+            cmdArg->subargs = zcalloc(arguments->elements * sizeof(cliCommandArg));
             cmdArg->numsubargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, cmdArg->subargs);
         } else if (!strcmp(key, "flags")) {
@@ -629,7 +629,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
         } else if (!strcmp(key, "arguments")) {
             redisReply *arguments = specs->element[j + 1];
             assert(arguments->type == REDIS_REPLY_ARRAY);
-            help->docs.args = zcalloc(arguments->elements * sizeof(commandArg));
+            help->docs.args = zcalloc(arguments->elements * sizeof(cliCommandArg));
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
@@ -747,7 +747,7 @@ static int versionIsSupported(sds version, sds since) {
     return 0;
 }
 
-static void removeUnsupportedArgs(struct commandArg *args, int *numargs, sds version) {
+static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds version) {
     int i = 0, j;
     while (i != *numargs) {
         if (versionIsSupported(version, args[i].since)) {
@@ -855,10 +855,10 @@ static void cliLegacyInitHelp(dict *groups) {
     sds serverVersion = cliGetServerVersion();
 
     /* Scan the commandDocs array and fill in the entries */
-    helpEntriesLen = cliLegacyCountCommands(cliCommandDocs, serverVersion);
+    helpEntriesLen = cliLegacyCountCommands(redisCommandTable, serverVersion);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
 
-    helpEntriesLen = cliLegacyInitCommandHelpEntries(cliCommandDocs, groups, serverVersion);
+    helpEntriesLen = cliLegacyInitCommandHelpEntries(redisCommandTable, groups, serverVersion);
     cliInitGroupHelpEntries(groups);
 
     qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
@@ -1019,7 +1019,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-static sds addHintForArgument(sds hint, commandArg *arg);
+static sds addHintForArgument(sds hint, cliCommandArg *arg);
 
 /* Adds a separator character between words of a string under construction.
  * A separator is added if the string length is greater than its previously-recorded
@@ -1034,7 +1034,7 @@ static sds addSeparator(sds str, size_t *len, char *separator, int is_last) {
 }
 
 /* Recursively zeros the matched* fields of all arguments. */
-static void clearMatchedArgs(commandArg *args, int numargs) {
+static void clearMatchedArgs(cliCommandArg *args, int numargs) {
     for (int i = 0; i != numargs; ++i) {
         args[i].matched = 0;
         args[i].matched_token = 0;
@@ -1049,7 +1049,7 @@ static void clearMatchedArgs(commandArg *args, int numargs) {
 /* Builds a completion hint string describing the arguments, skipping parts already matched.
  * Hints for all arguments are added to the input 'hint' parameter, separated by 'separator'.
  */
-static sds addHintForArguments(sds hint, commandArg *args, int numargs, char *separator) {
+static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char *separator) {
     int i, j, incomplete;
     size_t len=sdslen(hint);
     for (i = 0; i < numargs; i++) {
@@ -1096,7 +1096,7 @@ static sds addHintForArguments(sds hint, commandArg *args, int numargs, char *se
 /* Adds the "repeating" section of the hint string for a multiple-typed argument: [ABC def ...]
  * The repeating part is a fixed unit; we don't filter matched elements from it.
  */
-static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
+static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
     if (!arg->multiple) {
         return hint;
     }
@@ -1140,7 +1140,7 @@ static sds addHintForRepeatedArgument(sds hint, commandArg *arg) {
 }
 
 /* Adds hint string for one argument, if not already matched. */
-static sds addHintForArgument(sds hint, commandArg *arg) {
+static sds addHintForArgument(sds hint, cliCommandArg *arg) {
     if (arg->matched_all) {
         return hint;
     }
@@ -1196,11 +1196,11 @@ static sds addHintForArgument(sds hint, commandArg *arg) {
     return hint;
 }
 
-static int matchArg(char **nextword, int numwords, commandArg *arg);
-static int matchArgs(char **words, int numwords, commandArg *args, int numargs);
+static int matchArg(char **nextword, int numwords, cliCommandArg *arg);
+static int matchArgs(char **words, int numwords, cliCommandArg *args, int numargs);
 
 /* Tries to match the next words of the input against an argument. */
-static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
+static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
     int i;
     switch (arg->type) {
     case ARG_TYPE_BLOCK: {
@@ -1265,7 +1265,7 @@ static int matchNoTokenArg(char **nextword, int numwords, commandArg *arg) {
 }
 
 /* Tries to match the next word of the input against a token literal. */
-static int matchToken(char **nextword, commandArg *arg) {
+static int matchToken(char **nextword, cliCommandArg *arg) {
     if (strcasecmp(arg->token, nextword[0]) != 0) {
         return 0;
     }
@@ -1278,7 +1278,7 @@ static int matchToken(char **nextword, commandArg *arg) {
  * If the arg is repeated ("multiple"), it will be matched only once.
  * If the next input word(s) can't be matched, returns 0 for failure.
  */
-static int matchArgOnce(char **nextword, int numwords, commandArg *arg) {
+static int matchArgOnce(char **nextword, int numwords, cliCommandArg *arg) {
     /* First match the token, if present. */
     if (arg->token != NULL) {
         if (!matchToken(nextword, arg)) {
@@ -1305,7 +1305,7 @@ static int matchArgOnce(char **nextword, int numwords, commandArg *arg) {
 /* Tries to match the next words of the input against the next argument.
  * If the arg is repeated ("multiple"), it will be matched as many times as possible.
  */
-static int matchArg(char **nextword, int numwords, commandArg *arg) {
+static int matchArg(char **nextword, int numwords, cliCommandArg *arg) {
     int matchedWords = 0;
     int matchedOnce = matchArgOnce(nextword, numwords, arg);
     if (!arg->multiple) {
@@ -1336,7 +1336,7 @@ static int matchArg(char **nextword, int numwords, commandArg *arg) {
 /* Tries to match the next words of the input against
  * any one of a consecutive set of optional arguments.
  */
-static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int numargs, int *matchedarg) {
+static int matchOneOptionalArg(char **words, int numwords, cliCommandArg *args, int numargs, int *matchedarg) {
     for (int nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
         if (args[nextarg].matched) {
             /* Already matched this arg. */
@@ -1353,7 +1353,7 @@ static int matchOneOptionalArg(char **words, int numwords, commandArg *args, int
 }
 
 /* Matches as many input words as possible against a set of consecutive optional arguments. */
-static int matchOptionalArgs(char **words, int numwords, commandArg *args, int numargs) {
+static int matchOptionalArgs(char **words, int numwords, cliCommandArg *args, int numargs) {
     int nextword = 0;
     int matchedarg = -1, lastmatchedarg = -1;
     while (nextword != numwords) {
@@ -1374,7 +1374,7 @@ static int matchOptionalArgs(char **words, int numwords, commandArg *args, int n
 }
 
 /* Matches as many input words as possible against command arguments. */
-static int matchArgs(char **words, int numwords, commandArg *args, int numargs) {
+static int matchArgs(char **words, int numwords, cliCommandArg *args, int numargs) {
     int nextword, nextarg, matchedWords;
     for (nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
         /* Optional args can occur in any order. Collect a range of consecutive optional args

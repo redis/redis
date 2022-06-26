@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#define REDIS_CLI_COMMANDS
+
 typedef enum {
     ARG_TYPE_STRING,
     ARG_TYPE_INTEGER,
@@ -15,7 +17,7 @@ typedef enum {
     ARG_TYPE_BLOCK /* Has subargs */
 } commandArgType;
 
-typedef struct commandArg {
+typedef struct cliCommandArg {
     char *name;
     commandArgType type;
     char *token;
@@ -23,26 +25,33 @@ typedef struct commandArg {
     int optional;
     int multiple;
     int multiple_token;
-    struct commandArg *subargs;
     int numsubargs;
+    struct cliCommandArg *subargs;
 
     /* Fields used to keep track of input word matches for command-line hinting. */
     int matched;  /* How many input words have been matched by this argument? */
     int matched_token;  /* Has the token been matched? */
     int matched_name;  /* Has the name been matched? */
     int matched_all;  /* Has the whole argument been consumed (no hint needed)? */
-} commandArg;
+} cliCommandArg;
 
 /* Command documentation info used for help output */
 struct commandDocs {
     char *name;
-    char *params; /* A string describing the syntax of the command arguments. */
     char *summary;
     char *group;
     char *since;
-    commandArg *args; /* An array of the command arguments. Used since Redis 7.0. */
     int numargs;
+    cliCommandArg *args; /* An array of the command arguments. */
     struct commandDocs *subcommands;
+    char *params; /* A string describing the syntax of the command arguments. */
 };
+
+/* Definitions to configure commands.c to generate the above structs. */
+
+#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,group,since,numargs
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,optional,multiple,multiple_token,numsubargs) name,type,token,since,optional,multiple,multiple_token,numsubargs
+#define redisCommandArg cliCommandArg
+#define COMMAND_STRUCT commandDocs
 
 #endif
