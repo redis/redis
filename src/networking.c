@@ -3997,10 +3997,15 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
+#define CACHE_LINE_SIZE 64
+
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) threads_pending {
+    redisAtomic unsigned long value;
+} threads_pending;
 
 pthread_t io_threads[IO_THREADS_MAX_NUM];
 pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
-redisAtomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
+threads_pending io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_op;      /* IO_THREADS_OP_IDLE, IO_THREADS_OP_READ or IO_THREADS_OP_WRITE. */ // TODO: should access to this be atomic??!
 
 /* This is the list of clients each thread will serve when threaded I/O is
@@ -4010,12 +4015,12 @@ list *io_threads_list[IO_THREADS_MAX_NUM];
 
 static inline unsigned long getIOPendingCount(int i) {
     unsigned long count = 0;
-    atomicGetWithSync(io_threads_pending[i], count);
+    atomicGetWithSync(io_threads_pending[i].value, count);
     return count;
 }
 
 static inline void setIOPendingCount(int i, unsigned long count) {
-    atomicSetWithSync(io_threads_pending[i], count);
+    atomicSetWithSync(io_threads_pending[i].value, count);
 }
 
 void *IOThreadMain(void *myid) {
