@@ -3373,6 +3373,40 @@ int RM_GetClientInfoById(void *ci, uint64_t id) {
     return modulePopulateClientInfoStructure(ci,client,structver);
 }
 
+/* Returns the name of the client connection with the given ID.
+ *
+ * If the client ID does not exist or if the client has no name associated with
+ * it, NULL is returned. */
+RedisModuleString *RM_GetClientNameById(RedisModuleCtx *ctx, uint64_t id) {
+    client *client = lookupClientByID(id);
+    if (client == NULL || client->name == NULL) return NULL;
+    robj *name = client->name;
+    incrRefCount(name);
+    autoMemoryAdd(ctx, REDISMODULE_AM_STRING, name);
+    return name;
+}
+
+/* Sets the name of the client with the given ID. This is equivalent to the client calling
+ * `CLIENT SETNAME name`.
+ *
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and errno is set as follows:
+ *
+ * - ENOENT if the client does not exist
+ * - EINVAL if the name contains invalid characters */
+int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
+    client *client = lookupClientByID(id);
+    if (client == NULL) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+    if (clientSetName(client, name) == C_ERR) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
 /* Publish a message to subscribers (see PUBLISH command). */
 int RM_PublishMessage(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) {
     UNUSED(ctx);
@@ -12601,6 +12635,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ServerInfoGetFieldUnsigned);
     REGISTER_API(ServerInfoGetFieldDouble);
     REGISTER_API(GetClientInfoById);
+    REGISTER_API(GetClientNameById);
+    REGISTER_API(SetClientNameById);
     REGISTER_API(PublishMessage);
     REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToServerEvent);

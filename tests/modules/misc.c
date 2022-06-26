@@ -270,6 +270,27 @@ int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int test_getname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    (void)argv;
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    unsigned long long id = RedisModule_GetClientId(ctx);
+    RedisModuleString *name = RedisModule_GetClientNameById(ctx, id);
+    if (name == NULL)
+        return RedisModule_ReplyWithError(ctx, "-ERR No name");
+    RedisModule_ReplyWithString(ctx, name);
+    RedisModule_FreeString(ctx, name);
+    return REDISMODULE_OK;
+}
+
+int test_setname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    unsigned long long id = RedisModule_GetClientId(ctx);
+    if (RedisModule_SetClientNameById(id, argv[1]) == REDISMODULE_OK)
+        return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    else
+        return RedisModule_ReplyWithError(ctx, strerror(errno));
+}
+
 int test_log_tsctx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisModuleCtx *tsctx = RedisModule_GetDetachedThreadSafeContext(ctx);
@@ -383,6 +404,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.getlfu", test_getlfu,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getname", test_getname,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.setname", test_setname,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.redisversion", test_redisversion,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

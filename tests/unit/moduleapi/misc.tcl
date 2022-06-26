@@ -103,6 +103,18 @@ start_server {tags {"modules"}} {
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
     }
 
+    test {test module get/set client name by id api} {
+        catch { r test.getname } e
+        assert_equal "-ERR No name" $e
+        r client setname nobody
+        catch { r test.setname "name with spaces" } e
+        assert_match "*Invalid argument*" $e
+        assert_equal nobody [r client getname]
+        assert_equal nobody [r test.getname]
+        r test.setname somebody
+        assert_equal somebody [r client getname]
+    }
+
     test {test module getclientcert api} {
         set cert [r test.getclientcert]
 
