@@ -324,6 +324,7 @@ REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redi
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
 ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
+redis-cli.o: cli_commands.c
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -407,6 +408,13 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 ifneq (,$(PYTHON))
 commands.c: commands/*.json ../utils/generate-command-code.py
 	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py
+endif
+
+# The file cli_commands.c is checked in and doesn't normally need to be rebuilt. It
+# is built only if python is available and its prereqs are modified.
+ifneq (,$(PYTHON))
+cli_commands.c: commands/*.json ../utils/generate-cli-commands.py
+	$(QUIET_GEN)$(PYTHON) ../utils/generate-cli-commands.py
 endif
 
 clean:

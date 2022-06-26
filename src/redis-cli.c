@@ -58,11 +58,13 @@
 #include "adlist.h"
 #include "zmalloc.h"
 #include "linenoise.h"
-#include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
+
+#include "cli_commands.h"
+#include "cli_commands.c"
 
 #define UNUSED(V) ((void) V)
 
@@ -176,46 +178,6 @@ static int dictSdsKeyCompare(dict *d, const void *key1,
     const void *key2);
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
-
-typedef enum {
-    ARG_TYPE_STRING,
-    ARG_TYPE_INTEGER,
-    ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY, /* A string, but represents a keyname */
-    ARG_TYPE_PATTERN,
-    ARG_TYPE_UNIX_TIME,
-    ARG_TYPE_PURE_TOKEN,
-    ARG_TYPE_ONEOF, /* Has subargs */
-    ARG_TYPE_BLOCK /* Has subargs */
-} commandArgType;
-
-typedef struct commandArg {
-    char *name;
-    commandArgType type;
-    char *token;
-    int optional;
-    int multiple;
-    int multiple_token;
-    struct commandArg *subargs;
-    int numsubargs;
-
-    /* Fields used to keep track of input word matches for command-line hinting. */
-    int matched;  /* How many input words have been matched by this argument? */
-    int matched_token;  /* Has the token been matched? */
-    int matched_name;  /* Has the name been matched? */
-    int matched_all;  /* Has the whole argument been consumed (no hint needed)? */
-} commandArg;
-
-/* Command documentation info used for help output */
-struct commandDocs {
-    char *name;
-    char *params; /* A string describing the syntax of the command arguments. */
-    char *summary;
-    char *group;
-    char *since;
-    commandArg *args; /* An array of the command arguments. Used since Redis 7.0. */
-    int numargs;
-};
 
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
@@ -463,54 +425,13 @@ static sds cliVersion(void) {
     return version;
 }
 
-/* For backwards compatibility with pre-7.0 servers. Initializes command help. */
-static void cliOldInitHelp(void) {
-    int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
-    int groupslen = sizeof(commandGroups)/sizeof(char*);
-    int i, len, pos = 0;
-    helpEntry tmp;
-
-    helpEntriesLen = len = commandslen+groupslen;
-    helpEntries = zmalloc(sizeof(helpEntry)*len);
-
-    for (i = 0; i < groupslen; i++) {
-        tmp.argc = 1;
-        tmp.argv = zmalloc(sizeof(sds));
-        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
-        tmp.full = tmp.argv[0];
-        tmp.type = CLI_HELP_GROUP;
-        tmp.docs.name = NULL;
-        tmp.docs.params = NULL;
-        tmp.docs.args = NULL;
-        tmp.docs.numargs = 0;
-        tmp.docs.summary = NULL;
-        tmp.docs.since = NULL;
-        tmp.docs.group = NULL;
-        helpEntries[pos++] = tmp;
-    }
-
-    for (i = 0; i < commandslen; i++) {
-        tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
-        tmp.full = sdsnew(commandHelp[i].name);
-        tmp.type = CLI_HELP_COMMAND;
-        tmp.docs.name = commandHelp[i].name;
-        tmp.docs.params = commandHelp[i].params;
-        tmp.docs.args = NULL;
-        tmp.docs.numargs = 0;
-        tmp.docs.summary = commandHelp[i].summary;
-        tmp.docs.since = commandHelp[i].since;
-        tmp.docs.group = commandGroups[commandHelp[i].group];
-        helpEntries[pos++] = tmp;
-    }
-}
-
 /* For backwards compatibility with pre-7.0 servers.
- * cliOldInitHelp() setups the helpEntries array with the command and group
- * names from the help.h file. However the Redis instance we are connecting
+ * cliLegacyInitHelp() sets up the helpEntries array with the command and group
+ * names from the commands.c file. However the Redis instance we are connecting
  * to may support more commands, so this function integrates the previous
  * entries with additional entries obtained using the COMMAND command
  * available in recent versions of Redis. */
-static void cliOldIntegrateHelp(void) {
+static void cliLegacyIntegrateHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
@@ -560,7 +481,7 @@ static void cliOldIntegrateHelp(void) {
             new->docs.params = sdscat(new->docs.params,"...options...");
         new->docs.summary = "Help not available";
         new->docs.since = "Not known";
-        new->docs.group = commandGroups[0];
+        new->docs.group = "generic";
     }
     freeReplyObject(reply);
 }
@@ -649,8 +570,13 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->argv[0] = sdsnew(cmdname);
     sdstoupper(help->argv[0]);
     if (subcommandname) {
-        /* Subcommand name is two words separated by a pipe character. */
-        help->argv[1] = sdsnew(strchr(subcommandname, '|') + 1);
+        /* Subcommand name may be two words separated by a pipe character. */
+        char *pipe = strchr(subcommandname, '|');
+        if (pipe != NULL) {
+            help->argv[1] = sdsnew(pipe + 1);
+        } else {
+            help->argv[1] = sdsnew(subcommandname);
+        }
         sdstoupper(help->argv[1]);
     }
     sds fullname = sdsnew(help->argv[0]);
@@ -798,6 +724,147 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     }
 }
 
+/* Does the server version support a command/argument only available "since" some version? */
+static int versionIsSupported(sds version, sds since) {
+    int i;
+    char *versionPos = version;
+    char *sincePos = since;
+    if (!since) {
+        return 1;
+    }
+
+    for (i = 0; i != 3; i++) {
+        int versionPart = atoi(versionPos);
+        int sincePart = atoi(sincePos);
+        if (versionPart > sincePart) {
+            return 1;
+        } else if (sincePart > versionPart) {
+            return 0;
+        }
+        versionPos = strchr(versionPos, '.') + 1;
+        sincePos = strchr(sincePos, '.') + 1;
+    }
+    return 0;
+}
+
+static void removeUnsupportedArgs(struct commandArg *args, int *numargs, sds version) {
+    int i = 0, j;
+    while (i != *numargs) {
+        if (versionIsSupported(version, args[i].since)) {
+            i++;
+
+            if (args[i].subargs) {
+                removeUnsupportedArgs(args[i].subargs, &args[i].numsubargs, version);
+            }
+            continue;
+        }
+        for (j = i; j != *numargs; j++) {
+            args[j] = args[j + 1];
+        }
+        (*numargs)--;
+    }
+}
+
+static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandname,
+                                                helpEntry *next, struct commandDocs *command,
+                                                dict *groups, sds version) {
+    helpEntry *help = next++;
+    cliFillInCommandHelpEntry(help, cmdname, subcommandname);
+    
+    help->docs.summary = sdsnew(command->summary);
+    help->docs.since = sdsnew(command->since);
+    help->docs.group = sdsnew(command->group);
+    sds group = sdsdup(help->docs.group);
+    if (dictAdd(groups, group, NULL) != DICT_OK) {
+        sdsfree(group);
+    }
+
+    if (command->args != NULL) {
+        help->docs.args = command->args;
+        help->docs.numargs = command->numargs;
+        removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
+        help->docs.params = makeHint(NULL, 0, 0, help->docs);
+    }
+
+    if (command->subcommands != NULL) {
+        for (size_t i = 0; command->subcommands[i].name != NULL; i++) {
+            if (versionIsSupported(version, command->subcommands[i].since)) {
+                char *subcommandname = command->subcommands[i].name;
+                next = cliLegacyInitCommandHelpEntry(
+                    cmdname, subcommandname, next, &command->subcommands[i], groups, version);
+            }
+        }
+    }
+    return next;
+}
+
+int cliLegacyInitCommandHelpEntries(struct commandDocs *commands, dict *groups, sds version) {
+    helpEntry *next = helpEntries;
+    for (size_t i = 0; commands[i].name != NULL; i++) {
+        if (versionIsSupported(version, commands[i].since)) {
+            next = cliLegacyInitCommandHelpEntry(commands[i].name, NULL, next, &commands[i], groups, version);
+        }
+    }
+    return next - helpEntries;
+}
+
+/* Returns the total number of commands and subcommands in the command docs table,
+ * without filtering by server version.
+ */
+static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) {
+    int numCommands = 0;
+    for (size_t i = 0; commands[i].name != NULL; i++) {
+        if (!versionIsSupported(version, commands[i].since)) {
+            continue;
+        }
+        numCommands++;
+        if (commands[i].subcommands != NULL) {
+            numCommands += cliLegacyCountCommands(commands[i].subcommands, version);
+        }
+    }
+    return numCommands;
+}
+
+static sds cliGetServerVersion() {
+    const char *key = "\nredis_version:";
+    redisReply *serverInfo = redisCommand(context, "INFO SERVER");
+    char *pos;
+    if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
+        freeReplyObject(serverInfo);
+        return sdsempty();
+    }
+
+    assert(serverInfo->type == REDIS_REPLY_STRING);
+    sds info = serverInfo->str;
+
+    pos = strstr(info, key);
+    if (pos) {
+        pos += strlen(key);
+        char *end = strchr(pos, '\r');
+        if (end) {
+            sds version = sdsnewlen(pos, end - pos);
+            freeReplyObject(serverInfo);
+            return version;
+        }
+    }
+    freeReplyObject(serverInfo);
+    return sdsempty();
+}
+
+static void cliLegacyInitHelp(dict *groups) {
+    sds serverVersion = cliGetServerVersion();
+
+    /* Scan the commandDocs array and fill in the entries */
+    helpEntriesLen = cliLegacyCountCommands(cliCommandDocs, serverVersion);
+    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
+
+    helpEntriesLen = cliLegacyInitCommandHelpEntries(cliCommandDocs, groups, serverVersion);
+    cliInitGroupHelpEntries(groups);
+
+    qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
+    dictRelease(groups);
+}
+
 /* cliInitHelp() sets up the helpEntries array with the command and group
  * names and command descriptions obtained using the COMMAND DOCS command.
  */
@@ -817,16 +884,20 @@ static void cliInitHelp(void) {
 
     if (cliConnect(CC_QUIET) == REDIS_ERR) {
         /* Can not connect to the server, but we still want to provide
-         * help, generate it only from the old help.h data instead. */
-        cliOldInitHelp();
+         * help, generate it only from the static cli_commands.c data instead. */
+        groups = dictCreate(&groupsdt);
+        cliLegacyInitHelp(groups);
         return;
     }
     commandTable = redisCommand(context, "COMMAND DOCS");
     if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
-        /* New COMMAND DOCS subcommand not supported - generate help from old help.h data instead. */
+        /* New COMMAND DOCS subcommand not supported - generate help from
+         * static cli_commands.c data instead. */
         freeReplyObject(commandTable);
-        cliOldInitHelp();
-        cliOldIntegrateHelp();
+
+        groups = dictCreate(&groupsdt);
+        cliLegacyInitHelp(groups);
+        cliLegacyIntegrateHelp();
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
@@ -1332,7 +1403,7 @@ static int matchArgs(char **words, int numwords, commandArg *args, int numargs) 
 /* Compute the linenoise hint for the input prefix in inputargv/inputargc.
  * cmdlen is the number of words from the start of the input that make up the command.
  * If docs.args exists, dynamically creates a hint string by matching the arg specs
- * against the input words. Otherwise (pre-7.0), does something very primitive.
+ * against the input words.
  */
 static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs) {
     sds hint;
@@ -1349,15 +1420,11 @@ static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandD
         return hint;
     }
 
-    /* Primitive command-line hinting support for pre-7.0 servers
-     * that don't support COMMAND DOCS.
-     */
-    hint = sdsnew(docs.params);
-    int toremove = inputargc-cmdlen;
-    while(toremove > 0 && sdslen(hint)) {
-        if (hint[0] == '[') break;
-        if (hint[0] == ' ') toremove--;
-        sdsrange(hint,1,-1);
+    /* If arg specs are not available, show the hint string until the user types something. */
+    if (inputargc <= cmdlen) {
+        hint = sdsnew(docs.params);
+    } else {
+        hint = sdsempty();
     }
     return hint;
 }
