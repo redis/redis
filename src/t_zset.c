@@ -2952,8 +2952,10 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    UNUSED(length);
-    handler->dstobj = createZsetListpackObject();
+    if (length > (long)server.zset_max_listpack_entries)
+        handler->dstobj = createZsetObject();
+    else
+        handler->dstobj = createZsetListpackObject();
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,

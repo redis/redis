@@ -363,6 +363,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     if (!(run_ctx->c->cmd->flags & CMD_WRITE))
         return C_OK;
 
+    /* If the script already made a modification to the dataset, we can't
+     * fail it on unpredictable error state. */
+    if ((run_ctx->flags & SCRIPT_WRITE_DIRTY))
+        return C_OK;
+
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
      * of this script. */

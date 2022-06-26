@@ -2208,12 +2208,24 @@ start_server {tags {"zset"}} {
         assert_match "*syntax*" $err
     }
 
-    test {ZRANGESTORE with zset-max-listpack-entries 0 dst key should use skiplist encoding} {
+    test {ZRANGESTORE with zset-max-listpack-entries 0 #10767 case} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
         r del z1{t} z2{t}
         r zadd z1{t} 1 a
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE with zset-max-listpack-entries 1 dst key should use skiplist encoding} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 1
+        r del z1{t} z2{t} z3{t}
+        r zadd z1{t} 1 a 2 b
+        assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
+        assert_encoding listpack z2{t}
+        assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
+        assert_encoding skiplist z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 

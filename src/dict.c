@@ -282,7 +282,7 @@ int dictRehashMilliseconds(dict *d, int ms) {
 /* This function performs just a step of rehashing, and only if hashing has
  * not been paused for our hash table. When we have iterators in the
  * middle of a rehashing we can't mess with the two hash tables otherwise
- * some element can be missed or duplicated.
+ * some elements can be missed or duplicated.
  *
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
