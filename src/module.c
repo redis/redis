@@ -1144,6 +1144,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->module_cmd = cp;
     cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
+    cp->rediscmd->key_specs_static = zcalloc(sizeof(keySpec) * STATIC_KEY_SPECS_NUM);
     cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
         cp->rediscmd->key_specs_num = 1;
@@ -11048,6 +11049,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         if (cmd->key_specs[j].begin_search_type == KSPEC_BS_KEYWORD)
             zfree((char *)cmd->key_specs[j].bs.keyword.keyword);
     }
+    zfree(cmd->key_specs_static);
     if (cmd->key_specs != cmd->key_specs_static)
         zfree(cmd->key_specs);
     for (int j = 0; cmd->tips && cmd->tips[j]; j++)
