@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -375,6 +376,68 @@ int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     return REDISMODULE_OK;
 }
 
+int test_ull_conv(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    unsigned long long ull = 18446744073709551615ULL;
+    const char *ullstr = "18446744073709551615";
+
+    RedisModuleString *s1 = RedisModule_CreateStringFromULongLong(ctx, ull);
+    RedisModuleString *s2 =
+        RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    if (RedisModule_StringCompare(s1, s2) != 0) {
+        char err[4096];
+        snprintf(err, 4096,
+            "Failed to convert unsigned long long to string ('%s' != '%s')",
+            RedisModule_StringPtrLen(s1, NULL),
+            RedisModule_StringPtrLen(s2, NULL));
+        RedisModule_ReplyWithError(ctx, err);
+        goto final;
+    }
+    unsigned long long ull2 = 0;
+    if (RedisModule_StringToULongLong(s2, &ull2) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx,
+            "Failed to convert string to unsigned long long");
+        goto final;
+    }
+    if (ull2 != ull) {
+        char err[4096];
+        snprintf(err, 4096,
+            "Failed to convert string to unsigned long long (%llu != %llu)",
+            ull2,
+            ull);
+        RedisModule_ReplyWithError(ctx, err);
+        goto final;
+    }
+    
+    /* Make sure we can't convert a string more than ULLONG_MAX or less than 0 */
+    ullstr = "18446744073709551616";
+    RedisModuleString *s3 = RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    unsigned long long ull3;
+    if (RedisModule_StringToULongLong(s3, &ull3) == REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid string successfully converted to unsigned long long");
+        RedisModule_FreeString(ctx, s3);
+        goto final;
+    }
+    RedisModule_FreeString(ctx, s3);
+    ullstr = "-1";
+    RedisModuleString *s4 = RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    unsigned long long ull4;
+    if (RedisModule_StringToULongLong(s4, &ull4) == REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid string successfully converted to unsigned long long");
+        RedisModule_FreeString(ctx, s4);
+        goto final;
+    }
+    RedisModule_FreeString(ctx, s4);
+   
+    RedisModule_ReplyWithSimpleString(ctx, "ok");
+
+final:
+    RedisModule_FreeString(ctx, s1);
+    RedisModule_FreeString(ctx, s2);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -386,6 +449,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.call_info", test_call_info,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.ld_conversion", test_ld_conv, "",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.ull_conversion", test_ull_conv, "",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.flushall", test_flushall,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
