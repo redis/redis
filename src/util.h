@@ -85,6 +85,7 @@ int dirExists(char *dname);
 int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
+int fsyncFileDir(const char *filename);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);

@@ -29,6 +29,11 @@ start_server {tags {"modules"}} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
     }
+    
+    test {test unsigned long long conversions} {
+        set ret [r test.ull_conversion]
+        assert {[string match $ret "ok"]}
+    }
 
     test {test module db commands} {
         r set x foo
@@ -101,6 +106,18 @@ start_server {tags {"modules"}} {
         r client tracking on
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+    }
+
+    test {test module get/set client name by id api} {
+        catch { r test.getname } e
+        assert_equal "-ERR No name" $e
+        r client setname nobody
+        catch { r test.setname "name with spaces" } e
+        assert_match "*Invalid argument*" $e
+        assert_equal nobody [r client getname]
+        assert_equal nobody [r test.getname]
+        r test.setname somebody
+        assert_equal somebody [r client getname]
     }
 
     test {test module getclientcert api} {
