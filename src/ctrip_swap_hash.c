@@ -49,10 +49,16 @@ static void createFakeHashForDeleteIfNeeded(bigHashSwapData *data) {
     if (data->evict) {
         redisDb *db = data->db;
         robj *key = data->key;
+        objectMeta *meta_dup = NULL;
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-        if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
+        if (dictSize(db->meta) > 0) {
+            meta_dup = dupObjectMeta(data->meta);
+            dictDelete(db->meta,key->ptr);
+        }
         dictDelete(db->evict,key->ptr);
         dbAdd(db,key,createHashObject());
+        dbAddMeta(db,key,meta_dup);
+        data->meta = meta_dup;
     }
 }
 
@@ -72,19 +78,23 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
         *intention_flags = 0;
         break;
     case SWAP_IN:
-        if (data->meta == NULL || data->meta->len == 0) {
-            /* No need to swap in for hot key */
+        if (data->meta == NULL) {
+            /* No need to swap in for pure hot key */
             *intention = SWAP_NOP;
             *intention_flags = 0;
         } else if (req->num_subkeys == 0) {
             if (cmd_intention_flags == INTENTION_IN_DEL) {
                 /* DEL/GETDEL: Lazy delete current key. */
                 createFakeHashForDeleteIfNeeded(data);
-                *intention = SWAP_NOP;
-                *intention_flags = 0;
+                *intention = SWAP_DEL;
+                *intention_flags = INTENTION_DEL_ASYNC;
             } else if (cmd_intention_flags == INTENTION_IN_META) {
                 /* HLEN: no need to swap in anything, hlen command will
                  * be modified like dbsize. */
+                *intention = SWAP_NOP;
+                *intention_flags = 0;
+            } else if (data->meta->len == 0) {
+                /* no need to swap in, all subkeys are in memory. */
                 *intention = SWAP_NOP;
                 *intention_flags = 0;
             } else {
@@ -98,12 +108,16 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
             datactx->subkeys = zmalloc(req->num_subkeys * sizeof(robj*));
             for (int i = 0; i < req->num_subkeys; i++) {
                 robj *subkey = req->subkeys[i];
-                if (data->value == NULL ||
+                /* HDEL: even if field is hot (exists in value), we still
+                 * need to do ROCKS_DEL on those fields. */
+                if (cmd_intention_flags == INTENTION_IN_DEL ||
+                        data->value == NULL ||
                         !hashTypeExists(data->value,subkey->ptr)) {
                     incrRefCount(subkey);
                     datactx->subkeys[datactx->num++] = subkey;
                 }
             }
+
             *intention = datactx->num > 0 ? SWAP_IN : SWAP_NOP;
         }
         break;
@@ -161,12 +175,7 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
         }
         break;
     case SWAP_DEL:
-        /* lazy expire TODO: confirm why we need to delete now */
-        if (cmd_intention_flags != INTENTION_DEL_ASYNC) {
-            swapDataSwapDel(data_,datactx);
-        }
-        *intention = SWAP_NOP;
-        *intention_flags = 0;
+        *intention = SWAP_DEL;
         break;
     default:
         break;
@@ -177,6 +186,16 @@ int bigHashSwapAna(swapData *data_, int cmd_intention,
 
 static sds bigHashEncodeSubkey(uint64_t version, sds key, sds subkey) {
     return rocksEncodeSubkey(rocksGetEncType(OBJ_HASH,1),version,key,subkey);
+}
+
+static sds bigHashEncodeDeleteRangeStart(bigHashSwapData *data) {
+    return rocksEncodeSubkey(rocksGetEncType(OBJ_HASH,1),
+            data->meta->version,data->key->ptr,NULL);
+}
+
+static sds bigHashEncodeDeleteRangeEnd(bigHashSwapData *data) {
+    return rocksEncodeSubkey(rocksGetEncType(OBJ_HASH,1),
+            data->meta->version+1,data->key->ptr,NULL);
 }
 
 int bigHashEncodeKeys(swapData *data_, int intention, void *datactx_,
@@ -207,10 +226,23 @@ int bigHashEncodeKeys(swapData *data_, int intention, void *datactx_,
         }
         return C_OK;
     case SWAP_DEL:
+        if (data->meta) {
+            rawkeys = zmalloc(sizeof(sds)*2);
+            rawkeys[0] = bigHashEncodeDeleteRangeStart(data);
+            rawkeys[1] = bigHashEncodeDeleteRangeEnd(data);
+            *numkeys = 2;
+            *prawkeys = rawkeys;
+            *action = ROCKS_DELETERANGE;
+        } else {
+            *action = 0;
+            *numkeys = 0;
+            *prawkeys = NULL;
+        }
+        return C_OK;
     case SWAP_OUT:
     default:
         /* Should not happen .*/
-        *action = SWAP_NOP;
+        *action = 0;
         *numkeys = 0;
         *prawkeys = NULL;
         return C_OK;
@@ -412,12 +444,17 @@ int bigHashSwapOut(swapData *data_, void *datactx_) {
     return C_OK;
 }
 
-int bigHashSwapDel(swapData *data_, void *datactx) {
+int bigHashSwapDel(swapData *data_, void *datactx, int async) {
     bigHashSwapData *data = (bigHashSwapData*)data_;
     UNUSED(datactx);
-    if (data->value) dbDelete(data->db,data->key);
-    if (data->evict) dbDeleteEvict(data->db,data->key);
-    return C_OK;
+    if (async) {
+        if (data->meta) dbDeleteMeta(data->db,data->key);
+        return C_OK;
+    } else {
+        if (data->value) dbDelete(data->db,data->key);
+        if (data->evict) dbDeleteEvict(data->db,data->key);
+        return C_OK;
+    }
 }
 
 /* decoded moved back by exec to bighash*/
@@ -853,7 +890,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         data->meta = m;
         bigHashCreateOrMergeObject((swapData*)data,hash1,hash1_ctx);
         bigHashSwapIn((swapData*)data,NULL,hash1_ctx);
-        test_assert((m = lookupMeta(db,key1)) == NULL);
+        test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((e = lookupEvictKey(db,key1)) == NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(h->big && hashTypeLength(h) == 4);
@@ -882,7 +919,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         data->evict = e;
         hash1_ctx->meta_len_delta = -4;
         bigHashSwapIn((swapData*)data,hash1,hash1_ctx);
-        test_assert((m = lookupMeta(db,key1)) == NULL);
+        test_assert((m = lookupMeta(db,key1)) != NULL);
         test_assert((e = lookupEvictKey(db,key1)) == NULL);
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(h->big && hashTypeLength(h) == 4);

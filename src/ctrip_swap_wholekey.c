@@ -232,9 +232,10 @@ int wholeKeySwapOut(swapData *data_, void *datactx) {
     return 0;
 }
 
-int wholeKeySwapDel(swapData *data_, void *datactx) {
+int wholeKeySwapDel(swapData *data_, void *datactx, int async) {
     wholeKeySwapData *data = (wholeKeySwapData*)data_;
     UNUSED(datactx);
+    if (async) return 0;
     if (dictSize(data->db->expires) > 0)
         dictDelete(data->db->expires,data->key->ptr);
     if (data->value) dbDelete(data->db,data->key);
@@ -666,7 +667,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->evict, key->ptr) == NULL);   
 
         swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
-        test_assert(wholeKeySwapDel(data, NULL) == 0);
+        test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
@@ -689,7 +690,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(getExpire(db, key) > 0); 
 
         swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
-        test_assert(wholeKeySwapDel(data, NULL) == 0);
+        test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
@@ -709,7 +710,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(dictFind(db->evict, key->ptr) != NULL);   
 
         swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
-        test_assert(wholeKeySwapDel(data, NULL) == 0);
+        test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);
@@ -732,7 +733,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         test_assert(getExpire(db, key) > 0); 
 
         swapData* data = createWholeKeySwapData(db, key, value, evict, NULL);
-        test_assert(wholeKeySwapDel(data, NULL) == 0);
+        test_assert(wholeKeySwapDel(data, NULL, 0) == 0);
         test_assert(dictFind(db->dict, key->ptr) == NULL);    
         test_assert(dictFind(db->evict, key->ptr) == NULL);    
         test_assert(getExpire(db, key) < 0);

@@ -44,6 +44,7 @@ int rocksInit() {
     rocks *rocks = zmalloc(sizeof(struct rocks));
     char *err = NULL, dir[ROCKS_DIR_MAX_LEN];
     rocksdb_cache_t *block_cache;
+    const char *default_cf_name = "default";
 
     rocks->snapshot = NULL;
     rocks->checkpoint = NULL;
@@ -95,7 +96,11 @@ int rocksInit() {
     }
 
     snprintf(dir, ROCKS_DIR_MAX_LEN, "%s/%d", ROCKS_DATA, server.rocksdb_epoch);
-    rocks->db = rocksdb_open(rocks->db_opts, dir, &err);
+    rocksdb_options_t *cf_opts[1];
+    cf_opts[0] = rocks->db_opts;
+    rocks->db = rocksdb_open_column_families(rocks->db_opts, dir, 1,
+            &default_cf_name, (const rocksdb_options_t *const *)cf_opts,
+            &rocks->default_cf, &err);
     if (err != NULL) {
         serverLog(LL_WARNING, "[ROCKS] rocksdb open failed: %s", err);
         return -1;

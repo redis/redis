@@ -1124,7 +1124,7 @@ struct redisCommand redisCommandTable[] = {
 	 "read-only fast",
      0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
-    /* delete key in rocksdb async. */
+    /* delete key in rocksdb only. */
 	{"rksdel",rksdelCommand,-2,
 	 "read-only fast",
 	 0,NULL,getKeyRequestsNone,SWAP_DEL,INTENTION_DEL_ASYNC,1,-1,1,0,0,0},

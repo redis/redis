@@ -74,6 +74,13 @@ void RIOInitScan(RIO *rio, sds prefix) {
     rio->err = NULL;
 }
 
+void RIOInitDeleteRange(RIO *rio, sds start_key, sds end_key) {
+    rio->action = ROCKS_DELETERANGE;
+    rio->delete_range.start_key = start_key;
+    rio->delete_range.end_key = end_key;
+    rio->err = NULL;
+}
+
 void RIODeinit(RIO *rio) {
     int i;
 
@@ -118,6 +125,12 @@ void RIODeinit(RIO *rio) {
     case  ROCKS_WRITE:
         rocksdb_writebatch_destroy(rio->write.wb);
         rio->write.wb = NULL;
+        break;
+    case  ROCKS_DELETERANGE:
+        sdsfree(rio->delete_range.start_key);
+        rio->delete_range.start_key = NULL;
+        sdsfree(rio->delete_range.end_key);
+        rio->delete_range.end_key = NULL;
         break;
     default:
         break;
@@ -291,6 +304,21 @@ static int doRIOScan(RIO *rio) {
     return ret;
 }
 
+static int doRIODeleteRange(RIO *rio) {
+    char *err = NULL;
+    rocksdb_delete_range_cf(server.rocks->db, server.rocks->wopts,
+            server.rocks->default_cf,
+            rio->delete_range.start_key, sdslen(rio->delete_range.start_key),
+            rio->delete_range.end_key, sdslen(rio->delete_range.end_key), &err);
+    if (err != NULL) {
+        rio->err = sdsnew(err);
+        serverLog(LL_WARNING,"[rocks] do rocksdb delete range failed: %s", err);
+        zlibc_free(err);
+        return -1;
+    }
+    return 0;
+}
+
 void dumpRIO(RIO *rio) {
     sds repr = sdsnew("[ROCKS] ");
     switch (rio->action) {
@@ -298,17 +326,21 @@ void dumpRIO(RIO *rio) {
         repr = sdscat(repr, "GET rawkey=");
         repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
         repr = sdscat(repr, ", rawval=");
-        repr = sdscatrepr(repr, rio->get.rawval, sdslen(rio->get.rawval));
+        if (rio->get.rawval) {
+            repr = sdscatrepr(repr, rio->get.rawval, sdslen(rio->get.rawval));
+        } else {
+            repr = sdscatfmt(repr, "<nil>");
+        }
         break;
     case ROCKS_PUT:
         repr = sdscat(repr, "PUT rawkey=");
-        repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
+        repr = sdscatrepr(repr, rio->put.rawkey, sdslen(rio->put.rawkey));
         repr = sdscat(repr, ", rawval=");
-        repr = sdscatrepr(repr, rio->get.rawval, sdslen(rio->get.rawval));
+        repr = sdscatrepr(repr, rio->put.rawval, sdslen(rio->put.rawval));
         break;
     case ROCKS_DEL:
         repr = sdscat(repr, "DEL ");
-        repr = sdscatrepr(repr, rio->get.rawkey, sdslen(rio->get.rawkey));
+        repr = sdscatrepr(repr, rio->del.rawkey, sdslen(rio->del.rawkey));
         break;
     case ROCKS_WRITE:
         repr = sdscat(repr, "WRITE ");
@@ -343,6 +375,12 @@ void dumpRIO(RIO *rio) {
             repr = sdscat(repr,")\n");
         }
         break;
+    case ROCKS_DELETERANGE:
+        repr = sdscat(repr, "DELETERANGE start_key=%s");
+        repr = sdscatrepr(repr, rio->delete_range.start_key, sdslen(rio->delete_range.start_key));
+        repr = sdscat(repr, ", end_key=");
+        repr = sdscatrepr(repr, rio->delete_range.end_key, sdslen(rio->delete_range.end_key));
+        break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
         break;
@@ -373,6 +411,9 @@ int doRIO(RIO *rio) {
         break;
     case ROCKS_SCAN:
         ret = doRIOScan(rio);
+        break;
+    case ROCKS_DELETERANGE:
+        ret = doRIODeleteRange(rio);
         break;
     default:
         serverPanic("[rocks] Unknown io action: %d", rio->action);
@@ -419,6 +460,12 @@ static int executeSwapDelRequest(swapRequest *req) {
         DEBUG_MSGS_APPEND(req->msgs,"execswap-del-del","rawkey=%s",rawkeys[0]);
         RIOInitDel(rio,rawkeys[0]);
         zfree(rawkeys), rawkeys = NULL;
+    } else if (action == ROCKS_DELETERANGE) {
+        serverAssert(numkeys == 2 && rawkeys);
+        DEBUG_MSGS_APPEND(req->msgs,"execswap-del-deleterange",
+                "start_key=%s end_key=%s",rawkeys[0],rawkeys[1]);
+        RIOInitDeleteRange(rio,rawkeys[0],rawkeys[1]);
+        zfree(rawkeys), rawkeys = NULL;
     } else {
         retval = EXEC_FAIL;
         goto end;
@@ -428,14 +475,6 @@ static int executeSwapDelRequest(swapRequest *req) {
     if (doRIO(rio)) {
         retval = EXEC_FAIL;
         goto end;
-    }
-
-    if (req->intention_flags & INTENTION_DEL_ASYNC) {
-        if (swapDataCleanObject(data,req->datactx)) {
-            retval = EXEC_FAIL;
-            goto end;
-        }
-        DEBUG_MSGS_APPEND(req->msgs,"execswap-del-cleanobject", "ok");
     }
 
 end:
@@ -669,11 +708,8 @@ int finishSwapRequest(swapRequest *req) {
     case SWAP_OUT:
         return swapDataSwapOut(req->data,req->datactx);
     case SWAP_DEL: 
-        if (req->intention_flags & INTENTION_DEL_ASYNC) {
-            return EXEC_OK;
-        } else {
-            return swapDataSwapDel(req->data,req->datactx);
-        }
+        return swapDataSwapDel(req->data,req->datactx,
+                req->intention_flags & INTENTION_DEL_ASYNC);
     default:
         return -1;
     }

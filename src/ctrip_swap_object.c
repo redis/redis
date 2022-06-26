@@ -46,6 +46,7 @@ void dbAddEvict(redisDb *db, robj *key, robj *evict) {
  * - corresponding expire will be deleted (expire must not survive alone) */
 int dbDeleteEvict(redisDb *db, robj *key) {
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (dictSize(db->meta) > 0) dictDelete(db->meta,key->ptr);
     dictEntry *de = dictUnlink(db->evict,key->ptr);
     if (de) {
         robj *evict = dictGetVal(de);

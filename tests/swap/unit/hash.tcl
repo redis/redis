@@ -228,9 +228,9 @@ start_server {tags "bighash"} {
         assert [object_is_dirty r hash11]
 
         # dirty bighash evict triggers swapout
-        after 100
+        after 200
         assert_equal [r evict hash11] 1
-        after 100
+        after 200
         assert [object_is_dirty r hash11]
         assert_equal [r hlen hash11] 4
         assert {[get_info_property r Swaps swap_OUT count] > $orig_swap_out_count}
@@ -256,6 +256,8 @@ start_server {tags "bighash"} {
         r hmset hash12 a a 1 1
         catch {r swap object hash12} err
         r evict hash12
+        assert_equal [r hlen hash12] 2
+
         set hash12_version2 [object_meta_version r hash12]
         assert {$hash12_version2 > $hash12_version}
 
@@ -263,5 +265,21 @@ start_server {tags "bighash"} {
         r hkeys hash12
         set hash12_version3 [object_meta_version r hash12]
         assert {$hash12_version2 == $hash12_version3}
+    }
+
+    test {hdel warm key} {
+        r hmset hash13 a a b b c c 1 1 2 2 3 3 
+        assert_equal [r evict hash13] 1
+        wait_key_cold r hash13
+        assert [object_is_big r hash13]
+        assert_equal [r hmget hash13 a b 1 2] {a b 1 2}
+        assert_equal [object_meta_len r hash13] 2
+        assert_equal [r hdel hash13 a 1 c 99] 3
+        assert_equal [r hlen hash13] 3
+        assert_equal [object_meta_len r hash13] 1
+        assert_equal [r hdel hash13 b 3 z 99] 2
+        assert_equal [object_meta_len r hash13] 0
+        assert_equal [r hlen hash13] 1
+        assert_equal [r del hash13] 1
     }
 }

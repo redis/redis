@@ -129,7 +129,7 @@ typedef struct swapDataType {
   int (*decodeData)(struct swapData *data, int num, sds *rawkeys, sds *rawvals, OUT robj **decoded);
   int (*swapIn)(struct swapData *data, robj *result, void *datactx);
   int (*swapOut)(struct swapData *data, void *datactx);
-  int (*swapDel)(struct swapData *data, void *datactx);
+  int (*swapDel)(struct swapData *data, void *datactx, int async);
   robj *(*createOrMergeObject)(struct swapData *data, robj *decoded, void *datactx);
   int (*cleanObject)(struct swapData *data, void *datactx);
   void (*free)(struct swapData *data, void *datactx);
@@ -141,7 +141,7 @@ int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, i
 int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
 int swapDataSwapIn(swapData *d, robj *result, void *datactx);
 int swapDataSwapOut(swapData *d, void *datactx);
-int swapDataSwapDel(swapData *d, void *datactx);
+int swapDataSwapDel(swapData *d, void *datactx, int async);
 robj *swapDataCreateOrMergeObject(swapData *d, robj *decoded, void *datactx);
 int swapDataCleanObject(swapData *d, void *datactx);
 void swapDataFree(swapData *data, void *datactx);
@@ -328,7 +328,8 @@ int swapThreadsDrained();
 #define ROCKS_WRITE             4
 #define ROCKS_MULTIGET          5
 #define ROCKS_SCAN              6
-#define ROCKS_TYPES             7
+#define ROCKS_DELETERANGE       7
+#define ROCKS_TYPES             8
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
@@ -366,6 +367,10 @@ typedef struct RIO {
 			sds *rawkeys;
 			sds *rawvals;
 		} scan;
+		struct {
+			sds start_key;
+      sds end_key;
+		} delete_range;
 	};
   sds err;
 } RIO;
@@ -489,6 +494,7 @@ int submitExpireClientRequest(client *c, robj *key);
 /* Rocksdb engine */
 typedef struct rocks {
     rocksdb_t *db;
+    rocksdb_column_family_handle_t *default_cf;
     rocksdb_cache_t *block_cache;
     rocksdb_block_based_table_options_t *block_opts;
     rocksdb_options_t *db_opts;

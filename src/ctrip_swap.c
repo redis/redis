@@ -132,16 +132,19 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
     int retval = C_OK;
     void *datactx;
-    swapData *data;
+    swapData *data = NULL;
     swapCtx *ctx = pd;
     robj *value, *evict;
     objectMeta *meta;
     char *reason;
     void *msgs = NULL;
-    UNUSED(reason);
+    UNUSED(reason), UNUSED(c);
     int cmd_intention = ctx->cmd_intention;
     uint32_t cmd_intention_flags = ctx->cmd_intention_flags;
     
+    serverAssert(c == ctx->c);
+    ctx->listeners = listeners;
+
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";
         goto noswap;
@@ -163,7 +166,6 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
-    ctx->listeners = listeners;
     ctx->data = data;
     ctx->datactx = datactx;
 
@@ -190,6 +192,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if ((ctx->swap_intention_flags & INTENTION_DEL_ASYNC) ||
             ctx->swap_intention_flags & INTENTION_IN_DEL) {
+        /* rocksdb and mem differs after rocksdb del. */
         ctx->set_dirty = 1;
     }
 
@@ -210,14 +213,9 @@ noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
 
-    if (ctx->expired && ctx->key_request->key) {
-        deleteExpiredKeyAndPropagate(ctx->c->db,ctx->key_request->key);
+    /* noswap is kinda swapfinished. */
+    keyRequestSwapFinished(data,ctx);
 
-        DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
-                "expired=%s", (sds)ctx->key_request->key->ptr);
-    }
-    ctx->finished(c,ctx);
-    requestNotify(listeners);
     return retval;
 }
 

@@ -43,6 +43,7 @@ set ::disk_tests {
     swap/unit/swap_out+in
     swap/unit/hash
     swap/unit/big_hash
+    swap/unit/lazydel
     swap/tmp_tests/stream-cgroups
     swap/tmp_tests/stream
     swap/tmp_tests/replication-3 
