@@ -693,7 +693,10 @@ keySpec CLUSTER_LINKS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 #ifndef REDIS_CLI_COMMANDS
 
 /* CLUSTER MEET history */
-#define CLUSTER_MEET_History NULL
+commandHistory CLUSTER_MEET_History[] = {
+{"4.0.0","Added the optional `cluster_bus_port` argument."},
+{0}
+};
 
 /* CLUSTER MEET tips */
 const char *CLUSTER_MEET_Tips[] = {
@@ -712,6 +715,7 @@ keySpec CLUSTER_MEET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 {MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
+{MAKE_ARG("cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,1,0,0,0)},
 {0}
 };
 
@@ -1009,7 +1013,7 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("info","Provides info about Redis Cluster node state","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_INFO_History,CLUSTER_INFO_Tips,clusterCommand,2,CMD_STALE,0,CLUSTER_INFO_Keyspecs,NULL,0)},
 {MAKE_CMD("keyslot","Returns the hash slot of the specified key","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,CLUSTER_KEYSLOT_Tips,clusterCommand,3,CMD_STALE,0,CLUSTER_KEYSLOT_Keyspecs,NULL,1),.args=CLUSTER_KEYSLOT_Args},
 {MAKE_CMD("links","Returns a list of all TCP links to and from peer nodes in cluster","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,CLUSTER_LINKS_Tips,clusterCommand,2,CMD_STALE,0,CLUSTER_LINKS_Keyspecs,NULL,0)},
-{MAKE_CMD("meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,CLUSTER_MEET_Tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,NULL,2),.args=CLUSTER_MEET_Args},
+{MAKE_CMD("meet","Force a node cluster to handshake with another node","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,CLUSTER_MEET_Tips,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,NULL,3),.args=CLUSTER_MEET_Args},
 {MAKE_CMD("myid","Return the node id","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,CLUSTER_MYID_Tips,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,NULL,0)},
 {MAKE_CMD("nodes","Get Cluster config for the node","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,CLUSTER_NODES_Tips,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,NULL,0)},
 {MAKE_CMD("replicas","List replica nodes of the specified master node","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,CLUSTER_REPLICAS_Tips,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,NULL,1),.args=CLUSTER_REPLICAS_Args},
@@ -8702,8 +8706,8 @@ struct COMMAND_ARG ZRANGE_offset_count_Subargs[] = {
 /* ZRANGE argument table */
 struct COMMAND_ARG ZRANGE_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
+{MAKE_ARG("stop",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,0,0,0)},
 {MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,1,0,0,2),.subargs=ZRANGE_sortby_Subargs},
 {MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL,1,0,0,0)},
 {MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,1,0,0,2),.subargs=ZRANGE_offset_count_Subargs},
@@ -10681,7 +10685,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 /* connection */
 {MAKE_CMD("auth","Authenticate to the server","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,AUTH_History,AUTH_Tips,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,AUTH_Keyspecs,NULL,2),.args=AUTH_Args},
 {MAKE_CMD("client","A container for client connection commands","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_History,CLIENT_Tips,NULL,-2,CMD_SENTINEL,0,CLIENT_Keyspecs,NULL,0),.subcommands=CLIENT_Subcommands},
-{MAKE_CMD("echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_Tips,echoCommand,2,CMD_FAST,ACL_CATEGORY_CONNECTION,ECHO_Keyspecs,NULL,1),.args=ECHO_Args},
+{MAKE_CMD("echo","Echo the given string","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,ECHO_History,ECHO_Tips,echoCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,ECHO_Keyspecs,NULL,1),.args=ECHO_Args},
 {MAKE_CMD("hello","Handshake with Redis","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,HELLO_History,HELLO_Tips,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,HELLO_Keyspecs,NULL,1),.args=HELLO_Args},
 {MAKE_CMD("ping","Ping the server","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,PING_History,PING_Tips,pingCommand,-1,CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,PING_Keyspecs,NULL,1),.args=PING_Args},
 {MAKE_CMD("quit","Close the connection","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,QUIT_History,QUIT_Tips,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,QUIT_Keyspecs,NULL,0)},
