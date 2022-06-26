@@ -259,7 +259,11 @@ proc createComplexDataset {r ops {opt {}}} {
 
         if {[lsearch -exact $opt useexpire] != -1} {
             if {rand() < 0.1} {
-                {*}$r expire [randomKey] [randomInt 2]
+                if {$::swap} {
+                    {*}$r expire [randomKey] [expr 1+[randomInt 2]]
+                } else {
+                    {*}$r expire [randomKey] [randomInt 2]
+                }
             }
         }
 

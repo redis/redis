@@ -70,7 +70,7 @@ start_server {tags {"repl"}} {
                     fail "wait evict fail"
                 }
             }
-                assert {[r -1 dbsize] == 3}
+            assert {[r -1 dbsize] == 3}
             after 6000
             r -1 dbsize
         } {0}

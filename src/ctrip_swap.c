@@ -159,6 +159,14 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         goto noswap;
     }
 
+    /* Expired key will be delete before execute command proc. */
+    if ((c->cmd && c->cmd->proc == expiredCommand) ||
+            keyExpiredAndShouldDelete(db,key)) {
+        cmd_intention = SWAP_DEL;
+        cmd_intention_flags = 0;
+        ctx->expired = 1;
+    }
+
     data = createSwapData(db,key,value,evict,meta,&datactx);
 
     if (data == NULL) {
@@ -168,13 +176,6 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     ctx->data = data;
     ctx->datactx = datactx;
-
-    /* Expired key will be delete before execute command proc. */
-    if (keyExpiredAndShouldDelete(db,key)) {
-        cmd_intention = SWAP_DEL;
-        cmd_intention_flags = 0;
-        ctx->expired = 1;
-    }
 
     if (swapDataAna(data,cmd_intention,cmd_intention_flags,
                 ctx->key_request, &ctx->swap_intention,
@@ -299,30 +300,13 @@ void swapInit() {
         server.evict_clients[i] = c;
     }
 
-    server.rksdel_clients = zmalloc(server.dbnum*sizeof(client*));
+    server.expire_clients = zmalloc(server.dbnum*sizeof(client*));
     for (i = 0; i < server.dbnum; i++) {
         client *c = createClient(NULL);
         c->db = server.db+i;
-        c->cmd = lookupCommandByCString("RKSDEL");
+        c->cmd = lookupCommandByCString("EXPIRED");
         c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
-        server.rksdel_clients[i] = c;
-    }
-
-    server.rksget_clients = zmalloc(server.dbnum*sizeof(client*));
-    for (i = 0; i < server.dbnum; i++) {
-        client *c = createClient(NULL);
-        c->db = server.db+i;
-        c->cmd = lookupCommandByCString("RKSGET");
-        c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
-        server.rksget_clients[i] = c;
-    }
-
-    server.dummy_clients = zmalloc(server.dbnum*sizeof(client*));
-    for (i = 0; i < server.dbnum; i++) {
-        client *c = createClient(NULL);
-        c->db = server.db+i;
-        c->client_hold_mode = CLIENT_HOLD_MODE_EVICT;
-        server.dummy_clients[i] = c;
+        server.expire_clients[i] = c;
     }
 
     server.repl_workers = 256;

@@ -67,6 +67,7 @@ start_server {tags {"latency-monitor"}} {
         wait_for_condition 5 100 {
             [r dbsize] == 0
         } else {
+            press_enter_to_continue
             fail "key wasn't expired"
         }
         assert_match {*expire-cycle*} [r latency latest]

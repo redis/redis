@@ -29,11 +29,9 @@
 #include "ctrip_swap.h"
 
 void expireClientKeyRequestFinished(client *c, swapCtx *ctx) {
-    robj *key = ctx->key_request->key;
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c, key);
-    deleteExpiredKeyAndPropagate(c->db,key);
+    clientUnholdKey(c, ctx->key_request->key);
 }
 
 int submitExpireClientRequest(client *c, robj *key) {

@@ -199,13 +199,7 @@ int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc,
     return 0;
 }
 
-/* `rksdel` `rksget` are fake commands used only to provide flags for swap_ana,
- * use `touch` command to expire key actively instead. */
-void rksdelCommand(client *c) {
-    addReply(c, shared.ok);
-}
-
-void rksgetCommand(client *c) {
+void expiredCommand(client *c) {
     addReply(c, shared.ok);
 }
 

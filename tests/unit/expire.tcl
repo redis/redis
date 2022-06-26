@@ -341,6 +341,7 @@ start_server {tags {"expire"}} {
         }
     }
 
+    if {!$::swap} {
     test {EXPIRE relative and absolute propagation to replicas} {
         # Make sure that relative and absolute expire commands are propagated
         # "as is" to replicas.
@@ -394,6 +395,7 @@ start_server {tags {"expire"}} {
             {pexpireat foo4 *}
             {pexpireat foo4 *}
         }
+    }
     }
 
     test {SET command will remove expire} {

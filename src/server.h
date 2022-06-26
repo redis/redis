@@ -1699,9 +1699,7 @@ struct redisServer {
 		/* swaps */
     int in_swap_cb; /* flag whether call is in swap callback */
     client **evict_clients; /* array of evict clients (one for each db). */
-    client **rksdel_clients; /* array of rocks del clients (one for each db). */
-    client **rksget_clients; /* array of rocks get clients (one for each db). */
-    client **dummy_clients; /* array of dummy clients (one for each db). */
+    client **expire_clients; /* array of rocks get clients (one for each db). */
     struct swapStat *swap_stats; /* array of swap stats (one for each swap type). */
     struct swapStat *rio_stats; /* array of swap stats (one for each swap type). */
     int debug_evict_keys; /* num of keys to evict before calling cmd. */
@@ -2691,8 +2689,6 @@ void lmoveCommand(client *c);
 void infoCommand(client *c);
 void mgetCommand(client *c);
 void monitorCommand(client *c);
-void rksdelCommand(client *c);
-void rksgetCommand(client *c);
 void expireCommand(client *c);
 void expireatCommand(client *c);
 void pexpireCommand(client *c);

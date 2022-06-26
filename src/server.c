@@ -241,11 +241,11 @@ struct redisCommand redisCommandTable[] = {
 
     {"unlink",unlinkCommand,-2,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
 
     {"setbit",setbitCommand,4,
      "write use-memory @bitmap",
@@ -679,19 +679,19 @@ struct redisCommand redisCommandTable[] = {
 
     {"expire",expireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"expireat",expireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"pexpire",pexpireCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"pexpireat",pexpireatCommand,3,
      "write fast @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"keys",keysCommand,2,
      "read-only to-sort @keyspace @dangerous",
@@ -794,7 +794,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"ttl",ttlCommand,2,
      "read-only fast random @keyspace",
-     0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
+     0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
@@ -1124,12 +1124,7 @@ struct redisCommand redisCommandTable[] = {
 	 "read-only fast",
      0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
-    /* delete key in rocksdb only. */
-	{"rksdel",rksdelCommand,-2,
-	 "read-only fast",
-	 0,NULL,getKeyRequestsNone,SWAP_DEL,INTENTION_DEL_ASYNC,1,-1,1,0,0,0},
-
-	{"rksget",rksgetCommand,-2,
+	{"expired",expiredCommand,-2,
 	 "read-only fast",
 	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
 

@@ -805,6 +805,7 @@ robj *unshareStringValue(robj *value);
 size_t objectEstimateSize(robj *o);
 size_t keyEstimateSize(redisDb *db, robj *key);
 void swapCommand(client *c);
+void expiredCommand(client *c);
 const char *strObjectType(int type);
 
 

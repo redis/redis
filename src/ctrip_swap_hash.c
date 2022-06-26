@@ -798,7 +798,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         swapDataAna(cold1_data,SWAP_OUT,0,cold_kr1,&intention,&intention_flags,cold1_ctx);
         test_assert(intention == SWAP_NOP && intention_flags == 0);
         swapDataAna(cold1_data,SWAP_DEL,INTENTION_DEL_ASYNC,cold_kr1,&intention,&intention_flags,cold1_ctx);
-        test_assert(intention == SWAP_NOP && intention_flags == 0);
+        test_assert(intention == SWAP_DEL && intention_flags == INTENTION_DEL_ASYNC);
         /* in: entire or with subkeys */
         swapDataAna(cold1_data,SWAP_IN,0,cold_kr1,&intention,&intention_flags,cold1_ctx);
         test_assert(intention == SWAP_IN && intention_flags == 0);
