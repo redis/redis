@@ -118,7 +118,6 @@ endif
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
-DEBUG=-g -ggdb
 
 # Linux ARM32 needs -latomic at linking time
 ifneq (,$(findstring armv,$(uname_M)))
@@ -408,13 +407,6 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 ifneq (,$(PYTHON))
 commands.c: commands/*.json ../utils/generate-command-code.py
 	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py
-endif
-
-# The file cli_commands.c is checked in and doesn't normally need to be rebuilt. It
-# is built only if python is available and its prereqs are modified.
-ifneq (,$(PYTHON))
-cli_commands.c: commands/*.json ../utils/generate-cli-commands.py
-	$(QUIET_GEN)$(PYTHON) ../utils/generate-cli-commands.py
 endif
 
 clean:
