@@ -492,7 +492,6 @@ static inline size_t raxLowWalk(
 
     size_t i = 0; /* Position in the string. */
     size_t j = 0; /* Position in the node children (or bytes if compressed).*/
-    size_t k = 0; /* Current child offset or mismatch offset */
     while(h->size && i < len) {
         debugnode("Lookup current node",h);
         unsigned char *v = h->data;
@@ -505,15 +504,7 @@ static inline size_t raxLowWalk(
             for (j = 0; j < h->size; j++) {
                 if (v[j] >= s[i]) break;
             }
-            if (v[j] > s[i]) {
-                k = j;
-                j = h->size;
-                break;
-            }
-            if (j == h->size) {
-                k = j;
-                break;
-            }
+            if (v[j] > s[i] || j == h->size) break;
             i++;
         } else {
             /* Even when h->size is large, linear scan provides good
@@ -538,7 +529,7 @@ static inline size_t raxLowWalk(
     }
     debugnode("Lookup stop node is",h);
     if (stopnode) *stopnode = h;
-    if (stopoffset) *stopoffset = k;
+    if (stopoffset) *stopoffset = j;
     if (plink) *plink = parentlink;
     if (splitpos && h->iscompr) *splitpos = j;
     return i;
