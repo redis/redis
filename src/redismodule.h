@@ -656,6 +656,8 @@ typedef struct RedisModuleClientInfo {
 
 #define RedisModuleClientInfo RedisModuleClientInfoV1
 
+#define REDISMODULE_CLIENTINFO_INITIALIZER_V1 { .version = 1 }
+
 #define REDISMODULE_REPLICATIONINFO_VERSION 1
 typedef struct RedisModuleReplicationInfo {
     uint64_t version;       /* Not used since this structure is never passed
