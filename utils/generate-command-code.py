@@ -493,7 +493,7 @@ with open("%s/commands.c" % srcdir, "w") as f:
 #define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys
 #endif
 #ifndef MAKE_ARG
-#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,optional,multiple,multiple_token,numsubargs) name,type,key_spec_index,token,summary,since,flags
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs) name,type,key_spec_index,token,summary,since,flags
 #endif
 #ifndef COMMAND_STRUCT
 #define COMMAND_STRUCT redisCommand
