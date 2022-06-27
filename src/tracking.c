@@ -101,13 +101,13 @@ void disableTracking(client *c) {
 
 static int stringCheckPrefix(unsigned char *s1, size_t s1_len, unsigned char *s2, size_t s2_len) {
     size_t min_length = s1_len < s2_len ? s1_len : s2_len;
-    return memcmp(s1,s2,min_length) == 0;   
+    return memcmp(s1,s2,min_length) == 0;
 }
 
 /* Check if any of the provided prefixes collide with one another or
- * with an existing prefix for the client. A collision is defined as two 
- * prefixes that will emit an invalidation for the same key. If no prefix 
- * collision is found, 1 is return, otherwise 0 is returned and the client 
+ * with an existing prefix for the client. A collision is defined as two
+ * prefixes that will emit an invalidation for the same key. If no prefix
+ * collision is found, 1 is return, otherwise 0 is returned and the client
  * has an error emitted describing the error. */
 int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
     for (size_t i = 0; i < numprefix; i++) {
@@ -118,7 +118,7 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
             raxSeek(&ri,"^",NULL,0);
             while(raxNext(&ri)) {
                 if (stringCheckPrefix(ri.key,ri.key_len,
-                    prefixes[i]->ptr,sdslen(prefixes[i]->ptr))) 
+                    prefixes[i]->ptr,sdslen(prefixes[i]->ptr)))
                 {
                     sds collision = sdsnewlen(ri.key,ri.key_len);
                     addReplyErrorFormat(c,
@@ -431,10 +431,10 @@ void trackingHandlePendingKeyInvalidations() {
 }
 
 /* This function is called when one or all the Redis databases are
- * flushed. Caching keys are not specific for each DB but are global: 
- * currently what we do is send a special notification to clients with 
- * tracking enabled, sending a RESP NULL, which means, "all the keys", 
- * in order to avoid flooding clients with many invalidation messages 
+ * flushed. Caching keys are not specific for each DB but are global:
+ * currently what we do is send a special notification to clients with
+ * tracking enabled, sending a RESP NULL, which means, "all the keys",
+ * in order to avoid flooding clients with many invalidation messages
  * for all the keys they may hold.
  */
 void freeTrackingRadixTreeCallback(void *rt) {

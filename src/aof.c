@@ -780,9 +780,9 @@ int aofFileExist(char *filename) {
  * The above two steps of modification are atomic, that is, if
  * any step fails, the entire operation will rollback and returns
  * C_ERR, and if all succeeds, it returns C_OK.
- * 
- * If `server.aof_state` is 'AOF_WAIT_REWRITE', It will open a temporary INCR AOF 
- * file to accumulate data during AOF_WAIT_REWRITE, and it will eventually be 
+ *
+ * If `server.aof_state` is 'AOF_WAIT_REWRITE', It will open a temporary INCR AOF
+ * file to accumulate data during AOF_WAIT_REWRITE, and it will eventually be
  * renamed in the `backgroundRewriteDoneHandler` and written to the manifest file.
  * */
 int openNewIncrAofForAppend(void) {
@@ -1394,7 +1394,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     fakeClient = server.current_client = createAOFClient();
 
     /* Check if the AOF file is in RDB format (it may be RDB encoded base AOF
-     * or old style RDB-preamble AOF). In that case we need to load the RDB file 
+     * or old style RDB-preamble AOF). In that case we need to load the RDB file
      * and later continue loading the AOF tail if it is an old style RDB-preamble AOF. */
     char sig[5]; /* "REDIS" */
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
@@ -1406,8 +1406,8 @@ int loadSingleAppendOnlyFile(char *filename) {
         int old_style = !strcmp(filename, server.aof_filename);
         if (old_style)
             serverLog(LL_NOTICE, "Reading RDB preamble from AOF file...");
-        else 
-            serverLog(LL_NOTICE, "Reading RDB base file on AOF loading..."); 
+        else
+            serverLog(LL_NOTICE, "Reading RDB base file on AOF loading...");
 
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
@@ -1762,7 +1762,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
                     AOF_REWRITE_ITEMS_PER_CMD : items;
                 if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
                     !rioWriteBulkString(r,"RPUSH",5) ||
-                    !rioWriteBulkObject(r,key)) 
+                    !rioWriteBulkObject(r,key))
                 {
                     quicklistReleaseIterator(li);
                     return 0;
@@ -1806,7 +1806,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
 
                 if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
                     !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
+                    !rioWriteBulkObject(r,key))
                 {
                     return 0;
                 }
@@ -1827,7 +1827,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
 
                 if (!rioWriteBulkCount(r,'*',2+cmd_items) ||
                     !rioWriteBulkString(r,"SADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
+                    !rioWriteBulkObject(r,key))
                 {
                     dictReleaseIterator(di);
                     return 0;
@@ -1835,7 +1835,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
             }
             if (!rioWriteBulkString(r,ele,sdslen(ele))) {
                 dictReleaseIterator(di);
-                return 0;          
+                return 0;
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
@@ -1875,7 +1875,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 
                 if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
                     !rioWriteBulkString(r,"ZADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
+                    !rioWriteBulkObject(r,key))
                 {
                     return 0;
                 }
@@ -1905,7 +1905,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 
                 if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
                     !rioWriteBulkString(r,"ZADD",4) ||
-                    !rioWriteBulkObject(r,key)) 
+                    !rioWriteBulkObject(r,key))
                 {
                     dictReleaseIterator(di);
                     return 0;
@@ -1967,7 +1967,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
 
             if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
                 !rioWriteBulkString(r,"HMSET",5) ||
-                !rioWriteBulkObject(r,key)) 
+                !rioWriteBulkObject(r,key))
             {
                 hashTypeReleaseIterator(hi);
                 return 0;
@@ -1978,7 +1978,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
         {
             hashTypeReleaseIterator(hi);
-            return 0;           
+            return 0;
         }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
@@ -2055,10 +2055,10 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
              * the ID, the second is an array of field-value pairs. */
 
             /* Emit the XADD <key> <id> ...fields... command. */
-            if (!rioWriteBulkCount(r,'*',3+numfields*2) || 
+            if (!rioWriteBulkCount(r,'*',3+numfields*2) ||
                 !rioWriteBulkString(r,"XADD",4) ||
                 !rioWriteBulkObject(r,key) ||
-                !rioWriteBulkStreamID(r,&id)) 
+                !rioWriteBulkStreamID(r,&id))
             {
                 streamIteratorStop(&si);
                 return 0;
@@ -2068,10 +2068,10 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
                 int64_t field_len, value_len;
                 streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
                 if (!rioWriteBulkString(r,(char*)field,field_len) ||
-                    !rioWriteBulkString(r,(char*)value,value_len)) 
+                    !rioWriteBulkString(r,(char*)value,value_len))
                 {
                     streamIteratorStop(&si);
-                    return 0;                  
+                    return 0;
                 }
             }
         }
@@ -2079,7 +2079,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         /* Use the XADD MAXLEN 0 trick to generate an empty stream if
          * the key we are serializing is an empty string, which is possible
          * for the Stream type. */
-        id.ms = 0; id.seq = 1; 
+        id.ms = 0; id.seq = 1;
         if (!rioWriteBulkCount(r,'*',7) ||
             !rioWriteBulkString(r,"XADD",4) ||
             !rioWriteBulkObject(r,key) ||
@@ -2090,7 +2090,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             !rioWriteBulkString(r,"y",1))
         {
             streamIteratorStop(&si);
-            return 0;     
+            return 0;
         }
     }
 
@@ -2103,10 +2103,10 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         !rioWriteBulkString(r,"ENTRIESADDED",12) ||
         !rioWriteBulkLongLong(r,s->entries_added) ||
         !rioWriteBulkString(r,"MAXDELETEDID",12) ||
-        !rioWriteBulkStreamID(r,&s->max_deleted_entry_id)) 
+        !rioWriteBulkStreamID(r,&s->max_deleted_entry_id))
     {
         streamIteratorStop(&si);
-        return 0; 
+        return 0;
     }
 
 
@@ -2459,7 +2459,7 @@ void bgrewriteaofCommand(client *c) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (hasActiveChildProcess() || server.in_exec) {
         server.aof_rewrite_scheduled = 1;
-        /* When manually triggering AOFRW we reset the count 
+        /* When manually triggering AOFRW we reset the count
          * so that it can be executed immediately. */
         server.stat_aofrw_consecutive_failures = 0;
         addReplyStatus(c,"Background append only file rewriting scheduled");

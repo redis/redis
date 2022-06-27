@@ -547,7 +547,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
         int panic_in_replicas = (ctype == CLIENT_TYPE_MASTER && server.repl_slave_ro)
             && (server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC ||
             server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC_ON_REPLICAS);
-        int panic_in_aof = c->id == CLIENT_ID_AOF 
+        int panic_in_aof = c->id == CLIENT_ID_AOF
             && server.propagation_error_behavior == PROPAGATION_ERR_BEHAVIOR_PANIC;
         if (panic_in_replicas || panic_in_aof) {
             serverPanic("This %s panicked sending an error to its %s"
@@ -1797,7 +1797,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     struct iovec iov[IOV_MAX];
     int iovcnt = 0;
     size_t iov_bytes_len = 0;
-    /* If the static reply buffer is not empty, 
+    /* If the static reply buffer is not empty,
      * add it to the iov array for writev() as well. */
     if (c->bufpos > 0) {
         iov[iovcnt].iov_base = c->buf + c->sentlen;
@@ -1913,7 +1913,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->bufpos = 0;
             c->sentlen = 0;
         }
-    } 
+    }
 
     return C_OK;
 }
@@ -3192,8 +3192,8 @@ NULL
                 type = CLIENT_PAUSE_ALL;
             } else {
                 addReplyError(c,
-                    "CLIENT PAUSE mode must be WRITE or ALL");  
-                return;       
+                    "CLIENT PAUSE mode must be WRITE or ALL");
+                return;
             }
         }
 
@@ -3380,7 +3380,7 @@ NULL
             numflags++;
             if (c->flags & CLIENT_TRACKING_CACHING) {
                 addReplyBulkCString(c,"caching-yes");
-                numflags++;        
+                numflags++;
             }
         }
         if (c->flags & CLIENT_TRACKING_OPTOUT) {
@@ -3388,7 +3388,7 @@ NULL
             numflags++;
             if (c->flags & CLIENT_TRACKING_CACHING) {
                 addReplyBulkCString(c,"caching-no");
-                numflags++;        
+                numflags++;
             }
         }
         if (c->flags & CLIENT_TRACKING_NOLOOP) {
@@ -3644,7 +3644,7 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
             repl_node_num = last->id - cur->id + 1;
         }
         return repl_buf_size + (repl_node_size*repl_node_num);
-    } else { 
+    } else {
         size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
         return c->reply_bytes + (list_item_size*listLength(c->reply));
     }
@@ -3901,7 +3901,7 @@ void unblockPostponedClients() {
  * A main use case of this function is to allow pausing replication traffic
  * so that a failover without data loss to occur. Replicas will continue to receive
  * traffic to facilitate this functionality.
- * 
+ *
  * This function is also internally used by Redis Cluster for the manual
  * failover procedure implemented by CLUSTER FAILOVER.
  *
@@ -3938,13 +3938,13 @@ void unpauseClients(pause_purpose purpose) {
     updateClientPauseTypeAndEndTime();
 }
 
-/* Returns true if clients are paused and false otherwise. */ 
+/* Returns true if clients are paused and false otherwise. */
 int areClientsPaused(void) {
     return server.client_pause_type != CLIENT_PAUSE_OFF;
 }
 
 /* Checks if the current client pause has elapsed and unpause clients
- * if it has. Also returns true if clients are now paused and false 
+ * if it has. Also returns true if clients are now paused and false
  * otherwise. */
 int checkClientPauseTimeoutAndReturnIfPaused(void) {
     if (!areClientsPaused())

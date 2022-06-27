@@ -164,13 +164,13 @@ GeoHashRadius geohashCalculateAreasByShapeWGS84(GeoShape *shape) {
         geohashDecode(long_range, lat_range, neighbors.east, &east);
         geohashDecode(long_range, lat_range, neighbors.west, &west);
 
-        if (north.latitude.max < max_lat) 
+        if (north.latitude.max < max_lat)
             decrease_step = 1;
-        if (south.latitude.min > min_lat) 
+        if (south.latitude.min > min_lat)
             decrease_step = 1;
-        if (east.longitude.max < max_lon) 
+        if (east.longitude.max < max_lon)
             decrease_step = 1;
-        if (west.longitude.min > min_lon)  
+        if (west.longitude.min > min_lon)
             decrease_step = 1;
     }
 

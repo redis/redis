@@ -218,7 +218,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
-    /* Although the key is not really deleted from the database, we regard 
+    /* Although the key is not really deleted from the database, we regard
      * overwrite as two steps of unlink+add, so we still need to call the unlink
      * callback of the module. */
     moduleNotifyKeyUnlink(key,old,db->id);
@@ -1224,8 +1224,8 @@ void copyCommand(client *c) {
     long long expire;
     int j, replace = 0, delete = 0;
 
-    /* Obtain source and target DB pointers 
-     * Default target DB is the same as the source DB 
+    /* Obtain source and target DB pointers
+     * Default target DB is the same as the source DB
      * Parse the REPLACE option and targetDB option. */
     src = c->db;
     dst = c->db;
@@ -1275,7 +1275,7 @@ void copyCommand(client *c) {
     }
     expire = getExpire(c->db,key);
 
-    /* Return zero if the key already exists in the target DB. 
+    /* Return zero if the key already exists in the target DB.
      * If REPLACE option is selected, delete newkey from targetDB. */
     if (lookupKeyWrite(dst,newkey) != NULL) {
         if (replace) {
@@ -1444,7 +1444,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         scanDatabaseForDeletedStreams(activedb, newdb);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
-         * ready_keys and watched_keys, since clients 
+         * ready_keys and watched_keys, since clients
          * remain in the same DB they were. */
         activedb->dict = newdb->dict;
         activedb->expires = newdb->expires;
@@ -1743,10 +1743,10 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 
 /* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
  * There are several flags that can be used to modify how this function finds keys in a command.
- * 
+ *
  * GET_KEYSPEC_INCLUDE_NOT_KEYS: Return 'fake' keys as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
- *                               found in other valid keyspecs. 
+ *                               found in other valid keyspecs.
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, k = 0, last, first, step;
@@ -1862,13 +1862,13 @@ invalid_spec:
     return k;
 }
 
-/* Return all the arguments that are keys in the command passed via argc / argv. 
+/* Return all the arguments that are keys in the command passed via argc / argv.
  * This function will eventually replace getKeysFromCommand.
  *
  * The command returns the positions of all the key arguments inside the array,
  * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
- * 
+ *
  * Along with the position, this command also returns the flags that are
  * associated with how Redis will access the key.
  *
@@ -1953,14 +1953,14 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
     return 0;
 }
 
-/* Return all the arguments that are channels in the command passed via argc / argv. 
- * This function behaves similar to getKeysFromCommandWithSpecs, but with channels 
+/* Return all the arguments that are channels in the command passed via argc / argv.
+ * This function behaves similar to getKeysFromCommandWithSpecs, but with channels
  * instead of keys.
- * 
+ *
  * The command returns the positions of all the channel arguments inside the array,
  * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
- * 
+ *
  * Along with the position, this command also returns the flags that are
  * associated with how Redis will access the channel.
  *
@@ -1994,12 +1994,12 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,
- * all other commands should be handled by getkeys_proc. 
- * 
+ * all other commands should be handled by getkeys_proc.
+ *
  * If the commands keyspec is incomplete, no keys will be returned, and the provided
  * keys function should be called instead.
- * 
- * NOTE: This function does not guarantee populating the flags for 
+ *
+ * NOTE: This function does not guarantee populating the flags for
  * the keys, in order to get flags you should use getKeysUsingKeySpecs. */
 int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int j, i = 0, last, first, step;
@@ -2083,7 +2083,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'keyCountOfs': num-keys index.
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
- * 
+ *
  * The commands using this functoin have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
@@ -2106,12 +2106,12 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     for (i = 0; i < num; i++) {
         keys[i].pos = firstKeyOfs+(i*keyStep);
         keys[i].flags = 0;
-    } 
+    }
 
     if (storeKeyOfs) {
         keys[num].pos = storeKeyOfs;
         keys[num].flags = 0;
-    } 
+    }
     return result->numkeys;
 }
 
@@ -2188,8 +2188,8 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style. Here we parse just the minimum in order to
- * correctly identify keys in the "STORE" option. 
- * 
+ * correctly identify keys in the "STORE" option.
+ *
  * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, found_store = 0;
@@ -2262,7 +2262,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
         keys[i].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_DELETE;
-    } 
+    }
     result->numkeys = num;
     return num;
 }
@@ -2271,7 +2271,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                             [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
- * 
+ *
  * This command has a fully defined keyspec, so returning flags isn't needed. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2354,8 +2354,8 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     keys = getKeysPrepareResult(result, num);
     for (i = streams_pos+1; i < argc-num; i++) {
         keys[i-streams_pos-1].pos = i;
-        keys[i-streams_pos-1].flags = 0; 
-    } 
+        keys[i-streams_pos-1].flags = 0;
+    }
     result->numkeys = num;
     return num;
 }

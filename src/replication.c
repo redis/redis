@@ -913,7 +913,7 @@ void syncCommand(client *c) {
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
-    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
+    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") &&
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
         serverLog(LL_WARNING, "Failover request received for replid %s.",
@@ -931,7 +931,7 @@ void syncCommand(client *c) {
             sdsfree(client);
         } else {
             addReplyError(c, "PSYNC FAILOVER replid must match my replid.");
-            return;            
+            return;
         }
     }
 
@@ -1480,7 +1480,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 stillUp++;
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
-            /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
+            /* Now that the replicas have finished reading, notify the child that it's safe to exit.
              * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
             close(server.rdb_child_exit_pipe);
@@ -1786,7 +1786,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster() {
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
@@ -2015,7 +2015,7 @@ void readSyncBulkPayload(connection *conn) {
      * rdbLoad() will call the event loop to process events from time to
      * time for non blocking loading. */
     connSetReadHandler(conn, NULL);
-    
+
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     if (use_diskless_load) {
@@ -2293,7 +2293,7 @@ char *sendCommand(connection *conn, ...) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection. 
+/* Compose a multi-bulk command and send it to the connection.
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *
@@ -3031,7 +3031,7 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
-    
+
     /* Reset down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
 
@@ -3858,9 +3858,9 @@ void abortFailover(const char *err) {
 
     if (server.target_replica_host) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
-            server.target_replica_host,server.target_replica_port,err);  
+            server.target_replica_host,server.target_replica_port,err);
     } else {
-        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);  
+        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);
     }
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
@@ -3868,30 +3868,30 @@ void abortFailover(const char *err) {
     clearFailoverState();
 }
 
-/* 
+/*
  * FAILOVER [TO <HOST> <PORT> [FORCE]] [ABORT] [TIMEOUT <timeout>]
- * 
+ *
  * This command will coordinate a failover between the master and one
  * of its replicas. The happy path contains the following steps:
  * 1) The master will initiate a client pause write, to stop replication
  * traffic.
  * 2) The master will periodically check if any of its replicas has
- * consumed the entire replication stream through acks. 
+ * consumed the entire replication stream through acks.
  * 3) Once any replica has caught up, the master will itself become a replica.
  * 4) The master will send a PSYNC FAILOVER request to the target replica, which
  * if accepted will cause the replica to become the new master and start a sync.
- * 
+ *
  * FAILOVER ABORT is the only way to abort a failover command, as replicaof
- * will be disabled. This may be needed if the failover is unable to progress. 
- * 
+ * will be disabled. This may be needed if the failover is unable to progress.
+ *
  * The optional arguments [TO <HOST> <IP>] allows designating a specific replica
  * to be failed over to.
- * 
+ *
  * FORCE flag indicates that even if the target replica is not caught up,
  * failover to it anyway. This must be specified with a timeout and a target
  * HOST and IP.
- * 
- * TIMEOUT <timeout> indicates how long should the primary wait for 
+ *
+ * TIMEOUT <timeout> indicates how long should the primary wait for
  * a replica to sync up before aborting. If not specified, the failover
  * will attempt forever and must be manually aborted.
  */
@@ -3901,7 +3901,7 @@ void failoverCommand(client *c) {
                         "Use CLUSTER FAILOVER command instead.");
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
@@ -3932,7 +3932,7 @@ void failoverCommand(client *c) {
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"to") && (j + 2 < c->argc) &&
-            !host) 
+            !host)
         {
             if (getLongFromObjectOrReply(c,c->argv[j + 2],&port,NULL) != C_OK)
                 return;
@@ -3958,13 +3958,13 @@ void failoverCommand(client *c) {
 
     if (listLength(server.slaves) == 0) {
         addReplyError(c,"FAILOVER requires connected replicas.");
-        return; 
+        return;
     }
 
     if (force_flag && (!timeout_in_ms || !host)) {
         addReplyError(c,"FAILOVER with force option requires both a timeout "
             "and target HOST and IP.");
-        return;     
+        return;
     }
 
     /* If a replica address was provided, validate that it is connected. */
@@ -3994,7 +3994,7 @@ void failoverCommand(client *c) {
     if (timeout_in_ms) {
         server.failover_end_time = now + timeout_in_ms;
     }
-    
+
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
@@ -4002,7 +4002,7 @@ void failoverCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* Failover cron function, checks coordinated failover state. 
+/* Failover cron function, checks coordinated failover state.
  *
  * Implementation note: The current implementation calls replicationSetMaster()
  * to start the failover request, this has some unintended side effects if the
@@ -4034,7 +4034,7 @@ void updateFailoverStatus(void) {
     /* Check to see if the replica has caught up so failover can start */
     client *replica = NULL;
     if (server.target_replica_host) {
-        replica = findReplica(server.target_replica_host, 
+        replica = findReplica(server.target_replica_host,
             server.target_replica_port);
     } else {
         listIter li;

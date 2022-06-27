@@ -329,7 +329,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
 
     /* Add TX if in transaction state*/
-    if (config.in_multi)  
+    if (config.in_multi)
         prompt = sdscatlen(prompt,"(TX)",4);
 
     /* Copy the prompt in the static buffer. */
@@ -716,7 +716,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
+    /* The command docs table maps command names to a map of their specs. */
     for (size_t i = 0; i < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
@@ -1573,7 +1573,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
                 out = cliFormatReplyJson(out,key,mode);
             } else {
                 /* According to JSON spec, JSON map keys must be strings,
-                 * and in RESP3, they can be other types. 
+                 * and in RESP3, they can be other types.
                  * The first one(cliFormatReplyJson) is to convert non string type to string
                  * The Second one(escapeJsonString) is to escape the converted string */
                 sds keystr = cliFormatReplyJson(sdsempty(),key,mode);
@@ -1704,8 +1704,8 @@ static int cliReadReply(int output_raw_strings) {
             config.cluster_send_asking = 1;
         }
         cliRefreshPrompt();
-    } else if (!config.interactive && config.set_errcode && 
-        reply->type == REDIS_REPLY_ERROR) 
+    } else if (!config.interactive && config.set_errcode &&
+        reply->type == REDIS_REPLY_ERROR)
     {
         fprintf(stderr,"%s\n",reply->str);
         exit(1);
@@ -1846,15 +1846,15 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2 && 
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            if (!strcasecmp(command,"select") && argc == 2 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.conn_info.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.in_multi = 1;
                 config.pre_multi_dbnum = config.dbnum;
@@ -1867,8 +1867,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                     config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"discard") && argc == 1 && 
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            } else if (!strcasecmp(command,"discard") && argc == 1 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.in_multi = 0;
                 config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
@@ -2250,7 +2250,7 @@ static int parseOptions(int argc, char **argv) {
         fprintf(stderr,"Option --functions-rdb and --rdb are mutually exclusive.\n");
         exit(1);
     }
- 
+
     if (config.stdin_lastarg && config.stdin_tag_arg) {
         fprintf(stderr, "Options -x and -X are mutually exclusive.\n");
         exit(1);
@@ -7111,7 +7111,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                 src_port, src_ctx->errstr);
         goto cleanup;
     }
-    // Auth for the source node. 
+    // Auth for the source node.
     char *from_user = config.cluster_manager_command.from_user;
     char *from_pass = config.cluster_manager_command.from_pass;
     if (cliAuth(src_ctx, from_user, from_pass) == REDIS_ERR) {
@@ -7161,7 +7161,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
     if (config.conn_info.auth) {
         if (config.conn_info.user) {
-            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.conn_info.user, config.conn_info.auth); 
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.conn_info.user, config.conn_info.auth);
         } else {
             cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.conn_info.auth);
         }

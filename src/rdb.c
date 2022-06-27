@@ -1022,7 +1022,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-                
+
                 /* Save the group's logical reads counter. */
                 if ((n = rdbSaveLen(rdb,cg->entries_read)) == -1) {
                     raxStop(&ri);
@@ -1430,7 +1430,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
-    
+
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -1606,7 +1606,7 @@ static int _ziplistPairsEntryConvertAndValidate(unsigned char *p, unsigned int h
     return 1;
 }
 
-/* Validate the integrity of the data structure while converting it to 
+/* Validate the integrity of the data structure while converting it to
  * listpack and storing it at 'lp'.
  * The function is safe to call on non-validated ziplists, it returns 0
  * when encounter an integrity validation issue. */
@@ -2177,7 +2177,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST: 
+            case RDB_TYPE_LIST_ZIPLIST:
                 {
                     quicklist *ql = quicklistNew(server.list_max_listpack_size,
                                                  server.list_compress_depth);
@@ -2394,7 +2394,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
-        
+
         if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
@@ -2413,9 +2413,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             s->max_deleted_entry_id.ms = 0;
             s->max_deleted_entry_id.seq = 0;
             s->entries_added = s->length;
-            
+
             /* Since the rax is already loaded, we can find the first entry's
-             * ID. */ 
+             * ID. */
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
@@ -2459,7 +2459,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
-            
+
             /* Load group offset. */
             uint64_t cg_offset;
             if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
@@ -2892,7 +2892,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned and 'errno' is set accordingly.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -3121,8 +3121,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave.
-         * Similarly, if the base AOF is RDB format, we want to load all 
-         * the keys they are, since the log of operations in the incr AOF 
+         * Similarly, if the base AOF is RDB format, we want to load all
+         * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
             /* Since we used to have bug that could lead to empty keys

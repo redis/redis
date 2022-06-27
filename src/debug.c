@@ -708,7 +708,7 @@ NULL
 
         dictExpand(c->db->dict,keys);
         long valsize = 0;
-        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
+        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK )
             return;
 
         for (j = 0; j < keys; j++) {

@@ -249,11 +249,11 @@ typedef struct {
 } clusterMsgModule;
 
 /* The cluster supports optional extension messages that can be sent
- * along with ping/pong/meet messages to give additional info in a 
+ * along with ping/pong/meet messages to give additional info in a
  * consistent manner. */
 typedef enum {
     CLUSTERMSG_EXT_TYPE_HOSTNAME,
-} clusterMsgPingtypes; 
+} clusterMsgPingtypes;
 
 /* Helper function for making sure extensions are eight byte aligned. */
 #define EIGHT_BYTE_ALIGN(size) ((((size) + 7) / 8) * 8)
@@ -268,7 +268,7 @@ typedef struct {
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
-    } ext[]; /* Actual extension information, formatted so that the data is 8 
+    } ext[]; /* Actual extension information, formatted so that the data is 8
               * byte aligned, regardless of its content. */
 } clusterMsgPingExt;
 

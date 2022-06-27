@@ -1,5 +1,5 @@
 /* CLI (command line interface) common methods
- * 
+ *
  * Copyright (c) 2020, Redis Labs
  * All rights reserved.
  *

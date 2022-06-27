@@ -636,7 +636,7 @@ NULL
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,dictSize(server.pubsub_patterns));
     } else if (!strcasecmp(c->argv[1]->ptr,"shardchannels") &&
-        (c->argc == 2 || c->argc == 3)) 
+        (c->argc == 2 || c->argc == 3))
     {
         /* PUBSUB SHARDCHANNELS */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;

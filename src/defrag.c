@@ -1,6 +1,6 @@
-/* 
+/*
  * Active memory defragmentation
- * Try to find key / value allocations that need to be re-allocated in order 
+ * Try to find key / value allocations that need to be re-allocated in order
  * to reduce external fragmentation.
  * We do that by scanning the keyspace and for each pointer we have, we can try to
  * ask the allocator if moving it to a new address will help reduce fragmentation.

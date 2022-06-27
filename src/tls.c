@@ -68,7 +68,7 @@ static int parseProtocolsConfig(const char *str) {
     if (!str) return REDIS_TLS_PROTO_DEFAULT;
     sds *tokens = sdssplitlen(str, strlen(str), " ", 1, &count);
 
-    if (!tokens) { 
+    if (!tokens) {
         serverLog(LL_WARNING, "Invalid tls-protocols configuration string");
         return -1;
     }
@@ -143,7 +143,7 @@ static void initCryptoLocks(void) {
 
 void tlsInit(void) {
     /* Enable configuring OpenSSL using the standard openssl.cnf
-     * OPENSSL_config()/OPENSSL_init_crypto() should be the first 
+     * OPENSSL_config()/OPENSSL_init_crypto() should be the first
      * call to the OpenSSL* library.
      *  - OPENSSL_config() should be used for OpenSSL versions < 1.1.0
      *  - OPENSSL_init_crypto() should be used for OpenSSL versions >= 1.1.0
@@ -830,7 +830,7 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
         if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) break;
     }
 
-    /* The amount of all buffers is greater than NET_MAX_WRITES_PER_EVENT, 
+    /* The amount of all buffers is greater than NET_MAX_WRITES_PER_EVENT,
      * which is not worth doing so much memory copying to reduce system calls,
      * therefore, invoke connTLSWrite() multiple times to avoid memory copies. */
     if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) {
@@ -844,9 +844,9 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
         return tot_sent;
     }
 
-    /* The amount of all buffers is less than NET_MAX_WRITES_PER_EVENT, 
-     * which is worth doing more memory copies in exchange for fewer system calls, 
-     * so concatenate these scattered buffers into a contiguous piece of memory 
+    /* The amount of all buffers is less than NET_MAX_WRITES_PER_EVENT,
+     * which is worth doing more memory copies in exchange for fewer system calls,
+     * so concatenate these scattered buffers into a contiguous piece of memory
      * and send it away by one call to connTLSWrite(). */
     char buf[iov_bytes_len];
     size_t offset = 0;
@@ -1087,7 +1087,7 @@ int tlsConfigure(redisTLSContextConfig *ctx_config) {
     return C_OK;
 }
 
-connection *connCreateTLS(void) { 
+connection *connCreateTLS(void) {
     return NULL;
 }
 

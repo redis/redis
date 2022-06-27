@@ -135,7 +135,7 @@ void updateChildInfo(childInfoType information_type, size_t cow, monotime cow_up
 }
 
 /* Read child info data from the pipe.
- * if complete data read into the buffer, 
+ * if complete data read into the buffer,
  * data is stored into *buffer, and returns 1.
  * otherwise, the partial data is left in the buffer, waiting for the next read, and returns 0. */
 int readChildInfo(childInfoType *information_type, size_t *cow, monotime *cow_updated, size_t *keys, double* progress) {

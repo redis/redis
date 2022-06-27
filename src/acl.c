@@ -675,21 +675,21 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
 
     /* Attempt to find a good approximation for categories and commands
      * based on the current bits used, by looping over the category list
-     * and applying the best fit each time. Often a set of categories will not 
-     * perfectly match the set of commands into it, so at the end we do a 
+     * and applying the best fit each time. Often a set of categories will not
+     * perfectly match the set of commands into it, so at the end we do a
      * final pass adding/removing the single commands needed to make the bitmap
-     * exactly match. A temp user is maintained to keep track of categories 
+     * exactly match. A temp user is maintained to keep track of categories
      * already applied. */
     aclSelector ts = {0};
     aclSelector *temp_selector = &ts;
-    
+
     /* Keep track of the categories that have been applied, to prevent
      * applying them twice.  */
     char applied[sizeof(ACLCommandCategories)/sizeof(ACLCommandCategories[0])];
     memset(applied, 0, sizeof(applied));
 
     memcpy(temp_selector->allowed_commands,
-        selector->allowed_commands, 
+        selector->allowed_commands,
         sizeof(selector->allowed_commands));
     while (1) {
         int best = -1;
@@ -704,12 +704,12 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
              *   that are different.
              * AND EITHER
              * * It has the fewest number of differences
-             *    than the best match we have found so far. 
+             *    than the best match we have found so far.
              * * OR it matches the fewest number of differences
              *   that we've seen but it has more in common. */
             diff = additive ? off : on;
             same = additive ? on : off;
-            if (same > diff && 
+            if (same > diff &&
                 ((diff < mindiff) || (diff == mindiff && same > maxsame)))
             {
                 best = j;
@@ -907,8 +907,8 @@ void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *
     selector->allowed_firstargs[id][items-1] = NULL;
 }
 
-/* Create an ACL selector from the given ACL operations, which should be 
- * a list of space separate ACL operations that starts and ends 
+/* Create an ACL selector from the given ACL operations, which should be
+ * a list of space separate ACL operations that starts and ends
  * with parentheses.
  *
  * If any of the operations are invalid, NULL will be returned instead
@@ -1175,11 +1175,11 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              parentheses and attach it to the user. Each option should be
  *              space separated. The first character must be ( and the last
  *              character must be ).
- * clearselectors          Remove all of the currently attached selectors. 
+ * clearselectors          Remove all of the currently attached selectors.
  *                         Note this does not change the "root" user permissions,
  *                         which are the permissions directly applied onto the
  *                         user (outside the parentheses).
- * 
+ *
  * Selector options can also be specified by this function, in which case
  * they update the root selector for the user.
  *
@@ -1501,7 +1501,7 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
 
 /* Checks if the provided selector selector has access specified in flags
  * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
- * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
+ * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all
  * the access flags are satisfied with this selector or 0 otherwise.
  */
 static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags) {
@@ -1530,11 +1530,11 @@ static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags)
     return 0;
 }
 
-/* Checks a channel against a provided list of channels. The is_pattern 
+/* Checks a channel against a provided list of channels. The is_pattern
  * argument should only be used when subscribing (not when publishing)
  * and controls whether the input channel is evaluated as a channel pattern
- * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE). 
- * 
+ * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE).
+ *
  * Note that a plain channel name like in PUBLISH or SUBSCRIBE can be
  * matched against ACL channel patterns, but the pattern provided in PSUBSCRIBE
  * can only be matched as a literal against an ACL pattern (using plain string compare). */
@@ -1548,7 +1548,7 @@ static int ACLCheckChannelAgainstList(list *reference, const char *channel, int 
         size_t plen = sdslen(pattern);
         /* Channel patterns are matched literally against the channels in
          * the list. Regular channels perform pattern matching. */
-        if ((is_pattern && !strcmp(pattern,channel)) || 
+        if ((is_pattern && !strcmp(pattern,channel)) ||
             (!is_pattern && stringmatchlen(pattern,plen,channel,channellen,0)))
         {
             return ACL_OK;
@@ -1675,9 +1675,9 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
 }
 
 /* Checks if the user can execute the given command with the added restriction
- * it must also have the access specified in flags to any key in the key space. 
- * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
- * granted in addition to the access required by the command. Returns 1 
+ * it must also have the access specified in flags to any key in the key space.
+ * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be
+ * granted in addition to the access required by the command. Returns 1
  * if the user has access or 0 otherwise.
  */
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
@@ -1787,7 +1787,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listNode *ln, *lpn;
     robj *o;
     int kill = 0;
-    
+
     /* First optimization is we check if any selector has all channel
      * permissions. */
     listRewind(new->selectors,&li);
@@ -1829,7 +1829,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         listRelease(upcoming);
         return;
     }
-    
+
     /* Permissions have changed, so we need to iterate through all
      * the clients and disconnect those that are no longer valid.
      * Scan all connected clients to find the user's pub/subs. */
@@ -1852,7 +1852,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
                 /* Check for global channels violation. */
                 dictIterator *di = dictGetIterator(c->pubsub_channels);
 
-                dictEntry *de;                
+                dictEntry *de;
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
@@ -1886,14 +1886,14 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
 
 
 /* Selector definitions should be sent as a single argument, however
- * we will be lenient and try to find selector definitions spread 
+ * we will be lenient and try to find selector definitions spread
  * across multiple arguments since it makes for a simpler user experience
- * for ACL SETUSER as well as when loading from conf files. 
- * 
+ * for ACL SETUSER as well as when loading from conf files.
+ *
  * This function takes in an array of ACL operators, excluding the username,
  * and merges selector operations that are spread across multiple arguments. The return
- * value is a new SDS array, with length set to the passed in merged_argc. Arguments 
- * that are untouched are still duplicated. If there is an unmatched parenthesis, NULL 
+ * value is a new SDS array, with length set to the passed in merged_argc. Arguments
+ * that are untouched are still duplicated. If there is an unmatched parenthesis, NULL
  * is returned and invalid_idx is set to the argument with the start of the opening
  * parenthesis. */
 sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *invalid_idx) {
@@ -1916,7 +1916,7 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
             selector = sdscatfmt(selector, " %s", op);
             if (op[sdslen(op) - 1] == ')') {
                 open_bracket_start = -1;
-                acl_args[*merged_argc] = selector;                        
+                acl_args[*merged_argc] = selector;
                 (*merged_argc)++;
             }
             continue;
@@ -1964,7 +1964,7 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     if (listSearchKey(UsersToLoad, argv[1])) {
         if (argc_err) *argc_err = 1;
         errno = EALREADY;
-        return C_ERR; 
+        return C_ERR;
     }
 
     /* Try to apply the user rules in a fake user to see if they
@@ -2365,7 +2365,7 @@ void ACLFreeLogEntry(void *leptr) {
  * the log entry instead of creating many entries for very similar ACL
  * rules issues.
  *
- * The argpos argument is used when the reason is ACL_DENIED_KEY or 
+ * The argpos argument is used when the reason is ACL_DENIED_KEY or
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
  * name that caused the problem.
  *
@@ -2484,8 +2484,8 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
 }
 
 /* Add the formatted response from a single selector to the ACL GETUSER
- * response. This function returns the number of fields added. 
- * 
+ * response. This function returns the number of fields added.
+ *
  * Setting verbose to 1 means that the full qualifier for key and channel
  * permissions are shown.
  */
@@ -2497,7 +2497,7 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
     addReplyBulkCString(c,"commands");
     sds cmddescr = ACLDescribeSelectorCommandRules(s);
     addReplyBulkSds(c,cmddescr);
-    
+
     /* Key patterns */
     addReplyBulkCString(c,"keys");
     if (s->flags & SELECTOR_FLAG_ALLKEYS) {
@@ -2672,7 +2672,7 @@ setuser_cleanup:
             void *slen = addReplyDeferredLen(c);
             int sfields = aclAddReplySelectorDescription(c, (aclSelector *)listNodeValue(ln));
             setDeferredMapLen(c, slen, sfields);
-        } 
+        }
         setDeferredMapLen(c, ufields, fields);
     } else if ((!strcasecmp(sub,"list") || !strcasecmp(sub,"users")) &&
                c->argc == 2)
@@ -2946,7 +2946,7 @@ void authCommand(client *c) {
             return;
         }
 
-        username = shared.default_username; 
+        username = shared.default_username;
         password = c->argv[1];
     } else {
         username = c->argv[1];

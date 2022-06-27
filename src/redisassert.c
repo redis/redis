@@ -1,7 +1,7 @@
-/* redisassert.c -- Implement the default _serverAssert and _serverPanic which 
+/* redisassert.c -- Implement the default _serverAssert and _serverPanic which
  * simply print stack trace to standard error stream.
- * 
- * This file is shared by those modules that try to print some logs about stack trace 
+ *
+ * This file is shared by those modules that try to print some logs about stack trace
  * but don't have their own implementations of functions in redisassert.h.
  *
  * ----------------------------------------------------------------------------
@@ -35,7 +35,7 @@
  */
 
 
-#include <stdio.h> 
+#include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 

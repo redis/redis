@@ -31,7 +31,7 @@
 #define __SCRIPT_H_
 
 /*
- * Script.c unit provides an API for functions and eval 
+ * Script.c unit provides an API for functions and eval
  * to interact with Redis. Interaction includes mostly
  * executing commands, but also functionalities like calling
  * Redis back on long scripts or check if the script was killed.

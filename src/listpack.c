@@ -686,7 +686,7 @@ unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval)
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
-unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, 
+unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
                       uint32_t slen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
@@ -760,14 +760,14 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
  * or LP_REPLACE.
- * 
+ *
  * If both 'elestr' and `eleint` are NULL, the function removes the element
  * pointed by 'p' instead of inserting one.
  * If `eleint` is non-NULL, 'size' is the length of 'eleint', the function insert
  * or replace with a 64 bit integer, which is stored in the 'eleint' buffer.
  * If 'elestr` is non-NULL, 'size' is the length of 'elestr', the function insert
  * or replace with a string, which is stored in the 'elestr' buffer.
- * 
+ *
  * Returns NULL on out of memory or when the listpack total length would exceed
  * the max allowed size of 2^32-1, otherwise the new pointer to the listpack
  * holding the new element is returned (and the old pointer passed is no longer
@@ -1282,7 +1282,7 @@ static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigne
 /* Validate the integrity of the data structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one. */
-int lpValidateIntegrity(unsigned char *lp, size_t size, int deep, 
+int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata) {
     /* Check that we can actually read the header. (and EOF) */
     if (size < LP_HDR_SIZE + 1)
@@ -1487,7 +1487,7 @@ void lpRepr(unsigned char *lp) {
     int index = 0;
 
     printf("{total bytes %zu} {num entries %lu}\n", lpBytes(lp), lpLength(lp));
-        
+
     p = lpFirst(lp);
     while(p) {
         uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
@@ -1541,7 +1541,7 @@ void lpRepr(unsigned char *lp) {
 #define TEST(name) printf("test — %s\n", name);
 
 char *mixlist[] = {"hello", "foo", "quux", "1024"};
-char *intlist[] = {"4294967296", "-100", "100", "128000", 
+char *intlist[] = {"4294967296", "-100", "100", "128000",
                    "non integer", "much much longer non integer"};
 
 static unsigned char *createList() {
@@ -1714,7 +1714,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpSeek(lp, -5) == NULL);
         lpFree(lp);
     }
-    
+
     TEST("Pop list") {
         lp = createList();
         lp = pop(lp, 1);
@@ -1746,7 +1746,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         }
         lpFree(lp);
     }
-    
+
     TEST("Iterate list from 1 to end") {
         lp = createList();
         i = 1;
@@ -1758,7 +1758,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         }
         lpFree(lp);
     }
-    
+
     TEST("Iterate list from 2 to end") {
         lp = createList();
         i = 2;
@@ -1770,7 +1770,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         }
         lpFree(lp);
     }
-    
+
     TEST("Iterate from back to front") {
         lp = createList();
         p = lpLast(lp);
@@ -1782,7 +1782,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         }
         lpFree(lp);
     }
-    
+
     TEST("Iterate from back to front, deleting all items") {
         lp = createList();
         p = lpLast(lp);
@@ -1879,7 +1879,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
         zfree(lp);
     }
-    
+
     TEST("Delete with start index out of range");
     {
         lp = createList();

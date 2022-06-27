@@ -1060,7 +1060,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
 
     /* In any case, we reset iterator to forbid use of iterator after insert.
      * Notice: iter->current has been compressed in _quicklistInsert(). */
-    resetIterator(iter); 
+    resetIterator(iter);
 }
 
 void quicklistInsertBefore(quicklistIter *iter, quicklistEntry *entry,
@@ -2702,7 +2702,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
             if (iter)
                 ERR("Index past elements: %lld", entry.longval);
             ql_release_iterator(iter);
-            
+
             iter = quicklistGetIteratorEntryAtIdx(ql, -1, &entry);
             if (entry.longval != 4444)
                 ERR("Not 4444 (reverse), %lld", entry.longval);
@@ -2717,12 +2717,12 @@ int quicklistTest(int argc, char *argv[], int flags) {
             if (entry.longval != 2222)
                 ERR("Not 2222 (reverse), %lld", entry.longval);
             ql_release_iterator(iter);
-            
+
             iter = quicklistGetIteratorEntryAtIdx(ql, -4, &entry);
             if (entry.longval != 1111)
                 ERR("Not 1111 (reverse), %lld", entry.longval);
             ql_release_iterator(iter);
-            
+
             iter = quicklistGetIteratorEntryAtIdx(ql, -5, &entry);
             if (iter)
                 ERR("Index past elements (reverse), %lld", entry.longval);
@@ -3173,7 +3173,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
              * it disables the passing of quicklist head or tail node. */
             node->prev = quicklistCreateNode();
             node->next = quicklistCreateNode();
-            
+
             /* Create a rand string */
             size_t sz = (1 << 25); /* 32MB per one entry */
             unsigned char *s = zmalloc(sz);

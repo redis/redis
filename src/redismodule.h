@@ -15,7 +15,7 @@
 /* API versions. */
 #define REDISMODULE_APIVER_1 1
 
-/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
+/* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 4
 
@@ -531,7 +531,7 @@ static const RedisModuleEvent
     /* Deprecated since Redis 7.0, not used anymore. */
     __attribute__ ((deprecated))
     RedisModuleEvent_ReplBackup = {
-        REDISMODULE_EVENT_REPL_BACKUP, 
+        REDISMODULE_EVENT_REPL_BACKUP,
         1
     },
     RedisModuleEvent_ReplAsyncLoad = {

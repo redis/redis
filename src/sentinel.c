@@ -464,7 +464,7 @@ void sentinelConfigSetCommand(client *c);
 
 /* this array is used for sentinel config lookup, which need to be loaded
  * before monitoring masters config to avoid dependency issues */
-const char *preMonitorCfgName[] = { 
+const char *preMonitorCfgName[] = {
     "announce-ip",
     "announce-port",
     "deny-scripts-reconfig",
@@ -1140,7 +1140,7 @@ void dropInstanceConnections(sentinelRedisInstance *ri) {
     /* Disconnect with the master. */
     instanceLinkCloseConnection(ri->link, ri->link->cc);
     instanceLinkCloseConnection(ri->link, ri->link->pc);
-    
+
     /* Disconnect with all replicas. */
     dictIterator *di;
     dictEntry *de;
@@ -1601,10 +1601,10 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     if (newaddr == NULL) return C_ERR;
 
     /* There can be only 0 or 1 slave that has the newaddr.
-     * and It can add old master 1 more slave. 
+     * and It can add old master 1 more slave.
      * so It allocates dictSize(master->slaves) + 1          */
     slaves = zmalloc(sizeof(sentinelAddr*)*(dictSize(master->slaves) + 1));
-    
+
     /* Don't include the one having the address we are switching to. */
     di = dictGetIterator(master->slaves);
     while((de = dictNext(di)) != NULL) {
@@ -2242,14 +2242,14 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         line = sdscatprintf(sdsempty(), "sentinel sentinel-pass %s", sentinel.sentinel_auth_pass);
         rewriteConfigRewriteLine(state,"sentinel sentinel-pass",line,1);
     } else {
-        rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");  
+        rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");
     }
 
     dictReleaseIterator(di);
 
-    /* NOTE: the purpose here is in case due to the state change, the config rewrite 
-     does not handle the configs, however, previously the config was set in the config file, 
-     rewriteConfigMarkAsProcessed should be put here to mark it as processed in order to 
+    /* NOTE: the purpose here is in case due to the state change, the config rewrite
+     does not handle the configs, however, previously the config was set in the config file,
+     rewriteConfigMarkAsProcessed should be put here to mark it as processed in order to
      delete the old config entry.
     */
     rewriteConfigMarkAsProcessed(state,"sentinel monitor");
@@ -4115,7 +4115,7 @@ NULL
             addReplySentinelDebugInfo(c);
         else
             sentinelSetDebugConfigParameters(c);
-    } 
+    }
     else {
         addReplySubcommandSyntaxError(c);
     }
@@ -4469,7 +4469,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
           (ri->down_after_period+sentinel_info_period*2)) ||
-          (ri->flags & SRI_MASTER_REBOOT && 
+          (ri->flags & SRI_MASTER_REBOOT &&
            mstime()-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
     {
         /* Is subjectively down */

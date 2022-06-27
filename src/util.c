@@ -967,7 +967,7 @@ int fsyncFileDir(const char *filename) {
         errno = save_errno;
         return -1;
     }
-    
+
     close(dir_fd);
     return 0;
 }
