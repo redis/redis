@@ -1999,7 +1999,7 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
     uint32_t extension_size = getHostnamePingExtSize();
 
     /* Move the write cursor */
-    (*cursor)->type = CLUSTERMSG_EXT_TYPE_HOSTNAME;
+    (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_HOSTNAME);
     (*cursor)->length = htonl(extension_size);
     /* Make sure the string is NULL terminated by adding 1 */
     *cursor = (clusterMsgPingExt *) (ext->hostname + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
