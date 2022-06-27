@@ -215,7 +215,7 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d,%d,%d,%d)" % (
+        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d)" % (
             self.name,
             ARG_TYPES[self.type],
             self.desc.get("key_spec_index", -1),
@@ -223,9 +223,6 @@ class Argument(object):
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
-            self.desc.get("optional", 0) and 1,
-            self.desc.get("multiple", 0) and 1,
-            self.desc.get("multiple_token", 0) and 1,
             len(self.subargs)
         )
         if "deprecated_since" in self.desc:
