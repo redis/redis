@@ -552,11 +552,11 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
                 assert(flags->element[j]->type == REDIS_REPLY_STATUS);
                 char *flag = flags->element[j]->str;
                 if (!strcmp(flag, "optional")) {
-                    cmdArg->optional = 1;
+                    cmdArg->flags |= CMD_ARG_OPTIONAL;
                 } else if (!strcmp(flag, "multiple")) {
-                    cmdArg->multiple = 1;
+                    cmdArg->flags |= CMD_ARG_MULTIPLE;
                 } else if (!strcmp(flag, "multiple_token")) {
-                    cmdArg->multiple_token = 1;
+                    cmdArg->flags |= CMD_ARG_MULTIPLE_TOKEN;
                 }
             }
         }
@@ -1053,7 +1053,7 @@ static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char 
     int i, j, incomplete;
     size_t len=sdslen(hint);
     for (i = 0; i < numargs; i++) {
-        if (!args[i].optional) {
+        if (!(args[i].flags & CMD_ARG_OPTIONAL)) {
             hint = addHintForArgument(hint, &args[i]);
             hint = addSeparator(hint, &len, separator, i == numargs-1);
             continue;
@@ -1067,7 +1067,7 @@ static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char 
          * completion of the currently-incomplete optional arg first, if there is one.
          */
         for (j = i, incomplete = -1; j < numargs; j++) {
-            if (!args[j].optional) break;
+            if (!(args[j].flags & CMD_ARG_OPTIONAL)) break;
             if (args[j].matched != 0 && args[j].matched_all == 0) {
                 /* User has started typing this arg; show its completion first. */
                 hint = addHintForArgument(hint, &args[j]);
@@ -1097,7 +1097,7 @@ static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char 
  * The repeating part is a fixed unit; we don't filter matched elements from it.
  */
 static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
-    if (!arg->multiple) {
+    if (!(arg->flags & CMD_ARG_MULTIPLE)) {
         return hint;
     }
 
@@ -1111,7 +1111,7 @@ static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
     }
     hint = sdscat(hint, "[");
 
-    if (arg->multiple_token) {
+    if (arg->flags & CMD_ARG_MULTIPLE_TOKEN) {
         hint = sdscat_orempty(hint, arg->token);
         if (arg->type != ARG_TYPE_PURE_TOKEN) {
             hint = sdscat(hint, " ");
@@ -1146,7 +1146,7 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
     }
 
     /* Surround an optional arg with brackets, unless it's partially matched. */
-    if (arg->optional && !arg->matched) {
+    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
         hint = sdscat(hint, "[");
     }
 
@@ -1189,7 +1189,7 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
 
     hint = addHintForRepeatedArgument(hint, arg);
 
-    if (arg->optional && !arg->matched) {
+    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
         hint = sdscat(hint, "]");
     }
 
@@ -1308,7 +1308,7 @@ static int matchArgOnce(char **nextword, int numwords, cliCommandArg *arg) {
 static int matchArg(char **nextword, int numwords, cliCommandArg *arg) {
     int matchedWords = 0;
     int matchedOnce = matchArgOnce(nextword, numwords, arg);
-    if (!arg->multiple) {
+    if (!(arg->flags & CMD_ARG_MULTIPLE)) {
         return matchedOnce;
     }
 
@@ -1316,7 +1316,7 @@ static int matchArg(char **nextword, int numwords, cliCommandArg *arg) {
     matchedWords += matchedOnce;
     while (arg->matched_all && matchedWords < numwords) {
         clearMatchedArgs(arg, 1);
-        if (arg->token != NULL && !arg->multiple_token) {
+        if (arg->token != NULL && !(arg->flags & CMD_ARG_MULTIPLE_TOKEN)) {
             /* The token only appears the first time; the rest of the times,
              * pretend we saw it so we don't hint it.
              */
@@ -1380,10 +1380,10 @@ static int matchArgs(char **words, int numwords, cliCommandArg *args, int numarg
         /* Optional args can occur in any order. Collect a range of consecutive optional args
          * and try to match them as a group against the next input words.
          */
-        if (args[nextarg].optional) {
+        if (args[nextarg].flags & CMD_ARG_OPTIONAL) {
             int lastoptional;
             for (lastoptional = nextarg; lastoptional < numargs; lastoptional++) {
-                if (!args[lastoptional].optional) break;
+                if (!(args[lastoptional].flags & CMD_ARG_OPTIONAL)) break;
             }
             matchedWords = matchOptionalArgs(&words[nextword], numwords - nextword, &args[nextarg], lastoptional - nextarg);
             nextarg = lastoptional - 1;

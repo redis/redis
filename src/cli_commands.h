@@ -2,29 +2,16 @@
 #define __REDIS_CLI_COMMANDS_H
 
 #include <stddef.h>
+#include "commands.h"
 
 #define REDIS_CLI_COMMANDS
 
-typedef enum {
-    ARG_TYPE_STRING,
-    ARG_TYPE_INTEGER,
-    ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY, /* A string, but represents a keyname */
-    ARG_TYPE_PATTERN,
-    ARG_TYPE_UNIX_TIME,
-    ARG_TYPE_PURE_TOKEN,
-    ARG_TYPE_ONEOF, /* Has subargs */
-    ARG_TYPE_BLOCK /* Has subargs */
-} commandArgType;
-
 typedef struct cliCommandArg {
     char *name;
-    commandArgType type;
+    redisCommandArgType type;
     char *token;
     char *since;
-    int optional;
-    int multiple;
-    int multiple_token;
+    int flags;
     int numsubargs;
     struct cliCommandArg *subargs;
 
@@ -50,7 +37,7 @@ struct commandDocs {
 /* Definitions to configure commands.c to generate the above structs. */
 
 #define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,group,since,numargs
-#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,optional,multiple,multiple_token,numsubargs) name,type,token,since,optional,multiple,multiple_token,numsubargs
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs) name,type,token,since,flags,numsubargs
 #define redisCommandArg cliCommandArg
 #define COMMAND_STRUCT commandDocs
 

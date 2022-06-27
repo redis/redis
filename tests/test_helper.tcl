@@ -98,6 +98,10 @@ set ::all_tests {
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
+# set ::all_tests {
+#     unit/moduleapi/blockedclient
+# }
+# integration/redis-cli
 
 set ::host 127.0.0.1
 set ::port 6379; # port for external server
