@@ -536,7 +536,7 @@ void set_jemalloc_bg_thread(int enable) {
 }
 
 void set_jemalloc_max_bg_threads(size_t threads) {
-    ((void)(enable));
+    ((void)(threads));
 }
 
 int jemalloc_purge() {

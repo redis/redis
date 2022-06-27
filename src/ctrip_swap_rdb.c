@@ -143,9 +143,14 @@ void rdbKeyDataDeinitSave(rdbKeyData *keydata) {
     if (keydata->type->save_deinit) keydata->type->save_deinit(keydata);
 }
 
-/* Bighash fields are located adjacent, which will be iterated next to each.
- * - Init savectx for key (bighash or wholekey)
- * - iterate fields untill finished (meta.len is num fields to iterate).  */
+void moveDecodeResult(decodeResult *from, decodeResult *to) {
+    *to = *from;
+    decodeResult empty;
+    *from = empty;
+    serverAssert(from->key == NULL);
+    serverAssert(to->key != NULL);
+}
+
 int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     rocksIter *it;
     sds rawkey, rawval;
@@ -162,51 +167,55 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
     }
 
     if (!rocksIterSeekToFirst(it)) return C_OK;
-
+    decodeResult _nextDecoded = {.key = NULL}, *nextDecoded = &_nextDecoded;
+    int hasNext = 1;
     do {
         int cont, key_ready;
-        sds key;
         unsigned char rdbtype;
         rdbKeyData _keydata, *keydata = &_keydata;
         decodeResult _decoded, *decoded = &_decoded;
         error = 0;
-
-        rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
-        stat_rawkeys++;
-        if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
-            if (decode_raw_failed++ < 10) {
-                sds repr = sdscatrepr(sdsempty(),rawkey,sdslen(rawkey));
-                serverLog(LL_WARNING, "Decode rocks raw failed: %s", repr);
-                sdsfree(repr);
+        if (nextDecoded->key == NULL) {
+            rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
+            stat_rawkeys++;
+            if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
+                if (decode_raw_failed++ < 10) {
+                    sds repr = sdscatrepr(sdsempty(),rawkey,sdslen(rawkey));
+                    serverLog(LL_WARNING, "Decode rocks raw failed: %s", repr);
+                    sdsfree(repr);
+                }
+                stats_skipped++;
+                hasNext = rocksIterNext(it);
+                continue;
             }
-            stats_skipped++;
-            continue;
+        } else {
+            moveDecodeResult(nextDecoded, decoded);
         }
-
-        key = decoded->key;
+        
         if ((init_result = rdbKeyDataInitSave(keydata,db,decoded))) {
             if (init_result == -2) {
                 stat_obseletes++;
             } else if (init_key_save_failed++ < 10) {
-                sds repr = sdscatrepr(sdsempty(),key,sdslen(key));
-                serverLog(LL_WARNING, "Init rdb save key failed: %s", repr);
+                sds repr = sdscatrepr(sdsempty(), decoded->key,sdslen(decoded->key));
+                serverLog(LL_WARNING, "Init rdb save key failed: %s, %d", repr, init_result);
                 sdsfree(repr);
             }
             decodeResultDeinit(decoded);
             stats_skipped++;
+            hasNext = rocksIterNext(it);
             continue;
         }
 
         if ((error = rdbKeySaveStart(keydata,rdb))) {
-            errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %s",
-                    decoded->key, strerror(error));
+            errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %i",
+                    decoded->key, error);
             decodeResultDeinit(decoded);
             rdbKeyDataDeinitSave(keydata);
             goto err;
         }
 
-        cont = 1, key_ready = 1;
-        while (!error && cont) {
+        cont = RDB_KEY_SAVE_NEXT, key_ready = 1;
+        while (!error && cont == RDB_KEY_SAVE_NEXT) {
             if (!key_ready) { /* prepare next key. */
                 if (!rocksIterNext(it)) /* iter finished.*/
                     break;
@@ -225,22 +234,29 @@ int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
             }
             cont = rdbKeySave(keydata,rdb,decoded,&error);
             key_ready = 0; /* flag key consumed */
-            decodeResultDeinit(decoded);
+            if (cont == RDB_KEY_SAVE_SKIP && error == 0) {
+                moveDecodeResult(decoded, nextDecoded);
+            } else {
+                decodeResultDeinit(decoded);
+            }
         }
 
         /* call save_end if save_start called, no matter error or not. */
         if (!error && (error = rdbKeySaveEnd(keydata))) {
-            errstr = sdscatfmt(sdsempty(),"Save key(%S) end failed: %s",
-                    decoded->key, strerror(error));
+            errstr = sdscatfmt(sdsempty(),"Save key end failed: %i", 
+                error);
             rdbKeyDataDeinitSave(keydata);
-            break;
+            goto err;
         }
 
         rdbKeyDataDeinitSave(keydata);
         stat_keys++;
         rdbSaveProgress(rdb,rdbflags);
-    } while (!error && rocksIterNext(it));
 
+        if (nextDecoded->key == NULL) {
+            hasNext = rocksIterNext(it);
+        } 
+    } while (!error && hasNext);
     serverLog(LL_NOTICE,"Rdb save keys from rocksdb finished:"
             "rawkey(iterated:%lld,obselete:%lld,skipped:%lld), key(saved:%lld).",
             stat_rawkeys, stat_obseletes, stats_skipped, stat_keys);

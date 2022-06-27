@@ -283,3 +283,98 @@ start_server {tags "bighash"} {
         assert_equal [r del hash13] 1
     }
 }
+
+start_server {tags {"evict big hash, check hlen"}} {
+    test {check meta on hash evict} {
+        r config set debug-evict-keys 0
+        r config set swap-big-hash-threshold 1
+        r config set swap-evict-step-max-subkeys 2
+        r hmset myhash a a b b c c d d e e f f g g h h
+        assert_equal [r hlen myhash] 8
+        assert_equal [r evict myhash] 1
+        after 100
+        assert_equal [r hlen myhash] 8
+        after 100
+        # puts [r swap object myhash]
+        assert_equal [r evict myhash] 1
+        after 100
+        assert_equal [r hlen myhash] 8
+        after 100
+        # puts [r swap object myhash]
+    }
+} 
+
+
+test {big hash check reload1} {
+    start_server {tags {"evict big hash, check reload"}} {
+        r config set debug-evict-keys 0
+        r config set swap-big-hash-threshold 1
+        r config set swap-evict-step-max-subkeys 2
+        r hmset myhash a a b b c c d d e e f f g g h h
+        assert_equal [r hlen myhash] 8
+        assert_equal [r evict myhash] 1
+        for {set j 0} { $j < 3} {incr j} {
+            after 100
+            assert_equal [r evict myhash] 1
+
+        } 
+        after 1000
+        assert_equal [r hlen myhash] 8
+        r hmget myhash a b c d e f g
+        assert_equal [r hlen myhash] 8
+        after 1000
+        r debug reload 
+        assert_equal [r hlen myhash] 8
+    }
+}
+
+
+test {big hash random get check reload} {
+    start_server {tags {"evict big hash, check reload"}} {
+        r config set debug-evict-keys 0
+        r config set swap-big-hash-threshold 1
+        r config set swap-evict-step-max-subkeys 2
+        set test_count 100
+        set hlen 100
+        for {set i 0} {$i < $test_count} {incr i} {
+            for {set j 0} {$j < $hlen} {incr j} {
+                r hset myhash $j  [randomValue]
+            } 
+            set evict_count  [randomInt [expr $hlen/2]]
+            for {set j 0} {$j < $evict_count} {incr j} {
+                r evict  myhash
+            }
+            set get_count [randomInt $hlen]
+            for {set j 0} {$j < $get_count} {incr j} {
+                r hget myhash $j 
+            }           
+            assert_equal [r hlen myhash] $hlen
+            r debug reload
+        }
+
+    }
+}
+
+
+test {two big hash check reload1} {
+    start_server {tags {"evict big hash, check reload"}} {
+        r config set debug-evict-keys 0
+        r config set swap-big-hash-threshold 1
+        r config set swap-evict-step-max-subkeys 2
+        r config set save ""
+        r hmset myhash a a b b c c d d e e f f g g h h
+        assert_equal [r hlen myhash] 8
+        r hmset myhash1 a a b b c c
+        assert_equal [r hlen myhash1] 3
+        assert_equal [r evict myhash1] 1
+        for {set j 0} { $j < 4} {incr j} {
+            after 100
+            assert_equal [r evict myhash] 1
+        } 
+        after 1000
+        puts [r debug reload]
+        assert_equal [r hlen myhash] 8
+        assert_equal [r hlen myhash1] 3
+    }
+}
+

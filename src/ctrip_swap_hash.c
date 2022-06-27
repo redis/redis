@@ -552,13 +552,22 @@ swapData *createBigHashSwapData(redisDb *db, robj *key, robj *value,
 rdbKeyType bigHashRdbType = {
     .save_start = bighashSaveStart,
     .save = bighashSave,
-    .save_end = NULL,
+    .save_end = bighashSaveEnd,
     .save_deinit = bighashSaveDeinit,
     .load = bighashRdbLoad,
     .load_end = NULL,
     .load_dbadd = bighashRdbLoadDbAdd,
     .load_deinit = NULL,
 };
+
+int bighashSaveEnd(rdbKeyData *keydata) {
+    objectMeta *meta = keydata->savectx.bighash.meta;
+    if (keydata->savectx.bighash.saved != meta->len) {
+        serverLog(LL_WARNING, "bighashBigSave %s: %d != %zd",(sds)(keydata->savectx.bighash.key->ptr), keydata->savectx.bighash.saved, meta->len);
+        return C_ERR;
+    }
+    return C_OK;
+}
 
 int bighashSaveStart(rdbKeyData *keydata, rio *rdb) {
     robj *x;
@@ -626,7 +635,20 @@ int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
             sdscmp(decoded->key,key->ptr)) {
         /* check failed, skip this key */
         *error = 0;
-        return 0;
+        return RDB_KEY_SAVE_SKIP;
+    }
+
+    if (keydata->savectx.value != NULL) {
+        robj *subval = hashTypeGetValueObject(keydata->savectx.value,
+                    decoded->subkey);
+
+        if (subval != NULL) {
+            decrRefCount(subval);
+            serverLog(LL_WARNING, "skip save rdb subval: %s", decoded->subkey);
+            /* skip this subkey */
+            *error = 0;
+            return 1;
+        } 
     }
 
     if (rdbSaveRawString(rdb,(unsigned char*)decoded->subkey,
@@ -643,7 +665,7 @@ int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
 
     *error = 0;
     keydata->savectx.bighash.saved++;
-    return keydata->savectx.bighash.saved < meta->len;
+    return RDB_KEY_SAVE_NEXT;
 }
 
 void bighashSaveDeinit(rdbKeyData *keydata) {
@@ -929,6 +951,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         server.swap_big_hash_threshold = 0;
         int err = 0, version;
 		sds myhash_key = sdsnew("myhash");
+        sds myhash1_key = sdsnew("myhash1");
 		robj *myhash = createHashObject();
         sds f1 = sdsnew("f1"), f2 = sdsnew("f2");
         sds rdbv1 = rocksEncodeValRdb(createStringObject("v1", 2));
@@ -971,7 +994,10 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         test_assert(rdbKeySaveStart(keydata,&rdbcold) == 0);
         test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 1);
         decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
-        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 0);
+        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 1);
+        decoded_fx->key = myhash1_key;
+        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == -1);
+        decoded_fx->key = myhash_key;
         coldraw = rdbcold.io.buffer.ptr;
 
         /* save warm */
@@ -981,7 +1007,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         meta->len = 1;
         rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,-1,myhash_key);
         test_assert(rdbKeySaveStart(keydata,&rdbwarm) == 0);
-        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx,&err) == 0);
+        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx,&err) == 1);
         warmraw = rdbwarm.io.buffer.ptr;
 
         /* save hot */

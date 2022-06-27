@@ -104,6 +104,11 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 #define SWAP_DEL    3
 #define SWAP_TYPES  4
 
+/* --- RDB_KEY_SAVE --- */
+#define RDB_KEY_SAVE_NEXT 1
+#define RDB_KEY_SAVE_END 0
+#define RDB_KEY_SAVE_SKIP -1
+
 static inline const char *swapIntentionName(int intention) {
   const char *name = "?";
   const char *intentions[] = {"NOP", "IN", "OUT", "DEL"};

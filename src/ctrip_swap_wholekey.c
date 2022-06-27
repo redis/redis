@@ -327,7 +327,7 @@ int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
     }
 
     *error = 0;
-    return 0;
+    return RDB_KEY_SAVE_END;
 
 werr:
     *error = -1;
