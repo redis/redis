@@ -1396,26 +1396,23 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
 
                 /* Try visiting the next child if there was at least one
                  * additional child. */
-                if (!it->node->iscompr && it->node->size > (old_noup ? 0 : 1)) {
-                    debugf("it->node->size: %d\n", it->node->size);
-                    if (it->child_offset + (old_noup ? 0 : 1) != it->node->size) {
-                        it->child_offset += (old_noup ? 0 : 1); /* set parent offset to current child */
-                        raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
-                        debugf("SCAN found a new node\n");
-                        raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
-                        if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
-                        memcpy(&it->node,cp,sizeof(it->node));
-                        it->child_offset = 0;
-                        /* Call the node callback if any, and replace the node
-                         * pointer if the callback returns true. */
-                        if (it->node_cb && it->node_cb(&it->node))
-                            memcpy(cp,&it->node,sizeof(it->node));
-                        if (it->node->iskey) {
-                            it->data = raxGetData(it->node);
-                            return 1;
-                        }
-                        break;
+                if (!it->node->iscompr && it->child_offset + (old_noup ? 0 : 1) != it->node->size) {
+                    it->child_offset += (old_noup ? 0 : 1); /* set parent offset to current child */
+                    raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
+                    debugf("SCAN found a new node\n");
+                    raxIteratorAddChars(it,it->node->data + it->child_offset, 1);
+                    if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
+                    memcpy(&it->node,cp,sizeof(it->node));
+                    it->child_offset = 0;
+                    /* Call the node callback if any, and replace the node
+                        * pointer if the callback returns true. */
+                    if (it->node_cb && it->node_cb(&it->node))
+                        memcpy(cp,&it->node,sizeof(it->node));
+                    if (it->node->iskey) {
+                        it->data = raxGetData(it->node);
+                        return 1;
                     }
+                    break;
                 }
             }
         }
