@@ -760,14 +760,13 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate) {
         sds rawval = rocksEncodeValRdb(myhash);
 
         sds rdbraw = sdsnewlen(rawval+1,sdslen(rawval)-1);
-        rocksDecodeRaw(rawkey,rawval[0],rdbraw,decoded);
+        rocksDecodeRaw(sdsdup(rawkey),rawval[0],rdbraw,decoded);
         test_assert(decoded->enc_type == ENC_TYPE_HASH);
         test_assert(!sdscmp(decoded->key,myhash_key));
 
         rioInitWithBuffer(&sdsrdb, sdsempty());
         rdbKeyDataInitSaveWholeKey(keydata,NULL,evict,-1);
-        wholekeySave(keydata,&sdsrdb,decoded,&err);
-        test_assert(err == 0);
+        test_assert(wholekeySave(keydata,&sdsrdb,decoded) == 0);
 
         sds rawkey2, rawval2;
         rio sdsrdb2;

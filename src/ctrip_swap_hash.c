@@ -986,11 +986,9 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         robj *evict = createObject(OBJ_HASH,NULL);
         rdbKeyDataInitSaveBigHash(keydata,NULL,evict,meta,-1,myhash_key);
         test_assert(rdbKeySaveStart(keydata,&rdbcold) == 0);
-        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 1);
+        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx) == 0);
         decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
-        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 0);
-        decoded_fx->key = myhash1_key;
-        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == -1);
+        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx) == 0);
         decoded_fx->key = myhash_key;
         coldraw = rdbcold.io.buffer.ptr;
 
@@ -1001,7 +999,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         meta->len = 1;
         rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,-1,myhash_key);
         test_assert(rdbKeySaveStart(keydata,&rdbwarm) == 0);
-        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx,&err) == 0);
+        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx) == 0);
         warmraw = rdbwarm.io.buffer.ptr;
 
         /* save hot */
