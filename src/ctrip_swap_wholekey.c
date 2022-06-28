@@ -312,25 +312,19 @@ void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict,
     serverAssert(value == NULL && evict->big == 0);
 }
 
-int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
-        int *error) {
+int wholekeySave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded) {
     robj keyobj;
 
     initStaticStringObject(keyobj,decoded->key);
     if (rdbSaveKeyHeader(rdb,&keyobj,keydata->savectx.evict,
                 decoded->rdbtype,keydata->savectx.expire) == -1) {
-        goto werr;
+        return -1;
     }
 
     if (rdbWriteRaw(rdb,decoded->rdbraw,sdslen(decoded->rdbraw)) == -1) {
-        goto werr;
+        return -1;
     }
 
-    *error = 0;
-    return RDB_KEY_SAVE_END;
-
-werr:
-    *error = -1;
     return 0;
 }
 

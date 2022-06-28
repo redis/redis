@@ -1290,11 +1290,13 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
+            objectMeta *meta;
             long long expire;
 
             initStaticStringObject(key,keystr);
-            /* bighash will be saved later in rdbSaveRocks. */
-            if (lookupMeta(db,&key) != NULL) continue;
+            /* cold or warm bighash will be saved later in rdbSaveRocks. */
+            if ((meta = lookupMeta(db,&key)) != NULL && meta->len > 0)
+                continue;
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
             rdbSaveProgress(rdb,rdbflags);
@@ -1303,7 +1305,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
         di = NULL;
 
         /* Iterate DB.rocks writing every entry */
-        if (rdbSaveRocks(rdb, db, rdbflags)) goto werr;
+        if (rdbSaveRocks(rdb, error, db, rdbflags)) goto werr;
 
         dbResumeRehash(db);
     }
@@ -1336,7 +1338,7 @@ int rdbSaveRio(rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    if (error) *error = errno;
+    if (error && *error == 0) *error = errno;
     if (di) dictReleaseIterator(di);
     return C_ERR;
 }

@@ -45,29 +45,35 @@ int rocksDecodeRaw(sds rawkey, unsigned char rdbtype, sds rdbraw,
     decoded->enc_type = rawkey[0];
     if (isSubkeyEncType(decoded->enc_type)) {
         if (rocksDecodeSubkey(rawkey,sdslen(rawkey),&version,&key,&klen,
-                &subkey,&slen) == -1)
+                &subkey,&slen) == -1) {
+            sdsfree(rawkey);
+            sdsfree(rdbraw);
             return -1;
+        }
     } else {
-        if (rocksDecodeKey(rawkey,sdslen(rawkey),&key,&klen) == -1)
+        if (rocksDecodeKey(rawkey,sdslen(rawkey),&key,&klen) == -1) {
+            sdsfree(rawkey);
+            sdsfree(rdbraw);
             return -1;
+        }
     }
     decoded->key = sdsnewlen(key,klen);
     decoded->subkey = sdsnewlen(subkey,slen);
     decoded->version = version;
     decoded->rdbtype = rdbtype;
     decoded->rdbraw = rdbraw;
+    sdsfree(rawkey);
     return 0;
 }
 
+void decodeResultInit(decodeResult *decoded) {
+    memset(decoded,0,sizeof(decodeResult));
+}
+
 void decodeResultDeinit(decodeResult *decoded) {
-    if (decoded->key) {
-        sdsfree(decoded->key);
-        decoded->key = NULL;
-    }
-    if (decoded->subkey) {
-        sdsfree(decoded->subkey);
-        decoded->subkey = NULL;
-    }
+    if (decoded->key) sdsfree(decoded->key);
+    if (decoded->subkey) sdsfree(decoded->subkey);
+    decodeResultInit(decoded);
 }
 
 /* ------------------------------ rdb save -------------------------------- */
@@ -110,31 +116,31 @@ int rdbSaveKeyHeader(rio *rdb, robj *key, robj *x, unsigned char rdbtype,
     return 1;
 }
 
-/* --- rdbKeySave --- */
+/* return -1 if save start failed. */
 int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb) {
     if (keydata->type->save_start)
         return keydata->type->save_start(keydata,rdb);
     else
-        return C_OK;
+        return 0;
 }
 
-/* return true if key not finished(needs to consume more decoded result). */
-int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d, int *error) {
+/* return -1 if save failed. */
+int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d) {
     if (keydata->type->save) {
-        int ret = keydata->type->save(keydata,rdb,d,error);
+        int ret = keydata->type->save(keydata,rdb,d);
         /* Delay return if required (for testing) */
         if (server.rdb_key_save_delay)
             debugDelay(server.rdb_key_save_delay);
         return ret;
     } else {
-        *error = 0;
         return 0;
     }
 }
 
-int rdbKeySaveEnd(struct rdbKeyData *keydata) {
+/* return -1 if save_result is -1 or save end failed. */
+int rdbKeySaveEnd(struct rdbKeyData *keydata, int save_result) {
     if (keydata->type->save_end)
-        return keydata->type->save_end(keydata);
+        return keydata->type->save_end(keydata, save_result);
     else
         return C_OK;
 }
@@ -143,139 +149,34 @@ void rdbKeyDataDeinitSave(rdbKeyData *keydata) {
     if (keydata->type->save_deinit) keydata->type->save_deinit(keydata);
 }
 
-void moveDecodeResult(decodeResult *from, decodeResult *to) {
-    *to = *from;
-    decodeResult empty;
-    *from = empty;
-    serverAssert(from->key == NULL);
-    serverAssert(to->key != NULL);
+typedef struct rdbSaveRocksStats {
+    long long iter_decode_ok;
+    long long iter_decode_err;
+    long long init_save_ok;
+    long long init_save_skip;
+    long long init_save_err;
+    long long save_ok;
+} rdbSaveRocksStats;
+
+sds rdbSaveRocksStatsDump(rdbSaveRocksStats *stats) {
+    return sdscatprintf(sdsempty(),
+            "decoded.ok=%lld,"
+            "decoded.err=%lld,"
+            "init.ok=%lld,"
+            "init.skip=%lld,"
+            "init.err=%lld,"
+            "save.ok=%lld,",
+            stats->iter_decode_ok,
+            stats->iter_decode_err,
+            stats->init_save_ok,
+            stats->init_save_skip,
+            stats->init_save_err,
+            stats->save_ok);
 }
 
-int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags) {
-    rocksIter *it;
-    sds rawkey, rawval;
-    int error, init_result;
-    sds errstr;
-    long long decode_raw_failed = 0, init_key_save_failed = 0;
-    long long stat_rawkeys = 0, stat_obseletes = 0, stats_skipped = 0, stat_keys = 0;
-
-    if (db->id > 0) return C_OK; /*TODO support multi-db */
-
-    if (!(it = rocksCreateIter(server.rocks,db))) {
-        serverLog(LL_WARNING, "Create rocks iterator failed.");
-        return C_ERR;
-    }
-
-    if (!rocksIterSeekToFirst(it)) return C_OK;
-    decodeResult _nextDecoded = {.key = NULL}, *nextDecoded = &_nextDecoded;
-    int hasNext = 1;
-    do {
-        int cont, key_ready;
-        unsigned char rdbtype;
-        rdbKeyData _keydata, *keydata = &_keydata;
-        decodeResult _decoded, *decoded = &_decoded;
-        error = 0;
-        if (nextDecoded->key == NULL) {
-            rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
-            stat_rawkeys++;
-            if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
-                if (decode_raw_failed++ < 10) {
-                    sds repr = sdscatrepr(sdsempty(),rawkey,sdslen(rawkey));
-                    serverLog(LL_WARNING, "Decode rocks raw failed: %s", repr);
-                    sdsfree(repr);
-                }
-                stats_skipped++;
-                hasNext = rocksIterNext(it);
-                continue;
-            }
-        } else {
-            moveDecodeResult(nextDecoded, decoded);
-        }
-        
-        if ((init_result = rdbKeyDataInitSave(keydata,db,decoded))) {
-            if (init_result == -2) {
-                stat_obseletes++;
-            } else if (init_key_save_failed++ < 10) {
-                sds repr = sdscatrepr(sdsempty(), decoded->key,sdslen(decoded->key));
-                serverLog(LL_WARNING, "Init rdb save key failed: %s, %d", repr, init_result);
-                sdsfree(repr);
-            }
-            decodeResultDeinit(decoded);
-            stats_skipped++;
-            hasNext = rocksIterNext(it);
-            continue;
-        }
-
-        if ((error = rdbKeySaveStart(keydata,rdb))) {
-            errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %i",
-                    decoded->key, error);
-            decodeResultDeinit(decoded);
-            rdbKeyDataDeinitSave(keydata);
-            goto err;
-        }
-
-        cont = RDB_KEY_SAVE_NEXT, key_ready = 1;
-        while (!error && cont == RDB_KEY_SAVE_NEXT) {
-            if (!key_ready) { /* prepare next key. */
-                if (!rocksIterNext(it)) /* iter finished.*/
-                    break;
-                rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
-                stat_rawkeys++;
-                if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
-                    if (decode_raw_failed++ < 10) {
-                        sds repr = sdscatrepr(sdsempty(),rawkey,sdslen(rawkey));
-                        serverLog(LL_WARNING, "Decode rocks rawkey failed: %s", repr);
-                        sdsfree(repr);
-                    }
-                    decodeResultDeinit(decoded);
-                    continue;
-                }
-                key_ready = 1;
-            }
-            cont = rdbKeySave(keydata,rdb,decoded,&error);
-            key_ready = 0; /* flag key consumed */
-            if (cont == RDB_KEY_SAVE_SKIP && error == 0) {
-                moveDecodeResult(decoded, nextDecoded);
-            } else {
-                decodeResultDeinit(decoded);
-            }
-        }
-
-        /* call save_end if save_start called, no matter error or not. */
-        if (!error && (error = rdbKeySaveEnd(keydata))) {
-            errstr = sdscatfmt(sdsempty(),"Save key end failed: %i", 
-                error);
-            rdbKeyDataDeinitSave(keydata);
-            goto err;
-        }
-
-        rdbKeyDataDeinitSave(keydata);
-        stat_keys++;
-        rdbSaveProgress(rdb,rdbflags);
-
-        if (nextDecoded->key == NULL) {
-            hasNext = rocksIterNext(it);
-        } 
-    } while (!error && hasNext);
-    serverLog(LL_NOTICE,"Rdb save keys from rocksdb finished:"
-            "rawkey(iterated:%lld,obselete:%lld,skipped:%lld), key(saved:%lld).",
-            stat_rawkeys, stat_obseletes, stats_skipped, stat_keys);
-    return C_OK;
-
-err:
-    serverLog(LL_WARNING, "Save rocks data to rdb failed: %s", errstr);
-    if (it) rocksReleaseIter(it);
-    if (errstr) sdsfree(errstr);
-    return C_ERR;
-}
-
-void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict,
-        long long expire) {
-    keydata->savectx.type = 0;
-    keydata->savectx.evict = evict;
-    keydata->savectx.value = value;
-    keydata->savectx.expire = expire;
-}
+#define INIT_SAVE_OK 0
+#define INIT_SAVE_ERR -1
+#define INIT_SAVE_SKIP -2
 
 int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded) {
     robj *evict, *value, key;
@@ -290,56 +191,231 @@ int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded) 
     meta = lookupMeta(db,&key);
     expire = getExpire(db,&key);
 
-    if (evict != NULL && value != NULL) {
+    if (evict == NULL && value == NULL) {
         /* skip orphane rocks key, e.g. lazy deleted big hash. */
-        return -2;
+        return INIT_SAVE_SKIP;
     } else if (evict != NULL && value == NULL) {
         if (rocksGetObjectEncType(evict) != enc_type) {
             /* key type in rocksdb does not match type in memory, key in
              * rocksdb is obselete. e.g. deleted bighash fields. */
-            return -2;
+            return INIT_SAVE_SKIP;
         }
         if (evict->type != OBJ_STRING && evict->type != OBJ_HASH) {
             /* cold key, must be cold wholekey or bighash */
             serverPanic("unsupported cold key type.");
+            return INIT_SAVE_ERR;
         } else if (evict->type == OBJ_STRING) {
             serverAssert(meta == NULL);
             rdbKeyDataInitSaveWholeKey(keydata,value,evict,expire);
         } else if (evict->type == OBJ_HASH && evict->big == 0) {
             serverAssert(meta == NULL);
             if (decoded->enc_type != ENC_TYPE_HASH)
-                return -2;
+                return INIT_SAVE_SKIP;
             rdbKeyDataInitSaveWholeKey(keydata,value,evict,expire);
         } else { /* bighash */
             serverAssert(meta != NULL);
             if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
                     decoded->version != meta->version ||
                     decoded->rdbtype != RDB_TYPE_STRING) {
-                return -2;
+                return INIT_SAVE_SKIP;
             }
             rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,expire,keystr);
         }
     } else if (evict == NULL && value != NULL) {
         if (rocksGetObjectEncType(value) != enc_type) {
-            return -2;
+            return INIT_SAVE_SKIP;
         }
 
-        if (meta != NULL) {
+        if (meta && meta->len > 0) {
             if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
                     decoded->version != meta->version ||
                     decoded->rdbtype != RDB_TYPE_STRING) {
-                return -2;
+                return INIT_SAVE_SKIP;
             }
             rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,expire,keystr);
         } else {
             /* hot key */
-            return -2;
+            return INIT_SAVE_SKIP;
         }
     } else {
-        /* key not exists */
-        return -1;
+        serverPanic("both evict & meta not null.");
+        return INIT_SAVE_ERR;
     }
-    return 0;
+
+    return INIT_SAVE_OK;
+}
+
+int rdbSaveRocksIterDecode(rocksIter *it, decodeResult *decoded,
+        rdbSaveRocksStats *stats) {
+    sds rawkey, rawval;
+    unsigned char rdbtype;
+
+    /* rawkey,rawval moved from rocksIter to decoded. */
+    rocksIterKeyTypeValue(it,&rawkey,&rdbtype,&rawval);
+    if (rocksDecodeRaw(rawkey,rdbtype,rawval,decoded)) {
+        if (stats->iter_decode_err++ < 10) {
+            sds repr = sdscatrepr(sdsempty(),rawkey,sdslen(rawkey));
+            serverLog(LL_WARNING, "Decode rocks raw failed: %s", repr);
+            sdsfree(repr);
+        }
+        return C_ERR;
+    } else {
+        stats->iter_decode_ok++;
+        return C_OK;
+    }
+}
+
+/* Bighash fields are located adjacent, which will be iterated next to each.
+ * - Init savectx for key (bighash or wholekey)
+ * - iterate fields untill finished (meta.len is num fields to iterate).
+ * Note that only IO error aborts rdbSaveRocks, keys with decode/init_save
+ * errors are skipped. */
+int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags) {
+    rocksIter *it = NULL;
+    sds errstr = NULL;
+    rdbSaveRocksStats _stats = {0}, *stats = &_stats;
+    decodeResult  _cur, *cur = &_cur, _next, *next = &_next;
+    decodeResultInit(cur);
+    decodeResultInit(next);
+    int iter_valid; /* true if current iter value is valid. */
+
+    if (db->id > 0) return C_OK; /*TODO support multi-db */
+
+    if (!(it = rocksCreateIter(server.rocks,db))) {
+        serverLog(LL_WARNING, "Create rocks iterator failed.");
+        return C_ERR;
+    }
+
+    iter_valid = rocksIterSeekToFirst(it);
+
+    while (1) {
+        int init_result, decode_result, save_result;
+        rdbKeyData _keydata, *keydata = &_keydata;
+        serverAssert(next->key == NULL);
+
+        if (cur->key == NULL) {
+            if (!iter_valid) break;
+
+            decode_result = rdbSaveRocksIterDecode(it,cur,stats);
+            iter_valid = rocksIterNext(it);
+
+            if (decode_result) continue;
+
+            serverAssert(cur->key != NULL);
+        }
+
+        init_result = rdbKeyDataInitSave(keydata,db,cur);
+        if (init_result == INIT_SAVE_SKIP) {
+            stats->init_save_skip++;
+            decodeResultDeinit(cur);
+            continue;
+        } else if (init_result == INIT_SAVE_ERR) {
+            if (stats->init_save_err++ < 10) {
+                sds repr = sdscatrepr(sdsempty(),cur->key,sdslen(cur->key));
+                serverLog(LL_WARNING, "Init rdb save key failed: %s", repr);
+                sdsfree(repr);
+            }
+            decodeResultDeinit(cur);
+            continue;
+        } else {
+            stats->init_save_ok++;
+        }
+
+        if (rdbKeySaveStart(keydata,rdb) == -1) {
+            errstr = sdscatfmt(sdsempty(),"Save key(%S) start failed: %s",
+                    cur->key, strerror(errno));
+            rdbKeyDataDeinitSave(keydata);
+            decodeResultDeinit(cur);
+            goto err; /* IO error, can't recover. */
+        }
+
+        while (1) {
+            int key_switch;
+
+            if ((save_result = rdbKeySave(keydata,rdb,cur)) == -1) {
+                sds repr = sdscatrepr(sdsempty(),cur->key,sdslen(cur->key));
+                errstr = sdscatfmt("Save key (%S) failed: %s", repr,
+                        strerror(errno));
+                sdsfree(repr);
+                decodeResultDeinit(cur);
+                break;
+            }
+
+            /* Iterate untill next valid rawkey found or eof. */
+            while (1) {
+                if (!iter_valid) break; /* eof */
+
+                decode_result = rdbSaveRocksIterDecode(it,next,stats);
+                iter_valid = rocksIterNext(it);
+
+                if (decode_result) {
+                    continue;
+                } else { /* next found */
+                    serverAssert(next->key != NULL);
+                    break;
+                }
+            }
+
+            /* Can't find next valid rawkey, break to finish saving cur key.*/
+            if (next->key == NULL) {
+                decodeResultDeinit(cur);
+                break;
+            }
+
+            serverAssert(cur->key && next->key);
+            key_switch = sdslen(cur->key) != sdslen(next->key) ||
+                    sdscmp(cur->key,next->key);
+
+            decodeResultDeinit(cur);
+            _cur = _next;
+            decodeResultInit(next);
+
+            if (key_switch) {
+                /* key switched, finish current & start another. */
+                break;
+            } else {
+                /* key not switched, continue rdbSave. */
+                continue;
+            }
+        }
+
+        /* call save_end if save_start called, no matter error or not. */
+        if (rdbKeySaveEnd(keydata,save_result) == -1) {
+            if (errstr == NULL) {
+                errstr = sdscatfmt(sdsempty(),"Save key end failed: %s",
+                        strerror(errno));
+            }
+            rdbKeyDataDeinitSave(keydata);
+            goto err;
+        }
+
+        rdbKeyDataDeinitSave(keydata);
+        stats->save_ok++;
+        rdbSaveProgress(rdb,rdbflags);
+    };
+
+    sds stats_dump = rdbSaveRocksStatsDump(stats);
+    serverLog(LL_NOTICE,"Rdb save keys from rocksdb finished: %s",stats_dump);
+    sdsfree(stats_dump);
+
+    // if (it) rocksReleaseIter(it);
+
+    return C_OK;
+
+err:
+    if (error && *error == 0) *error = errno;
+    serverLog(LL_WARNING, "Save rocks data to rdb failed: %s", errstr);
+    if (it) rocksReleaseIter(it);
+    if (errstr) sdsfree(errstr);
+    return C_ERR;
+}
+
+void rdbKeyDataInitSaveKey(rdbKeyData *keydata, robj *value, robj *evict,
+        long long expire) {
+    keydata->savectx.type = 0;
+    keydata->savectx.evict = evict;
+    keydata->savectx.value = value;
+    keydata->savectx.expire = expire;
 }
 
 /* ------------------------------ rdb load -------------------------------- */

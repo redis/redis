@@ -560,13 +560,17 @@ rdbKeyType bigHashRdbType = {
     .load_deinit = NULL,
 };
 
-int bighashSaveEnd(rdbKeyData *keydata) {
+int bighashSaveEnd(rdbKeyData *keydata, int save_result) {
     objectMeta *meta = keydata->savectx.bighash.meta;
     if (keydata->savectx.bighash.saved != meta->len) {
-        serverLog(LL_WARNING, "bighashBigSave %s: %d != %zd",(sds)(keydata->savectx.bighash.key->ptr), keydata->savectx.bighash.saved, meta->len);
-        return C_ERR;
+        sds key  = keydata->savectx.bighash.key->ptr;
+        sds repr = sdscatrepr(sdsempty(), key, sdslen(key));
+        serverLog(LL_WARNING, "bighashBigSave %s: saved(%d) != meta.len(%ld)",
+                repr, keydata->savectx.bighash.saved, meta->len);
+        sdsfree(repr);
+        return -1;
     }
-    return C_OK;
+    return save_result;
 }
 
 int bighashSaveStart(rdbKeyData *keydata, rio *rdb) {
@@ -624,48 +628,38 @@ int bighashSaveStart(rdbKeyData *keydata, rio *rdb) {
 }
 
 /* return 1 if bighash still need to consume more rawkey. */
-int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded,
-        int *error) {
+int bighashSave(rdbKeyData *keydata, rio *rdb, decodeResult *decoded) {
     objectMeta *meta = keydata->savectx.bighash.meta;
     robj *key = keydata->savectx.bighash.key;
+
+    serverAssert(!sdscmp(decoded->key, key->ptr));
     if (decoded->enc_type != ENC_TYPE_HASH_SUB ||
             decoded->version != meta->version ||
-            decoded->rdbtype != RDB_TYPE_STRING ||
-            sdslen(decoded->key) != sdslen(key->ptr) ||
-            sdscmp(decoded->key,key->ptr)) {
+            decoded->rdbtype != RDB_TYPE_STRING) {
         /* check failed, skip this key */
-        *error = 0;
-        return RDB_KEY_SAVE_SKIP;
+        return 0;
     }
 
     if (keydata->savectx.value != NULL) {
-        robj *subval = hashTypeGetValueObject(keydata->savectx.value,
-                    decoded->subkey);
-
-        if (subval != NULL) {
-            decrRefCount(subval);
-            serverLog(LL_WARNING, "skip save rdb subval: %s", decoded->subkey);
-            /* skip this subkey */
-            *error = 0;
-            return 1;
-        } 
+        if (hashTypeExists(keydata->savectx.value,
+                    decoded->subkey)) {
+            /* already save in save_start, skip this subkey */
+            return 0;
+        }
     }
 
     if (rdbSaveRawString(rdb,(unsigned char*)decoded->subkey,
                 sdslen(decoded->subkey)) == -1) {
-        *error = -1;
-        return 0;
+        return -1;
     }
 
     if (rdbWriteRaw(rdb,(unsigned char*)decoded->rdbraw,
                 sdslen(decoded->rdbraw)) == -1) {
-        *error = -1;
-        return 0;
+        return -1;
     }
 
-    *error = 0;
     keydata->savectx.bighash.saved++;
-    return RDB_KEY_SAVE_NEXT;
+    return 0;
 }
 
 void bighashSaveDeinit(rdbKeyData *keydata) {
@@ -994,7 +988,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         test_assert(rdbKeySaveStart(keydata,&rdbcold) == 0);
         test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 1);
         decoded_fx->subkey = f1, decoded_fx->rdbraw = sdsnewlen(rdbv1+1,sdslen(rdbv1)-1);
-        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 1);
+        test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == 0);
         decoded_fx->key = myhash1_key;
         test_assert(rdbKeySave(keydata,&rdbcold,decoded_fx,&err) == -1);
         decoded_fx->key = myhash_key;
@@ -1007,7 +1001,7 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         meta->len = 1;
         rdbKeyDataInitSaveBigHash(keydata,value,evict,meta,-1,myhash_key);
         test_assert(rdbKeySaveStart(keydata,&rdbwarm) == 0);
-        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx,&err) == 1);
+        test_assert(rdbKeySave(keydata,&rdbwarm,decoded_fx,&err) == 0);
         warmraw = rdbwarm.io.buffer.ptr;
 
         /* save hot */

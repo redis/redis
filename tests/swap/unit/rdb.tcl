@@ -138,4 +138,11 @@ start_server {overrides {save ""} tags {"swap" "rdb"}} {
             assert_equal [r hmget myhash a b 1 2] {A B 11 22}
         }
     }
+
+    test {rdbSaveRocks hold more than one rocksIterKeyTypeValue cause memory tread} {
+        for {set i 0} {$i < 10000} {incr i} {
+            r set key_$i val_$i
+        }
+        r debug reload
+    }
 }

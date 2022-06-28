@@ -5481,8 +5481,6 @@ sds genRedisInfoString(const char *section) {
                     j,keys,evicts,metas,vkeys,server.db[j].avg_ttl);
             }
         }
-        if (server.swap_mode != SWAP_MODE_MEMORY)
-            info = genRocksInfoKeyspaceString(info);
     }
 
    /* Swaps */
@@ -5501,6 +5499,9 @@ sds genRedisInfoString(const char *section) {
                 "rocks_disk_used:%lld\r\n",
                 server.maxdisk,
                 server.rocksdb_disk_used);
+
+        if (server.swap_mode != SWAP_MODE_MEMORY)
+            info = genRocksInfoKeyspaceString(info);
     }
 
     /* Get info from modules.

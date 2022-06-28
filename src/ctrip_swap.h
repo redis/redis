@@ -589,13 +589,9 @@ int swapRateLimited(client *c);
 /* --- Rdb --- */
 /* rocks iter thread */
 #define ITER_BUFFER_CAPACITY_DEFAULT 4096
-#define ITER_CACHED_MAX_KEY_LEN 1000
-#define ITER_CACHED_MAX_VAL_LEN 4000
 #define ITER_NOTIFY_BATCH 32
 
 typedef struct iterResult {
-    sds cached_key;
-    sds cached_val;
     sds rawkey;
     unsigned char type;
     sds rawval;
@@ -616,6 +612,8 @@ typedef struct rocksIter{
     redisDb *db;
     struct rocks *rocks;
     pthread_t io_thread;
+    int io_thread_exited;
+    pthread_mutex_t io_thread_exit_mutex;
     bufferedIterCompleteQueue *buffered_cq;
     rocksdb_iterator_t *rocksdb_iter;
     rocksdb_t* checkpoint_db;
@@ -669,8 +667,8 @@ void decodeResultDeinit(decodeResult *decoded);
 struct rdbKeyData;
 typedef struct rdbKeyType {
     int (*save_start)(struct rdbKeyData *keydata, rio *rdb);
-    int (*save)(struct rdbKeyData *keydata, rio *rdb, decodeResult *decoded, int *error);
-    int (*save_end)(struct rdbKeyData *keydata);
+    int (*save)(struct rdbKeyData *keydata, rio *rdb, decodeResult *decoded);
+    int (*save_end)(struct rdbKeyData *keydata, int save_result);
     void (*save_deinit)(struct rdbKeyData *keydata);
     int (*load)(struct rdbKeyData *keydata, rio *rdb, OUT sds *rawkey, OUT sds *rawval, OUT int *error);
     int (*load_end)(struct rdbKeyData *keydata,rio *rdb);
@@ -722,7 +720,7 @@ typedef struct rdbKeyData {
 } rdbKeyData;
 
 /* rdb save */
-int rdbSaveRocks(rio *rdb, redisDb *db, int rdbflags);
+int rdbSaveRocks(rio *rdb, int *error, redisDb *db, int rdbflags);
 void initSwapWholeKey();
 
 int rdbSaveKeyHeader(rio *rdb, robj *key, robj *evict, unsigned char rdbtype, long long expiretime);
@@ -731,18 +729,18 @@ int rdbKeyDataInitSave(rdbKeyData *keydata, redisDb *db, decodeResult *decoded);
 void rdbKeyDataDeinitSave(rdbKeyData *keydata);
 
 int rdbKeySaveStart(struct rdbKeyData *keydata, rio *rdb);
-int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d, int *error);
-int rdbKeySaveEnd(struct rdbKeyData *keydata);
+int rdbKeySave(struct rdbKeyData *keydata, rio *rdb, decodeResult *d);
+int rdbKeySaveEnd(struct rdbKeyData *keydata, int save_result);
 /* whole key */
 void rdbKeyDataInitSaveWholeKey(rdbKeyData *keydata, robj *value, robj *evict, long long expire);
 int wholekeySaveStart(rdbKeyData *keydata, rio *rdb);
-int wholekeySave(rdbKeyData *keydata,  rio *rdb, decodeResult *d, int *error);
-int wholekeySaveEnd(rdbKeyData *keydata); 
+int wholekeySave(rdbKeyData *keydata,  rio *rdb, decodeResult *d);
+int wholekeySaveEnd(rdbKeyData *keydata, int save_result); 
 /* big hash */
 void rdbKeyDataInitSaveBigHash(rdbKeyData *keydata, robj *value, robj *evict, objectMeta *meta, long long expire, sds keystr);
 int bighashSaveStart(rdbKeyData *keydata, rio *rdb);
-int bighashSave(rdbKeyData *keydata,  rio *rdb, decodeResult *d, int *error);
-int bighashSaveEnd(rdbKeyData *keydata); 
+int bighashSave(rdbKeyData *keydata,  rio *rdb, decodeResult *d);
+int bighashSaveEnd(rdbKeyData *keydata, int save_result); 
 void bighashSaveDeinit(rdbKeyData *keydata);
 
 static inline sds rdbVerbatimNew(unsigned char rdbtype) {

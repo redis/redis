@@ -144,23 +144,8 @@ void *rocksIterIOThreadMain(void *arg) {
             sdsfree(rawkeyrepr);
             sdsfree(rawvalrepr);
 #endif
-            if (rklen > ITER_CACHED_MAX_KEY_LEN) {
-                cur->rawkey = sdsnewlen(rawkey, rklen);
-            } else {
-                memcpy(cur->cached_key, rawkey, rklen);
-                cur->cached_key[rklen] = '\0';
-                sdssetlen(cur->cached_key, rklen);
-                cur->rawkey = cur->cached_key;
-            }
-
-            if (rvlen > ITER_CACHED_MAX_VAL_LEN) {
-                cur->rawval = sdsnewlen(rawval, rvlen);
-            } else {
-                memcpy(cur->cached_val, rawval, rvlen);
-                cur->cached_val[rvlen] = '\0';
-                sdssetlen(cur->cached_val, rvlen);
-                cur->rawval = cur->cached_val;
-            }
+            cur->rawkey = sdsnewlen(rawkey, rklen);
+            cur->rawval = sdsnewlen(rawval, rvlen);
             signal = (itered & (ITER_NOTIFY_BATCH-1)) ? 0 : 1;
             rocksIterNotifyReady(it, signal);
 
@@ -184,6 +169,11 @@ void *rocksIterIOThreadMain(void *arg) {
             rocksdb_iter_next(it->rocksdb_iter);
         }
     }
+
+    pthread_mutex_lock(&it->io_thread_exit_mutex);
+    it->io_thread_exited = 1;
+    pthread_mutex_unlock(&it->io_thread_exit_mutex);
+
     serverLog(LL_WARNING, "Rocks iter thread exit.");
 
     return NULL;
@@ -200,9 +190,7 @@ bufferedIterCompleteQueue *bufferedIterCompleteQueueNew(int capacity) {
     buffered_cq->buffered = zmalloc(capacity*sizeof(iterResult));
     for (i = 0; i < capacity; i++) {
         iterResult *iter_result = buffered_cq->buffered+i;
-        iter_result->cached_key = sdsnewlen(NULL, ITER_CACHED_MAX_KEY_LEN);
         iter_result->rawkey = NULL;
-        iter_result->cached_val = sdsnewlen(NULL, ITER_CACHED_MAX_VAL_LEN);
         iter_result->rawval = NULL;
     }
 
@@ -217,10 +205,14 @@ void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
     if (buffered_cq == NULL) return;
     for (int i = 0; i < buffered_cq->buffer_capacity;i++) {
         iterResult *res = buffered_cq->buffered+i;
-        if (res->rawkey != res->cached_key) sdsfree(res->rawkey);
-        if (res->rawval != res->cached_val) sdsfree(res->rawval);
-        sdsfree(res->cached_key);
-        sdsfree(res->cached_val);
+        if (res->rawkey) {
+            sdsfree(res->rawkey);
+            res->rawkey = NULL;
+        }
+        if (res->rawval) {
+            sdsfree(res->rawval);
+            res->rawval = NULL;
+        }
     }
     zfree(buffered_cq->buffered);
     pthread_mutex_destroy(&buffered_cq->buffer_lock);
@@ -232,8 +224,8 @@ void bufferedIterCompleteQueueFree(bufferedIterCompleteQueue *buffered_cq) {
 
 rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
     int err;
-    rocksdb_iterator_t *rocksdb_iter;
-    rocksIter *it = zmalloc(sizeof(rocksIter));
+    rocksdb_iterator_t *rocksdb_iter = NULL;
+    rocksIter *it = zcalloc(sizeof(rocksIter));
 
     it->rocks = rocks;
     it->db = db;
@@ -260,12 +252,16 @@ rocksIter *rocksCreateIter(rocks *rocks, redisDb *db) {
 
     it->buffered_cq = bufferedIterCompleteQueueNew(ITER_BUFFER_CAPACITY_DEFAULT);
 
+    pthread_mutex_init(&it->io_thread_exit_mutex, NULL);
+    it->io_thread_exited = 0;
     if ((err = pthread_create(&it->io_thread, NULL, rocksIterIOThreadMain, it))) {
+        it->io_thread_exited = 1;
         serverLog(LL_WARNING, "Create rocksdb iterator thread failed: %s.", strerror(err));
         goto err;
     }
 
     return it;
+
 err:
     rocksReleaseIter(it);
     return NULL;
@@ -275,15 +271,22 @@ int rocksIterSeekToFirst(rocksIter *it) {
     return rocksIterWaitReady(it);
 }
 
+/* rocks iter rawkey, rawval moved. */
 void rocksIterKeyTypeValue(rocksIter *it, sds *rawkey, unsigned char *type, sds *rawval) {
     int idx;
     iterResult *cur;
     bufferedIterCompleteQueue *cq = it->buffered_cq;
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
-    if (rawkey) *rawkey = cur->rawkey;
     if (type) *type = cur->type;
-    if (rawval) *rawval = cur->rawval;
+    if (rawkey) {
+        *rawkey = cur->rawkey;
+        cur->rawkey = NULL;
+    }
+    if (rawval) {
+        *rawval = cur->rawval;
+        cur->rawval = NULL;
+    }
 }
 
 /* Will block untill at least one result is ready.
@@ -295,12 +298,12 @@ int rocksIterNext(rocksIter *it) {
     idx = cq->processed_count % cq->buffer_capacity;
     cur = it->buffered_cq->buffered+idx;
     /* clear previos state */
-    if (cur->rawkey != cur->cached_key) {
+    if (cur->rawkey) {
         sdsfree(cur->rawkey);
         cur->rawkey = NULL;
     }
 
-    if (cur->rawval != cur->cached_val) {
+    if (cur->rawval) {
         sdsfree(cur->rawval);
         cur->rawval = NULL;
     }
@@ -313,33 +316,40 @@ void rocksReleaseIter(rocksIter *it) {
 
     if (it == NULL) return;
 
-    if (it->io_thread) {
-        if (pthread_cancel(it->io_thread) == 0) {
-            if ((err = pthread_join(it->io_thread, NULL)) != 0) {
-                serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
-                         strerror(err));
-            } else {
-                serverLog(LL_WARNING, "Iter io thread terminated.");
+    pthread_mutex_lock(&it->io_thread_exit_mutex);
+    if (!it->io_thread_exited) {
+        if (it->io_thread) {
+            if (pthread_cancel(it->io_thread) == 0) {
+                if ((err = pthread_join(it->io_thread, NULL)) != 0) {
+                    serverLog(LL_WARNING, "Iter io thread can't be joined: %s",
+                            strerror(err));
+                } else {
+                    serverLog(LL_WARNING, "Iter io thread terminated.");
+                }
             }
+            it->io_thread = 0;
         }
-        it->io_thread = 0;
+        it->io_thread_exited = 1;
+    }
+    pthread_mutex_unlock(&it->io_thread_exit_mutex);
+
+    pthread_mutex_destroy(&it->io_thread_exit_mutex);
+
+    if (it->buffered_cq) {
+        bufferedIterCompleteQueueFree(it->buffered_cq);
+        it->buffered_cq = NULL;
     }
 
-   if (it->buffered_cq) {
-       bufferedIterCompleteQueueFree(it->buffered_cq);
-       it->buffered_cq = NULL;
-   }
+    if (it->rocksdb_iter) {
+        rocksdb_iter_destroy(it->rocksdb_iter);
+        it->rocksdb_iter = NULL;
+    }
 
-   if (it->rocksdb_iter) {
-       rocksdb_iter_destroy(it->rocksdb_iter);
-       it->rocksdb_iter = NULL;
-   }
-
-   if (it->checkpoint_db != NULL) {
-     rocksdb_close(it->checkpoint_db);
-     it->checkpoint_db = NULL;
-   }
-   zfree(it);
+    if (it->checkpoint_db != NULL) {
+        rocksdb_close(it->checkpoint_db);
+        it->checkpoint_db = NULL;
+    }
+    zfree(it);
 }
 
 void rocksIterGetError(rocksIter *it, char **error) {

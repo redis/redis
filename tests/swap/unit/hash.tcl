@@ -328,17 +328,17 @@ test {big hash check reload1} {
     }
 }
 
-
 test {big hash random get check reload} {
     start_server {tags {"evict big hash, check reload"}} {
         r config set debug-evict-keys 0
         r config set swap-big-hash-threshold 1
         r config set swap-evict-step-max-subkeys 2
-        set test_count 100
+
+        set test_count 1000
         set hlen 100
         for {set i 0} {$i < $test_count} {incr i} {
             for {set j 0} {$j < $hlen} {incr j} {
-                r hset myhash $j  [randomValue]
+                r hset myhash $j [randomValue]
             } 
             set evict_count  [randomInt [expr $hlen/2]]
             for {set j 0} {$j < $evict_count} {incr j} {
