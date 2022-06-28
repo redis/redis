@@ -1485,18 +1485,16 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
 
         /* Try visiting the prev child if there is at least one
          * child. */
-        if (!it->node->iscompr && it->node->size > (old_noup ? 0 : 1)) {
-            if (it->child_offset != 0) {
-                it-> child_offset -= 1;
-                raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
-                debugf("SCAN found a new node\n");
-                /* Enter the node we just found. */
-                if (!raxIteratorAddChars(it,it->node->data + it->child_offset, 1)) return 0;
-                if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
-                memcpy(&it->node,cp,sizeof(it->node));
-                /* Seek sub-tree max. */
-                if (!raxSeekGreatest(it)) return 0;
-            }
+        if (!it->node->iscompr && it->node->size > (old_noup ? 0 : 1) && it->child_offset != 0) {
+            it->child_offset -= 1;
+            raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
+            debugf("SCAN found a new node\n");
+            /* Enter the node we just found. */
+            if (!raxIteratorAddChars(it,it->node->data + it->child_offset, 1)) return 0;
+            if (!raxStackPush(&it->stack, it->node, it->child_offset)) return 0;
+            memcpy(&it->node,cp,sizeof(it->node));
+            /* Seek sub-tree max. */
+            if (!raxSeekGreatest(it)) return 0;
         }
 
         /* Return the key: this could be the key we found scanning a new
