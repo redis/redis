@@ -2831,6 +2831,15 @@ void populateCommandStructure(struct redisCommand *c) {
             /* Translate the command string flags description into an actual
              * set of flags. */
             setImplicitACLCategories(sub);
+
+            /* If the command marks with CMD_SENTINEL, it exists in sentinel. */
+            if (!(sub->flags & CMD_SENTINEL) && server.sentinel_mode)
+                continue;
+
+            /* If the command marks with CMD_ONLY_SENTINEL, it only exists in sentinel. */
+            if (sub->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
+                continue;
+
             sub->fullname = catSubCommandFullname(c->declared_name, sub->declared_name);
             populateCommandStructure(sub);
             commandAddSubcommand(c, sub, sub->declared_name);
@@ -2853,11 +2862,15 @@ void populateCommandTable(void) {
 
         int retval1, retval2;
 
+        /* Translate the command string flags description into an actual
+         * set of flags. */
         setImplicitACLCategories(c);
 
+        /* If the command marks with CMD_SENTINEL, it exists in sentinel. */
         if (!(c->flags & CMD_SENTINEL) && server.sentinel_mode)
             continue;
 
+        /* If the command marks with CMD_ONLY_SENTINEL, it only exists in sentinel. */
         if (c->flags & CMD_ONLY_SENTINEL && !server.sentinel_mode)
             continue;
 
