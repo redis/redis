@@ -1145,7 +1145,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
-    dict *meta;             /* As set by CLIENT SETMETA. */
+    dict *meta;             /* As set by CLIENT SETMETADATA. */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */

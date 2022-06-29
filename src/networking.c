@@ -2935,7 +2935,7 @@ int clientSetNameOrReply(client *c, robj *name) {
     return result;
 }
 
-/* This function implements CLIENT SETMETA, including replying to the
+/* This function implements CLIENT SETMETADATA, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
  * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
@@ -3044,7 +3044,7 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
-"SETMETA <meta>",
+"SETMETADATA <meta>",
 "    Assign the meta info <meta> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
@@ -3272,7 +3272,7 @@ NULL
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"setmeta") && ((c->argc % 2) == 0)) {
-        /* CLIENT SETMETA */
+        /* CLIENT SETMETADATA */
         if (clientSetMetaOrReply(c) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {

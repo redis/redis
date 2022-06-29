@@ -127,18 +127,18 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
-    test {CLIENT SETMETA does not accept odd params} {
+    test {CLIENT SETMETADATA does not accept odd params} {
         catch {r client setmeta foo} e
         set e
     } {ERR*}
 
-    test {CLIENT SETMETA can clean meta info to this connection} {
+    test {CLIENT SETMETADATA can clean meta info to this connection} {
         assert_equal [r client setmeta meta foo] {OK}
         assert_equal [r client setmeta] {OK}
         r client list
     } {*meta=*}
 
-    test {CLIENT SETMETA can assign a meta to this connection} {
+    test {CLIENT SETMETADATA can assign a meta to this connection} {
         assert_equal [r client setmeta meta foo] {OK}
         r client list
     } {*meta=meta=foo;*}
