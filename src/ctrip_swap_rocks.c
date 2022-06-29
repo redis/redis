@@ -315,7 +315,7 @@ void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh) {
     if (mh) zfree(mh);
 }
 
-sds genRocksInfoKeyspaceString(sds info) {
+sds genRocksInfoString(sds info) {
 	char *err;
 	size_t used_db_size = 0, max_db_size = 0, disk_capacity = 0, used_disk_size = 0;
 	size_t sequence = 0;
@@ -328,7 +328,7 @@ sds genRocksInfoKeyspaceString(sds info) {
 	if (db) {
 		sequence = rocksdb_get_latest_sequence_number(db);
 		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&used_db_size,&err);
-		max_db_size = server.maxdisk;
+		max_db_size = server.max_db_size;
 		if (max_db_size) used_db_percent = (float)(used_db_size)/max_db_size;
 	}
 
@@ -343,15 +343,15 @@ sds genRocksInfoKeyspaceString(sds info) {
 			"used_db_size:%lu\r\n"
 			"max_db_size:%lu\r\n"
 			"used_percent:%0.2f%%\r\n"
-			"disk_capacity:%lu\r\n"
 			"used_disk_size:%lu\r\n"
+			"disk_capacity:%lu\r\n"
 			"used_disk_percent:%0.2f%%\r\n",
 			sequence,
 			used_db_size,
 			max_db_size,
 			used_db_percent,
-			disk_capacity,
 			used_disk_size,
+			disk_capacity,
 			used_disk_percent);
 
 	return info;
@@ -370,9 +370,9 @@ void rocksCron() {
                     "rocksdb.total-sst-files-size", &property_int)) {
             server.rocksdb_disk_used = property_int;
         }
-        if (server.maxdisk && server.rocksdb_disk_used > server.maxdisk) {
-            serverLog(LL_WARNING, "Rocksdb disk usage exceeds maxdisk %lld > %lld.",
-                    server.rocksdb_disk_used, server.maxdisk);
+        if (server.max_db_size && server.rocksdb_disk_used > server.max_db_size) {
+            serverLog(LL_WARNING, "Rocksdb disk usage exceeds max_db_size %lld > %lld.",
+                    server.rocksdb_disk_used, server.max_db_size);
         }
     }
 

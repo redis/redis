@@ -338,7 +338,7 @@ int swapThreadsDrained();
 
 static inline const char *rocksActionName(int action) {
   const char *name = "?";
-  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN"};
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "SCAN", "DELETERANGE"};
   if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
     name = actions[action];
   return name;
@@ -531,7 +531,7 @@ void rocksReleaseSnapshot(void);
 struct rocksdbMemOverhead *rocksGetMemoryOverhead();
 void rocksFreeMemoryOverhead(struct rocksdbMemOverhead *mh);
 rocksdb_t *rocksGetDb(void);
-sds genRocksInfoKeyspaceString(sds info);
+sds genRocksInfoString(sds info);
 
 /* --- Repl --- */
 int submitReplClientRequests(client *c);

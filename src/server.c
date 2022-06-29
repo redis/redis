@@ -2604,7 +2604,7 @@ void createSharedObjects(void) {
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
     shared.outofdiskerr = createObject(OBJ_STRING,sdsnew(
-        "-ERR command not allowed when used disk > 'maxdisk'.\r\n"));
+        "-ERR command not allowed when used disk > 'max-db-size'.\r\n"));
     shared.rocksdbdiskerr = createObject(OBJ_STRING,sdsnew(
         "-ERR command not allowed when rocksdb disk error.\r\n"));
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
@@ -2804,7 +2804,7 @@ void initServerConfig(void) {
     server.repl_no_slaves_since = time(NULL);
 
     /* swap */
-    server.maxdisk = 0;
+    server.max_db_size = 0;
     server.debug_evict_keys = 0;
     server.debug_rio_latency = 0;
 
@@ -4255,7 +4255,7 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    if (server.maxdisk && server.rocksdb_disk_used > server.maxdisk &&
+    if (server.max_db_size && server.rocksdb_disk_used > server.max_db_size &&
             (server.masterhost == NULL && 
              !(c->flags & CLIENT_MASTER)) &&
             (c->cmd->flags & CMD_DENYOOM)) {
@@ -4959,9 +4959,9 @@ sds genRedisInfoString(const char *section) {
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_aof_buffer:%zu\r\n"
-            "mem_rocksdb:%zu\r\n"
-            "rectified_frag_ratio:%.2f\r\n"
-            "rectified_frag_bytes:%zu\r\n"
+            "swap_mem_rocksdb:%zu\r\n"
+            "swap_rectified_frag_ratio:%.2f\r\n"
+            "swap_rectified_frag_bytes:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n"
@@ -5169,7 +5169,7 @@ sds genRedisInfoString(const char *section) {
             "expire_cycle_cpu_milliseconds:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
-            "memory_hits:%lld\r\n"
+            "swap_memory_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
             "pubsub_patterns:%lu\r\n"
@@ -5494,17 +5494,11 @@ sds genRedisInfoString(const char *section) {
     }
 
     /* Rocks */
-    if (allsections || !strcasecmp(section,"rocks")) {
+    if ((allsections || !strcasecmp(section,"rocks")) &&
+            server.swap_mode != SWAP_MODE_MEMORY) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-                "# Rocks\r\n"
-                "maxdisk:%lld\r\n"
-                "rocks_disk_used:%lld\r\n",
-                server.maxdisk,
-                server.rocksdb_disk_used);
-
-        if (server.swap_mode != SWAP_MODE_MEMORY)
-            info = genRocksInfoKeyspaceString(info);
+        info = sdscatprintf(info, "# Rocks\r\n");
+        info = genRocksInfoString(info);
     }
 
     /* Get info from modules.

@@ -2565,7 +2565,7 @@ standardConfig configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
-    createULongLongConfig("maxdisk", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.maxdisk, 0, MEMORY_CONFIG, NULL, NULL), /* Default: 80gb */
+    createULongLongConfig("max-db-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.max_db_size, 0, MEMORY_CONFIG, NULL, NULL),
     createULongLongConfig("swap-memory-slowdown", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_slowdown, 64*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 64mb */
     createULongLongConfig("swap-memory-stop", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_memory_stop, 128*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 128mb */
     createULongLongConfig("swap-evict-step-max-memory", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.swap_evict_step_max_memory, 1*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Default: 1mb */
