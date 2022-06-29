@@ -1,5 +1,5 @@
 ================================================================================
-SWAP swap-v0.0.1 Released Fri Dec 17 15:11:09 CST 2022
+SWAP swap-v0.0.1 Released Wed Jun 29 10:59:48 CST 2022
 ================================================================================
-* [feature] support swap between memory and disk.
+* [feature] support swap between redis and rocksdb.
 

@@ -128,9 +128,15 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
     return 1;
 }
 
+#define NOSWAP_REASON_KEYNOTEXISTS 1
+#define NOSWAP_REASON_NOTKEYLEVEL 2
+#define NOSWAP_REASON_KEYNOTSUPPORT 3
+#define NOSWAP_REASON_SWAPANADECIDED 4
+#define NOSWAP_REASON_UNEXPECTED 100
+
 int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
-    int retval = C_OK;
+    int retval = C_OK, reason_num = 0;
     void *datactx;
     swapData *data = NULL;
     swapCtx *ctx = pd;
@@ -147,6 +153,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";
+        reason_num = NOSWAP_REASON_NOTKEYLEVEL;
         goto noswap;
     }
 
@@ -156,6 +163,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (!value && !evict) {
         reason = "key not exists";
+        reason_num = NOSWAP_REASON_KEYNOTEXISTS;
         goto noswap;
     }
 
@@ -171,6 +179,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 
     if (data == NULL) {
         reason = "data not support swap";
+        reason_num = NOSWAP_REASON_KEYNOTSUPPORT;
         goto noswap;
     }
 
@@ -183,11 +192,13 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         ctx->errcode = SWAP_ERR_ANA_FAIL;
         retval = C_ERR;
         reason = "swap ana failed";
+        reason_num = NOSWAP_REASON_UNEXPECTED;
         goto noswap;
     }
 
     if (ctx->swap_intention == SWAP_NOP) {
         reason = "swapana decided no swap";
+        reason_num = NOSWAP_REASON_SWAPANADECIDED;
         goto noswap;
     }
 
@@ -213,7 +224,9 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
-
+    if (ctx->cmd_intention == SWAP_IN &&
+            reason_num == NOSWAP_REASON_SWAPANADECIDED)
+        server.stat_memory_hits++;
     /* noswap is kinda swapfinished. */
     keyRequestSwapFinished(data,ctx);
 
