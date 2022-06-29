@@ -73,6 +73,7 @@ void decodeResultInit(decodeResult *decoded) {
 void decodeResultDeinit(decodeResult *decoded) {
     if (decoded->key) sdsfree(decoded->key);
     if (decoded->subkey) sdsfree(decoded->subkey);
+    if (decoded->rdbraw) sdsfree(decoded->rdbraw);
     decodeResultInit(decoded);
 }
 

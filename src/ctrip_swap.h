@@ -659,7 +659,7 @@ typedef struct decodeResult {
     sds key;
     sds subkey;
     unsigned char rdbtype;
-    sds rdbraw; /* ref, owned by rocksIter */
+    sds rdbraw;
 } decodeResult;
 
 void decodeResultDeinit(decodeResult *decoded);
