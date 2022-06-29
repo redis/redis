@@ -82,22 +82,14 @@ test "Script no-cluster flag" {
 }
 
 test "CLUSTER RESET SOFT test" {
-
     set last_epoch_node0 [get_info_field [R 0 cluster info] cluster_current_epoch]
-
-    R 0 flushall
-    R 0 CLUSTER RESET 
-
+    R 0 FLUSHALL
+    R 0 CLUSTER RESET
     assert {[get_info_field [R 0 cluster info] cluster_current_epoch] eq $last_epoch_node0}
-    
+
     set last_epoch_node1 [get_info_field [R 1 cluster info] cluster_current_epoch]
-
-    R 1 flushall
-    R 1 CLUSTER RESET SOFT 
-
+    R 1 FLUSHALL
+    R 1 CLUSTER RESET SOFT
     assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
 }
-
-
-
 
