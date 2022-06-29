@@ -2188,7 +2188,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_SENTINEL:    This command is present in sentinel mode too.
  *
- * CMD_SENTINEL_ONLY: This command is present only when in sentinel mode.
+ * CMD_ONLY_SENTINEL: This command is present only when in sentinel mode.
  *
  * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
  *
