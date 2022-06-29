@@ -762,16 +762,16 @@ struct redisCommandArg CLIENT_CACHING_Args[] = {
 {0}
 };
 
-/********** CLIENT GETMETA ********************/
+/********** CLIENT GETMETADATA ********************/
 
-/* CLIENT GETMETA history */
-#define CLIENT_GETMETA_History NULL
+/* CLIENT GETMETADATA history */
+#define CLIENT_GETMETADATA_History NULL
 
-/* CLIENT GETMETA tips */
-#define CLIENT_GETMETA_tips NULL
+/* CLIENT GETMETADATA tips */
+#define CLIENT_GETMETADATA_tips NULL
 
-/* CLIENT GETMETA argument table */
-struct redisCommandArg CLIENT_GETMETA_Args[] = {
+/* CLIENT GETMETADATA argument table */
+struct redisCommandArg CLIENT_GETMETADATA_Args[] = {
 {"connection-meta",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
 {0}
 };
@@ -1058,7 +1058,7 @@ struct redisCommandArg CLIENT_UNBLOCK_Args[] = {
 /* CLIENT command table */
 struct redisCommand CLIENT_Subcommands[] = {
 {"caching","Instruct the server about tracking or not keys in the next request","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,CLIENT_CACHING_tips,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_CACHING_Args},
-{"getmeta","Get the current connection meta info","O(N) where N is the number of fields being requested.","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETMETA_History,CLIENT_GETMETA_tips,clientCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_GETMETA_Args},
+{"getmeta","Get the current connection meta info","O(N) where N is the number of fields being requested.","7.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETMETADATA_History,CLIENT_GETMETADATA_tips,clientCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,.args=CLIENT_GETMETADATA_Args},
 {"getname","Get the current connection name","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_History,CLIENT_GETNAME_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"getredir","Get tracking notifications redirection client ID if any","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,CLIENT_GETREDIR_tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},
 {"help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_tips,clientCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION},

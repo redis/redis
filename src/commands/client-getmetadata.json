@@ -1,5 +1,5 @@
 {
-  "GETMETA": {
+  "GETMETADATA": {
       "summary": "Get the current connection meta info",
       "complexity": "O(N) where N is the number of fields being requested.",
       "group": "connection",

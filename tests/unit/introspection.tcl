@@ -143,17 +143,17 @@ start_server {tags {"introspection"}} {
         r client list
     } {*meta=meta=foo;*}
 
-    test {CLIENT GETMETA should return empty info for non-existing meta attributes} {
+    test {CLIENT GETMETADATA should return empty info for non-existing meta attributes} {
         assert_equal [r client setmeta meta foo] {OK}
         r client getmeta meta2 meta3
     } {meta2= meta3= }
 
-    test {CLIENT GETMETA should return specific meta attributes} {
+    test {CLIENT GETMETADATA should return specific meta attributes} {
         assert_equal [r client setmeta meta foo meta2 bar] {OK}
         r client getmeta meta
     } {meta=foo }
 
-    test {CLIENT GETMETA should return all meta attributes} {
+    test {CLIENT GETMETADATA should return all meta attributes} {
         assert_equal [r client setmeta meta foo meta2 bar] {OK}
         assert_match {*meta2=bar*} [r client getmeta]
         assert_match {*meta=foo*} [r client getmeta]
