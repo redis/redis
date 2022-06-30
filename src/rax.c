@@ -1460,8 +1460,6 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
     uint8_t orig_child_offset = it->child_offset;
 
     while(1) {
-        int old_noup = noup;
-
         /* Already on head? Can't go up, iteration finished. */
         if (!noup && it->node == it->rt->head) {
             it->flags |= RAX_ITER_EOF;
@@ -1485,8 +1483,8 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
 
         /* Try visiting the prev child if there is at least one
          * child. */
-        if (!it->node->iscompr && it->child_offset >= (old_noup ? 0 : 1)) {
-            it->child_offset -= (old_noup ? 0 : 1);
+        if (!it->node->iscompr && it->child_offset >= 1) {
+            it->child_offset -= 1;
             raxNode **cp = raxNodeFirstChildPtr(it->node) + it->child_offset;
             debugf("SCAN found a new node\n");
             /* Enter the node we just found. */
