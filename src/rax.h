@@ -172,8 +172,6 @@ typedef int (*raxNodeCallback)(raxNode **noderef);
                                        element for the first iteration and
                                        clear the flag. */
 #define RAX_ITER_EOF (1<<1)    /* End of iteration reached. */
-#define RAX_ITER_SAFE (1<<2)   /* Safe iterator, allows operations while
-                                  iterating. But it is slower. */
 
 typedef struct raxIterator {
     int flags;
