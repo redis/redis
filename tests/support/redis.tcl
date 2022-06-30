@@ -84,6 +84,16 @@ proc ::redis::redis_safe_read {fd len} {
     error $msg
 }
 
+proc ::redis::redis_safe_gets {fd} {
+    if {[catch {set val [gets $fd]} msg]} {
+        if {[string match "*connection abort*" $msg]} {
+            return {}
+        }
+        error $msg
+    }
+    return $val
+}
+
 # This is a wrapper to the actual dispatching procedure that handles
 # reconnection if needed.
 proc ::redis::__dispatch__ {id method args} {
@@ -224,8 +234,8 @@ proc ::redis::redis_writenl {fd buf} {
 }
 
 proc ::redis::redis_readnl {fd len} {
-    set buf [read $fd $len]
-    read $fd 2 ; # discard CR LF
+    set buf [redis_safe_read $fd $len]
+    redis_safe_read $fd 2 ; # discard CR LF
     return $buf
 }
 
@@ -271,11 +281,11 @@ proc ::redis::redis_read_map {id fd} {
 }
 
 proc ::redis::redis_read_line fd {
-    string trim [gets $fd]
+    string trim [redis_safe_gets $fd]
 }
 
 proc ::redis::redis_read_null fd {
-    gets $fd
+    redis_safe_gets $fd
     return {}
 }
 
