@@ -1125,7 +1125,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,getKeyRequestsNone,SWAP_OUT,0,1,-1,1,0,0,0},
 
 	{"expired",expiredCommand,-2,
-	 "read-only fast",
+	 "write fast @keyspace",
 	 0,NULL,getKeyRequestsNone,SWAP_IN,0,1,-1,1,0,0,0},
 
 	{"swap",swapCommand,-2,

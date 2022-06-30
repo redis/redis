@@ -329,7 +329,7 @@ sds genRocksInfoString(sds info) {
 		sequence = rocksdb_get_latest_sequence_number(db);
 		rocksdb_approximate_sizes(db,1,&begin_key,&begin_key_len,&end_key,&end_key_len,&used_db_size,&err);
 		max_db_size = server.max_db_size;
-		if (max_db_size) used_db_percent = (float)(used_db_size)/max_db_size;
+		if (max_db_size) used_db_percent = (float)(used_db_size) * 100/max_db_size;
 	}
 
 	if (statvfs(ROCKS_DATA, &stat) == 0) {

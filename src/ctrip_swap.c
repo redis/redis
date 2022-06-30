@@ -224,9 +224,12 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
 noswap:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed",
             "no swap needed: %s", reason);
-    if (ctx->cmd_intention == SWAP_IN &&
-            reason_num == NOSWAP_REASON_SWAPANADECIDED)
+    if (c->cmd && (c->cmd->flags & CMD_READONLY) &&
+            cmd_intention == SWAP_IN &&
+            reason_num == NOSWAP_REASON_SWAPANADECIDED) {
         server.stat_memory_hits++;
+    }
+
     /* noswap is kinda swapfinished. */
     keyRequestSwapFinished(data,ctx);
 
