@@ -1,1 +1,87 @@
+variables:
+  host: 127.0.0.1
+  port: 56379
+  base_dir: /var/lib/k8s/test/ror_ci_perf
+  base_conf: ${CI_PROJECT_DIR}/utils/perf/base.conf
+  bench2: /var/lib/k8s/test/ror_ci_perf/bin/bench2
+  redis_server: ${CI_PROJECT_DIR}/src/redis-server
+  diskname: dm-2
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+build-job:
+  stage: build
+  script:
+      - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+      - git submodule update --init
+      - make -j64
+  cache:
+      key: rocksdb
+      paths:
+          - deps/rocksdb
+
+perf-trocks1:
+  stage: test
+  variables:
+      runner: ${CI_RUNNER_DESCRIPTION}
+  script:
+    - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+    - git submodule update --init
+    - make -j64
+    - sudo -E
+      suite=10G_string
+      setup=cold
+      cases=set-100thd,get-100thd,get-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+    - sudo -E
+      suite=10G_string
+      setup=warm
+      cases=set-100thd,get-100thd,get-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+    - sudo -E
+      suite=10G_string
+      setup=hot
+      cases=set-100thd,get-100thd,get-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+  artifacts:
+     paths:
+       - ${base_dir}/${runner}/artifacts/*
+     expire_in: 1 year
+  tags:
+    - trocks1
+
+perf-trocks2:
+  stage: test
+  variables:
+      runner: ${CI_RUNNER_DESCRIPTION}
+  script:
+    - sed -i 's@https://github.com/facebook/rocksdb@../../sr_zhao/rocksdb.git@' .gitmodules
+    - git submodule update --init
+    - make -j64
+    - sudo -E
+      suite=10G_hash
+      setup=cold
+      configs=swap-big-hash-threshold=1000
+      cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+    - sudo -E
+      suite=10G_hash
+      setup=warm
+      configs=swap-big-hash-threshold=1000
+      cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+    - sudo -E
+      suite=10G_hash
+      setup=hot
+      configs=swap-big-hash-threshold=1000
+      cases=hgetall-100thd,hgetall-1wqps,hget-100thd,hget-1wqps
+      ${CI_PROJECT_DIR}/utils/perf/perf-ror.sh
+  artifacts:
+     paths:
+       - ${base_dir}/${runner}/artifacts/*
+     expire_in: 1 year
+  tags:
+    - trocks2
 
