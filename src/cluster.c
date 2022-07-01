@@ -460,8 +460,8 @@ void clusterSaveConfigOrDie(int do_fsync) {
     }
 }
 
-/* Lock the cluster config using flock(), and leaks the file descriptor used to
- * acquire the lock so that the file will be locked forever.
+/* Lock the cluster config using flock(), and retain the file descriptor used to
+ * acquire the lock so that the file will be locked as long as the process is up.
  *
  * This works because we always update nodes.conf with a new version
  * in-place, reopening the file, and writing to it in place (later adjusting
@@ -500,8 +500,8 @@ int clusterLockConfig(char *filename) {
         close(fd);
         return C_ERR;
     }
-    /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
-     * lock to the file as long as the process exists.
+    /* Lock acquired: leak the 'fd' by not closing it until shutdown time, so that
+     * we'll retain the lock to the file as long as the process exists.
      *
      * After fork, the child process will get the fd opened by the parent process,
      * we need save `fd` to `cluster_config_file_lock_fd`, so that in redisFork(),
