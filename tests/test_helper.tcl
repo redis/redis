@@ -8,6 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
+source tests/support/cluster_helper.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -90,11 +91,13 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
-    unit/cluster
     unit/client-eviction
     unit/violations
     unit/replybufsize
-    unit/cluster-scripting
+    unit/cluster/cli
+    unit/cluster/scripting
+    unit/cluster/hostnames
+    unit/cluster/multi-slot-operations
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -186,12 +189,16 @@ proc srv {args} {
 }
 
 # Provide easy access to the client for the inner server. It's possible to
-# prepend the argument list with a negative level to access clients for
-# servers running in outer blocks.
+# prepend the argument list with a level to access clients for
+# servers running in outer blocks. The level can be provided as either a positive
+# or negative index.
 proc r {args} {
     set level 0
     if {[string is integer [lindex $args 0]]} {
         set level [lindex $args 0]
+        if {$level > 0} {
+            set level [expr -1*$level]
+        }
         set args [lrange $args 1 end]
     }
     [srv $level "client"] {*}$args
@@ -275,14 +282,9 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
+# Get the specified field from the givens instances cluster info output.
+proc CI {index field} {
+    getInfoProperty [r $index cluster info] $field
 }
 
 # Test wrapped into run_solo are sent back from the client to the
