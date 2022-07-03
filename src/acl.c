@@ -2254,7 +2254,7 @@ int ACLSaveToFile(const char *filename) {
     /* Create a temp file with the new content. */
     tmpfilename = sdsnew(filename);
     tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
-        (int)getpid(),(int)mstime());
+        getpid(),mstime());
     if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
         serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
             strerror(errno));
@@ -2267,11 +2267,21 @@ int ACLSaveToFile(const char *filename) {
             strerror(errno));
         goto cleanup;
     }
+    if (redis_fsync(fd) == -1) {
+        serverLog(LL_WARNING,"Syncing ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
     close(fd); fd = -1;
 
     /* Let's replace the new file with the old one. */
     if (rename(tmpfilename,filename) == -1) {
         serverLog(LL_WARNING,"Renaming ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+    if (fsyncFileDir(filename) == -1) {
+        serverLog(LL_WARNING,"Syncing ACL directory for ACL SAVE: %s",
             strerror(errno));
         goto cleanup;
     }
