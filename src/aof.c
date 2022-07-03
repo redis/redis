@@ -2577,6 +2577,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 strerror(errno));
             aofManifestFree(temp_am);
             sdsfree(new_base_filepath);
+            server.aof_lastbgrewrite_status = C_ERR;
+            server.stat_aofrw_consecutive_failures++;
             goto cleanup;
         }
         latencyEndMonitor(latency);
@@ -2605,6 +2607,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 sdsfree(temp_incr_filepath);
                 sdsfree(new_incr_filepath);
                 sdsfree(temp_incr_aof_name);
+                server.aof_lastbgrewrite_status = C_ERR;
+                server.stat_aofrw_consecutive_failures++;
                 goto cleanup;
             }
             latencyEndMonitor(latency);
@@ -2628,6 +2632,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
                 bg_unlink(new_incr_filepath);
                 sdsfree(new_incr_filepath);
             }
+            server.aof_lastbgrewrite_status = C_ERR;
+            server.stat_aofrw_consecutive_failures++;
             goto cleanup;
         }
         sdsfree(new_base_filepath);
