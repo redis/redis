@@ -834,12 +834,12 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
      * which is not worth doing so much memory copying to reduce system calls,
      * therefore, invoke connTLSWrite() multiple times to avoid memory copies. */
     if (iov_bytes_len > NET_MAX_WRITES_PER_EVENT) {
-        size_t tot_sent = 0;
+        ssize_t tot_sent = 0;
         for (int i = 0; i < iovcnt; i++) {
-            size_t sent = connTLSWrite(conn_, iov[i].iov_base, iov[i].iov_len);
+            ssize_t sent = connTLSWrite(conn_, iov[i].iov_base, iov[i].iov_len);
             if (sent <= 0) return tot_sent > 0 ? tot_sent : sent;
             tot_sent += sent;
-            if (sent != iov[i].iov_len) break;
+            if ((size_t) sent != iov[i].iov_len) break;
         }
         return tot_sent;
     }
