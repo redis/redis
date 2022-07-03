@@ -483,10 +483,9 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
  * means that the current node represents the key (that is, none of the
  * compressed node characters are needed to represent the key, just all
  * its parents nodes). */
-static inline size_t raxLowWalk(
-    rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts,
-    uint8_t *stopoffset
-) {
+static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode,
+                                raxNode ***plink, int *splitpos, raxStack *ts, uint8_t *stopoffset)
+{
     raxNode *h = rax->head;
     raxNode **parentlink = &rax->head;
 
@@ -551,7 +550,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
     raxNode *h, **parentlink;
 
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
-    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL, NULL);
+    i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL,NULL);
 
     /* If i == len we walked following the whole string. If we are not
      * in the middle of a compressed node, the string is either already
@@ -956,7 +955,7 @@ void *raxFind(rax *rax, unsigned char *s, size_t len) {
 
     debugf("### Lookup: %.*s\n", (int)len, s);
     int splitpos = 0;
-    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL, NULL);
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL,NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
         return raxNotFound;
     return raxGetData(h);
@@ -1038,7 +1037,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
     debugf("### Delete: %.*s\n", (int)len, s);
     raxStackInit(&ts);
     int splitpos = 0;
-    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,&ts, NULL);
+    size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,&ts,NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey) {
         raxStackFree(&ts);
         return 0;
