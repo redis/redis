@@ -1132,8 +1132,8 @@ void flushAppendOnlyFile(int force) {
             if (can_log) {
                 serverLog(LL_WARNING,"Error writing to the AOF file: %s",
                     strerror(errno));
-                server.aof_last_write_errno = errno;
             }
+            server.aof_last_write_errno = errno;
         } else {
             if (can_log) {
                 serverLog(LL_WARNING,"Short write while writing to "
