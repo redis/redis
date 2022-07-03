@@ -2177,7 +2177,7 @@ sds ACLLoadFromFile(const char *filename) {
                 errors = sdscatprintf(errors,
                          "%s:%d: %s. ",
                          server.acl_filename, linenum, errmsg);
-                continue;
+                break;
             }
         }
 
