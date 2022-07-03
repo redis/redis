@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.",
         "group": "cluster",
         "since": "3.0.0",
-        "arity": 3,
+        "arity": -2,
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [

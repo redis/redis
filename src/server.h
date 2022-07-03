@@ -2187,9 +2187,10 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *                      or may just execute read commands. A command can not be marked
  *                      both CMD_WRITE and CMD_MAY_REPLICATE
  *
- * CMD_SENTINEL:    This command is present in sentinel mode too.
+ * CMD_SENTINEL:    This command is present in sentinel mode.
  *
- * CMD_SENTINEL_ONLY: This command is present only when in sentinel mode.
+ * CMD_ONLY_SENTINEL: This command is present only when in sentinel mode.
+ *                    And should be removed from redis.
  *
  * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
  *
@@ -2499,6 +2500,7 @@ char *getClientPeerId(client *client);
 char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
+int clientSetName(client *c, robj *name);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
