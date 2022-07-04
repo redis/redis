@@ -1511,7 +1511,9 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     /* Generate temp rdb file name using async-signal safe functions. */
     int pid_len = ll2string(pid, sizeof(pid), childpid);
     if (pid_len > 0) {
-        snprintf(tmpfile,sizeof(tmpfile),"temp-%s.rdb",pid);
+        strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+        strlcat(tmpfile, pid, sizeof(tmpfile));
+        strlcat(tmpfile, ".rdb", sizeof(tmpfile));
     } else {
         strlcpy(tmpfile,"temp.rdb",sizeof(tmpfile));
     }
