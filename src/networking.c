@@ -152,21 +152,15 @@ sds getClientMetaFields(client *c) {
             continue;
         };
         sds value = dictGetVal(de);
-        if (value == NULL) {
-            result = sdscatfmt(result,
-                "+%s\n:\n",
-                c->argv[i]->ptr
-            );
-        } else {
-            result = sdscatfmt(result,
-                "+%s\n:%s\n",
-                c->argv[i]->ptr,
-                value
-            );
-        }
+        
+        result = sdscatfmt(result,
+            "+%s\n:%s\n",
+            c->argv[i]->ptr,
+            value
+        );
         count++;
     }
-    
+
     if(count == 0){
         return sdsempty(); 
     }
@@ -1609,6 +1603,11 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
+    if(c->meta){
+        dictRelease(c->meta);
+        c->meta = NULL;
+    }
+
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|
                   CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP_NEXT);
@@ -2974,18 +2973,16 @@ int clientSetMetaOrReply(client *c)
         return C_OK;
     }
 
-    int i;
-    for (i = 0; i < (len - 2)/2; i++) {
-        robj *o1 = c->argv[2+i*2];
+    for (int i = 2; i < c->argc; i++) {
+        robj *o1 = c->argv[i++];
+        robj *o2 = c->argv[i];
         sds key = sdsdup(o1->ptr);
-        robj *o2 = c->argv[3+i*2];
         sds val = sdsdup(o2->ptr);
-
         if (!dictReplace(c->meta, key, val)){
           sdsfree(key);
         }
     }
-
+    
     return C_OK;
 }
 
