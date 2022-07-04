@@ -3000,6 +3000,7 @@ int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int 
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk);
 int serverPubsubSubscriptionCount();
 int serverPubsubShardSubscriptionCount();
+size_t pubsubMemOverhead(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);

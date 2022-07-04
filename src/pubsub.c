@@ -722,3 +722,15 @@ void sunsubscribeCommand(client *c) {
     }
     if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
+
+size_t pubsubMemOverhead(client *c) {
+    /* PubSub patterns */
+    size_t mem = listLength(c->pubsub_patterns) * sizeof(listNode);
+    /* Global PubSub channels */
+    mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
+           dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+    /* Sharded PubSub channels */
+    mem += dictSize(c->pubsubshard_channels) * sizeof(dictEntry) +
+           dictSlots(c->pubsubshard_channels) * sizeof(dictEntry*);
+    return mem;
+}
