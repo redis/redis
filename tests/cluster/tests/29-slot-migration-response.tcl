@@ -47,4 +47,4 @@ test "Test cluster responses during migration of slot x" {
     assert_error "*TRYAGAIN*" {$nodefrom(link) mset "a{$key}" "newVal" $key "newVal2"}
 }
 
-config_set_all_nodes cluster-allow-replica-migration no
+config_set_all_nodes cluster-allow-replica-migration yes
