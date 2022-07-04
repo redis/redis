@@ -407,7 +407,8 @@ fmterr:
  * the file afterward. */
 int clusterSaveConfig(int do_fsync) {
     sds ci,tmpfilename;
-    size_t content_size,offset = 0,written_bytes;
+    size_t content_size,offset = 0;
+    ssize_t written_bytes;
     int fd = -1;
     int retval = C_ERR;
 
@@ -423,7 +424,7 @@ int clusterSaveConfig(int do_fsync) {
 
     /* Create a temp file with the new content. */
     tmpfilename = sdscatfmt(sdsempty(),"%s.tmp-%i-%I",
-        server.cluster_configfile,getpid(),mstime());
+        server.cluster_configfile,(int) getpid(),mstime());
     if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
         serverLog(LL_WARNING,"Could not open temp cluster config file: %s",strerror(errno));
         goto cleanup;
