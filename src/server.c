@@ -3296,6 +3296,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_eval = 0;
     server.in_exec = 0;
+    server.start_exec_in_db = NULL;
     server.propagate_in_transaction = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;

@@ -1,6 +1,6 @@
 #include "server.h"
 #include <ctrip_gtid.h>
-#define GTID_COMMAN_ARGC 2
+#define GTID_COMMAN_ARGC 3
 
 /**
  * @brief 
@@ -26,12 +26,12 @@ int isGtidExecCommand(client* c) {
     if(!isGtidEnabled()) {
         return 0;
     }
-    return c->cmd->proc == gtidCommand && c->argc > GTID_COMMAN_ARGC && strcasecmp(c->argv[2]->ptr, "exec") == 0;
+    return c->cmd->proc == gtidCommand && c->argc > GTID_COMMAN_ARGC && strcasecmp(c->argv[GTID_COMMAN_ARGC]->ptr, "exec") == 0;
 }
 
 /**
 * @brief
-*      gtid.auto {comment} set k v => gtid {gtid_str}
+*      gtid.auto {comment} set k v => gtid {gtid_str} {dbid} {comment}
 *
 */
 void gtidAutoCommand(client* c) {
@@ -77,10 +77,10 @@ end:
 
 /**
  * @brief 
- *      1. gtid A:1 set k v
- *      2. gtid exec   
+ *      1. gtid A:1 {gtid} set k v
+ *      2. gtid A:1 {gtid} exec   
  *          a. fail (clean queue)
- *      3. gtid A:1 \/\*comment\*\/ set k v
+ *      3. gtid A:1 {gtid} \/\*comment\*\/ set k v
  * 
  */
 void gtidCommand(client *c) {
@@ -90,6 +90,14 @@ void gtidCommand(client *c) {
     char* rpl_sid = uuidDecode(gtid, sdslen(gtid), &gno, &rpl_sid_len);
     if (rpl_sid == NULL) {
         addReplyErrorFormat(c,"gtid format error:%s", gtid);
+        return;
+    }
+    int id = 0;
+    if (getIntFromObjectOrReply(c, c->argv[2], &id, NULL) != C_OK)
+        return;
+    
+    if (selectDb(c, id) == C_ERR) {
+        addReplyError(c,"DB index is out of range");
         return;
     }
     uuidSet* uuid_set = gtidSetFindUuidSet(server.gtid_executed, rpl_sid, rpl_sid_len);
@@ -111,9 +119,9 @@ void gtidCommand(client *c) {
     
     struct redisCommand* cmd = c->cmd;
     robj** newargv = zmalloc(sizeof(struct robj*) * argc);
-    int gtid_argc = 2;
-    if(strncmp(c->argv[2]->ptr,"/*", 2) == 0) {
-        gtid_argc = 3;
+    int gtid_argc = 3;
+    if(strncmp(c->argv[3]->ptr,"/*", 2) == 0) {
+        gtid_argc = 4;
     } 
     c->argc = argc - gtid_argc;
     for(int i = 0; i < c->argc; i++) {
@@ -177,6 +185,9 @@ void propagateGtidExpire(redisDb *db, robj *key, int lazy) {
     char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)];
     size_t size = uuidSetNextEncode(server.current_uuid, 1, buf);
     argv[1] = createObject(OBJ_STRING, sdsnewlen(buf, size));
+    argv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
+        "%d", db->id));
+
     argv[0 + GTID_COMMAN_ARGC] = lazy ? shared.unlink : shared.del;
     argv[1 + GTID_COMMAN_ARGC] = key;
 
@@ -185,6 +196,7 @@ void propagateGtidExpire(redisDb *db, robj *key, int lazy) {
     replicationFeedSlaves(server.slaves,db->id,argv,argc);
 
     decrRefCount(argv[1]);
+    decrRefCount(argv[2]);
 }
 
 
@@ -219,23 +231,31 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
     if (cmd == server.multiCommand) {
         return 0;
     }
-    robj *gtidArgv[argc+2];
+    robj *gtidArgv[argc+3];
     gtidArgv[0] = shared.gtid;
     char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)];
     size_t len = uuidSetNextEncode(server.current_uuid, 1, buf);
     gtidArgv[1] = createObject(OBJ_STRING, sdsnewlen(buf, len));
+    if (cmd == server.execCommand &&  server.start_exec_in_db != NULL) {
+        gtidArgv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
+        "%d", server.start_exec_in_db->id));
+    } else {
+        gtidArgv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
+        "%d", dbid));
+    }
     if(cmd == server.gtidAutoCommand) {
         for(int i = 0; i < argc; i++) {
-            gtidArgv[i + 2] = argv[i + 1];
-        }
-        propagate(server.gtidCommand, dbid, gtidArgv, argc + 1, flags);
-    } else {
-        for(int i = 0; i < argc; i++) {
-            gtidArgv[i + 2] = argv[i];
+            gtidArgv[i + 3] = argv[i + 1];
         }
         propagate(server.gtidCommand, dbid, gtidArgv, argc + 2, flags);
+    } else {
+        for(int i = 0; i < argc; i++) {
+            gtidArgv[i + 3] = argv[i];
+        }
+        propagate(server.gtidCommand, dbid, gtidArgv, argc + 3, flags);
     }
     decrRefCount(gtidArgv[1]);
+    decrRefCount(gtidArgv[2]);
     return 1;
 }
 
@@ -249,9 +269,9 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
  * @param seconds 
  * @return sds 
  */
-sds catAppendOnlyGtidExpireAtCommand(sds buf, robj* gtid, robj* comment, struct redisCommand *cmd,  robj *key, robj *seconds) {
+sds catAppendOnlyGtidExpireAtCommand(sds buf, robj* gtid, robj* dbid, robj* comment, struct redisCommand *cmd,  robj *key, robj *seconds) {
     long long when;
-    robj *argv[6];
+    robj *argv[7];
 
     /* Make sure we can use strtoll */
     seconds = getDecodedObject(seconds);
@@ -272,6 +292,7 @@ sds catAppendOnlyGtidExpireAtCommand(sds buf, robj* gtid, robj* comment, struct 
     int index = 0, time_index = 0;
     argv[index++] = shared.gtid;
     argv[index++] = gtid;
+    argv[index++] = dbid;
     if(comment != NULL) {
         argv[index++] = comment;
     }
@@ -297,7 +318,7 @@ sds catAppendOnlyGtidExpireAtCommand(sds buf, robj* gtid, robj* comment, struct 
  */
 sds gtidCommandTranslate(sds buf, struct redisCommand *cmd, robj **argv, int argc) {
     if(cmd == server.gtidCommand) {
-        int index = 2;
+        int index = 3;
         if(strncmp(argv[index]->ptr,"/*",2 ) == 0)  {
             index++;
         }
@@ -305,10 +326,10 @@ sds gtidCommandTranslate(sds buf, struct redisCommand *cmd, robj **argv, int arg
         if (c->proc == expireCommand || c->proc == pexpireCommand ||
             c->proc == expireatCommand) {
             /* Translate EXPIRE/PEXPIRE/EXPIREAT into PEXPIREAT */
-            if(index == 2) {
-                buf = catAppendOnlyGtidExpireAtCommand(buf,argv[1],NULL,c,argv[index+1],argv[index+2]);
+            if(index == 3) {
+                buf = catAppendOnlyGtidExpireAtCommand(buf,argv[1],argv[2],NULL,c,argv[index+1],argv[index+2]);
             } else {
-                buf = catAppendOnlyGtidExpireAtCommand(buf,argv[1],argv[2],c,argv[index+1],argv[index+2]);
+                buf = catAppendOnlyGtidExpireAtCommand(buf,argv[1],argv[2],argv[3],c,argv[index+1],argv[index+2]);
             }
         } else if (c->proc == setCommand && argc > 3 +  GTID_COMMAN_ARGC) {
             robj *pxarg = NULL;

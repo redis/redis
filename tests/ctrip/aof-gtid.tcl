@@ -96,13 +96,13 @@ tags "aof" {
                 set res [try_read_aof  "$dir/appendonly.aof" 8]
                 assert_aof $res {
                     {select *} 
-                    {gtid * SET k1 v PXAT *} 
-                    {gtid * SET k2 v PXAT *} 
-                    {gtid * set k3 v} 
-                    {gtid * PEXPIREAT k3 *} 
-                    {gtid * set k4 v} 
-                    {gtid * PEXPIREAT k4 *} 
-                    {gtid * set k v}
+                    {gtid * 0 SET k1 v PXAT *} 
+                    {gtid * 0 SET k2 v PXAT *} 
+                    {gtid * 0 set k3 v} 
+                    {gtid * 0 PEXPIREAT k3 *} 
+                    {gtid * 0 set k4 v} 
+                    {gtid * 0 PEXPIREAT k4 *} 
+                    {gtid * 0 set k v}
                 }
             }
         }
@@ -114,13 +114,13 @@ tags "aof" {
                 set res [try_read_aof  "$dir/appendonly.aof" 8]
                 assert_aof $res {
                     {select *} 
-                    {gtid * SET k1 v PXAT *} 
-                    {gtid * SET k2 v PXAT *} 
-                    {gtid * set k3 v} 
-                    {gtid * PEXPIREAT k3 *} 
-                    {gtid * set k4 v} 
-                    {gtid * PEXPIREAT k4 *} 
-                    {gtid * set k v}
+                    {gtid * 0 SET k1 v PXAT *} 
+                    {gtid * 0 SET k2 v PXAT *} 
+                    {gtid * 0 set k3 v} 
+                    {gtid * 0 PEXPIREAT k3 *} 
+                    {gtid * 0 set k4 v} 
+                    {gtid * 0 PEXPIREAT k4 *} 
+                    {gtid * 0 set k v}
                 }
                 set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
                 assert_equal [$client get k] v
@@ -130,9 +130,9 @@ tags "aof" {
     
 
     create_aof {
-        append_to_aof [formatCommand gtid A:1 set k1 y]
+        append_to_aof [formatCommand gtid A:1 0 set k1 y]
         append_to_aof [formatCommand set k2 y]
-        append_to_aof [formatCommand gtid A:2 PEXPIREAT k2 100000]
+        append_to_aof [formatCommand gtid A:2 0 PEXPIREAT k2 100000]
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
@@ -152,22 +152,22 @@ tags "aof" {
             r expire k2 1000
             r set k3 y ex 1000
             r set k4 y 
-            r gtid A:1 expire k4 2000
-            r gtid A:2 /*comment*/ expire k4 3000
+            r gtid A:1 9 expire k4 2000
+            r gtid A:2 9 /*comment*/ expire k4 3000
             r set k5 y
             set config [srv 0 config]
             set dir [dict get $config dir]
             set res [try_read_aof  "$dir/appendonly.aof" 9]
             assert_aof $res {
                 {select *}
-                {gtid * k1 y PXAT *}
-                {gtid * set k2 y}
-                {gtid * PEXPIREAT k2 *}
-                {gtid * k3 y PXAT *}
-                {gtid * set k4 y}
-                {gtid * PEXPIREAT k4 *}
-                {gtid * PEXPIREAT k4 *}
-                {gtid * k5 y}
+                {gtid * 9 SET k1 y PXAT *}
+                {gtid * 9 set k2 y}
+                {gtid * 9 PEXPIREAT k2 *}
+                {gtid * 9 SET k3 y PXAT *}
+                {gtid * 9 set k4 y}
+                {gtid * 9 PEXPIREAT k4 *}
+                {gtid * 9 * PEXPIREAT k4 *}
+                {gtid * 9 set k5 y}
             }
         }
     }

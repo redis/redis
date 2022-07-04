@@ -29,11 +29,12 @@ start_server {overrides {gtid-enabled yes}} {
             $R(0) set k v1
             set maxtries 3
             set result 0
-            set backlog_size 51
+            set backlog_size 58
             while {[incr maxtries -1] >= 0} {
                 set before [status $R(0) master_repl_offset]
-                $R(0) gtid A:1 set x foobar
+                $R(0) gtid A:1 9 set x foobar
                 set after [status $R(0) master_repl_offset]
+                puts [expr $after-$before]
                 if {[expr $after-$before] == $backlog_size} {
                     set result 1
                     break
@@ -43,10 +44,10 @@ start_server {overrides {gtid-enabled yes}} {
         } 
         test "SYNC GTID COMMAND" {
             set repl [attach_to_replication_stream]
-            $R(0) gtid A:2 set k v
+            $R(0) gtid A:2 9 set k v
             assert_replication_stream $repl {
                 {select *}
-                {gtid A:2 set k v}
+                {gtid A:2 9 set k v}
             }
         }
         test "SYNC SET=>GTID SET COMMAND " {
@@ -54,7 +55,7 @@ start_server {overrides {gtid-enabled yes}} {
             $R(0) set k v1
             assert_replication_stream $repl {
                 {select *}
-                {gtid * set k v1}
+                {gtid * 9 set k v1}
             }
             assert_equal [$R(0) get k] v1
         }
@@ -68,8 +69,8 @@ start_server {overrides {gtid-enabled yes}} {
                 {select *}
                 {multi}
                 {set k v2}
-                {gtid * exec}
-                {gtid * set k v3}
+                {gtid * 9 exec}
+                {gtid * 9 set k v3}
             }
             $R(1) get k 
         } {v3}
@@ -84,8 +85,8 @@ start_server {overrides {gtid-enabled yes}} {
                 {select *}
                 {multi}
                 {set k v5}
-                {gtid * exec}
-                {gtid * set k v6}
+                {gtid * 9 exec}
+                {gtid * 9 set k v6}
             }
             $R(1) get k
         } {v6}
@@ -96,8 +97,8 @@ start_server {overrides {gtid-enabled yes}} {
             after 1000
             assert_replication_stream $repl {
                 {select *}
-                {gtid * SET k v7 PX 1000}
-                {gtid * DEL k}
+                {gtid * 9 SET k v7 PX 1000}
+                {gtid * 9 DEL k}
             }
             $R(1) get k
         } {}
@@ -119,7 +120,7 @@ start_server {overrides {gtid-enabled yes}} {
             after 1000
             assert_replication_stream $repl {
                 {select *}
-                {gtid *:10 /*comment*/ set k1 v}
+                {gtid *:10 9 /*comment*/ set k1 v}
             }
             $R(1) get k1
         } {v}
