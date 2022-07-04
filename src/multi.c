@@ -38,6 +38,7 @@ void initClientMultiState(client *c) {
     c->mstate.cmd_flags = 0;
     c->mstate.cmd_inv_flags = 0;
     c->mstate.argv_len_sums = 0;
+    c->mstate.alloc_count = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -65,9 +66,16 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
      * aborted. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
-
-    c->mstate.commands = zrealloc(c->mstate.commands,
-            sizeof(multiCmd)*(c->mstate.count+1));
+    if (c->mstate.count == 0) {
+        /* If a client is using multi/exec, assuming it is used to execute at least
+         * two commands. Hence, creating by default size of 2. */
+        c->mstate.commands = zmalloc(sizeof(multiCmd)*2);
+        c->mstate.alloc_count = 2;
+    }
+    if (c->mstate.count == c->mstate.alloc_count) {
+        c->mstate.alloc_count = c->mstate.alloc_count < INT_MAX/2 ? c->mstate.alloc_count*2 : INT_MAX;
+        c->mstate.commands = zrealloc(c->mstate.commands, sizeof(multiCmd)*(c->mstate.alloc_count*2));
+    }
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
@@ -466,5 +474,7 @@ size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    /* Reserved memory for queued multi commands. */
+    mem += c->mstate.alloc_count * sizeof(multiCmd);
     return mem;
 }
