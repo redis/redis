@@ -142,33 +142,43 @@ sds getAllClientMetaFields(dict *meta) {
 
 sds getClientMetaFields(client *c) {
     int i;
+    int count = 0;
     sds result = sdsempty();
 
     for (i = 2; i < c->argc; i++) {
         dictEntry *de;
         de = dictFind(c->meta, c->argv[i]->ptr);
         if (de == NULL) {
-            result = sdscatfmt(result,
-                "%s= ",
-                c->argv[i]->ptr
-            );
             continue;
         };
         sds value = dictGetVal(de);
         if (value == NULL) {
             result = sdscatfmt(result,
-                "%s= ",
+                "+%s\n:\n",
                 c->argv[i]->ptr
             );
         } else {
             result = sdscatfmt(result,
-                "%s=%s ",
+                "+%s\n:%s\n",
                 c->argv[i]->ptr,
                 value
             );
         }
+        count++;
     }
-    return result;
+    
+    if(count == 0){
+        return sdsempty(); 
+    }
+    
+    sds size = sdscatfmt(sdsempty(),
+        "%%%i\n",
+        count
+    );
+
+    return sdscatfmt(size,
+        result
+    );
 }
 
 client *createClient(connection *conn) {
