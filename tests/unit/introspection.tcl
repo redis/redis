@@ -128,35 +128,42 @@ start_server {tags {"introspection"}} {
     } {}
 
     test {CLIENT SETMETADATA does not accept odd params} {
-        catch {r client setmeta foo} e
+        catch {r client setmetadata foo} e
         set e
     } {ERR*}
 
     test {CLIENT SETMETADATA can clean meta info to this connection} {
-        assert_equal [r client setmeta meta foo] {OK}
-        assert_equal [r client setmeta] {OK}
+        assert_equal [r client setmetadata meta foo] {OK}
+        assert_equal [r client setmetadata] {OK}
         r client list
     } {*meta=*}
 
     test {CLIENT SETMETADATA can assign a meta to this connection} {
-        assert_equal [r client setmeta meta foo] {OK}
+        assert_equal [r client setmetadata meta foo] {OK}
         r client list
-    } {*meta=meta=foo;*}
+    } {*meta=%1
++meta
+:foo
+*}
 
     test {CLIENT GETMETADATA should return empty info for non-existing meta attributes} {
-        assert_equal [r client setmeta meta foo] {OK}
-        r client getmeta meta2 meta3
+        assert_equal [r client setmetadata meta foo] {OK}
+        r client getmetadata meta2 meta3
     } {meta2= meta3= }
 
     test {CLIENT GETMETADATA should return specific meta attributes} {
-        assert_equal [r client setmeta meta foo meta2 bar] {OK}
-        r client getmeta meta
+        assert_equal [r client setmetadata meta foo meta2 bar] {OK}
+        r client getmetadata meta
     } {meta=foo }
 
     test {CLIENT GETMETADATA should return all meta attributes} {
-        assert_equal [r client setmeta meta foo meta2 bar] {OK}
-        assert_match {*meta2=bar*} [r client getmeta]
-        assert_match {*meta=foo*} [r client getmeta]
+        assert_equal [r client setmetadata meta foo meta2 bar] {OK}
+        assert_match {*+meta2
+:bar
+*} [r client getmetadata]
+        assert_match {*+meta
+:foo
+*} [r client getmetadata]
     }
 
     test {CLIENT LIST shows empty fields for unassigned names} {

@@ -117,22 +117,25 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-sds getAllClientMetaFields(dict *meta, sds scaping) {
+sds getAllClientMetaFields(dict *meta) {
     dictIterator *di = dictGetIterator(meta);
     dictEntry *de;
-    sds result = sdsempty();
+    sds result = sdscatfmt(sdsempty(),
+        "%%%i\n",
+        (int) dictSize(meta)
+    );
 
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         sds value = dictGetVal(de);
 
         result = sdscatfmt(result,
-            "%s=%s%s",
+            "+%s\n:%s\n",
             key,
-            value,
-            scaping
+            value
         );
     }
+    dictReleaseIterator(di);
 
     return result;
 }
@@ -2869,7 +2872,7 @@ sds catClientInfoString(sds s, client *client) {
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
-        client->meta ? (char*)getAllClientMetaFields(client->meta, ";") : "");
+        client->meta ? (char*)getAllClientMetaFields(client->meta) : "");
     return ret;
 }
 
@@ -3271,7 +3274,7 @@ NULL
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setmeta") && ((c->argc % 2) == 0)) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"setmetadata") && ((c->argc % 2) == 0)) {
         /* CLIENT SETMETADATA */
         if (clientSetMetaOrReply(c) == C_OK)
             addReply(c,shared.ok);
@@ -3281,11 +3284,11 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getmeta")) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"getmetadata")) {
         /* CLIENT GETMETADATA */
         sds meta = NULL;
         if (c->argc == 2) {
-            meta = c->meta ? (char*)getAllClientMetaFields(c->meta, " ") : "";
+            meta = c->meta ? (char*)getAllClientMetaFields(c->meta) : "";
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         } else {
