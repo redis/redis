@@ -236,9 +236,9 @@ int execCommandPropagateGtid(struct redisCommand *cmd, int dbid, robj **argv, in
     char buf[uuidSetEstimatedEncodeBufferSize(server.current_uuid)];
     size_t len = uuidSetNextEncode(server.current_uuid, 1, buf);
     gtidArgv[1] = createObject(OBJ_STRING, sdsnewlen(buf, len));
-    if (cmd == server.execCommand &&  server.start_exec_in_db != NULL) {
+    if (cmd == server.execCommand &&  server.db_at_multi != NULL) {
         gtidArgv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
-        "%d", server.start_exec_in_db->id));
+        "%d", server.db_at_multi->id));
     } else {
         gtidArgv[2] = createObject(OBJ_STRING, sdscatprintf(sdsempty(), 
         "%d", dbid));

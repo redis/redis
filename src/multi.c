@@ -137,7 +137,7 @@ void execCommandPropagateExec(int dbid) {
     propagate(server.execCommand,dbid,&shared.exec,1,
               PROPAGATE_AOF|PROPAGATE_REPL);
     afterPropagateExec();
-    server.start_exec_in_db = NULL;
+    server.db_at_multi = NULL;
 }
 
 /* Aborts a transaction, with a specific error message.
@@ -200,7 +200,7 @@ void execCommand(client *c) {
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
 
     server.in_exec = 1;
-    server.start_exec_in_db = c->db;
+    server.db_at_multi = c->db;
 
     orig_argv = c->argv;
     orig_argc = c->argc;
