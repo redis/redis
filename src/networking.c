@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "dict.h"
 #include "atomicvar.h"
 #include "cluster.h"
 #include "script.h"
@@ -2956,31 +2957,26 @@ int clientSetNameOrReply(client *c, robj *name) {
  * currently set meta: the client will remain without meta.*/
 int clientSetMetaOrReply(client *c)
 {
-    int len = c->argc;
-
-    if (c->meta == NULL)
-    {
-        c->meta = dictCreate(&hashDictType);
-    }
-
-    /* Setting the client meta do not have params actually removes
-     * the current meta. */
-    if (len == 2)
+    if (c->meta != NULL)
     {
         dictRelease(c->meta);
-        c->meta = dictCreate(&hashDictType);
-    
-        return C_OK;
+        c->meta = NULL;    
     }
 
-    for (int i = 2; i < c->argc; i++) {
-        robj *o1 = c->argv[i++];
-        robj *o2 = c->argv[i];
-        sds key = sdsdup(o1->ptr);
-        sds val = sdsdup(o2->ptr);
-        if (!dictReplace(c->meta, key, val)){
-          sdsfree(key);
-        }
+    if (c->argc != 2)
+    {
+        c->meta = dictCreate(&hashDictType);
+
+        for (int i = 2; i < c->argc; i++) {
+            robj *o1 = c->argv[i++];
+            robj *o2 = c->argv[i];
+            sds key = sdsdup(o1->ptr);
+            sds val = sdsdup(o2->ptr);
+            if (dictAdd(c->meta, key, val) != DICT_OK){
+                sdsfree(key);
+                sdsfree(val);
+            }
+        }        
     }
     
     return C_OK;
