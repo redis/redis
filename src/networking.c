@@ -3792,9 +3792,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
 
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
      * to the strings themselves because they aren't stored per client. */
-    mem += listLength(c->pubsub_patterns) * sizeof(listNode);
-    mem += dictSize(c->pubsub_channels) * sizeof(dictEntry) +
-           dictSlots(c->pubsub_channels) * sizeof(dictEntry*);
+    mem += pubsubMemOverhead(c);
 
     if (c->meta)
         mem += dictSize(c->meta) * sizeof(dictEntry) +
