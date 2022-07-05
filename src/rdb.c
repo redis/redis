@@ -1511,11 +1511,11 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     /* Generate temp rdb file name using async-signal safe functions. */
     int pid_len = ll2string(pid, sizeof(pid), childpid);
     if (pid_len > 0) {
-        strlcpy(tmpfile, "temp-", sizeof(tmpfile));
-        strlcat(tmpfile, pid, sizeof(tmpfile));
-        strlcat(tmpfile, ".rdb", sizeof(tmpfile));
+        redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+        redis_strlcat(tmpfile, pid, sizeof(tmpfile));
+        redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
     } else {
-        strlcpy(tmpfile,"temp.rdb",sizeof(tmpfile));
+        redis_strlcpy(tmpfile,"temp.rdb",sizeof(tmpfile));
     }
 
     if (from_signal) {

@@ -87,13 +87,8 @@ int fileExist(char *filename);
 sds makePath(char *path, char *filename);
 int fsyncFileDir(const char *filename);
 
-#if !defined strlcpy
-size_t strlcpy(char *dst, const char *src, size_t dsize);
-#endif
-
-#if !defined strlcat
-size_t strlcat(char *dst, const char *src, size_t dsize);
-#endif
+size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
+size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);

@@ -987,7 +987,6 @@ int fsyncFileDir(const char *filename) {
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#if !defined strlcpy
 
 /*
  * Copy string src to buffer dst of size dsize.  At most dsize-1
@@ -995,7 +994,7 @@ int fsyncFileDir(const char *filename) {
  * Returns strlen(src); if retval >= dsize, truncation occurred.
  */
 size_t
-strlcpy(char *dst, const char *src, size_t dsize)
+redis_strlcpy(char *dst, const char *src, size_t dsize)
 {
     const char *osrc = src;
     size_t nleft = dsize;
@@ -1019,10 +1018,6 @@ strlcpy(char *dst, const char *src, size_t dsize)
     return(src - osrc - 1); /* count does not include NUL */
 }
 
-#endif
-
-#if !defined strlcat
-
 /*
  * Appends src to string dst of size dsize (unlike strncat, dsize is the
  * full size of dst, not space left).  At most dsize-1 characters
@@ -1031,7 +1026,7 @@ strlcpy(char *dst, const char *src, size_t dsize)
  * If retval >= dsize, truncation occurred.
  */
 size_t
-strlcat(char *dst, const char *src, size_t dsize)
+redis_strlcat(char *dst, const char *src, size_t dsize)
 {
     const char *odst = dst;
     const char *osrc = src;
@@ -1058,8 +1053,6 @@ strlcat(char *dst, const char *src, size_t dsize)
     return(dlen + (src - osrc));    /* count does not include NUL */
 }
 
-#endif
-
 #ifdef REDIS_TEST
 #include <assert.h>
 
@@ -1068,53 +1061,53 @@ static void test_string2ll(void) {
     long long v;
 
     /* May not start with +. */
-    strlcpy(buf,"+1",sizeof(buf));
+    redis_strlcpy(buf,"+1",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
     /* Leading space. */
-    strlcpy(buf," 1",sizeof(buf));
+    redis_strlcpy(buf," 1",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
     /* Trailing space. */
-    strlcpy(buf,"1 ",sizeof(buf));
+    redis_strlcpy(buf,"1 ",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
     /* May not start with 0. */
-    strlcpy(buf,"01",sizeof(buf));
+    redis_strlcpy(buf,"01",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
-    strlcpy(buf,"-1",sizeof(buf));
+    redis_strlcpy(buf,"-1",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == -1);
 
-    strlcpy(buf,"0",sizeof(buf));
+    redis_strlcpy(buf,"0",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == 0);
 
-    strlcpy(buf,"1",sizeof(buf));
+    redis_strlcpy(buf,"1",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == 1);
 
-    strlcpy(buf,"99",sizeof(buf));
+    redis_strlcpy(buf,"99",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == 99);
 
-    strlcpy(buf,"-99",sizeof(buf));
+    redis_strlcpy(buf,"-99",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == -99);
 
-    strlcpy(buf,"-9223372036854775808",sizeof(buf));
+    redis_strlcpy(buf,"-9223372036854775808",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == LLONG_MIN);
 
-    strlcpy(buf,"-9223372036854775809",sizeof(buf)); /* overflow */
+    redis_strlcpy(buf,"-9223372036854775809",sizeof(buf)); /* overflow */
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
-    strlcpy(buf,"9223372036854775807",sizeof(buf));
+    redis_strlcpy(buf,"9223372036854775807",sizeof(buf));
     assert(string2ll(buf,strlen(buf),&v) == 1);
     assert(v == LLONG_MAX);
 
-    strlcpy(buf,"9223372036854775808",sizeof(buf)); /* overflow */
+    redis_strlcpy(buf,"9223372036854775808",sizeof(buf)); /* overflow */
     assert(string2ll(buf,strlen(buf),&v) == 0);
 }
 
@@ -1123,46 +1116,46 @@ static void test_string2l(void) {
     long v;
 
     /* May not start with +. */
-    strlcpy(buf,"+1",,sizeof(buf));
+    redis_strlcpy(buf,"+1",,sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 0);
 
     /* May not start with 0. */
-    strlcpy(buf,"01",sizeof(buf));
+    redis_strlcpy(buf,"01",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 0);
 
-    strlcpy(buf,"-1",sizeof(buf));
+    redis_strlcpy(buf,"-1",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == -1);
 
-    strlcpy(buf,"0",sizeof(buf));
+    redis_strlcpy(buf,"0",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == 0);
 
-    strlcpy(buf,"1",sizeof(buf));
+    redis_strlcpy(buf,"1",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == 1);
 
-    strlcpy(buf,"99",sizeof(buf));
+    redis_strlcpy(buf,"99",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == 99);
 
-    strlcpy(buf,"-99",sizeof(buf));
+    redis_strlcpy(buf,"-99",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == -99);
 
 #if LONG_MAX != LLONG_MAX
-    strlcpy(buf,"-2147483648",sizeof(buf));
+    redis_strlcpy(buf,"-2147483648",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == LONG_MIN);
 
-    strlcpy(buf,"-2147483649",sizeof(buf)); /* overflow */
+    redis_strlcpy(buf,"-2147483649",sizeof(buf)); /* overflow */
     assert(string2l(buf,strlen(buf),&v) == 0);
 
-    strlcpy(buf,"2147483647",sizeof(buf));
+    redis_strlcpy(buf,"2147483647",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 1);
     assert(v == LONG_MAX);
 
-    strlcpy(buf,"2147483648",sizeof(buf)); /* overflow */
+    redis_strlcpy(buf,"2147483648",sizeof(buf)); /* overflow */
     assert(string2l(buf,strlen(buf),&v) == 0);
 #endif
 }
