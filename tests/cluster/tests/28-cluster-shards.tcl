@@ -185,7 +185,7 @@ test "Test the replica reports a loading state while it's loading" {
 }
 
 test "Regression test for a crash when calling SHARDS during handshake" {
-    # Reset a node and forget a node, so we can use it as part of a handshake
+    # Reset forget a node, so we can use it to establish handshaking connections
     set id [R 19 CLUSTER MYID]
     R 19 CLUSTER RESET HARD
     for {set i 0} {$i < 19} {incr i} {
