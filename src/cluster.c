@@ -1224,10 +1224,11 @@ clusterNode *clusterLookupNode(const char *name, int length) {
 list *clusterGetNodesServingMySlots(clusterNode *node) {
     list *nodes_for_slot = listCreate();
     clusterNode *my_primary = nodeIsMaster(node) ? node : node->slaveof;
-    if (!my_primary) {
-        listAddNodeTail(nodes_for_slot, node);
-        return nodes_for_slot;
-    }
+
+    /* This function is only valid for fully connected nodes, so
+     * they should have a known primary. */
+    serverAssert(my_primary);
+    listAddNodeTail(nodes_for_slot, my_primary);
     for (int i=0; i < my_primary->numslaves; i++) {
         listAddNodeTail(nodes_for_slot, my_primary->slaves[i]);
     }
