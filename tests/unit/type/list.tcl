@@ -185,6 +185,30 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
     } {} {needs:debug}
 
+    # basic command check for plain nodes - "LMOVE"
+    test {Test LMMOVE on plain nodes} {
+        r flushdb
+        r debug quicklist-packed-threshold 5b
+        r RPUSH lst1{t} "aa"
+        r RPUSH lst2{t} "bb"
+        r RPUSH lst2{t} "cc"
+        r RPUSH lst3{t} "dd"
+        r RPUSH lst3{t} "ee"
+        r RPUSH lst3{t} "ff"
+
+        r LMMOVE lst{t} 3 lst1{t} lst2{t} lst3{t} RIGHT LEFT
+        r LMMOVE lst{t} 3 lst1{t} lst2{t} lst3{t} LEFT LEFT
+        r LMMOVE lst{t} 3 lst1{t} lst2{t} lst3{t} LEFT RIGHT
+
+        assert_equal [r llen lst{t}] 3
+        assert_equal [r llen lst1{t}] 0
+        assert_equal [r llen lst2{t}] 0
+        assert_equal [r llen lst3{t}] 3
+        assert_equal [r lpop lst{t}] "bb"
+        assert_equal [r lpop lst{t}] "aa"
+        assert_equal [r lpop lst{t}] "cc"
+    } {} {needs:debug}
+
     # testing LSET with combinations of node types
     # plain->packed , packed->plain, plain->plain, packed->packed
     test {Test LSET with packed / plain combinations} {
@@ -940,6 +964,28 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
       assert_equal {} [r lrange list1{t} 0 -1]
       assert_equal {} [r lrange list2{t} 0 -1]
       assert_equal {foo} [r lrange list3{t} 0 -1]
+      $rd1 close
+      $rd2 close
+    }
+
+    test "Linked LMMOVEs" {
+      set rd1 [redis_deferring_client]
+      set rd2 [redis_deferring_client]
+
+      r del list1{t} list2{t} list3{t} list4{t} list5{t}
+
+      $rd1 blmmove list4{t} 3 list1{t} list2{t} list3{t} right left 0
+      wait_for_blocked_clients_count 1
+      $rd2 blmmove list5{t} 2 list3{t} list4{t} left right 0
+      wait_for_blocked_clients_count 2
+
+      r rpush list2{t} foo
+
+      assert_equal {} [r lrange list1{t} 0 -1]
+      assert_equal {} [r lrange list2{t} 0 -1]
+      assert_equal {} [r lrange list2{t} 0 -1]
+      assert_equal {} [r lrange list2{t} 0 -1]
+      assert_equal {foo} [r lrange list5{t} 0 -1]
       $rd1 close
       $rd2 close
     }

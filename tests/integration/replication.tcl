@@ -98,6 +98,26 @@ start_server {tags {"repl external:skip"}} {
             assert_match {} [cmdrstat getset $A]
         }
 
+        test {LMMOVE replication} {
+            $A config resetstat
+            $A config set loglevel debug
+            $B config set loglevel debug
+            r lpush lmm1 foo
+            r lpush lmm2 bar
+            r lpush lmm3 baz
+            r lmmove lmmout 3 lmm1 lmm2 lmm3 LEFT RIGHT
+            r lmmove lmmout 3 lmm1 lmm2 lmm3 RIGHT LEFT
+
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest]
+            } else {
+                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+            }
+
+            # LLMOVE should replicate as LMOVE
+            assert_match {*calls=2,*} [cmdrstat lmove $A]
+        }
+
         test {BRPOPLPUSH replication, when blocking against empty list} {
             $A config resetstat
             set rd [redis_deferring_client]
@@ -152,6 +172,36 @@ start_server {tags {"repl external:skip"}} {
                     assert_equal [$A debug digest] [$B debug digest]
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
+                }
+            }
+        }
+
+        foreach wherefrom {left right} {
+            foreach whereto {left right} {
+                test "BLMMOVE ($wherefrom, $whereto) replication, when blocking against empty list" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    $rd blmmove a 6 b c d e f g $wherefrom $whereto 5
+                    r lpush d foo
+                    wait_for_condition 50 100 {
+                        [$A debug digest] eq [$B debug digest]
+                    } else {
+                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
+                    }
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
+                    assert_match {} [cmdrstat rpoplpush $A]
+                }
+
+                test "BLMMOVE ($wherefrom, $whereto) replication, list exists" {
+                    $A config resetstat
+                    set rd [redis_deferring_client]
+                    r lpush c 1
+                    r lpush c 2
+                    r lpush d 3
+                    $rd blmmove e 2 c d $wherefrom $whereto 5
+                    after 1000
+                    assert_equal [$A debug digest] [$B debug digest]
+                    assert_match {*calls=1,*} [cmdrstat lmove $A]
                 }
             }
         }

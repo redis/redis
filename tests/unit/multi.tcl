@@ -730,6 +730,7 @@ start_server {tags {"multi"}} {
         r brpop empty_list{t} 0
         r brpoplpush empty_list1{t} empty_list2{t} 0
         r blmove empty_list1{t} empty_list2{t} LEFT LEFT 0
+        r blmmove empty_list1{t} 2 empty_list2{t} empty_list3{t} LEFT LEFT 0
         r bzpopmin empty_zset{t} 0
         r bzpopmax empty_zset{t} 0
         r xread BLOCK 0 STREAMS s{t} $
@@ -737,7 +738,7 @@ start_server {tags {"multi"}} {
         set res [r exec]
 
         list $m $res
-    } {OK {{} {} {} {} {} {} {} {}}}
+    } {OK {{} {} {} {} {} {} {} {} {}}}
 
     test {MULTI propagation of PUBLISH} {
         set repl [attach_to_replication_stream]

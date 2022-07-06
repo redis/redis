@@ -223,6 +223,12 @@ start_server {tags {"scripting"}} {
         set e
     } {*not allowed*}
 
+    test {EVAL - Scripts can't run blmmove command} {
+        set e {}
+        catch {run_script {return redis.pcall('blmmove','empty_list1', 1, 'empty_list2', 'LEFT', 'LEFT', 0)} 0} e
+        set e
+    } {*not allowed*}
+
     test {EVAL - Scripts can't run bzpopmin command} {
         set e {}
         catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 0} e
