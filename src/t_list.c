@@ -842,23 +842,24 @@ robj *getStringObjectFromListPosition(int position) {
     }
 }
 
-void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
-    robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
-        == NULL || checkType(c,sobj,OBJ_LIST)) return;
+void lmmoveGenericCommand(client *c, robj **src, long numsrc, robj *dst, int wherefrom, int whereto) {
+    for (int j = 0; j < numsrc; j++) {
+        robj *sobj = lookupKeyWrite(c->db,src[j]);
 
-    if (listTypeLength(sobj) == 0) {
-        /* This may only happen after loading very old RDB files. Recent
-         * versions of Redis delete keys of empty lists. */
-        addReplyNull(c);
-    } else {
-        robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
-        robj *touchedkey = c->argv[1];
+        if (sobj == NULL) continue;
+        if (checkType(c,sobj,OBJ_LIST)) return;
+        if (listTypeLength(sobj) == 0) {
+            /* This may only happen after loading very old RDB files. Recent
+            * versions of Redis delete keys of empty lists. */
+            continue;
+        }
 
+        robj *dobj = lookupKeyWrite(c->db,dst);
         if (checkType(c,dobj,OBJ_LIST)) return;
-        value = listTypePop(sobj,wherefrom);
+
+        robj *value = listTypePop(sobj,wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
+        lmoveHandlePush(c,dst,dobj,value,whereto);
 
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
@@ -866,23 +867,32 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         /* Delete the source list when it is empty */
         notifyKeyspaceEvent(NOTIFY_LIST,
                             wherefrom == LIST_HEAD ? "lpop" : "rpop",
-                            touchedkey,
+                            src[j],
                             c->db->id);
         if (listTypeLength(sobj) == 0) {
-            dbDelete(c->db,touchedkey);
+            dbDelete(c->db,src[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                touchedkey,c->db->id);
+                                src[j],c->db->id);
         }
-        signalModifiedKey(c,c->db,touchedkey);
+        signalModifiedKey(c,c->db,src[j]);
         server.dirty++;
-        if (c->cmd->proc == blmoveCommand) {
+
+        if (c->cmd->proc == lmmoveCommand || c->cmd->proc == blmmoveCommand) {
+            int offset = c->cmd->proc == blmmoveCommand ? 1 : 0;
+            rewriteClientCommandVector(c,5,shared.lmove,
+                c->argv[3+j],c->argv[1],c->argv[c->argc-2-offset],c->argv[c->argc-1-offset]);
+        } else if (c->cmd->proc == blmoveCommand) {
             rewriteClientCommandVector(c,5,shared.lmove,
                                        c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
         } else if (c->cmd->proc == brpoplpushCommand) {
             rewriteClientCommandVector(c,3,shared.rpoplpush,
                                        c->argv[1],c->argv[2]);
         }
+
+        return;
     }
+
+    addReplyOrErrorObject(c,shared.null[c->resp]);
 }
 
 /* LMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) */
@@ -892,7 +902,22 @@ void lmoveCommand(client *c) {
         != C_OK) return;
     if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
         != C_OK) return;
-    lmoveGenericCommand(c, wherefrom, whereto);
+    lmmoveGenericCommand(c,c->argv+1,1,c->argv[2],wherefrom,whereto);
+}
+
+/* LMMOVE <destination> <numkeys> <srckey> [<srckey> ...] (LEFT|RIGHT) (LEFT|RIGHT) */
+void lmmoveCommand(client *c) {
+    long numkeys = 0;
+    if (getRangeLongFromObjectOrReply(c,c->argv[2],c->argc-5,c->argc-5,
+                                      &numkeys,"invalid numkeys") != C_OK)
+        return;
+
+    int wherefrom, whereto;
+    if (getListPositionFromObjectOrReply(c,c->argv[3+numkeys],&wherefrom)
+        != C_OK) return;
+    if (getListPositionFromObjectOrReply(c,c->argv[4+numkeys],&whereto)
+        != C_OK) return;
+    lmmoveGenericCommand(c,c->argv+3,numkeys,c->argv[1],wherefrom,whereto);
 }
 
 /* This is the semantic of this command:
@@ -911,7 +936,7 @@ void lmoveCommand(client *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 void rpoplpushCommand(client *c) {
-    lmoveGenericCommand(c, LIST_TAIL, LIST_HEAD);
+    lmmoveGenericCommand(c,c->argv+1,1,c->argv[2],LIST_TAIL,LIST_HEAD);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1104,25 +1129,32 @@ void brpopCommand(client *c) {
     blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,-1);
 }
 
-void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
-    robj *key = lookupKeyWrite(c->db, c->argv[1]);
-    if (checkType(c,key,OBJ_LIST)) return;
-
-    if (key == NULL) {
+void blmmoveGenericCommand(client *c, robj **src, int numsrc, robj *dest, int wherefrom, int whereto, mstime_t timeout) {
+    int exists = -1;
+    robj* key;
+    for (int j = 0; j < numsrc; j++) {
+        key = lookupKeyWrite(c->db, src[j]);
+        if (checkType(c,key,OBJ_LIST)) return;
+        if (key != NULL) {
+            exists = j;
+            break;
+        }
+    }
+    if (exists == -1) {
         if (c->flags & CLIENT_DENY_BLOCKING) {
-            /* Blocking against an empty list when blocking is not allowed
+            /* Blocking against an empty lists when blocking is not allowed
              * returns immediately. */
             addReplyNull(c);
         } else {
-            /* The list is empty and the client blocks. */
+            /* The lists are empty and the client blocks. */
             struct blockPos pos = {wherefrom, whereto};
-            blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,-1,timeout,c->argv[2],&pos,NULL);
+            blockForKeys(c,BLOCKED_LIST,src,numsrc,-1,timeout,dest,&pos,NULL);
         }
     } else {
-        /* The list exists and has elements, so
-         * the regular lmoveCommand is executed. */
+        /* A list exists and has elements, so
+         * the regular lmmoveCommand is executed. */
         serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-        lmoveGenericCommand(c,wherefrom,whereto);
+        lmmoveGenericCommand(c,src + exists,1,dest,wherefrom,whereto);
     }
 }
 
@@ -1136,7 +1168,27 @@ void blmoveCommand(client *c) {
         != C_OK) return;
     if (getTimeoutFromObjectOrReply(c,c->argv[5],&timeout,UNIT_SECONDS)
         != C_OK) return;
-    blmoveGenericCommand(c,wherefrom,whereto,timeout);
+
+    blmmoveGenericCommand(c,c->argv+1,1,c->argv[2],wherefrom,whereto,timeout);
+}
+
+/* BLMMOVE <destination> <numkeys> <srckey> [<srckey> ...] (LEFT|RIGHT) (LEFT|RIGHT) <timeout> */
+void blmmoveCommand(client *c) {
+    long numkeys = 0;
+    if (getRangeLongFromObjectOrReply(c,c->argv[2],c->argc-6,c->argc-6,
+                                      &numkeys,"invalid numkeys") != C_OK)
+        return;
+
+    mstime_t timeout;
+    int wherefrom, whereto;
+    if (getListPositionFromObjectOrReply(c,c->argv[3+numkeys],&wherefrom)
+        != C_OK) return;
+    if (getListPositionFromObjectOrReply(c,c->argv[4+numkeys],&whereto)
+        != C_OK) return;
+    if (getTimeoutFromObjectOrReply(c,c->argv[5+numkeys],&timeout,UNIT_SECONDS)
+        != C_OK) return;
+
+    blmmoveGenericCommand(c,c->argv+3,numkeys,c->argv[1],wherefrom,whereto,timeout);
 }
 
 /* BRPOPLPUSH <source> <destination> <timeout> */
@@ -1144,7 +1196,7 @@ void brpoplpushCommand(client *c) {
     mstime_t timeout;
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
         != C_OK) return;
-    blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
+    blmmoveGenericCommand(c, c->argv+1, 1, c->argv[2],LIST_TAIL, LIST_HEAD, timeout);
 }
 
 /* LMPOP/BLMPOP

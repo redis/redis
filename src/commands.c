@@ -2668,6 +2668,39 @@ struct redisCommandArg BLMOVE_Args[] = {
 {0}
 };
 
+/********** BLMMOVE ********************/
+
+/* BLMMOVE history */
+#define BLMMOVE_History NULL
+
+/* BLMMOVE tips */
+#define BLMMOVE_tips NULL
+
+/* BLMMOVE wherefrom argument table */
+struct redisCommandArg BLMMOVE_wherefrom_Subargs[] = {
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* BLMMOVE whereto argument table */
+struct redisCommandArg BLMMOVE_whereto_Subargs[] = {
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* BLMMOVE argument table */
+struct redisCommandArg BLMMOVE_Args[] = {
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMMOVE_wherefrom_Subargs},
+{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=BLMMOVE_whereto_Subargs},
+{"timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** BLMPOP ********************/
 
 /* BLMPOP history */
@@ -2829,6 +2862,38 @@ struct redisCommandArg LMOVE_Args[] = {
 {"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_wherefrom_Subargs},
 {"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMOVE_whereto_Subargs},
+{0}
+};
+
+/********** LMMOVE ********************/
+
+/* LMMOVE history */
+#define LMMOVE_History NULL
+
+/* LMMOVE tips */
+#define LMMOVE_tips NULL
+
+/* LMMOVE wherefrom argument table */
+struct redisCommandArg LMMOVE_wherefrom_Subargs[] = {
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* LMMOVE whereto argument table */
+struct redisCommandArg LMMOVE_whereto_Subargs[] = {
+{"left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE},
+{"right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* LMMOVE argument table */
+struct redisCommandArg LMMOVE_Args[] = {
+{"destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE},
+{"wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMMOVE_wherefrom_Subargs},
+{"whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=LMMOVE_whereto_Subargs},
 {0}
 };
 
@@ -7250,6 +7315,7 @@ struct redisCommand redisCommandTable[] = {
 {"pfselftest","An internal command for testing HyperLogLog values","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,PFSELFTEST_tips,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG},
 /* list */
 {"blmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMOVE_History,BLMOVE_tips,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMOVE_Args},
+{"blmmove","Pop an element from a list, push it to another list and return it; or block until one is available","O(N) where N is the number of provided keys","---",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMMOVE_History,BLMMOVE_tips,blmmoveCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=BLMMOVE_Args},
 {"blmpop","Pop elements from a list, or block until one is available","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLMPOP_History,BLMPOP_tips,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},blmpopGetKeys,.args=BLMPOP_Args},
 {"blpop","Remove and get the first element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BLPOP_History,BLPOP_tips,blpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BLPOP_Args},
 {"brpop","Remove and get the last element in a list, or block until one is available","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,BRPOP_History,BRPOP_tips,brpopCommand,-3,CMD_WRITE|CMD_NOSCRIPT|CMD_BLOCKING,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}},.args=BRPOP_Args},
@@ -7258,6 +7324,7 @@ struct redisCommand redisCommandTable[] = {
 {"linsert","Insert an element before or after another element in a list","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LINSERT_History,LINSERT_tips,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LINSERT_Args},
 {"llen","Get the length of a list","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LLEN_History,LLEN_tips,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LLEN_Args},
 {"lmove","Pop an element from a list, push it to another list and return it","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LMOVE_History,LMOVE_tips,lmoveCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LMOVE_Args},
+{"lmmove","Pop an element from a list, push it to another list and return it","O(N) where is the number of provided keys","---",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LMMOVE_History,LMMOVE_tips,lmmoveCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LMMOVE_Args},
 {"lmpop","Pop elements from a list","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LMPOP_History,LMPOP_tips,lmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}},lmpopGetKeys,.args=LMPOP_Args},
 {"lpop","Remove and get the first elements in a list","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPOP_History,LPOP_tips,lpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOP_Args},
 {"lpos","Return the index of matching elements on a list","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_LIST,LPOS_History,LPOS_tips,lposCommand,-3,CMD_READONLY,ACL_CATEGORY_LIST,{{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=LPOS_Args},
