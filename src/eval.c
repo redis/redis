@@ -543,9 +543,21 @@ void evalGenericCommand(client *c, int evalsha) {
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
                                       get appropriate error messages and logs */
 
+    if (server.allow_script_undo) {
+        server.record_mutation = 1;
+        server.hold_events_and_signals = 1;
+        server.ml = mutationLogCreate();
+    }
+
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
+
+    server.record_mutation = 0;
+    server.hold_events_and_signals = 0;
+    mutationLogCommit(server.ml);  // Commit what is pending (ie events and notifications). Nothing if it was rolled back before.
+    mutationLogDestroy(server.ml);
+    server.ml = NULL;
 }
 
 void evalCommand(client *c) {

@@ -107,6 +107,11 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
+    if (server.hold_events_and_signals) {
+	mutationLogRecordKeyspaceEvent(server.ml, type, event, key, dbid);
+	return;
+    }
+
     /* If any modules are interested in events, notify the module system now.
      * This bypasses the notifications configuration, but the module engine
      * will only call event subscribers if the event type matches the types

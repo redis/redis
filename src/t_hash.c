@@ -166,6 +166,80 @@ int hashTypeExists(robj *o, sds field) {
     return hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK;
 }
 
+/************************ MVCC ************************************************/
+void hashTypeInsertUndo(robj* key, void** data, unsigned int nData) {
+    assert(nData == 1);
+    assert(data[0] != NULL);
+    serverLog(LL_WARNING, "MVCC KEY=%s mutating operation operation='hashTypeInsert' UNDO action='hashTypeDelete field=%s", (char*)key->ptr, (char*)data[0]);
+    hashTypeDelete(key, objectCommandLookup(server.current_client, key),
+                   data[0]);
+}
+void hashTypeReplaceUndo(robj* key, void** data, unsigned int nData) {
+    assert(nData == 2);
+    assert(data[0] != NULL);
+    assert(data[1] != NULL);
+    serverLog(LL_WARNING, "MVCC KEY=%s mutating operation operation='hashTypeInsert' UNDO action='hashTypeReplace field=%s value=%s", (char*)key->ptr, (char*)data[0], (char*)data[1]);
+    hashTypeSet(key, objectCommandLookup(server.current_client, key),
+                data[0], data[1], 0);
+}
+
+void hashTypeDeleteUndo(robj* key, void** data, unsigned int nData) {
+    assert(nData == 2);
+    assert(data[0] != NULL);
+    assert(data[1] != NULL);
+    serverLog(LL_WARNING, "MVCC KEY=%s mutating operation operation='hashTypeDelete' UNDO action='hashTypeInsert field=%s value=%s", (char*)key->ptr, (char*)data[0], (char*)data[1]);
+    hashTypeSet(key, objectCommandLookup(server.current_client, key),
+                data[0], data[1], 0);
+}
+
+void hashTypeMutationFreeField(void** data, unsigned int nData) {
+    assert(nData == 1);
+    sdsfree(data[0]);
+    data[0] = NULL;
+}
+
+void hashTypeMutationFreeFieldAndValue(void** data, unsigned int nData) {
+    assert(nData == 2);
+    sdsfree(data[0]);
+    sdsfree(data[1]);
+    data[0] = NULL;
+    data[1] = NULL;
+}
+
+void hashTypeRecordSetMutation(robj* key, int update, sds field, sds oldvalue) {
+    mutationOperation* m;
+    if (update) {
+        m = mutationOperationCreate(key,
+                                    &hashTypeReplaceUndo,
+                                    &hashTypeMutationFreeFieldAndValue,
+                                    2);
+        mutationOperationSetData(m, 0, field);
+        mutationOperationSetData(m, 1, oldvalue);
+        oldvalue = NULL;
+    } else {
+        m = mutationOperationCreate(key,
+                                    &hashTypeInsertUndo,
+                                    &hashTypeMutationFreeField,
+                                    1);
+        mutationOperationSetData(m, 0, field);
+    }
+
+    mutationLogRecordMutation(server.ml, m);
+}
+
+void hashTypeRecordDeleteMutation(robj* key, sds field, sds oldvalue) {
+    incrRefCount(key);
+    mutationOperation* m = mutationOperationCreate(key,
+                                                   &hashTypeDeleteUndo,
+                                                   &hashTypeMutationFreeFieldAndValue,
+                                                   2);
+    mutationOperationSetData(m, 0, sdsdup(field));
+    mutationOperationSetData(m, 1, oldvalue);
+
+    mutationLogRecordMutation(server.ml, m);
+}
+/****************************************************************************/
+
 /* Add a new field, overwrite the old with the new value if it already exists.
  * Return 0 on insert and 1 on update.
  *
@@ -187,7 +261,8 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
-int hashTypeSet(robj *o, sds field, sds value, int flags) {
+int hashTypeSet(robj* key, robj *o, sds field, sds value, int flags) {
+    sds oldValue = NULL;
     int update = 0;
 
     /* Check if the field is too long for listpack, and convert before adding the item.
@@ -211,6 +286,9 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 serverAssert(vptr != NULL);
                 update = 1;
 
+                if (server.record_mutation)
+                    oldValue = sdsdup((char *) vptr);
+
                 /* Replace value */
                 zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
             }
@@ -229,7 +307,11 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
-            sdsfree(dictGetVal(de));
+            if (server.record_mutation)
+                oldValue = dictGetVal(de);
+            else
+                sdsfree(dictGetVal(de));
+
             if (flags & HASH_SET_TAKE_VALUE) {
                 dictGetVal(de) = value;
                 value = NULL;
@@ -239,12 +321,13 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
             update = 1;
         } else {
             sds f,v;
-            if (flags & HASH_SET_TAKE_FIELD) {
+            if (flags & HASH_SET_TAKE_FIELD && !server.record_mutation) {
                 f = field;
                 field = NULL;
             } else {
                 f = sdsdup(field);
             }
+
             if (flags & HASH_SET_TAKE_VALUE) {
                 v = value;
                 value = NULL;
@@ -257,16 +340,31 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         serverPanic("Unknown hash encoding");
     }
 
+    if (server.record_mutation) {
+        sds f;
+        if (flags & HASH_SET_TAKE_FIELD) {
+            f = field;
+            field = NULL;
+        } else {
+            f = sdsdup(field);
+        }
+        hashTypeRecordSetMutation(key, update, f, oldValue);
+        oldValue = NULL;
+    }
+
     /* Free SDS strings we did not referenced elsewhere if the flags
      * want this function to be responsible. */
     if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
     if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
+    if (oldValue) sdsfree(oldValue);
+
     return update;
 }
 
 /* Delete an element from a hash.
  * Return 1 on deleted and 0 on not found. */
-int hashTypeDelete(robj *o, sds field) {
+int hashTypeDelete(robj* key, robj *o, sds field) {
+    sds oldValue = NULL;
     int deleted = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -277,6 +375,13 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
+                /* Grab pointer to the value (fptr points to the field) */
+                if (server.record_mutation) {
+                    unsigned char* vptr = lpNext(zl, fptr);
+                    serverAssert(vptr != NULL);
+                    oldValue = sdsdup((char *)vptr);
+                }
+
                 /* Delete both of the key and the value. */
                 zl = lpDeleteRangeWithEntry(zl,&fptr,2);
                 o->ptr = zl;
@@ -284,7 +389,13 @@ int hashTypeDelete(robj *o, sds field) {
             }
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (dictDelete((dict*)o->ptr, field) == C_OK) {
+        dictEntry* de = dictUnlink((dict*)o->ptr, field);
+        if (de != NULL) {
+            // Save the old value
+            oldValue = dictGetVal(de);
+            dictGetVal(de) = NULL;
+
+            dictFreeUnlinkedEntry((dict*)o->ptr, de);
             deleted = 1;
 
             /* Always check if the dictionary needs a resize after a delete. */
@@ -294,6 +405,14 @@ int hashTypeDelete(robj *o, sds field) {
     } else {
         serverPanic("Unknown hash encoding");
     }
+
+    if (deleted && server.record_mutation) {
+        hashTypeRecordDeleteMutation(key, field, oldValue);
+        oldValue = NULL;
+    }
+
+    if (oldValue) sdsfree(oldValue);
+
     return deleted;
 }
 
@@ -589,7 +708,7 @@ void hsetnxCommand(client *c) {
         addReply(c, shared.czero);
     } else {
         hashTypeTryConversion(o,c->argv,2,3);
-        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+        hashTypeSet(c->argv[1], o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
@@ -610,7 +729,7 @@ void hsetCommand(client *c) {
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
 
     for (i = 2; i < c->argc; i += 2)
-        created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
+        created += !hashTypeSet(c->argv[1], o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
 
     /* HMSET (deprecated) and HSET return value is different. */
     char *cmdname = c->argv[0]->ptr;
@@ -654,7 +773,7 @@ void hincrbyCommand(client *c) {
     }
     value += incr;
     new = sdsfromlonglong(value);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
+    hashTypeSet(c->argv[1], o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyLongLong(c,value);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
@@ -693,7 +812,7 @@ void hincrbyfloatCommand(client *c) {
     char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,LD_STR_HUMAN);
     new = sdsnewlen(buf,len);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
+    hashTypeSet(c->argv[1], o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyBulkCBuffer(c,buf,len);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
@@ -762,7 +881,7 @@ void hdelCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
+        if (hashTypeDelete(c->argv[1], o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o) == 0) {
                 dbDelete(c->db,c->argv[1]);

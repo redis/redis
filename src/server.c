@@ -2569,6 +2569,10 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
+    server.allow_script_undo = 1; // TODO: Set by flag
+    server.record_mutation = 0;
+    server.hold_events_and_signals = 0;
+    server.ml = NULL;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -3581,6 +3585,22 @@ int commandCheckArity(client *c, sds *err) {
     }
 
     return 1;
+}
+
+void rollbackMutations() {
+    if (server.record_mutation) {
+        server.record_mutation = 0;
+	mutationLogRollback(server.ml);
+        server.record_mutation = 1;
+    }
+}
+
+void commitMutations() {
+    if (server.hold_events_and_signals) {
+	server.hold_events_and_signals = 0;
+	mutationLogCommit(server.ml);
+	server.hold_events_and_signals = 1;
+    }
 }
 
 /* If this function gets called we already read a whole

@@ -296,7 +296,7 @@ void scriptKill(client *c, int is_eval) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
     }
-    if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
+    if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY && !server.allow_script_undo) {
         addReplyError(c,
                 "-UNKILLABLE Sorry the script already executed write "
                         "commands against the dataset. You can either wait the "
