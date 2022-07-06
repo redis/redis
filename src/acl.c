@@ -2174,10 +2174,20 @@ sds ACLLoadFromFile(const char *filename) {
             acl_args[j] = sdstrim(acl_args[j],"\t\r\n");
             if (ACLSetUser(u,acl_args[j],sdslen(acl_args[j])) != C_OK) {
                 const char *errmsg = ACLSetUserStringError();
-                errors = sdscatprintf(errors,
-                         "%s:%d: %s. ",
-                         server.acl_filename, linenum, errmsg);
-                break;
+                if (errno == ENOENT) {
+                    /* For missing commands, we print out more information since
+                     * it shouldn't contain any sensitive information. */
+                    errors = sdscatprintf(errors,
+                            "%s:%d: Error in applying operation '%s': %s. ",
+                            server.acl_filename, linenum, acl_args[j], errmsg);
+                } else {
+                    /* For all other errors, only print out the first error encountered
+                     * since it might affect future operations. */
+                    errors = sdscatprintf(errors,
+                            "%s:%d: %s. ",
+                            server.acl_filename, linenum, errmsg);
+                    break;
+                }
             }
         }
 
