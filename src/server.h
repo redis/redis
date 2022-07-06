@@ -959,6 +959,7 @@ typedef struct multiState {
                                is possible to know if all the commands have a
                                certain flag. */
     size_t argv_len_sums;    /* mem used by all commands arguments */
+    int alloc_count;         /* total number of multiCmd struct memory reserved. */
 } multiState;
 
 /* This structure holds the blocking operation state for a client.
@@ -3000,6 +3001,7 @@ int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int 
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk);
 int serverPubsubSubscriptionCount();
 int serverPubsubShardSubscriptionCount();
+size_t pubsubMemOverhead(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);

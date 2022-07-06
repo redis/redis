@@ -48,6 +48,7 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
@@ -4216,6 +4217,12 @@ int finishShutdown(void) {
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
+
+    /* Unlock the cluster config file before shutdown */
+    if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1) {
+        flock(server.cluster_config_file_lock_fd, LOCK_UN|LOCK_NB);
+    }
+
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
