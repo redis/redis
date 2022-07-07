@@ -6338,8 +6338,15 @@ assign_replicas:
                 continue;
             }
             redisReply *reply = NULL;
-            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
-                                            first->ip, first->port, first->bus_port);
+            if (first->bus_port == 0) {
+                /* CLUSTER MEET bus-port parameter was added in 4.0, so if bus_port is 0,
+                 * we just call CLUSTER MEET with 2 arguments, maintain the compatibility. */
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
+                                                first->ip, first->port);
+            } else {
+                reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d %d",
+                                                first->ip, first->port, first->bus_port);
+            }
             int is_err = 0;
             if (reply != NULL) {
                 if ((is_err = reply->type == REDIS_REPLY_ERROR))
