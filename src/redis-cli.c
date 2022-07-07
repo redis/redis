@@ -90,9 +90,6 @@
     "[ERR] Invalid arguments: you need to pass either a valid " \
     "address (ie. 120.0.0.1:7000) or space separated IP " \
     "and port (ie. 120.0.0.1 7000)\n"
-#define CLUSTER_MANAGER_INVALID_HOST_ONE_ARG \
-    "[ERR] Invalid arguments: you need to pass a valid " \
-    "address (ie. 120.0.0.1:7000 or 120.0.0.1:7000@17000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -3000,7 +2997,7 @@ typedef struct clusterManagerCommandDef {
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
-    {"create", clusterManagerCommandCreate, -2, "host1:port1[@bus_port1] ... hostN:portN[@bus_portN]",
+    {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
     {"check", clusterManagerCommandCheck, -1, "host:port or host port",
      "search-multiple-owners"},
@@ -3014,7 +3011,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
      "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
-     "new_host:new_port[@new_bus_port] existing_host:existing_port", "slave,master-id <arg>"},
+     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
         "host:port command arg arg .. arg", "only-masters,only-replicas"},
@@ -3116,20 +3113,18 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
 }
 
 /* Get host ip and port from command arguments. If only one argument has
- * been provided it must be in the form of 'ip:port' or 'ip:port@bus_port', elsewhere
+ * been provided it must be in the form of 'ip:port', elsewhere
  * the first argument must be the ip and the second one the port.
  * If host and port can be detected, it returns 1 and it stores host and
  * port into variables referenced by 'ip_ptr' and 'port_ptr' pointers,
- * if bus_port can be detected, it stores bus_port into variables referenced by 'bus_port_ptr',
  * elsewhere it returns 0. */
 static int getClusterHostFromCmdArgs(int argc, char **argv,
-                                     char **ip_ptr, int *port_ptr,
-                                     int *bus_port_ptr) {
-    int port = 0, bus_port = 0;
+                                     char **ip_ptr, int *port_ptr) {
+    int port = 0;
     char *ip = NULL;
     if (argc == 1) {
         char *addr = argv[0];
-        if (!parseClusterNodeAddress(addr, &ip, &port, &bus_port)) return 0;
+        if (!parseClusterNodeAddress(addr, &ip, &port, NULL)) return 0;
     } else {
         ip = argv[0];
         port = atoi(argv[1]);
@@ -3138,7 +3133,6 @@ static int getClusterHostFromCmdArgs(int argc, char **argv,
     else {
         *ip_ptr = ip;
         *port_ptr = port;
-        if (bus_port_ptr) *bus_port_ptr = bus_port;
     }
     return 1;
 }
@@ -3212,18 +3206,14 @@ static void freeClusterManager(void) {
         dictRelease(clusterManagerUncoveredSlots);
 }
 
-/* We can specify the cluster-port of the node through the bus_port parameter.
- * Note the value can be 0, it means:
- *   1. It is not specified in --cluster create, use port + 10000 as its value.
- *   2. We don't need to know it, at this point this value may be wrong.
- *      If it is used, it will be corrected in clusterManagerLoadInfoFromNode.
- */
 static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_port) {
     clusterManagerNode *node = zmalloc(sizeof(*node));
     node->context = NULL;
     node->name = NULL;
     node->ip = ip;
     node->port = port;
+    /* We don't need to know the bus_port, at this point this value may be wrong.
+     * If it is used, it will be corrected in clusterManagerLoadInfoFromNode. */
     node->bus_port = bus_port ? bus_port : port + CLUSTER_MANAGER_PORT_INCR;
     node->current_epoch = 0;
     node->ping_sent = 0;
@@ -6125,13 +6115,13 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     for (i = 0; i < argc; i++) {
         char *addr = argv[i];
         char *ip = NULL;
-        int port = 0, bus_port = 0;
-        if (!parseClusterNodeAddress(addr, &ip, &port, &bus_port)) {
+        int port = 0;
+        if (!parseClusterNodeAddress(addr, &ip, &port, NULL)) {
             fprintf(stderr, "Invalid address format: %s\n", addr);
             return 0;
         }
 
-        clusterManagerNode *node = clusterManagerNewNode(ip, port, bus_port);
+        clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
         if (!clusterManagerNodeConnect(node)) {
             freeClusterManagerNode(node);
             return 0;
@@ -6338,9 +6328,10 @@ assign_replicas:
                 continue;
             }
             redisReply *reply = NULL;
-            if (first->bus_port == 0) {
-                /* CLUSTER MEET bus-port parameter was added in 4.0, so if bus_port is 0,
-                 * we just call CLUSTER MEET with 2 arguments, maintain the compatibility. */
+            if (first->bus_port == 0 || (first->bus_port == first->port + CLUSTER_MANAGER_PORT_INCR)) {
+                /* CLUSTER MEET bus-port parameter was added in 4.0.
+                 * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
+                 * we just call CLUSTER MEET with 2 arguments, using the old form. */
                 reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d",
                                                 first->ip, first->port);
             } else {
@@ -6380,6 +6371,8 @@ assign_replicas:
                 }
                 success = 0;
                 goto cleanup;
+            } else if (err != NULL) {
+                zfree(err);
             }
         }
         // Reset Nodes
@@ -6415,12 +6408,12 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     redisReply *function_restore_reply = NULL;
     redisReply *function_list_reply = NULL;
     char *ref_ip = NULL, *ip = NULL;
-    int ref_port = 0, port = 0, bus_port = 0;
-    if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port, &bus_port))
+    int ref_port = 0, port = 0;
+    if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port))
         goto invalid_args;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port, NULL))
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port))
         goto invalid_args;
-    clusterManagerLogInfo(">>> Adding node %s:%d@%d to cluster %s:%d\n", ip, port, bus_port,
+    clusterManagerLogInfo(">>> Adding node %s:%d to cluster %s:%d\n", ip, port,
                           ref_ip, ref_port);
     // Check the existing cluster
     clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port, 0);
@@ -6447,7 +6440,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     }
 
     // Add the new node
-    clusterManagerNode *new_node = clusterManagerNewNode(ip, port, bus_port);
+    clusterManagerNode *new_node = clusterManagerNewNode(ip, port, 0);
     int added = 0;
     if (!clusterManagerNodeConnect(new_node)) {
         clusterManagerLogErr("[ERR] Sorry, can't connect to node %s:%d\n",
@@ -6550,7 +6543,7 @@ cleanup:
     if (function_list_reply) freeReplyObject(function_list_reply);
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ONE_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
 }
 
@@ -6559,7 +6552,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     int success = 1;
     int port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     char *node_id = argv[1];
     clusterManagerLogInfo(">>> Removing node %s from cluster %s:%d\n",
                           node_id, ip, port);
@@ -6617,14 +6610,14 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     if (r) freeReplyObject(r);
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ONE_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
 }
 
 static int clusterManagerCommandInfo(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
@@ -6637,7 +6630,7 @@ invalid_args:
 static int clusterManagerCommandCheck(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerShowClusterInfo();
@@ -6655,7 +6648,7 @@ static int clusterManagerCommandFix(int argc, char **argv) {
 static int clusterManagerCommandReshard(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     clusterManagerCheckCluster(0);
@@ -6844,7 +6837,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     char *ip = NULL;
     clusterManagerNode **weightedNodes = NULL;
     list *involved = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *node = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(node)) return 0;
     int result = 1, i;
@@ -7038,7 +7031,7 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
     UNUSED(argc);
     int port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     int timeout = atoi(argv[1]);
     if (timeout < 100) {
         fprintf(stderr, "Setting a node timeout of less than 100 "
@@ -7088,7 +7081,7 @@ reply_err:;
                           ok_count, err_count);
     return 1;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ONE_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
 }
 
@@ -7098,8 +7091,8 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     char *ip = NULL, *src_ip = NULL;
     char *invalid_args_msg = NULL;
     sds cmdfmt = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port, NULL)) {
-        invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ONE_ARG;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
+        invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
         goto invalid_args;
     }
     if (config.cluster_manager_command.from == NULL) {
@@ -7108,7 +7101,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
         goto invalid_args;
     }
     char *src_host[] = {config.cluster_manager_command.from};
-    if (!getClusterHostFromCmdArgs(1, src_host, &src_ip, &src_port, NULL)) {
+    if (!getClusterHostFromCmdArgs(1, src_host, &src_ip, &src_port)) {
         invalid_args_msg = "[ERR] Invalid --cluster-from host. You need to "
                            "pass a valid address (ie. 120.0.0.1:7000).\n";
         goto invalid_args;
@@ -7250,7 +7243,7 @@ invalid_args:
 static int clusterManagerCommandCall(int argc, char **argv) {
     int port = 0, i;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     argc--;
@@ -7287,7 +7280,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     zfree(argvlen);
     return 1;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ONE_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
 }
 
@@ -7295,7 +7288,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     UNUSED(argc);
     int success = 1, port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port, NULL)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
@@ -7351,7 +7344,7 @@ cleanup:
     } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ONE_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
 }
 
