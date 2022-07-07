@@ -64,7 +64,7 @@ test "It is possible to write and read from the cluster" {
 }
 
 test "Function no-cluster flag" {
-    R 1 function load lua test {
+    R 1 function load {#!lua name=test
         redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
     }
     catch {R 1 fcall f1 0} e
@@ -80,3 +80,16 @@ test "Script no-cluster flag" {
     
     assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
 }
+
+test "CLUSTER RESET SOFT test" {
+    set last_epoch_node0 [get_info_field [R 0 cluster info] cluster_current_epoch]
+    R 0 FLUSHALL
+    R 0 CLUSTER RESET
+    assert {[get_info_field [R 0 cluster info] cluster_current_epoch] eq $last_epoch_node0}
+
+    set last_epoch_node1 [get_info_field [R 1 cluster info] cluster_current_epoch]
+    R 1 FLUSHALL
+    R 1 CLUSTER RESET SOFT
+    assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
+}
+

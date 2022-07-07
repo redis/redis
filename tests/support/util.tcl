@@ -79,6 +79,12 @@ proc getInfoProperty {infostr property} {
     }
 }
 
+proc cluster_info {r field} {
+    if {[regexp "^$field:(.*?)\r\n" [$r cluster info] _ value]} {
+        set _ $value
+    }
+}
+
 # Return value for INFO property
 proc status {r property} {
     set _ [getInfoProperty [{*}$r info] $property]
@@ -825,9 +831,19 @@ proc subscribe {client channels} {
     consume_subscribe_messages $client subscribe $channels
 }
 
+proc ssubscribe {client channels} {
+    $client ssubscribe {*}$channels
+    consume_subscribe_messages $client ssubscribe $channels
+}
+
 proc unsubscribe {client {channels {}}} {
     $client unsubscribe {*}$channels
     consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc sunsubscribe {client {channels {}}} {
+    $client sunsubscribe {*}$channels
+    consume_subscribe_messages $client sunsubscribe $channels
 }
 
 proc psubscribe {client channels} {

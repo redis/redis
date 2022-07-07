@@ -49,6 +49,8 @@
 #include "anet.h"
 #include "config.h"
 
+#define UNUSED(x) (void)(x)
+
 static void anetSetError(char *err, const char *fmt, ...)
 {
     va_list ap;
@@ -158,6 +160,13 @@ int anetKeepAlive(char *err, int fd, int interval)
     val = 3;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#elif defined(__APPLE__)
+    /* Set idle time with interval */
+    val = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &val, sizeof(val)) < 0) {
+        anetSetError(err, "setsockopt TCP_KEEPALIVE: %s\n", strerror(errno));
         return ANET_ERR;
     }
 #else
@@ -679,4 +688,19 @@ error:
     close(fds[0]);
     close(fds[1]);
     return -1;
+}
+
+int anetSetSockMarkId(char *err, int fd, uint32_t id) {
+#ifdef HAVE_SOCKOPTMARKID
+    if (setsockopt(fd, SOL_SOCKET, SOCKOPTMARKID, (void *)&id, sizeof(id)) == -1) {
+        anetSetError(err, "setsockopt: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
+#else
+    UNUSED(fd);
+    UNUSED(id);
+    anetSetError(err,"anetSetSockMarkid unsupported on this platform");
+    return ANET_OK;
+#endif
 }

@@ -45,11 +45,11 @@
                 "key_spec_index": 0
             },
             {
-                "name": "min",
+                "name": "start",
                 "type": "string"
             },
             {
-                "name": "max",
+                "name": "stop",
                 "type": "string"
             },
             {

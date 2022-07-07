@@ -94,6 +94,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster-scripting
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -272,6 +273,16 @@ proc s {args} {
         set args [lrange $args 1 end]
     }
     status [srv $level "client"] [lindex $args 0]
+}
+
+# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
+proc csi {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    cluster_info [srv $level "client"] [lindex $args 0]
 }
 
 # Test wrapped into run_solo are sent back from the client to the
@@ -577,15 +588,15 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). This option can be repeated."
         "--verbose          Increases verbosity."
         "--list-tests       List all the available test units."
-        "--only <test>      Just execute tests that match <test> regexp. This option can be repeated."
+        "--only <test>      Just execute the specified test by test name or tests that match <test> regexp (if <test> starts with '/'). This option can be repeated."
         "--skip-till <unit> Skip all units until (and including) the specified one."
         "--skipunit <unit>  Skip one unit."
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names or regexp patterns that should be skipped (one per line)."
-        "--skiptest <test>  Test name or regexp pattern to skip. This option can be repeated."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line)."
+        "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--no-latency       Skip latency measurements and validation by some tests."

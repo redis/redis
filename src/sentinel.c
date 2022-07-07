@@ -391,7 +391,6 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 sentinelRedisInstance *sentinelGetMasterByName(char *name);
 char *sentinelGetSubjectiveLeader(sentinelRedisInstance *master);
 char *sentinelGetObjectiveLeader(sentinelRedisInstance *master);
-int yesnotoi(char *s);
 void instanceLinkConnectionError(const redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);
@@ -706,7 +705,7 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     if (level != LL_DEBUG) {
         channel = createStringObject(type,strlen(type));
         payload = createStringObject(msg,strlen(msg));
-        pubsubPublishMessage(channel,payload);
+        pubsubPublishMessage(channel,payload,0);
         decrRefCount(channel);
         decrRefCount(payload);
     }
@@ -4128,7 +4127,7 @@ numargserr:
 
 void addInfoSectionsToDict(dict *section_dict, char **sections);
 
-/* SENTINEL INFO [section] */
+/* INFO [<section> [<section> ...]] */
 void sentinelInfoCommand(client *c) {
     char *sentinel_sections[] = {"server", "clients", "cpu", "stats", "sentinel", NULL};
     int sec_all = 0, sec_everything = 0;

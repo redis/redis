@@ -38,6 +38,7 @@ void initClientMultiState(client *c) {
     c->mstate.cmd_flags = 0;
     c->mstate.cmd_inv_flags = 0;
     c->mstate.argv_len_sums = 0;
+    c->mstate.alloc_count = 0;
 }
 
 /* Release all the resources associated with MULTI/EXEC state */
@@ -56,7 +57,7 @@ void freeClientMultiState(client *c) {
 }
 
 /* Add a new command into the MULTI commands queue */
-void queueMultiCommand(client *c) {
+void queueMultiCommand(client *c, uint64_t cmd_flags) {
     multiCmd *mc;
 
     /* No sense to waste memory if the transaction is already aborted.
@@ -65,9 +66,16 @@ void queueMultiCommand(client *c) {
      * aborted. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
         return;
-
-    c->mstate.commands = zrealloc(c->mstate.commands,
-            sizeof(multiCmd)*(c->mstate.count+1));
+    if (c->mstate.count == 0) {
+        /* If a client is using multi/exec, assuming it is used to execute at least
+         * two commands. Hence, creating by default size of 2. */
+        c->mstate.commands = zmalloc(sizeof(multiCmd)*2);
+        c->mstate.alloc_count = 2;
+    }
+    if (c->mstate.count == c->mstate.alloc_count) {
+        c->mstate.alloc_count = c->mstate.alloc_count < INT_MAX/2 ? c->mstate.alloc_count*2 : INT_MAX;
+        c->mstate.commands = zrealloc(c->mstate.commands, sizeof(multiCmd)*(c->mstate.alloc_count));
+    }
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
@@ -75,8 +83,8 @@ void queueMultiCommand(client *c) {
     mc->argv_len = c->argv_len;
 
     c->mstate.count++;
-    c->mstate.cmd_flags |= c->cmd->flags;
-    c->mstate.cmd_inv_flags |= ~c->cmd->flags;
+    c->mstate.cmd_flags |= cmd_flags;
+    c->mstate.cmd_inv_flags |= ~cmd_flags;
     c->mstate.argv_len_sums += c->argv_len_sum + sizeof(robj*)*c->argc;
 
     /* Reset the client's args since we copied them into the mstate and shouldn't
@@ -230,6 +238,7 @@ void execCommand(client *c) {
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
+        c->mstate.commands[j].argv_len = c->argv_len;
         c->mstate.commands[j].cmd = c->cmd;
     }
 
@@ -465,5 +474,7 @@ size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    /* Reserved memory for queued multi commands. */
+    mem += c->mstate.alloc_count * sizeof(multiCmd);
     return mem;
 }

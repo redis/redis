@@ -98,7 +98,8 @@ static int bit_bnot(lua_State *L) { BRET(~barg(L, 1)) }
 
 #define BIT_OP(func, opr) \
   static int func(lua_State *L) { int i; UBits b = barg(L, 1); \
-    for (i = lua_gettop(L); i > 1; i--) b opr barg(L, i); BRET(b) }
+    for (i = lua_gettop(L); i > 1; i--) b opr barg(L, i);      \
+    BRET(b) }
 BIT_OP(bit_band, &=)
 BIT_OP(bit_bor, |=)
 BIT_OP(bit_bxor, ^=)

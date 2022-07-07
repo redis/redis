@@ -36,6 +36,7 @@ start_server {tags {"modules"}} {
         # Compare the maps. We need to pop "group" first.
         dict unset redis_reply group
         dict unset module_reply group
+        dict unset module_reply module
 
         assert_equal $redis_reply $module_reply
     }

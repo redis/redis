@@ -10,6 +10,9 @@
         "command_flags": [
             "NOSCRIPT"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
         "acl_categories": [
             "SCRIPTING"
         ],

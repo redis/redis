@@ -160,6 +160,9 @@
 #define CC_FORCE (1<<0)         /* Re-connect if already connected. */
 #define CC_QUIET (1<<1)         /* Don't log connecting errors. */
 
+/* DNS lookup */
+#define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -2759,7 +2762,7 @@ static int noninteractive(int argc, char **argv) {
 
     retval = issueCommand(argc, sds_args);
     sdsfreesplitres(sds_args, argc);
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -2846,7 +2849,7 @@ static int evalMode(int argc, char **argv) {
             break; /* Return to the caller. */
         }
     }
-    return retval;
+    return retval == REDIS_OK ? 0 : 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -6317,11 +6320,21 @@ assign_replicas:
         clusterManagerLogInfo(">>> Sending CLUSTER MEET messages to join "
                               "the cluster\n");
         clusterManagerNode *first = NULL;
+        char first_ip[NET_IP_STR_LEN]; /* first->ip may be a hostname */
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *node = ln->value;
             if (first == NULL) {
                 first = node;
+                /* Although hiredis supports connecting to a hostname, CLUSTER
+                 * MEET requires an IP address, so we do a DNS lookup here. */
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
+                    == ANET_ERR)
+                {
+                    fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+                    success = 0;
+                    goto cleanup;
+                }
                 continue;
             }
             redisReply *reply = NULL;
@@ -6498,6 +6511,13 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
                           "join the cluster.\n", ip, port);
+    /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
+    char first_ip[NET_IP_STR_LEN];
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
+        fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
+        success = 0;
+        goto cleanup;
+    }
     reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
                                     first->ip, first->port, first->bus_port);
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
@@ -7334,14 +7354,14 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
     int commands_count = sizeof(clusterManagerCommands) /
                          sizeof(clusterManagerCommandDef);
     int i = 0, j;
-    fprintf(stderr, "Cluster Manager Commands:\n");
+    fprintf(stdout, "Cluster Manager Commands:\n");
     int padding = 15;
     for (; i < commands_count; i++) {
         clusterManagerCommandDef *def = &(clusterManagerCommands[i]);
         int namelen = strlen(def->name), padlen = padding - namelen;
-        fprintf(stderr, "  %s", def->name);
-        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
-        fprintf(stderr, "%s\n", (def->args ? def->args : ""));
+        fprintf(stdout, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stdout, " ");
+        fprintf(stdout, "%s\n", (def->args ? def->args : ""));
         if (def->options != NULL) {
             int optslen = strlen(def->options);
             char *p = def->options, *eos = p + optslen;
@@ -7351,18 +7371,18 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
                 char buf[255];
                 memcpy(buf, p, deflen);
                 buf[deflen] = '\0';
-                for (j = 0; j < padding; j++) fprintf(stderr, " ");
-                fprintf(stderr, "  --cluster-%s\n", buf);
+                for (j = 0; j < padding; j++) fprintf(stdout, " ");
+                fprintf(stdout, "  --cluster-%s\n", buf);
                 p = comma + 1;
                 if (p >= eos) break;
             }
             if (p < eos) {
-                for (j = 0; j < padding; j++) fprintf(stderr, " ");
-                fprintf(stderr, "  --cluster-%s\n", p);
+                for (j = 0; j < padding; j++) fprintf(stdout, " ");
+                fprintf(stdout, "  --cluster-%s\n", p);
             }
         }
     }
-    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout, "
+    fprintf(stdout, "\nFor check, fix, reshard, del-node, set-timeout, "
                     "info, rebalance, call, import, backup you "
                     "can specify the host and port of any working node in "
                     "the cluster.\n");
@@ -7370,16 +7390,16 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
     int options_count = sizeof(clusterManagerOptions) /
                         sizeof(clusterManagerOptionDef);
     i = 0;
-    fprintf(stderr, "\nCluster Manager Options:\n");
+    fprintf(stdout, "\nCluster Manager Options:\n");
     for (; i < options_count; i++) {
         clusterManagerOptionDef *def = &(clusterManagerOptions[i]);
         int namelen = strlen(def->name), padlen = padding - namelen;
-        fprintf(stderr, "  %s", def->name);
-        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
-        fprintf(stderr, "%s\n", def->desc);
+        fprintf(stdout, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stdout, " ");
+        fprintf(stdout, "%s\n", def->desc);
     }
 
-    fprintf(stderr, "\n");
+    fprintf(stdout, "\n");
     return 0;
 }
 
@@ -7480,7 +7500,7 @@ struct distsamples {
  * of the collected samples targeting an xterm 256 terminal.
  *
  * Takes an array of distsamples structures, ordered from smaller to bigger
- * 'max' value. Last sample max must be 0, to mean that it olds all the
+ * 'max' value. Last sample max must be 0, to mean that it holds all the
  * samples greater than the previous one, and is also the stop sentinel.
  *
  * "tot' is the total number of samples in the different buckets, so it
@@ -8211,6 +8231,11 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
     }
 }
 
+static void longStatLoopModeStop(int s) {
+    UNUSED(s);
+    force_cancel_loop = 1;
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -8228,6 +8253,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
 
+    signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
     total_keys = getDbSize();
 
@@ -8306,14 +8332,14 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while(force_cancel_loop == 0 && it != 0);
 
     if(types) zfree(types);
     if(sizes) zfree(sizes);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-
+    if (force_cancel_loop) printf("[%05.2f%%] ", pct);
     printf("Sampled %llu keys in the keyspace!\n", sampled);
     printf("Total key length in bytes is %llu (avg len %.2f)\n\n",
        totlen, totlen ? (double)totlen/sampled : 0);
@@ -8392,6 +8418,7 @@ static void findHotKeys(void) {
     unsigned int arrsize = 0, i, k;
     double pct;
 
+    signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
     total_keys = getDbSize();
 
@@ -8457,13 +8484,13 @@ static void findHotKeys(void) {
         }
 
         freeReplyObject(reply);
-    } while(it != 0);
+    } while(force_cancel_loop ==0 && it != 0);
 
     if (freqs) zfree(freqs);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-
+    if(force_cancel_loop)printf("[%05.2f%%] ",pct);
     printf("Sampled %llu keys in the keyspace!\n", sampled);
 
     for (i=1; i<= HOTKEYS_SAMPLE; i++) {
@@ -8634,7 +8661,7 @@ static void statMode(void) {
 static void scanMode(void) {
     redisReply *reply;
     unsigned long long cur = 0;
-
+    signal(SIGINT, longStatLoopModeStop);
     do {
         reply = sendScan(&cur);
         for (unsigned int j = 0; j < reply->element[1]->elements; j++) {
@@ -8649,7 +8676,7 @@ static void scanMode(void) {
         }
         freeReplyObject(reply);
         if (config.interval) usleep(config.interval);
-    } while(cur != 0);
+    } while(force_cancel_loop == 0 && cur != 0);
 
     exit(0);
 }
@@ -8776,11 +8803,6 @@ unsigned long compute_something_fast(void) {
     return output;
 }
 
-static void intrinsicLatencyModeStop(int s) {
-    UNUSED(s);
-    force_cancel_loop = 1;
-}
-
 static void sigIntHandler(int s) {
     UNUSED(s);
 
@@ -8798,7 +8820,7 @@ static void intrinsicLatencyMode(void) {
 
     run_time = (long long)config.intrinsic_latency_duration * 1000000;
     test_end = ustime() + run_time;
-    signal(SIGINT, intrinsicLatencyModeStop);
+    signal(SIGINT, longStatLoopModeStop);
 
     while(1) {
         long long start, end, latency;
@@ -9055,11 +9077,7 @@ int main(int argc, char **argv) {
         if (cliConnect(0) != REDIS_OK) exit(1);
         return evalMode(argc,argv);
     } else {
-        int connected = (cliConnect(CC_QUIET) == REDIS_OK);
-        /* Try to serve command even we are not connected. e.g. help command */
-        int retval = noninteractive(argc,argv);
-        /* If failed to connect, exit with "1" for backward compatibility */
-        if (retval != REDIS_OK && !connected) exit(1);
-        return retval;
+        cliConnect(CC_QUIET);
+        return noninteractive(argc,argv);
     }
 }

@@ -252,6 +252,7 @@ start_server [list overrides [list save ""] ] {
     } {} {needs:debug}
 }
 
+run_solo {list-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -349,6 +350,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
    } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo
 
 start_server {
     tags {"list"}
@@ -387,12 +389,13 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS RANK (positive and negative rank) option} {
+    test {LPOS RANK (positive, negative and zero rank) option} {
         assert {[r LPOS mylist c RANK 1] == 2}
         assert {[r LPOS mylist c RANK 2] == 6}
         assert {[r LPOS mylist c RANK 4] eq ""}
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
+        assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
     }
 
     test {LPOS COUNT option} {
@@ -510,7 +513,11 @@ start_server {
     }
 
     foreach resp {3 2} {
-        r hello $resp
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+        }
 
         # Make sure we can distinguish between an empty array and a null response
         r readraw 1
@@ -1173,7 +1180,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
-            assert_error "ERR*is negative*" {$rd read}
+            assert_error "ERR *is negative*" {$rd read}
             $rd close
         }
 

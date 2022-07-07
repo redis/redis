@@ -171,7 +171,9 @@ start_multiple_servers 5 [list overrides $base_conf] {
 
         # upload a function to all the cluster
         exec src/redis-cli --cluster-yes --cluster call 127.0.0.1:[srv 0 port] \
-                           FUNCTION LOAD LUA TEST {redis.register_function('test', function() return 'hello' end)}
+                           FUNCTION LOAD {#!lua name=TEST
+                               redis.register_function('test', function() return 'hello' end)
+                           }
 
         # adding node to the cluster
         exec src/redis-cli --cluster-yes --cluster add-node \
@@ -188,13 +190,15 @@ start_multiple_servers 5 [list overrides $base_conf] {
         }
 
         # make sure 'test' function was added to the new node
-        assert_equal {{library_name TEST engine LUA description {} functions {{name test description {} flags {}}}}} [$node4_rd FUNCTION LIST]
+        assert_equal {{library_name TEST engine LUA functions {{name test description {} flags {}}}}} [$node4_rd FUNCTION LIST]
 
         # add function to node 5
-        assert_equal {OK} [$node5_rd FUNCTION LOAD LUA TEST {redis.register_function('test', function() return 'hello' end)}]
+        assert_equal {TEST} [$node5_rd FUNCTION LOAD {#!lua name=TEST
+            redis.register_function('test', function() return 'hello' end)
+        }]
 
         # make sure functions was added to node 5
-        assert_equal {{library_name TEST engine LUA description {} functions {{name test description {} flags {}}}}} [$node5_rd FUNCTION LIST]
+        assert_equal {{library_name TEST engine LUA functions {{name test description {} flags {}}}}} [$node5_rd FUNCTION LIST]
 
         # adding node 5 to the cluster should failed because it already contains the 'test' function
         catch {
@@ -262,6 +266,21 @@ test {Migrate the last slot away from a node using redis-cli} {
         assert_equal OK [$newnode_r CLUSTER SETSLOT $slot NODE $newnode_id]
         assert_equal OK [$owner_r CLUSTER SETSLOT $slot NODE $newnode_id]
 
+        # Using --cluster check make sure we won't get `Not all slots are covered by nodes`.
+        # Wait for the cluster to become stable make sure the cluster is up during MIGRATE.
+        wait_for_condition 1000 50 {
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -3 port]}] == 0 &&
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
         # Move the only slot back to original node using redis-cli
         exec src/redis-cli --cluster reshard 127.0.0.1:[srv -3 port] \
             --cluster-from $newnode_id \
@@ -269,9 +288,28 @@ test {Migrate the last slot away from a node using redis-cli} {
             --cluster-slots 1 \
             --cluster-yes
 
+        # The empty node will become a replica of the new owner before the
+        # `MOVED` check, so let's wait for the cluster to become stable.
+        wait_for_condition 1000 50 {
+            [csi 0 cluster_state] eq {ok} &&
+            [csi -1 cluster_state] eq {ok} &&
+            [csi -2 cluster_state] eq {ok} &&
+            [csi -3 cluster_state] eq {ok}
+        } else {
+            fail "Cluster doesn't stabilize"
+        }
+
         # Check that the key foo has been migrated back to the original owner.
         catch { $newnode_r get foo } e
         assert_equal "MOVED $slot $owner_host:$owner_port" $e
+
+        # Check that the empty node has turned itself into a replica of the new
+        # owner and that the new owner knows that.
+        wait_for_condition 1000 50 {
+            [string match "*slave*" [$owner_r CLUSTER REPLICAS $owner_id]]
+        } else {
+            fail "Empty node didn't turn itself into a replica."
+        }
     }
 }
 

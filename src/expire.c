@@ -662,22 +662,22 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
 }
 
-/* EXPIRE key seconds */
+/* EXPIRE key seconds [ NX | XX | GT | LT] */
 void expireCommand(client *c) {
     expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
-/* EXPIREAT key time */
+/* EXPIREAT key unix-time-seconds [ NX | XX | GT | LT] */
 void expireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_SECONDS);
 }
 
-/* PEXPIRE key milliseconds */
+/* PEXPIRE key milliseconds [ NX | XX | GT | LT] */
 void pexpireCommand(client *c) {
     expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
 }
 
-/* PEXPIREAT key ms_time */
+/* PEXPIREAT key unix-time-milliseconds [ NX | XX | GT | LT] */
 void pexpireatCommand(client *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }

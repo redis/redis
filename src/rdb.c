@@ -588,22 +588,11 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         len = 1;
         buf[0] = (val < 0) ? 255 : 254;
     } else {
-#if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
-        /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
-         * Also we are assuming that there are no implementations around where
-         * double has precision < 52 bit.
-         *
-         * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
-         * make sure the decimal part is zero. If all this is true we use
-         * integer printing function that is much faster. */
-        double min = -4503599627370495; /* (2^52)-1 */
-        double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && val == ((double)((long long)val)))
-            ll2string((char*)buf+1,sizeof(buf)-1,(long long)val);
+        long long lvalue;
+        /* Integer printing function is much faster, check if we can safely use it. */
+        if (double2ll(val, &lvalue))
+            ll2string((char*)buf+1,sizeof(buf)-1,lvalue);
         else
-#endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
         buf[0] = strlen((char*)buf+1);
         len = buf[0]+1;
@@ -1242,24 +1231,9 @@ ssize_t rdbSaveFunctions(rio *rdb) {
     ssize_t written = 0;
     ssize_t ret;
     while ((entry = dictNext(iter))) {
-        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION)) < 0) goto werr;
+        if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION2)) < 0) goto werr;
         written += ret;
         functionLibInfo *li = dictGetVal(entry);
-        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->name, sdslen(li->name))) < 0) goto werr;
-        written += ret;
-        if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->ei->name, sdslen(li->ei->name))) < 0) goto werr;
-        written += ret;
-        if (li->desc) {
-            /* desc exists */
-            if ((ret = rdbSaveLen(rdb, 1)) < 0) goto werr;
-            written += ret;
-            if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->desc, sdslen(li->desc))) < 0) goto werr;
-            written += ret;
-        } else {
-            /* desc not exists */
-            if ((ret = rdbSaveLen(rdb, 0)) < 0) goto werr;
-            written += ret;
-        }
         if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->code, sdslen(li->code))) < 0) goto werr;
         written += ret;
     }
@@ -1423,6 +1397,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     FILE *fp = NULL;
     rio rdb;
     int error = 0;
+    char *err_op;    /* For a detailed log */
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
@@ -1446,13 +1421,14 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
+        err_op = "rdbSaveRio";
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) goto werr;
-    if (fsync(fileno(fp))) goto werr;
-    if (fclose(fp)) { fp = NULL; goto werr; }
+    if (fflush(fp)) { err_op = "fflush"; goto werr; }
+    if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
+    if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
     
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -1471,6 +1447,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
+    if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -1480,7 +1457,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    serverLog(LL_WARNING,"Write error saving DB on disk(%s): %s", err_op, strerror(errno));
     if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
@@ -2448,6 +2425,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             return NULL;
         }
 
+        if (s->length && !raxSize(s->rax)) {
+            rdbReportCorruptRDB("Stream length inconsistent with rax entries");
+            decrRefCount(o);
+            return NULL;
+        }
+
         /* Consumer groups loading */
         uint64_t cgroups_count = rdbLoadLen(rdb,NULL);
         if (cgroups_count == RDB_LENERR) {
@@ -2766,7 +2749,7 @@ void stopLoading(int success) {
 }
 
 void startSaving(int rdbflags) {
-    /* Fire the persistence modules end event. */
+    /* Fire the persistence modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE && getpid() != server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
@@ -2802,6 +2785,9 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         processEventsWhileBlocked();
         processModuleLoadingProgressEvent(0);
     }
+    if (server.repl_state == REPL_STATE_TRANSFER && rioCheckType(r) == RIO_TYPE_CONN) {
+        atomicIncr(server.stat_net_repl_input_bytes, len);
+    }
 }
 
 /* Save the given functions_ctx to the rdb.
@@ -2811,56 +2797,79 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
  *
  * The lib_ctx argument is also optional. If NULL is given, only verify rdb
  * structure with out performing the actual functions loading. */
-int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err) {
+int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int type, int rdbflags, sds *err) {
     UNUSED(ver);
-    sds name = NULL;
-    sds engine_name = NULL;
-    sds desc = NULL;
-    sds blob = NULL;
-    uint64_t has_desc;
     sds error = NULL;
+    sds final_payload = NULL;
     int res = C_ERR;
-    if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library name");
-        goto error;
-    }
+    if (type == RDB_OPCODE_FUNCTION) {
+        /* RDB that was generated on versions 7.0 rc1 and 7.0 rc2 has another
+         * an old format that contains the library name, engine and description.
+         * To support this format we must read those values. */
+        sds name = NULL;
+        sds engine_name = NULL;
+        sds desc = NULL;
+        sds blob = NULL;
+        uint64_t has_desc;
 
-    if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading engine name");
-        goto error;
-    }
+        if (!(name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library name");
+            goto cleanup;
+        }
 
-    if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
-        error = sdsnew("Failed loading library description indicator");
-        goto error;
-    }
+        if (!(engine_name = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading engine name");
+            goto cleanup;
+        }
 
-    if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library description");
-        goto error;
-    }
+        if ((has_desc = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+            error = sdsnew("Failed loading library description indicator");
+            goto cleanup;
+        }
 
-    if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
-        error = sdsnew("Failed loading library blob");
-        goto error;
+        if (has_desc && !(desc = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library description");
+            goto cleanup;
+        }
+
+        if (!(blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library blob");
+            goto cleanup;
+        }
+        /* Translate old format (versions 7.0 rc1 and 7.0 rc2) to new format.
+         * The new format has the library name and engine inside the script payload.
+         * Add those parameters to the original script payload (ignore the description if exists). */
+        final_payload = sdscatfmt(sdsempty(), "#!%s name=%s\n%s", engine_name, name, blob);
+cleanup:
+        if (name) sdsfree(name);
+        if (engine_name) sdsfree(engine_name);
+        if (desc) sdsfree(desc);
+        if (blob) sdsfree(blob);
+        if (error) goto done;
+    } else if (type == RDB_OPCODE_FUNCTION2) {
+        if (!(final_payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL))) {
+            error = sdsnew("Failed loading library payload");
+            goto done;
+        }
+    } else {
+        serverPanic("Bad function type was given to rdbFunctionLoad");
     }
 
     if (lib_ctx) {
-        if (functionsCreateWithLibraryCtx(name, engine_name, desc, blob, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx) != C_OK) {
+        sds library_name = NULL;
+        if (!(library_name = functionsCreateWithLibraryCtx(final_payload, rdbflags & RDBFLAGS_ALLOW_DUP, &error, lib_ctx))) {
             if (!error) {
                 error = sdsnew("Failed creating the library");
             }
-            goto error;
+            goto done;
         }
+        sdsfree(library_name);
     }
 
     res = C_OK;
 
-error:
-    if (name) sdsfree(name);
-    if (engine_name) sdsfree(engine_name);
-    if (desc) sdsfree(desc);
-    if (blob) sdsfree(blob);
+done:
+    if (final_payload) sdsfree(final_payload);
     if (error) {
         if (err) {
             *err = error;
@@ -3091,9 +3100,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }
-        } else if (type == RDB_OPCODE_FUNCTION) {
+        } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
             sds err = NULL;
-            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, rdbflags, &err) != C_OK) {
+            if (rdbFunctionLoad(rdb, rdbver, rdb_loading_ctx->functions_lib_ctx, type, rdbflags, &err) != C_OK) {
                 serverLog(LL_WARNING,"Failed loading library, %s", err);
                 sdsfree(err);
                 goto eoferr;
@@ -3473,6 +3482,9 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
+
+    server.stat_rdb_saves++;
+
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
     if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {

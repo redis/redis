@@ -1,6 +1,6 @@
 {
     "GETKEYSANDFLAGS": {
-        "summary": "Extract keys given a full Redis command",
+        "summary": "Extract keys and access flags given a full Redis command",
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "server",
         "since": "7.0.0",
@@ -9,7 +9,8 @@
         "function": "commandGetKeysAndFlagsCommand",
         "command_flags": [
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"

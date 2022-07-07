@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -239,9 +240,17 @@ int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     (void) argv;
     (void) argc;
 
-    RedisModuleClientInfo ci = { .version = REDISMODULE_CLIENTINFO_VERSION };
+    RedisModuleClientInfoV1 ci = REDISMODULE_CLIENTINFO_INITIALIZER_V1;
+    uint64_t client_id = RedisModule_GetClientId(ctx);
 
-    if (RedisModule_GetClientInfoById(&ci, RedisModule_GetClientId(ctx)) == REDISMODULE_ERR) {
+    /* Check expected result from the V1 initializer. */
+    assert(ci.version == 1);
+    /* Trying to populate a future version of the struct should fail. */
+    ci.version = REDISMODULE_CLIENTINFO_VERSION + 1;
+    assert(RedisModule_GetClientInfoById(&ci, client_id) == REDISMODULE_ERR);
+
+    ci.version = 1;
+    if (RedisModule_GetClientInfoById(&ci, client_id) == REDISMODULE_ERR) {
             RedisModule_ReplyWithError(ctx, "failed to get client info");
             return REDISMODULE_OK;
     }
@@ -268,6 +277,27 @@ int test_clientinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithLongLong(ctx, ci.db);
 
     return REDISMODULE_OK;
+}
+
+int test_getname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    (void)argv;
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    unsigned long long id = RedisModule_GetClientId(ctx);
+    RedisModuleString *name = RedisModule_GetClientNameById(ctx, id);
+    if (name == NULL)
+        return RedisModule_ReplyWithError(ctx, "-ERR No name");
+    RedisModule_ReplyWithString(ctx, name);
+    RedisModule_FreeString(ctx, name);
+    return REDISMODULE_OK;
+}
+
+int test_setname(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    unsigned long long id = RedisModule_GetClientId(ctx);
+    if (RedisModule_SetClientNameById(id, argv[1]) == REDISMODULE_OK)
+        return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    else
+        return RedisModule_ReplyWithError(ctx, strerror(errno));
 }
 
 int test_log_tsctx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -310,6 +340,112 @@ int test_monotonic_time(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* wrapper for RM_Call */
+int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc < 2){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    if(!rep){
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    }else{
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* wrapper for RM_Call with flags */
+int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
+    if(argc < 3){
+        return RedisModule_WrongArity(ctx);
+    }
+
+    /* Append Ev to the provided flags. */
+    RedisModuleString *flags = RedisModule_CreateStringFromString(ctx, argv[1]);
+    RedisModule_StringAppendBuffer(ctx, flags, "Ev", 2);
+
+    const char* flg = RedisModule_StringPtrLen(flags, NULL);
+    const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
+
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    if(!rep){
+        RedisModule_ReplyWithError(ctx, "NULL reply returned");
+    }else{
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_FreeString(ctx, flags);
+
+    return REDISMODULE_OK;
+}
+
+int test_ull_conv(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    unsigned long long ull = 18446744073709551615ULL;
+    const char *ullstr = "18446744073709551615";
+
+    RedisModuleString *s1 = RedisModule_CreateStringFromULongLong(ctx, ull);
+    RedisModuleString *s2 =
+        RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    if (RedisModule_StringCompare(s1, s2) != 0) {
+        char err[4096];
+        snprintf(err, 4096,
+            "Failed to convert unsigned long long to string ('%s' != '%s')",
+            RedisModule_StringPtrLen(s1, NULL),
+            RedisModule_StringPtrLen(s2, NULL));
+        RedisModule_ReplyWithError(ctx, err);
+        goto final;
+    }
+    unsigned long long ull2 = 0;
+    if (RedisModule_StringToULongLong(s2, &ull2) == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx,
+            "Failed to convert string to unsigned long long");
+        goto final;
+    }
+    if (ull2 != ull) {
+        char err[4096];
+        snprintf(err, 4096,
+            "Failed to convert string to unsigned long long (%llu != %llu)",
+            ull2,
+            ull);
+        RedisModule_ReplyWithError(ctx, err);
+        goto final;
+    }
+    
+    /* Make sure we can't convert a string more than ULLONG_MAX or less than 0 */
+    ullstr = "18446744073709551616";
+    RedisModuleString *s3 = RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    unsigned long long ull3;
+    if (RedisModule_StringToULongLong(s3, &ull3) == REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid string successfully converted to unsigned long long");
+        RedisModule_FreeString(ctx, s3);
+        goto final;
+    }
+    RedisModule_FreeString(ctx, s3);
+    ullstr = "-1";
+    RedisModuleString *s4 = RedisModule_CreateString(ctx, ullstr, strlen(ullstr));
+    unsigned long long ull4;
+    if (RedisModule_StringToULongLong(s4, &ull4) == REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "Invalid string successfully converted to unsigned long long");
+        RedisModule_FreeString(ctx, s4);
+        goto final;
+    }
+    RedisModule_FreeString(ctx, s4);
+   
+    RedisModule_ReplyWithSimpleString(ctx, "ok");
+
+final:
+    RedisModule_FreeString(ctx, s1);
+    RedisModule_FreeString(ctx, s2);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -321,6 +457,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.call_info", test_call_info,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.ld_conversion", test_ld_conv, "",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.ull_conversion", test_ull_conv, "",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.flushall", test_flushall,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -340,6 +478,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.clientinfo", test_clientinfo,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.getname", test_getname,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"test.setname", test_setname,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.redisversion", test_redisversion,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.getclientcert", test_getclientcert,"",0,0,0) == REDISMODULE_ERR)
@@ -350,6 +492,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"test.weird:cmd", test_weird_cmd,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.monotonic_time", test_monotonic_time,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.rm_call", test_rm_call,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.rm_call_flags", test_rm_call_flags,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
