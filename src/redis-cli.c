@@ -6518,8 +6518,18 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         success = 0;
         goto cleanup;
     }
-    reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
-                                    first->ip, first->port, first->bus_port);
+
+    if (first->bus_port == 0 || (first->bus_port == first->port + CLUSTER_MANAGER_PORT_INCR)) {
+        /* CLUSTER MEET bus-port parameter was added in 4.0.
+         * So if (bus_port == 0) or (bus_port == port + CLUSTER_MANAGER_PORT_INCR),
+         * we just call CLUSTER MEET with 2 arguments, using the old form. */
+        reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d",
+                                        first_ip, first->port);
+    } else {
+        reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d %d",
+                                        first->ip, first->port, first->bus_port);
+    }
+
     if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
         goto cleanup;
 
