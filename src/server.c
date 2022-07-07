@@ -5949,12 +5949,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         "# Cluster\r\n"
         "cluster_enabled:%d\r\n",
         server.cluster_enabled);
-
-        if (server.cluster_enabled) {
-            info = sdscatprintf(info,
-            "cluster_port:%d\r\n",
-            server.cluster_port);
-        }
     }
 
     /* Key space */
