@@ -524,8 +524,8 @@ void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
     /* Default announced ports. */
     *announced_port = port;
     *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = server.cluster_port;
-
+    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    
     /* Config overriding announced ports. */
     if (server.tls_cluster && server.cluster_announce_tls_port) {
         *announced_port = server.cluster_announce_tls_port;
@@ -672,13 +672,13 @@ void clusterInit(void) {
         serverLog(LL_WARNING, "No bind address is configured, but it is required for the Cluster bus.");
         exit(1);
     }
-    if (!server.cluster_port) server.cluster_port = port + CLUSTER_PORT_INCR;
-    if (listenToPort(server.cluster_port, &server.cfd) == C_ERR ) {
+    int cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
+    if (listenToPort(cport, &server.cfd) == C_ERR ) {
         /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", server.cluster_port);
+        serverLog(LL_WARNING, "Failed listening on port %u (cluster), aborting.", cport);
         exit(1);
     }
-
+    
     if (createSocketAcceptHandler(&server.cfd, clusterAcceptHandler) != C_OK) {
         serverPanic("Unrecoverable error creating Redis Cluster socket accept handler.");
     }
