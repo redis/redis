@@ -3701,7 +3701,7 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
         "    \"name\": \"%s\",\n"
         "    \"host\": \"%s\",\n"
         "    \"port\": %d,\n"
-        "    \"bus_port\": %d,\n"
+        "    \"cluster_bus_port\": %d,\n"
         "    \"replicate\": %s,\n"
         "    \"slots\": [%s],\n"
         "    \"slots_count\": %d,\n"
