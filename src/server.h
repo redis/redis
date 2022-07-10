@@ -1859,7 +1859,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dict *pubsubshard_channels;  /* Map channels to list of subscribed clients */
+    dict *pubsubshard_channels;  /* Map shard channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -2195,7 +2195,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NO_MANDATORY_KEYS: This key arguments for this command are optional.
  *
- * CMD_NO_MULTI: The command is nt allowed inside a transaction
+ * CMD_NO_MULTI: The command is not allowed inside a transaction
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -2245,7 +2245,6 @@ struct redisCommand {
     struct redisCommandArg *args;
 
     /* Runtime populated data */
-    /* What keys should be loaded in background when calling this command? */
     long long microseconds, calls, rejected_calls, failed_calls;
     int id;     /* Command ID. This is a progressive ID starting from 0 that
                    is assigned at runtime, and is used in order to check
@@ -2611,7 +2610,6 @@ void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
 robj *makeObjectShared(robj *o);
-robj *resetRefCount(robj *obj);
 void freeStringObject(robj *o);
 void freeListObject(robj *o);
 void freeSetObject(robj *o);
@@ -2756,7 +2754,7 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname);
 void receiveChildInfo(void);
 
 /* Fork helpers */
-int redisFork(int type);
+int redisFork(int purpose);
 int hasActiveChildProcess();
 void resetChildState();
 int isMutuallyExclusiveChildType(int type);
