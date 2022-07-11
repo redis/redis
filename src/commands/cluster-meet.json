@@ -7,6 +7,12 @@
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Added the optional `cluster_bus_port` argument."
+            ]
+        ],
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
@@ -23,6 +29,12 @@
             {
                 "name": "port",
                 "type": "integer"
+            },
+            {
+                "name": "cluster_bus_port",
+                "type": "integer",
+                "optional": true,
+                "since": "4.0.0"
             }
         ]
     }

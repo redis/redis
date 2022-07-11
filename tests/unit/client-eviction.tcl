@@ -156,13 +156,13 @@ start_server {} {
     test "client evicted due to pubsub subscriptions" {
         r flushdb
         
-        # Since pubsub subscriptions cause a small overheatd this test uses a minimal maxmemory-clients config
+        # Since pubsub subscriptions cause a small overhead this test uses a minimal maxmemory-clients config
         set temp_maxmemory_clients 200000
         r config set maxmemory-clients $temp_maxmemory_clients
 
         # Test eviction due to pubsub patterns
         set rr [redis_client]
-        # Add patterns until list maxes out maxmemroy clients and causes client eviction
+        # Add patterns until list maxes out maxmemory clients and causes client eviction
         catch { 
             for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
                 $rr psubscribe $j
@@ -173,10 +173,21 @@ start_server {} {
 
         # Test eviction due to pubsub channels
         set rr [redis_client]
-        # Add patterns until list maxes out maxmemroy clients and causes client eviction
+        # Subscribe to global channels until list maxes out maxmemory clients and causes client eviction
         catch { 
             for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
                 $rr subscribe $j
+            }
+        } e
+        assert_match {I/O error reading reply} $e
+        $rr close
+
+        # Test eviction due to sharded pubsub channels
+        set rr [redis_client]
+        # Subscribe to sharded pubsub channels until list maxes out maxmemory clients and causes client eviction
+        catch { 
+            for {set j 0} {$j < $temp_maxmemory_clients} {incr j} {
+                $rr ssubscribe $j
             }
         } e
         assert_match {I/O error reading reply} $e
