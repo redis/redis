@@ -1080,7 +1080,7 @@ void addReplyHelp(client *c, const char **help) {
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
     addReplyStatus(c,"HELP");
-    addReplyStatus(c,"    Prints this help.");
+    addReplyStatus(c,"    Print this help.");
 
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
