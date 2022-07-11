@@ -443,6 +443,7 @@ proc start_server {options {code undefined}} {
             }
         }
     }
+
     # We skip unwanted tags
     if {![tags_acceptable $::tags err]} {
         incr ::num_aborted
