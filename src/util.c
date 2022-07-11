@@ -43,6 +43,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <libgen.h>
 
 #include "util.h"
 #include "sha256.h"
@@ -921,6 +922,54 @@ int dirRemove(char *dname) {
 
 sds makePath(char *path, char *filename) {
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
+/* Given the filename, sync the corresponding directory.
+ *
+ * Usually a portable and safe pattern to overwrite existing files would be like:
+ * 1. create a new temp file (on the same file system!)
+ * 2. write data to the temp file
+ * 3. fsync() the temp file
+ * 4. rename the temp file to the appropriate name
+ * 5. fsync() the containing directory */
+int fsyncFileDir(const char *filename) {
+#ifdef _AIX
+    /* AIX is unable to fsync a directory */
+    return 0;
+#endif
+    char temp_filename[PATH_MAX + 1];
+    char *dname;
+    int dir_fd;
+
+    if (strlen(filename) > PATH_MAX) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    /* In the glibc implementation dirname may modify their argument. */
+    memcpy(temp_filename, filename, strlen(filename) + 1);
+    dname = dirname(temp_filename);
+
+    dir_fd = open(dname, O_RDONLY);
+    if (dir_fd == -1) {
+        /* Some OSs don't allow us to open directories at all, just
+         * ignore the error in that case */
+        if (errno == EISDIR) {
+            return 0;
+        }
+        return -1;
+    }
+    /* Some OSs don't allow us to fsync directories at all, so we can ignore
+     * those errors. */
+    if (redis_fsync(dir_fd) == -1 && !(errno == EBADF || errno == EINVAL)) {
+        int save_errno = errno;
+        close(dir_fd);
+        errno = save_errno;
+        return -1;
+    }
+    
+    close(dir_fd);
+    return 0;
 }
 
 #ifdef REDIS_TEST

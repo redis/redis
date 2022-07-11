@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
@@ -503,6 +503,21 @@ start_server {tags {"introspection"}} {
         assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
+    test {redis-server command line arguments - allow passing option name and option value in the same arg} {
+        start_server {config "default.conf" args {"--maxmemory 700mb" "--maxmemory-policy volatile-lru"}} {
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
+    test {redis-server command line arguments - wrong usage that we support anyway} {
+        start_server {config "default.conf" args {loglevel verbose "--maxmemory '700mb'" "--maxmemory-policy 'volatile-lru'"}} {
+            assert_match [r config get loglevel] {loglevel verbose}
+            assert_match [r config get maxmemory] {maxmemory 734003200}
+            assert_match [r config get maxmemory-policy] {maxmemory-policy volatile-lru}
+        }
+    } {} {external:skip}
+
     test {redis-server command line arguments - allow option value to use the `--` prefix} {
         start_server {config "default.conf" args {--proc-title-template --my--title--template --loglevel verbose}} {
             assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
@@ -510,15 +525,40 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
+    test {redis-server command line arguments - option name and option value in the same arg and `--` prefix} {
+        start_server {config "default.conf" args {"--proc-title-template --my--title--template" "--loglevel verbose"}} {
+            assert_match [r config get proc-title-template] {proc-title-template --my--title--template}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+    } {} {external:skip}
+
     test {redis-server command line arguments - save with empty input} {
-        # Take `--loglevel` as the save option value.
-        catch {exec src/redis-server --save --loglevel verbose} err
-        assert_match {*'save "--loglevel" "verbose"'*Invalid save parameters*} $err
+        start_server {config "default.conf" args {--save --loglevel verbose}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--loglevel verbose --save}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
 
         start_server {config "default.conf" args {--save {} --loglevel verbose}} {
             assert_match [r config get save] {save {}}
             assert_match [r config get loglevel] {loglevel verbose}
         }
+
+        start_server {config "default.conf" args {--loglevel verbose --save {}}} {
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
+        start_server {config "default.conf" args {--proc-title-template --save --save {} --loglevel verbose}} {
+            assert_match [r config get proc-title-template] {proc-title-template --save}
+            assert_match [r config get save] {save {}}
+            assert_match [r config get loglevel] {loglevel verbose}
+        }
+
     } {} {external:skip}
 
     test {redis-server command line arguments - take one bulk string with spaces for MULTI_ARG configs parsing} {
