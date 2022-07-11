@@ -3265,6 +3265,9 @@ uint64_t redisBuildId(void);
 char *redisBuildIdString(void);
 
 /* Commands prototypes */
+// USR ADDED COMMAND
+void MIGRATE_UNBLOCKED(client *c); 
+
 void authCommand(client *c);
 void pingCommand(client *c);
 void echoCommand(client *c);

@@ -33,7 +33,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
-
+   
 #include <signal.h>
 #include <ctype.h>
 
@@ -801,6 +801,17 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     }
     return C_OK;
 }
+
+/* USR ADDED COMMAND
+ * This command is used for KV Migration project
+*/
+void MIGRATE_UNBLOCKED(client *c) {
+
+   printf("Hello: %d\n", c->argc);
+   addReplyLongLong(c, c->argc);
+   return;
+}
+
 
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
