@@ -3701,7 +3701,6 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
         "    \"name\": \"%s\",\n"
         "    \"host\": \"%s\",\n"
         "    \"port\": %d,\n"
-        "    \"cluster_bus_port\": %d,\n"
         "    \"replicate\": %s,\n"
         "    \"slots\": [%s],\n"
         "    \"slots_count\": %d,\n"
@@ -3710,7 +3709,6 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
         node->name,
         node->ip,
         node->port,
-        node->bus_port,
         replicate,
         slots,
         node->slots_count,
@@ -3801,14 +3799,14 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
     char *role = (is_master ? "M" : "S");
     sds slots = NULL;
     if (node->dirty && node->replicate != NULL)
-        info = sdscatfmt(info, "S: %S %s:%u@%u", node->name, node->ip, node->port, node->bus_port);
+        info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
     else {
         slots = clusterManagerNodeSlotsString(node);
         sds flags = clusterManagerNodeFlagString(node);
-        info = sdscatfmt(info, "%s: %S %s:%u@%u\n"
+        info = sdscatfmt(info, "%s: %S %s:%u\n"
                                "%s   slots:%S (%u slots) "
                                "%S",
-                               role, node->name, node->ip, node->port, node->bus_port, spaces,
+                               role, node->name, node->ip, node->port, spaces,
                                slots, node->slots_count, flags);
         sdsfree(slots);
         sdsfree(flags);
@@ -3871,8 +3869,8 @@ static void clusterManagerShowClusterInfo(void) {
                 return;
             };
             if (reply != NULL) freeReplyObject(reply);
-            printf("%s:%d@%d (%s...) -> %d keys | %d slots | %d slaves.\n",
-                   node->ip, node->port, node->bus_port, name, dbsize,
+            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
+                   node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
             masters++;
             keys += dbsize;
