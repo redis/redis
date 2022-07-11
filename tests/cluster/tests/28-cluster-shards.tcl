@@ -196,3 +196,7 @@ test "Regression test for a crash when calling SHARDS during handshake" {
     # connections were in handshake state.
     R 19 CLUSTER SHARDS
 }
+
+test "Cluster is up" {
+    assert_cluster_state ok
+}
