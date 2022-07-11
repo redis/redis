@@ -1220,10 +1220,14 @@ clusterNode *clusterLookupNode(const char *name, int length) {
     return dictGetVal(de);
 }
 
-/* Get all the nodes serving the same slots as myself. */
+/* Get all the nodes serving the same slots as the given node. */
 list *clusterGetNodesServingMySlots(clusterNode *node) {
     list *nodes_for_slot = listCreate();
     clusterNode *my_primary = nodeIsMaster(node) ? node : node->slaveof;
+
+    /* This function is only valid for fully connected nodes, so
+     * they should have a known primary. */
+    serverAssert(my_primary);
     listAddNodeTail(nodes_for_slot, my_primary);
     for (int i=0; i < my_primary->numslaves; i++) {
         listAddNodeTail(nodes_for_slot, my_primary->slaves[i]);
@@ -5103,7 +5107,7 @@ void clusterReplyShards(client *c) {
      * information and an empty slots array. */
     while((de = dictNext(di)) != NULL) {
         clusterNode *n = dictGetVal(de);
-        if (nodeIsSlave(n)) {
+        if (!nodeIsMaster(n)) {
             /* You can force a replica to own slots, even though it'll get reverted,
              * so freeing the slot pair here just in case. */
             clusterFreeNodesSlotsInfo(n);

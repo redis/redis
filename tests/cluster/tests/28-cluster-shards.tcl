@@ -183,3 +183,16 @@ test "Test the replica reports a loading state while it's loading" {
     # Final sanity, the replica agrees it is online. 
     assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
+
+test "Regression test for a crash when calling SHARDS during handshake" {
+    # Reset forget a node, so we can use it to establish handshaking connections
+    set id [R 19 CLUSTER MYID]
+    R 19 CLUSTER RESET HARD
+    for {set i 0} {$i < 19} {incr i} {
+        R $i CLUSTER FORGET $id
+    }
+    R 19 cluster meet 127.0.0.1 [get_instance_attrib redis 0 port]
+    # This should line would previously crash, since all the outbound
+    # connections were in handshake state.
+    R 19 CLUSTER SHARDS
+}
