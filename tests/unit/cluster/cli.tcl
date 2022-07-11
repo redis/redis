@@ -322,17 +322,17 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
 
         # Make sure each node can meet other nodes
-        assert_equal 3 [csi 0 cluster_known_nodes]
-        assert_equal 3 [csi -1 cluster_known_nodes]
-        assert_equal 3 [csi -2 cluster_known_nodes]
+        assert_equal 3 [CI 0 cluster_known_nodes]
+        assert_equal 3 [CI 1 cluster_known_nodes]
+        assert_equal 3 [CI 2 cluster_known_nodes]
     }
 
     test {redis-cli --cluster add-node with cluster-port} {
@@ -342,10 +342,10 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -356,21 +356,21 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok} &&
-            [csi -4 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok} &&
+            [CI 4 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
 
         # Make sure each node can meet other nodes
-        assert_equal 5 [csi 0 cluster_known_nodes]
-        assert_equal 5 [csi -1 cluster_known_nodes]
-        assert_equal 5 [csi -2 cluster_known_nodes]
-        assert_equal 5 [csi -3 cluster_known_nodes]
-        assert_equal 5 [csi -4 cluster_known_nodes]
+        assert_equal 5 [CI 0 cluster_known_nodes]
+        assert_equal 5 [CI 1 cluster_known_nodes]
+        assert_equal 5 [CI 2 cluster_known_nodes]
+        assert_equal 5 [CI 3 cluster_known_nodes]
+        assert_equal 5 [CI 4 cluster_known_nodes]
     }
 # stop 5 servers
 }
