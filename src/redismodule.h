@@ -925,6 +925,7 @@ REDISMODULE_API int (*RedisModule_ListSet)(RedisModuleKey *key, long index, Redi
 REDISMODULE_API int (*RedisModule_ListInsert)(RedisModuleKey *key, long index, RedisModuleString *value) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ListDelete)(RedisModuleKey *key, long index) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_Call)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply * (*RedisModule_CallWithUser)(RedisModuleCtx *ctx, RedisModuleUser *rm_user, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_CallReplyProto)(RedisModuleCallReply *reply, size_t *len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeCallReply)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CallReplyType)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
@@ -1295,6 +1296,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringToLongDouble);
     REDISMODULE_GET_API(StringToStreamID);
     REDISMODULE_GET_API(Call);
+    REDISMODULE_GET_API(CallWithUser);
     REDISMODULE_GET_API(CallReplyProto);
     REDISMODULE_GET_API(FreeCallReply);
     REDISMODULE_GET_API(CallReplyInteger);
