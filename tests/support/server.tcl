@@ -253,11 +253,14 @@ proc tags {tags code} {
 
 # Write the configuration in the dictionary 'config' in the specified
 # file name.
-proc create_server_config_file {filename config} {
+proc create_server_config_file {filename config config_lines} {
     set fp [open $filename w+]
     foreach directive [dict keys $config] {
         puts -nonewline $fp "$directive "
         puts $fp [dict get $config $directive]
+    }
+    foreach {config_line_directive config_line_args} $config_lines {
+        puts $fp "$config_line_directive $config_line_args"
     }
     close $fp
 }
@@ -406,6 +409,7 @@ proc start_server {options {code undefined}} {
     set tags {}
     set args {}
     set keep_persistence false
+    set config_lines {}
 
     # parse options
     foreach {option value} $options {
@@ -415,6 +419,9 @@ proc start_server {options {code undefined}} {
             }
             "overrides" {
                 set overrides $value
+            }
+            "config_lines" {
+                set config_lines $value
             }
             "args" {
                 set args $value
@@ -503,7 +510,7 @@ proc start_server {options {code undefined}} {
 
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
-    create_server_config_file $config_file $config
+    create_server_config_file $config_file $config $config_lines
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
@@ -544,7 +551,7 @@ proc start_server {options {code undefined}} {
             } else {
                 dict set config port $port
             }
-            create_server_config_file $config_file $config
+            create_server_config_file $config_file $config $config_lines
 
             # Truncate log so wait_server_started will not be looking at
             # output of the failed server.
