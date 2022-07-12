@@ -1747,7 +1747,7 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         return C_OK;
     } else {
         if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
-            serverLog(LL_WARNING, "ERROR get peer IP: %s", 
+            serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
                 link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
         }
@@ -2240,7 +2240,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterNode *node;
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            nodeIp2String(node->ip,link,hdr->myip);
+            serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
             node->port = ntohs(hdr->port);
             node->pport = ntohs(hdr->pport);
             node->cport = ntohs(hdr->cport);
