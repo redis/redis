@@ -2,20 +2,6 @@
 
 source tests/support/cli.tcl
 
-proc cluster_info {r field} {
-    set _ [getInfoProperty [$r cluster info] $field]
-}
-
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
-}
-
 # make sure the test infra won't use SELECT
 set old_singledb $::singledb
 set ::singledb 1
@@ -40,9 +26,9 @@ start_multiple_servers 3 [list overrides $base_conf] {
                            127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -127,8 +113,8 @@ start_multiple_servers 3 [list overrides $base_conf] {
         exec kill -SIGSTOP $node3_pid
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {fail} &&
-            [csi -1 cluster_state] eq {fail}
+            [CI 0 cluster_state] eq {fail} &&
+            [CI 1 cluster_state] eq {fail}
         } else {
             fail "Cluster doesn't fail"
         }
@@ -162,9 +148,9 @@ start_multiple_servers 5 [list overrides $base_conf] {
 
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -181,10 +167,10 @@ start_multiple_servers 5 [list overrides $base_conf] {
                        127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -222,9 +208,9 @@ test {Migrate the last slot away from a node using redis-cli} {
                            127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -239,10 +225,10 @@ test {Migrate the last slot away from a node using redis-cli} {
                      127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -273,10 +259,10 @@ test {Migrate the last slot away from a node using redis-cli} {
             [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
             [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
             [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -3 port]}] == 0 &&
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -291,10 +277,10 @@ test {Migrate the last slot away from a node using redis-cli} {
         # The empty node will become a replica of the new owner before the
         # `MOVED` check, so let's wait for the cluster to become stable.
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -336,17 +322,17 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv -2 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
 
         # Make sure each node can meet other nodes
-        assert_equal 3 [csi 0 cluster_known_nodes]
-        assert_equal 3 [csi -1 cluster_known_nodes]
-        assert_equal 3 [csi -2 cluster_known_nodes]
+        assert_equal 3 [CI 0 cluster_known_nodes]
+        assert_equal 3 [CI 1 cluster_known_nodes]
+        assert_equal 3 [CI 2 cluster_known_nodes]
     }
 
     test {redis-cli --cluster add-node with cluster-port} {
@@ -356,10 +342,10 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
@@ -370,21 +356,21 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
                            127.0.0.1:[srv 0 port]
 
         wait_for_condition 1000 50 {
-            [csi 0 cluster_state] eq {ok} &&
-            [csi -1 cluster_state] eq {ok} &&
-            [csi -2 cluster_state] eq {ok} &&
-            [csi -3 cluster_state] eq {ok} &&
-            [csi -4 cluster_state] eq {ok}
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok} &&
+            [CI 3 cluster_state] eq {ok} &&
+            [CI 4 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
 
         # Make sure each node can meet other nodes
-        assert_equal 5 [csi 0 cluster_known_nodes]
-        assert_equal 5 [csi -1 cluster_known_nodes]
-        assert_equal 5 [csi -2 cluster_known_nodes]
-        assert_equal 5 [csi -3 cluster_known_nodes]
-        assert_equal 5 [csi -4 cluster_known_nodes]
+        assert_equal 5 [CI 0 cluster_known_nodes]
+        assert_equal 5 [CI 1 cluster_known_nodes]
+        assert_equal 5 [CI 2 cluster_known_nodes]
+        assert_equal 5 [CI 3 cluster_known_nodes]
+        assert_equal 5 [CI 4 cluster_known_nodes]
     }
 # stop 5 servers
 }
