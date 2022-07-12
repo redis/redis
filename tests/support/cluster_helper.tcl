@@ -5,9 +5,9 @@
 proc cluster_config_consistent {} {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         if {$j == 0} {
-            set base_cfg [r $j cluster slots]
+            set base_cfg [R $j cluster slots]
         } else {
-            if {[r $j cluster slots] != $base_cfg} {
+            if {[R $j cluster slots] != $base_cfg} {
                 return 0
             }
         }
@@ -43,7 +43,7 @@ proc continuous_slot_allocation {masters} {
     set slot_start 0
     for {set j 0} {$j < $masters} {incr j} {
         set slot_end [expr int(ceil(($j + 1) * $avg) - 1)]
-        r $j cluster addslotsrange $slot_start $slot_end
+        R $j cluster addslotsrange $slot_start $slot_end
         set slot_start [expr $slot_end + 1]
     }
 }
@@ -53,7 +53,7 @@ proc continuous_slot_allocation {masters} {
 proc cluster_setup {masters node_count slot_allocator code} {
     # Have all nodes meet
     for {set i 1} {$i < $node_count} {incr i} {
-        r 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+        R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
     }
 
     $slot_allocator $masters
@@ -62,9 +62,9 @@ proc cluster_setup {masters node_count slot_allocator code} {
 
     # Setup master/replica relationships
     for {set i 0} {$i < $masters} {incr i} {
-        set nodeid [r $i CLUSTER MYID]
+        set nodeid [R $i CLUSTER MYID]
         for {set j [expr $i + $masters]} {$j < $node_count} {incr j $masters} {
-            r $j CLUSTER REPLICATE $nodeid
+            R $j CLUSTER REPLICATE $nodeid
         }
     }
 
@@ -74,7 +74,7 @@ proc cluster_setup {masters node_count slot_allocator code} {
     uplevel 1 $code
 }
 
-# Start a cluster with the given number of masters and replicas. replicas
+# Start a cluster with the given number of masters and replicas. Replicas
 # will be allocated to masters by round robin.
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
     set node_count [expr $masters + $replicas]

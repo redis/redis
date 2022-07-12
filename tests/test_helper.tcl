@@ -189,18 +189,21 @@ proc srv {args} {
 }
 
 # Provide easy access to the client for the inner server. It's possible to
-# prepend the argument list with a level to access clients for
-# servers running in outer blocks. The level can be provided as either a positive
-# or negative index.
+# prepend the argument list with a negative level to access clients for
+# servers running in outer blocks.
 proc r {args} {
     set level 0
     if {[string is integer [lindex $args 0]]} {
         set level [lindex $args 0]
-        if {$level > 0} {
-            set level [expr -1*$level]
-        }
         set args [lrange $args 1 end]
     }
+    [srv $level "client"] {*}$args
+}
+
+# Provide easy access to a client for an inner server. Requires a positive
+# index, unlike r which uses an optional negative index.
+proc R {n args} {
+    set level [expr -1*$n]
     [srv $level "client"] {*}$args
 }
 
@@ -284,7 +287,7 @@ proc s {args} {
 
 # Get the specified field from the givens instances cluster info output.
 proc CI {index field} {
-    getInfoProperty [r $index cluster info] $field
+    getInfoProperty [R $index cluster info] $field
 }
 
 # Test wrapped into run_solo are sent back from the client to the

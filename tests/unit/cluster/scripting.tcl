@@ -51,16 +51,16 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     }
 
     test "Function no-cluster flag" {
-        r 0 function load {#!lua name=test
+        R 0 function load {#!lua name=test
             redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
         }
-        catch {r 0 fcall f1 0} e
+        catch {R 0 fcall f1 0} e
         assert_match {*Can not run script on cluster, 'no-cluster' flag is set*} $e
     }
 
     test "Script no-cluster flag" {
         catch {
-            r 0 eval {#!lua flags=no-cluster
+            R 0 eval {#!lua flags=no-cluster
                 return 1
             } 0
         } e
