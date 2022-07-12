@@ -5663,7 +5663,12 @@ NULL
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         if (!n) {
-            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
+            if (clusterBlacklistExists((char*)c->argv[2]->ptr))
+                /* Already forgotten. The deletion may have been gossipped by
+                 * another node, so we pretend it succeeded. */
+                addReply(c,shared.ok);
+            else
+                addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
             return;
         } else if (n == myself) {
             addReplyError(c,"I tried hard but I can't forget myself...");
