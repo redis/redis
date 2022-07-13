@@ -6112,7 +6112,9 @@ void usage(void) {
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
     fprintf(stderr,"       ./redis-server -v or --version\n");
     fprintf(stderr,"       ./redis-server -h or --help\n");
-    fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n\n");
+    fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n");
+    fprintf(stderr,"       ./redis-server --check-system\n");
+    fprintf(stderr,"\n");
     fprintf(stderr,"Examples:\n");
     fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
     fprintf(stderr,"       echo 'maxmemory 128mb' | ./redis-server -\n");
