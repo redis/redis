@@ -245,7 +245,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  */
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
-        *err = sdsnew("Library names can only contain letters, numbers, or underscore(_) and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         return C_ERR;
     }
 
