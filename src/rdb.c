@@ -1509,14 +1509,13 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char pid[32];
 
     /* Generate temp rdb file name using async-signal safe functions. */
-    int pid_len = ll2string(pid, sizeof(pid), childpid);
-    if (pid_len > 0) {
-        redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
-        redis_strlcat(tmpfile, pid, sizeof(tmpfile));
-        redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
-    } else {
-        redis_strlcpy(tmpfile,"temp.rdb",sizeof(tmpfile));
-    }
+    ll2string(pid, sizeof(pid), childpid);
+
+    /* since pid_t is int type, 35 characters buffer should hold the conversion, so no check on return value
+     * is performed (and we would like to avoid asserting in a signal context). */
+    redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+    redis_strlcat(tmpfile, pid, sizeof(tmpfile));
+    redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
 
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really

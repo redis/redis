@@ -4374,7 +4374,7 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                 if (migrate_reply != NULL) {
                     if (err) {
                         *err = zmalloc((migrate_reply->len + 1) * sizeof(char));
-                        redis_strlcpy(*err, migrate_reply->str,(migrate_reply->len + 1));
+                        redis_strlcpy(*err, migrate_reply->str, (migrate_reply->len + 1));
                     }
                     printf("\n");
                     CLUSTER_MANAGER_PRINT_REPLY_ERROR(source,
@@ -4491,7 +4491,7 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
         if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
             if (is_err && err != NULL) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));
-                redis_strlcpy(*err, reply->str,(reply->len + 1));
+                redis_strlcpy(*err, reply->str, (reply->len + 1));
             }
             success = 0;
             /* If the cluster did not already joined it is possible that
