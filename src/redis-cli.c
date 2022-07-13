@@ -1961,6 +1961,10 @@ static int parseOptions(int argc, char **argv) {
             config.stdin_tag_name = argv[++i];
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.conn_info.hostport = atoi(argv[++i]);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -1982,6 +1986,10 @@ static int parseOptions(int argc, char **argv) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
+            if (config.conn_info.hostport < 0 || config.conn_info.hostport > 65535) {
+                fprintf(stderr, "Invalid server port.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {
