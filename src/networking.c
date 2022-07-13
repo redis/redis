@@ -2851,6 +2851,7 @@ sds catClientInfoString(sds s, client *client) {
         replBufBlock *cur = listNodeValue(client->ref_repl_buf_node);
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
+    sds meta = client->meta ? getAllClientMetaFields(client->meta) : sdsempty();
 
     sds ret = sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%s",
@@ -2882,7 +2883,9 @@ sds catClientInfoString(sds s, client *client) {
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
-        client->meta ? (char*)getAllClientMetaFields(client->meta) : "");
+        meta);
+    sdsfree(meta);
+
     return ret;
 }
 
@@ -3291,11 +3294,11 @@ NULL
         /* CLIENT GETMETADATA */
         sds meta = NULL;
         if (c->argc == 2) {
-            meta = c->meta ? (char*)getAllClientMetaFields(c->meta) : "";
+            meta = c->meta ? getAllClientMetaFields(c->meta) : sdsempty();
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         } else {
-            meta = c->meta ? (char*)getClientMetaFields(c) : "";
+            meta = c->meta ? getClientMetaFields(c) : sdsempty();
             addReplyVerbatim(c,meta,sdslen(meta),"txt");
             sdsfree(meta);
         }
