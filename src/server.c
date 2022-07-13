@@ -2911,46 +2911,64 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
-void redisOpArrayInit(redisOpArray *oa) {
-    oa->ops = NULL;
+void redisOpArrayReset(redisOpArray *oa) {
     oa->numops = 0;
-    oa->capacity = 0;
+    oa->len = 0;
 }
 
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
     int prev_capacity = oa->capacity;
 
-    if (oa->numops == 0) {
+    if (oa->len == 0) {
         oa->capacity = 16;
-    } else if (oa->numops >= oa->capacity) {
+    } else if (oa->len >= oa->capacity) {
         oa->capacity *= 2;
     }
 
     if (prev_capacity != oa->capacity)
         oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
-    op = oa->ops+oa->numops;
+    op = oa->ops+oa->len;
+    op->dbid = dbid;
+    op->argv = argv;
+    op->argc = argc;
+    op->target = target;
+    oa->len++;
+    if (op->target) {
+        oa->numops++;
+    }
+    return oa->len;
+}
+
+int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
+    return redisOpArrayAppend(oa, 0, NULL, 0, 0) - 1;
+}
+
+void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
+    redisOp *op = oa->ops+index;
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
     oa->numops++;
-    return oa->numops;
 }
 
 void redisOpArrayFree(redisOpArray *oa) {
-    while(oa->numops) {
+    while(oa->len) {
         int j;
         redisOp *op;
 
-        oa->numops--;
-        op = oa->ops+oa->numops;
-        for (j = 0; j < op->argc; j++)
+        oa->len--;
+        op = oa->ops+oa->len;
+        if (!op->target) {
+            continue;
+        }
+        for (j = 0; j < op->argc; j++) {
             decrRefCount(op->argv[j]);
+        }
         zfree(op->argv);
     }
-    zfree(oa->ops);
-    redisOpArrayInit(oa);
+    redisOpArrayReset(oa);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3094,6 +3112,26 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
+void alsoPropagateWithPlaceholder(int dbid, robj **argv, int argc, int target, int index) {
+    robj **argvcopy;
+    int j;
+
+    if (!shouldPropagate(target))
+        return;
+
+    argvcopy = zmalloc(sizeof(robj*)*argc);
+    for (j = 0; j < argc; j++) {
+        argvcopy[j] = argv[j];
+        incrRefCount(argv[j]);
+    }
+    if (index == -1) {
+        /* -1 means append to the end */
+        redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
+    } else {
+        redisOpArraySet(&server.also_propagate,dbid,argvcopy,argc,target,index);
+    }
+}
+
 /* Used inside commands to schedule the propagation of additional commands
  * after the current command is propagated to AOF / Replication.
  *
@@ -3106,18 +3144,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
 void alsoPropagate(int dbid, robj **argv, int argc, int target) {
-    robj **argvcopy;
-    int j;
-
-    if (!shouldPropagate(target))
-        return;
-
-    argvcopy = zmalloc(sizeof(robj*)*argc);
-    for (j = 0; j < argc; j++) {
-        argvcopy[j] = argv[j];
-        incrRefCount(argv[j]);
-    }
-    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
+    alsoPropagateWithPlaceholder(dbid, argv, argc, target, -1);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3176,36 +3203,48 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
 void propagatePendingCommands() {
-    if (server.also_propagate.numops == 0)
+    if (server.also_propagate.numops == 0) {
+        redisOpArrayFree(&server.also_propagate);
         return;
+    }
 
     int j;
     redisOp *rop;
+    redisOp *last_command = NULL;
+    redisOp *first_command = NULL;
     int multi_emitted = 0;
 
-    /* Wrap the commands in server.also_propagate array,
-     * but don't wrap it if we are already in MULTI context,
-     * in case the nested MULTI/EXEC.
-     *
-     * And if the array contains only one command, no need to
-     * wrap it, since the single command is atomic. */
-    if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
-        /* We use the first command-to-propagate to set the dbid for MULTI,
-         * so that the SELECT will be propagated beforehand */
-        int multi_dbid = server.also_propagate.ops[0].dbid;
-        propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-        multi_emitted = 1;
-    }
-
-    for (j = 0; j < server.also_propagate.numops; j++) {
+    for (j = 0; j < server.also_propagate.len; j++) {
         rop = &server.also_propagate.ops[j];
-        serverAssert(rop->target);
+        if (!rop->target) {
+            continue;
+        }
+        if (!first_command) {
+            first_command = rop;
+            /* Wrap the commands in server.also_propagate array,
+             * but don't wrap it if we are already in MULTI context,
+             * in case the nested MULTI/EXEC.
+             *
+             * And if the array contains only one command, no need to
+             * wrap it, since the single command is atomic. */
+            if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
+                /* We use the first command-to-propagate to set the dbid for MULTI,
+                 * so that the SELECT will be propagated beforehand */
+                int multi_dbid = first_command->dbid;
+                propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+                multi_emitted = 1;
+            }
+
+        }
+        last_command = rop;
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
+    serverAssert(last_command);
+
     if (multi_emitted) {
         /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
-        int exec_dbid = server.also_propagate.ops[server.also_propagate.numops-1].dbid;
+        int exec_dbid = last_command->dbid;
         propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
 
@@ -3314,6 +3353,19 @@ void call(client *c, int flags) {
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
+
+    /* Save placeholder for replication.
+     * If the command will be replicated, this is the location where it should be placed in the replication stream.
+     * If we just push the command to the replication buffer (without the placeholder), the replica might get the commands
+     * in a wrong order and we will end up with primary-replica inconsistency. To demonstrate, take the following example:
+     *
+     * 1. A module register a key space notification callback and inside the notification the module performed an incr command on the given key
+     * 2. User performs 'set x 1'
+     * 3. The module get the notification and perform 'incr x'
+     * 4. The command 'incr x' enters the replication buffer before the 'set x 1' command and the replica sees the command in the wrong order
+     *
+     * The final result is that the replica will have the value x=1 while the primary will have x=2 */
+    int index = redisOpArrayAppendPlaceholder(&server.also_propagate);
 
     server.in_nested_call++;
     c->cmd->proc(c);
@@ -3436,7 +3488,7 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
+            alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,index);
     }
 
     /* Restore the old replication flags, since call() can be executed

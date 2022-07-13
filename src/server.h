@@ -1292,6 +1292,7 @@ typedef struct redisOp {
 typedef struct redisOpArray {
     redisOp *ops;
     int numops;
+    int len;
     int capacity;
 } redisOpArray;
 
@@ -2897,7 +2898,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void propagatePendingCommands();
-void redisOpArrayInit(redisOpArray *oa);
+void redisOpArrayReset(redisOpArray *oa);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
