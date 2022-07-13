@@ -144,7 +144,7 @@ sds getAllClientMetaFields(dict *meta) {
 sds getClientMetaFields(client *c) {
     int i;
     int count = 0;
-    sds result = sdsempty();
+    sds partialResult = sdsempty();
 
     for (i = 2; i < c->argc; i++) {
         dictEntry *de;
@@ -154,7 +154,7 @@ sds getClientMetaFields(client *c) {
         };
         sds value = dictGetVal(de);
         
-        result = sdscatfmt(result,
+        partialResult = sdscatfmt(partialResult,
             "+%s\n:%s\n",
             c->argv[i]->ptr,
             value
@@ -171,9 +171,10 @@ sds getClientMetaFields(client *c) {
         count
     );
 
-    return sdscatfmt(size,
-        result
-    );
+    sds result = sdscatfmt(size, partialResult);
+    sdsfree(partialResult);
+
+    return result;
 }
 
 client *createClient(connection *conn) {
