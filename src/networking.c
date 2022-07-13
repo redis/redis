@@ -3295,13 +3295,11 @@ NULL
         sds meta = NULL;
         if (c->argc == 2) {
             meta = c->meta ? getAllClientMetaFields(c->meta) : sdsempty();
-            addReplyVerbatim(c,meta,sdslen(meta),"txt");
-            sdsfree(meta);
         } else {
             meta = c->meta ? getClientMetaFields(c) : sdsempty();
-            addReplyVerbatim(c,meta,sdslen(meta),"txt");
-            sdsfree(meta);
         }
+        addReplyVerbatim(c,meta,sdslen(meta),"txt");
+        sdsfree(meta);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
         unpauseClients(PAUSE_BY_CLIENT_COMMAND);
