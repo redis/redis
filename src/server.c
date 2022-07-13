@@ -3654,7 +3654,8 @@ int processCommand(client *c) {
     uint64_t cmd_flags = c->cmd->flags;
     if (c->cmd->proc == evalCommand || c->cmd->proc == evalShaCommand ||
         c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand ||
-        c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
+        c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand ||
+        c->cmd->proc == bevalCommand)
     {
         if (c->cmd->proc == fcallCommand || c->cmd->proc == fcallroCommand)
             cmd_flags = fcallGetCommandFlags(c, cmd_flags);

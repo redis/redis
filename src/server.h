@@ -3465,6 +3465,7 @@ void evalCommand(client *c);
 void evalRoCommand(client *c);
 void evalShaCommand(client *c);
 void evalShaRoCommand(client *c);
+void bevalCommand(client *c);
 void scriptCommand(client *c);
 void fcallCommand(client *c);
 void fcallroCommand(client *c);

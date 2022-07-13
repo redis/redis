@@ -34,6 +34,7 @@
 #include "monotonic.h"
 #include "resp_parser.h"
 #include "script_lua.h"
+#include "t_list.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -44,7 +45,7 @@
 void ldbInit(void);
 void ldbDisable(client *c);
 void ldbEnable(client *c);
-void evalGenericCommandWithDebugging(client *c, int evalsha);
+void evalGenericCommandWithDebugging(client *c, int funcNameIndex, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
@@ -486,15 +487,15 @@ void resetLuaClient(void) {
     lctx.lua_client->flags &= ~CLIENT_MULTI;
 }
 
-void evalGenericCommand(client *c, int evalsha) {
+void evalGenericCommand(client *c, int funcNameIndex, int evalsha) {
     lua_State *lua = lctx.lua;
     char funcname[43];
     long long numkeys;
 
-    /* Get the number of arguments that are keys */
-    if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
+    /* Get the number of arguments that are keys */ //2
+    if (getLongLongFromObjectOrReply(c,c->argv[funcNameIndex+1],&numkeys,NULL) != C_OK)
         return;
-    if (numkeys > (c->argc - 3)) {
+    if (numkeys > (c->argc - funcNameIndex - 2)) { //(c->argc - 3)
         addReplyError(c,"Number of keys can't be greater than number of args");
         return;
     } else if (numkeys < 0) {
@@ -502,7 +503,7 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    evalCalcFunctionName(evalsha, c->argv[funcNameIndex]->ptr, funcname);//1
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
@@ -519,7 +520,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,c->argv[1]) == NULL) {
+        if (luaCreateFunction(c,c->argv[funcNameIndex]) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
@@ -543,7 +544,8 @@ void evalGenericCommand(client *c, int evalsha) {
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
                                       get appropriate error messages and logs */
 
-    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
+    // luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
+    luaCallFunction(&rctx, lua, c->argv+funcNameIndex+2, numkeys, c->argv+funcNameIndex+2+numkeys, c->argc-funcNameIndex-2-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
 }
@@ -553,9 +555,20 @@ void evalCommand(client *c) {
      * script command. */
     replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     if (!(c->flags & CLIENT_LUA_DEBUG))
-        evalGenericCommand(c,0);
+        evalGenericCommand(c,1,0);
     else
-        evalGenericCommandWithDebugging(c,0);
+        evalGenericCommandWithDebugging(c,1,0);
+}//HERE
+
+void bevalCommand(client *c) {
+    brpoplpushCommand(c);
+    /* Explicitly feed monitor here so that lua commands appear after their
+     * script command. */
+    replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    if (!(c->flags & CLIENT_LUA_DEBUG))
+        evalGenericCommand(c,5,0);
+    else
+        evalGenericCommandWithDebugging(c,5,0);
 }
 
 void evalRoCommand(client *c) {
@@ -575,7 +588,7 @@ void evalShaCommand(client *c) {
         return;
     }
     if (!(c->flags & CLIENT_LUA_DEBUG))
-        evalGenericCommand(c,1);
+        evalGenericCommand(c,1,1);
     else {
         addReplyError(c,"Please use EVAL instead of EVALSHA for debugging");
         return;
@@ -898,9 +911,9 @@ void ldbKillForkedSessions(void) {
 
 /* Wrapper for EVAL / EVALSHA that enables debugging, and makes sure
  * that when EVAL returns, whatever happened, the session is ended. */
-void evalGenericCommandWithDebugging(client *c, int evalsha) {
+void evalGenericCommandWithDebugging(client *c, int funcNameIndex, int evalsha) {
     if (ldbStartSession(c)) {
-        evalGenericCommand(c,evalsha);
+        evalGenericCommand(c,funcNameIndex,evalsha);
         ldbEndSession(c);
     } else {
         ldbDisable(c);

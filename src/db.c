@@ -2135,6 +2135,11 @@ int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
 }
 
+int bevalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 5, 6, 1, argv, argc, result);
+}//HERE
+
 int functionGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 2, 3, 1, argv, argc, result);
