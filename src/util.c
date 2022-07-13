@@ -341,8 +341,14 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
 
     /* Converts the unsigned long long value to string*/
     int length = ull2string(dst, dstlen, value);
-    if (length == 0) return 0;
+    if (length == 0) goto err;
     return length + negative;
+
+err:
+    /* force add Null termination */
+    if (dstlen > 0)
+        dst[0] = '\0';
+    return 0;
 }
 
 /* Convert a unsigned long long into a string. Returns the number of
@@ -363,7 +369,7 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
 
     /* Check length. */
     uint32_t length = digits10(value);
-    if (length >= dstlen) return 0;
+    if (length >= dstlen) goto err;;
 
     /* Null term. */
     uint32_t next = length - 1;
@@ -384,8 +390,12 @@ int ull2string(char *dst, size_t dstlen, unsigned long long value) {
         dst[next] = digits[i + 1];
         dst[next - 1] = digits[i];
     }
-
     return length;
+err:
+    /* force add Null termination */
+    if (dstlen > 0)
+        dst[0] = '\0';
+    return 0;
 }
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
@@ -655,11 +665,11 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
         switch (mode) {
         case LD_STR_AUTO:
             l = snprintf(buf,len,"%.17Lg",value);
-            if (l+1 > len) return 0; /* No room. */
+            if (l+1 > len) goto err;; /* No room. */
             break;
         case LD_STR_HEX:
             l = snprintf(buf,len,"%La",value);
-            if (l+1 > len) return 0; /* No room. */
+            if (l+1 > len) goto err; /* No room. */
             break;
         case LD_STR_HUMAN:
             /* We use 17 digits precision since with 128 bit floats that precision
@@ -668,7 +678,7 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
              * decimal numbers will be represented in a way that when converted
              * back into a string are exactly the same as what the user typed.) */
             l = snprintf(buf,len,"%.17Lf",value);
-            if (l+1 > len) return 0; /* No room. */
+            if (l+1 > len) goto err; /* No room. */
             /* Now remove trailing zeroes after the '.' */
             if (strchr(buf,'.') != NULL) {
                 char *p = buf+l-1;
@@ -683,11 +693,16 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
                 l = 1;
             }
             break;
-        default: return 0; /* Invalid mode. */
+        default: goto err; /* Invalid mode. */
         }
     }
     buf[l] = '\0';
     return l;
+err:
+    /* force add Null termination */
+    if (len > 0)
+        buf[0] = '\0';
+    return 0;
 }
 
 /* Get random bytes, attempts to get an initial seed from /dev/urandom and
