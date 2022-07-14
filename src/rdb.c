@@ -1510,9 +1510,6 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
 
     /* Generate temp rdb file name using async-signal safe functions. */
     ll2string(pid, sizeof(pid), childpid);
-
-    /* since pid_t is int type, 35 characters buffer should hold the conversion, so no check on return value
-     * is performed (and we would like to avoid asserting in a signal context). */
     redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
     redis_strlcat(tmpfile, pid, sizeof(tmpfile));
     redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));

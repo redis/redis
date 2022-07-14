@@ -330,7 +330,7 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
             value = ((unsigned long long) LLONG_MAX)+1;
         }
         if (dstlen < 2)
-            return 0;
+            goto err;
         negative = 1;
         dst[0] = '-';
         dst++;
@@ -341,7 +341,7 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
 
     /* Converts the unsigned long long value to string*/
     int length = ull2string(dst, dstlen, value);
-    if (length == 0) goto err;
+    if (length == 0) return 0;
     return length + negative;
 
 err:
@@ -653,7 +653,7 @@ int ld2string(char *buf, size_t len, long double value, ld2string_mode mode) {
     if (isinf(value)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
          * different way, so better to handle it in an explicit way. */
-        if (len < 5) return 0; /* No room. 5 is "-inf\0" */
+        if (len < 5) goto err; /* No room. 5 is "-inf\0" */
         if (value > 0) {
             memcpy(buf,"inf",3);
             l = 3;
