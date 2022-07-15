@@ -163,7 +163,7 @@ sds getClientMetaFields(client *c) {
     }
 
     if(count == 0){
-        return partialResult; 
+        return partialResult;
     }
     
     sds size = sdscatfmt(sdsempty(),
