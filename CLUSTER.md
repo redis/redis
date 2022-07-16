@@ -19,7 +19,7 @@
         - [Cluster Creation](#cluster-creation)
         - [Join](#join)
         - [Remove Node](#remove-node)
-        - [Migrate A Node between Failover Coordinators](#migrate-a-node-between-failover-coordinators)
+        - [Migrate A Shard between Failover Coordinators](#migrate-a-shard-between-failover-coordinators)
     - [Failover](#failover)
         - [Failover Coordinator Tick](#failover-coordinator-tick)
     - [Resharding](#resharding)
@@ -107,9 +107,20 @@ uses Redis to host the Topology Director & Failover Coordinator logic. This allo
 the needs and orchestrating abilities of the administrator:
 - Full Blown: Dedicated nodes holding the Topology Directors and multiple Failover Coordinators dividing the data nodes among them.
 - Midrange: Dedicated nodes holding both the Topology Director and Failover Coordinator (with just one Failover Coordinator owning all the data nodes).
-- Lightweight: Topology Director and Failover Coordinator located on a subset of data nodes. This removes the need to maintain and orchestrate
-non-data nodes at the cost of potentially impacting performance on the dual-use nodes.
-- Naive: Topology Director and Failover Coordinator located on all nodes. This allows for the quickest bootstrapping, but severely limits scalability.
+- Lightweight: Topology Director and Failover Coordinator located on a subset of data nodes. This removes the need to maintain and orchestrate 
+  non-data nodes at the cost of potentially impacting performance on the dual-use nodes.
+- Naive: Topology Director and Failover Coordinator located on all nodes. This allows for the quickest bootstrapping, but 
+  severely limits scalability as all nodes are part of the topology quorum.
+
+It is important to note that these deployment modes are not encoded into the Redis/Flotilla implementation (Other than redis-cli
+as mentioned below). It is possible to move between them by migrating slots and replacing nodes which hold role combinations 
+which aren't relevant anymore.  
+The various options are mentioned here in order to make sure we consider the ramification of each deployment mode in the
+rest of the design.
+
+When redis-cli is used to bootstrap a cluster, it will support receiving a flag specifying the desired deployment mode.
+For example, when bootstrapping <= 11 nodes (exact number TBD once we have a full implementation we can benchmark) it will default to
+provisioning all nodes as having all three roles as this is the easiest deployment to orchestrate.
 
 ![Flotilla High Level overview](images/high_level.jpg?raw=true "High Level Overview")
 
@@ -166,7 +177,7 @@ With the Failover Coordinators for topology & primary/replica state propagation:
     Lists all nodes owned by the Failover Coordinator:
     - The last configuration epoch they acknowledged   
     - Their primary/replica status
-    - Potentially (but not needed for Flotilla operations) - metadata like:
+    - Metadata like:
         - Replication offset
         - Last heard timestamp
      
@@ -234,15 +245,18 @@ In order to join a shard into the cluster the administrator issues a join comman
 (or addresses) of the Topology Director. The node then emits the join request to Flotilla and receives the essential cluster topology
 in the response.
 The request can specify:
-- Slot range (in case we're claiming unassigned slots) / Shard ID
-- Failover Coordinator ID
+- Slot range (in case we're claiming unassigned slots) / Shard ID. In case none is provided, the node will be added as 
+  free-floating in the initial implementation.
+- Failover Coordinator ID. In case this isn't provided / implied by the Shard ID the node will be added to the Failover Coordinator 
+  with the smallest number of nodes with the Failover Coordinator ID acting as tiebreaker.
+
 
 The Topology Director is responsible to validate that:
 - A requested slot range is either fully unassigned OR entirely (i.e., all requested slots and only them) assigned to an
 existing shard.
 - The Failover Coordinator exists, and it owns the other nodes of the relevant shard
 (if the new node is supposed to join an existing shard).
-
+  
 The Topology Director response provides the node with the details of the Failover Coordinator which owns the node and its ID. The full topology will be
 received from the Failover Coordinator once the new node starts communicating with it. In order to be able to automatically recover from
 crashes a node must persist this metadata locally -- if it does not do this it will need to be joined again after restarts.
@@ -407,6 +421,9 @@ One option for selecting the subset is by dividing the primary nodes into K buck
 - The primary receiving the initial notification will propagate it to an arbitrary primary in each bucket (including its own).
 - That primary will then send the notification to all other primaries in its bucket.
 
+It is worth noting we can (and probably should) decouple and implement this sort of mechanism ASAP (without depending the new
+cluster implementation) as it will substantially improve the behavior of the existing cluster.
+
 ### Reference Implementation
 
 Our reference implementation uses a single Redis module that contains both the Failover Coordinator & Topology Director functionality
@@ -434,8 +451,8 @@ Some future topics:
 
 #### Potential Enhancements
 
-- Topology Director Proxy mode: Allow sending topology commands to an arbitrary node and have that node proxy the request to the Topology Director.
-This increases management simplicity, but would also be undesirable in orchestrated deployments.
+- Topology Director Proxy mode: Allow sending topology commands to an arbitrary node and have that node proxy the request to the Topology Director. 
+  This increases management simplicity, but would also be undesirable in orchestrated deployments.
 - In a Fork+Replicate resharding flow, there's a potential for increased memory consumption due to CoW buffers which might 
   break extremely resource constrained environments. We might offer a 'forkless' configuration which will block writes to the 
   entire slot while the data is being serialized/copied to the other node.
@@ -443,6 +460,11 @@ This increases management simplicity, but would also be undesirable in orchestra
   marked as belonging to shard B) it may decide to reject the topology in order to avoid data loss due to Flotilla bugs.
   (to be clear -- all such potential misconfigs would be considered Flotilla bugs since the Topology Director is never supposed
   to emit an invalid topology).
+- Auto-assign free floating nodes according to need.
+- It is possible to add smarter orchestration into the Topology Director layer which will allow it to adjust the roles of nodes 
+  participating in the cluster as needed and autonomously move between the various deployments modes as the cluster scales.
+  Doing this properly will also require the ability to change the role of an existing node.
+    
 
 
 ### TBD Topics:
