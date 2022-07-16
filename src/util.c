@@ -1050,7 +1050,7 @@ static void test_string2l(void) {
     long v;
 
     /* May not start with +. */
-    redis_strlcpy(buf,"+1",,sizeof(buf));
+    redis_strlcpy(buf,"+1",sizeof(buf));
     assert(string2l(buf,strlen(buf),&v) == 0);
 
     /* May not start with 0. */
