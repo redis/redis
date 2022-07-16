@@ -38,11 +38,12 @@ A new approach to Redis Clustering is proposed in order to:
 
 - Provide predictable behavior & correctness guarantees across the various possible failure modes
 - Create a minimal, well-defined internal interface to the clustering code so alternative approaches can easily replace the
-  entire clustering functionality at compile time.
+  entire clustering functionality at compile time
 - Support a significantly higher number of shards
-- Significantly reduce failover time to under 10 seconds (at worse) and under 5 seconds in some configurations 
-- Allow for alternative consistency mode of operation
-- Long term: Support a clustered, but un-sharded deployment mode with no cross-slot limitations, which will allow us to deprecate all Sentinel code
+- Significantly reduce failover time to under 10 seconds (at worse) and under 5 seconds in some configurations
+- Allow for alternative consistency mode of operation which can provide strong consistency guarantees for user data 
+- Long term: Enable deprecating and eventually removing all Sentinel code by supporting an unsharded (One primary node 
+  holding all the slots) deployment mode with no cross-slot limitations
 - Long term: Enable centralized management for global configuration settings & Redis Functions
 
 This new approach is:
@@ -88,7 +89,8 @@ Flotilla is composed of two tiers of strongly consistent, consensus-based contro
 (TD) and the Failover Coordinator (FC).
 
 The Topology Director is the source of truth for shard existence and metadata, slot range allocation and Failover Coordinator
-assignments. In addition to the above, it also propagates failover information across the various Failover Coordinators.
+assignments. In addition to the above it also propagates failover information to all Failover Coordinators so nodes across 
+the cluster will be able to return an up-to-date CLUSTER SLOTS response.
 
 The Failover Coordinators is the source of truth for Primary/Replica roles. Each Failover Coordinators is assigned a subset 
 of the total nodes in the cluster, receives & propagates heartbeat information from them and enables them to make failover decisions in a
@@ -141,7 +143,8 @@ from every Failover Coordinator, cached in the Topology Director and relayed to 
 
 #### Interfaces
 
-The Topology Director interface is fully declarative other than join/remove flows. This allows for easy orchestration via various tools.
+The Topology Director interface is declarative other than join/remove flows. This allows for easy orchestration via various tools. 
+All the below commands are synchronous and blocking from the client perspective.
 
 With the administrator, directly for creating the cluster / updating and removing nodes:
 
@@ -209,7 +212,10 @@ contains the updated topology & last heartbeat times of the other nodes in the s
 owning the same slots). The node is responsible for promoting itself by writing the updated status to the Failover Coordinator if it
 detects that its current primary has not sent a heartbeat for a long enough time.
 
-The node will mark itself as "down" when it unable to reach the FC for X number of seconds (this can't be ticks since it isn't receiving them). It will either stop serving all traffic, or stop serving write traffic based off of the `cluster-allow-reads-during-cluster-down`.
+The node will mark itself as "down" when it unable to reach the FC for X number of seconds (this can't be ticks since it isn't receiving them). 
+It will either stop serving all traffic, or stop serving write traffic based off of the `cluster-allow-reads-during-cluster-down`
+configuration.
+
 #### Interfaces
 
 - With the Failover Coordinator for topology updates and setting primary status
@@ -257,9 +263,10 @@ existing shard.
 - The Failover Coordinator exists, and it owns the other nodes of the relevant shard
 (if the new node is supposed to join an existing shard).
   
-The Topology Director response provides the node with the details of the Failover Coordinator which owns the node and its ID. The full topology will be
-received from the Failover Coordinator once the new node starts communicating with it. In order to be able to automatically recover from
-crashes a node must persist this metadata locally -- if it does not do this it will need to be joined again after restarts.
+The Topology Director response provides the node with the details of the Failover Coordinator which owns the node and its ID. 
+The full topology will be received from the Failover Coordinator once the new node starts communicating with it. A node must
+persist this metadata locally in order to be able to rejoin the cluster automatically after crashes/restarts, otherwise the node
+will start from scratch and would need to be added again.
 
 ![Join Node](images/join_node.jpg?raw=true "Add a data node to a cluster")
     
@@ -270,8 +277,9 @@ If it isn't (or a force flag is provided), then the Topology Director removes th
 epoch.
 Once this new configuration epoch reaches the relevant Failover Coordinator, it will refuse heartbeat requests from the removed node with
 an error indicating the node does not exist in the system. This will cause a *fully joined* node to stop communication
-with the Failover Coordinator and its Primary. In case the node is a Primary, it will stop responding to client requests but keep replication
-connection open to prevent data loss (since it will no longer succeed in emitting a heartbeat, fail-over will soon take place).
+with the Failover Coordinator and its Primary. In case the node is a Primary which hasn't been demoted by the admin, it will
+stop responding to client requests but keep replication connection open to prevent data loss (since it will no longer succeed
+in emitting a heartbeat, fail-over will soon take place).
 
 #### Migrate a Shard between Failover Coordinators
 
@@ -381,14 +389,15 @@ The role of the node is specified in the join request (see [TBD Topics](#tbd-top
 
 All IDs in the system are:
 - Unique numbers
-- Monotonically increasing
+- Monotonically increasing (with the caveat that admin can manually specify an ID for an entity and Flotilla will accept 
+  it as long as it does not violate the uniqueness constraint)
 - Non-repeating
 
 The advantage to using numeric IDs is that:
 
 - It minimizes the payload for topology messages
-  (even if someone constantly adds nodes at one per <b>n</b>s(!!), it will ~500 years for the ID counters to exceed 64 bits).
-- It's easier to parse & communicate for humans.
+  (even if someone constantly adds nodes at one per <b>n</b>s(!!), it will ~500 years for the ID counters to exceed 64 bits)
+- It's easier to parse & communicate for humans
 
 The disadvantage is it requires some garbage collection by the orchestrating admin when a node joining fails at the last second
 (after the node is registered in the system but before it gets the acknowledgment).
