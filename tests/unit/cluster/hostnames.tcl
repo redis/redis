@@ -214,7 +214,7 @@ test "Test restart will keep hostname information" {
     restart_server 0 true false
     set slot_result [R 0 CLUSTER SLOTS]
     assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "restart-1.com"
-    
+
     # As a sanity check, make sure everyone eventually agrees
     wait_for_cluster_propagation
 }
