@@ -1,5 +1,5 @@
 Note: by contributing code to the Redis project in any form, including sending
-a pull request via Github, a code fragment or patch via private email or
+a pull request via GitHub, a code fragment or patch via private email or
 public discussion groups, you agree to release your code under the terms
 of the BSD license that you can find in the COPYING file included in the Redis
 source distribution. You will include BSD license in the COPYING file within
@@ -7,13 +7,13 @@ each source file that you contribute.
 
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
-Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
+GitHub issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
 requests. Everything else belongs to the Redis Google Group:
       
     https://groups.google.com/forum/m/#!forum/Redis-db
 
 PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
-bugs in the Github issues system. We'll be very happy to help you and provide
+bugs in the GitHub issues system. We'll be very happy to help you and provide
 all the support in the mailing list.
 
 There is also an active community of Redis users at Stack Overflow:
@@ -31,7 +31,7 @@ If you are reporting a security bug or vulnerability, see SECURITY.md.
 1. If it is a major feature or a semantical change, please don't start coding
 straight away: if your feature is not a conceptual fit you'll lose a lot of
 time writing the code without any reason. Start by posting in the mailing list
-and creating an issue at Github with the description of, exactly, what you want
+and creating an issue at GitHub with the description of, exactly, what you want
 to accomplish and why. Use cases are important for features to be accepted.
 Here you'll see if there is consensus about your idea.
 
@@ -51,6 +51,6 @@ certain issues/PRs over others. If you think your issue/PR is very important
 try to popularize it, have other users commenting and sharing their point of
 view and so forth. This helps.
 
-4. For minor fixes just open a pull request on Github.
+4. For minor fixes just open a pull request on GitHub.
 
 Thanks!
