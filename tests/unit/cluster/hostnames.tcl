@@ -203,8 +203,14 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
 test "Test restart will keep hostname information" {
     # Set a new hostname, reboot and make sure it sticks
     R 0 config set cluster-announce-hostname "restart-1.com"
+    
     # Store the hostname in the config
     R 0 config rewrite
+
+    # If the primary is slow to reboot it might get demoted, so prevent the replica
+    # from nominating itself.
+    R 3 config set cluster-replica-no-failover yes
+
     restart_server 0 true false
     set slot_result [R 0 CLUSTER SLOTS]
     assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "restart-1.com"
