@@ -492,8 +492,7 @@ void popGenericCommand(client *c, int where) {
     robj *value;
 
     if (c->argc > 3) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     } else if (hascount) {
         /* Parse the optional count argument. */
@@ -501,7 +500,7 @@ void popGenericCommand(client *c, int where) {
             return;
     }
 
-    robj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
+    robj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp]: shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
@@ -680,7 +679,8 @@ void lposCommand(client *c) {
                 return;
             if (rank == 0) {
                 addReplyError(c,"RANK can't be zero: use 1 to start from "
-                                "the first match, 2 from the second, ...");
+                                "the first match, 2 from the second ... "
+                                "or use negative to start from the end of the list");
                 return;
             }
         } else if (!strcasecmp(opt,"COUNT") && moreargs) {
@@ -1198,12 +1198,12 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
     }
 }
 
-/* LMPOP numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
+/* LMPOP numkeys <key> [<key> ...] (LEFT|RIGHT) [COUNT count] */
 void lmpopCommand(client *c) {
     lmpopGenericCommand(c, 1, 0);
 }
 
-/* BLMPOP timeout numkeys [<key> ...] LEFT|RIGHT [COUNT count] */
+/* BLMPOP timeout numkeys <key> [<key> ...] (LEFT|RIGHT) [COUNT count] */
 void blmpopCommand(client *c) {
     lmpopGenericCommand(c, 2, 1);
 }

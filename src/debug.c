@@ -79,13 +79,13 @@ void logStackTrace(void *eip, int uplevel);
  * "add" digests relative to unordered elements.
  *
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
-void xorDigest(unsigned char *digest, void *ptr, size_t len) {
+void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20];
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,ptr,len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -112,11 +112,10 @@ void xorStringObjectDigest(unsigned char *digest, robj *o) {
  * Also note that mixdigest("foo") followed by mixdigest("bar")
  * will lead to a different digest compared to "fo", "obar".
  */
-void mixDigest(unsigned char *digest, void *ptr, size_t len) {
+void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
     SHA1_CTX ctx;
-    char *s = ptr;
 
-    xorDigest(digest,s,len);
+    xorDigest(digest,ptr,len);
     SHA1Init(&ctx);
     SHA1Update(&ctx,digest,20);
     SHA1Final(digest,&ctx);
@@ -417,6 +416,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
+"REPLICATE <string>",
+"    Replicates the provided string to replicas, allowing data divergence.",
 #ifdef USE_JEMALLOC
 "MALLCTL <key> [<val>]",
 "    Get or set a malloc tuning integer.",
@@ -483,6 +484,12 @@ void debugCommand(client *c) {
 "    Show low level client eviction pools info (maxmemory-clients).",
 "PAUSE-CRON <0|1>",
 "    Stop periodic cron job processing.",
+"REPLYBUFFER PEAK-RESET-TIME <NEVER||RESET|time>",
+"    Sets the time (in milliseconds) to wait between client reply buffer peak resets.",
+"    In case NEVER is provided the last observed peak will never be reset",
+"    In case RESET is provided the peak reset time will be restored to the default value",
+"REPLYBUFFER RESIZING <0|1>",
+"    Enable or disable the replay buffer resize cron job",
 NULL
         };
         addReplyHelp(c, help);
@@ -790,6 +797,10 @@ NULL
              * also have a normal reply type after the attribute. */
             addReplyBulkCString(c,"Some real reply following the attribute");
         } else if (!strcasecmp(name,"push")) {
+            if (c->resp < 3) {
+                addReplyError(c,"RESP2 is not supported by this command");
+                return;
+	    }
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
@@ -826,7 +837,7 @@ NULL
         int memerr;
         unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
         if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger then 1 and smaller than 4gb");
+            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
         } else {
             addReply(c,shared.ok);
         }
@@ -839,6 +850,10 @@ NULL
                c->argc == 3)
     {
         server.aof_flush_sleep = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc >= 3) {
+        replicationFeedSlaves(server.slaves, server.slaveseldb,
+                c->argv + 2, c->argc - 2);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
@@ -922,12 +937,12 @@ NULL
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else if (!strcasecmp(c->argv[1]->ptr,"set-disable-deny-scripts") && c->argc == 3)
     {
-        server.script_disable_deny_script = atoi(c->argv[2]->ptr);;
+        server.script_disable_deny_script = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"config-rewrite-force-all") && c->argc == 2)
     {
         if (rewriteConfig(server.configfile, 1) == -1)
-            addReplyError(c, "CONFIG-REWRITE-FORCE-ALL failed");
+            addReplyErrorFormat(c, "CONFIG-REWRITE-FORCE-ALL failed: %s", strerror(errno));
         else
             addReply(c, shared.ok);
     } else if(!strcasecmp(c->argv[1]->ptr,"client-eviction") && c->argc == 2) {
@@ -959,6 +974,23 @@ NULL
     {
         server.pause_cron = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replybuffer") && c->argc == 4 ) {
+        if(!strcasecmp(c->argv[2]->ptr, "peak-reset-time")) {
+            if (!strcasecmp(c->argv[3]->ptr, "never")) {
+                server.reply_buffer_peak_reset_time = -1;
+            } else if(!strcasecmp(c->argv[3]->ptr, "reset")) {
+                server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
+            } else {
+                if (getLongFromObjectOrReply(c, c->argv[3], &server.reply_buffer_peak_reset_time, NULL) != C_OK)
+                    return;
+            }
+        } else if(!strcasecmp(c->argv[2]->ptr,"resizing")) {
+            server.reply_buffer_resizing_enabled = atoi(c->argv[3]->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+        addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1682,13 +1714,19 @@ void logStackTrace(void *eip, int uplevel) {
 void logServerInfo(void) {
     sds infostring, clients;
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
-    infostring = genRedisInfoString("all");
+    int all = 0, everything = 0;
+    robj *argv[1];
+    argv[0] = createStringObject("all", strlen("all"));
+    dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
+    infostring = genRedisInfoString(section_dict, all, everything);
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
+    releaseInfoSectionDict(section_dict);
+    decrRefCount(argv[0]);
 }
 
 /* Log certain config values, which can be used for debuggin */
@@ -1724,10 +1762,10 @@ void logCurrentClient(void) {
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
-
         decoded = getDecodedObject(cc->argv[j]);
-        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
-            (char*)decoded->ptr);
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        sdsfree(repr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -1765,7 +1803,10 @@ int memtest_test_linux_anonymous_maps(void) {
     if (!fd) return 0;
 
     fp = fopen("/proc/self/maps","r");
-    if (!fp) return 0;
+    if (!fp) {
+        closeDirectLogFiledes(fd);
+        return 0;
+    }
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
@@ -1921,7 +1962,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         serverLog(LL_WARNING,
         "Accessing address: %p", (void*)info->si_addr);
     }
-    if (info->si_code <= SI_USER && info->si_pid != -1) {
+    if (info->si_code == SI_USER && info->si_pid != -1) {
         serverLog(LL_WARNING, "Killed by PID: %ld, UID: %d", (long) info->si_pid, info->si_uid);
     }
 
@@ -1973,7 +2014,9 @@ void bugReportEnd(int killViaSignal, int sig) {
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
+"  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
+"  Some other issues could be detected by redis-server --check-system\n"
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */

@@ -252,6 +252,7 @@ start_server [list overrides [list save ""] ] {
     } {} {needs:debug}
 }
 
+run_solo {list-large-memory} {
 start_server [list overrides [list save ""] ] {
 
 # test if the server supports such large configs (avoid 32 bit builds)
@@ -349,6 +350,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
    } {} {large-memory}
 } ;# skip 32bit builds
 }
+} ;# run_solo
 
 start_server {
     tags {"list"}
@@ -387,12 +389,13 @@ start_server {
         assert {[r LPOS mylist c] == 2}
     }
 
-    test {LPOS RANK (positive and negative rank) option} {
+    test {LPOS RANK (positive, negative and zero rank) option} {
         assert {[r LPOS mylist c RANK 1] == 2}
         assert {[r LPOS mylist c RANK 2] == 6}
         assert {[r LPOS mylist c RANK 4] eq ""}
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
+        assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
     }
 
     test {LPOS COUNT option} {
@@ -486,6 +489,11 @@ start_server {
         assert_equal c [r lpop mylist2]
     }
 
+    test "LPOP/RPOP with wrong number of arguments" {
+        assert_error {*wrong number of arguments for 'lpop' command} {r lpop key 1 1}
+        assert_error {*wrong number of arguments for 'rpop' command} {r rpop key 2 2}
+    }
+
     test {RPOP/LPOP with the optional count argument} {
         assert_equal 7 [r lpush listcount aa bb cc dd ee ff gg]
         assert_equal {gg} [r lpop listcount 1]
@@ -496,15 +504,49 @@ start_server {
         assert_error "*ERR*range*" {r lpop forbarqaz -123}
     }
 
-    # Make sure we can distinguish between an empty array and a null response
-    r readraw 1
+    proc verify_resp_response {resp response resp2_response resp3_response} {
+        if {$resp == 2} {
+            assert_equal $response $resp2_response
+        } elseif {$resp == 3} {
+            assert_equal $response $resp3_response
+        }
+    }
 
-    test {RPOP/LPOP with the count 0 returns an empty array} {
-        r lpush listcount zero
-        r lpop listcount 0
-    } {*0}
+    foreach resp {3 2} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$resp == 3} {continue}
+        } else {
+            r hello $resp
+        }
 
-    r readraw 0
+        # Make sure we can distinguish between an empty array and a null response
+        r readraw 1
+
+        test "LPOP/RPOP with the count 0 returns an empty array in RESP$resp" {
+            r lpush listcount zero
+            assert_equal {*0} [r lpop listcount 0]
+            assert_equal {*0} [r rpop listcount 0]
+        }
+
+        test "LPOP/RPOP against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key] {$-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key] {$-1} {_}
+        }
+
+        test "LPOP/RPOP with <count> against non existing key in RESP$resp" {
+            r del non_existing_key
+
+            verify_resp_response $resp [r lpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r lpop non_existing_key 1] {*-1} {_}
+
+            verify_resp_response $resp [r rpop non_existing_key 0] {*-1} {_}
+            verify_resp_response $resp [r rpop non_existing_key 1] {*-1} {_}
+        }
+
+        r readraw 0
+    }
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
@@ -1138,7 +1180,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
-            assert_error "ERR*is negative*" {$rd read}
+            assert_error "ERR *is negative*" {$rd read}
             $rd close
         }
 
@@ -1570,9 +1612,9 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
     }
 
     test {LMPOP with illegal argument} {
-        assert_error "ERR wrong number of arguments*" {r lmpop}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1}
-        assert_error "ERR wrong number of arguments*" {r lmpop 1 mylist{t}}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1}
+        assert_error "ERR wrong number of arguments for 'lmpop' command" {r lmpop 1 mylist{t}}
 
         assert_error "ERR numkeys*" {r lmpop 0 mylist{t} LEFT}
         assert_error "ERR numkeys*" {r lmpop a mylist{t} LEFT}

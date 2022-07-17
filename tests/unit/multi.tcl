@@ -132,18 +132,61 @@ start_server {tags {"multi"}} {
     } {} {cluster:skip}
 
     test {EXEC fail on lazy expired WATCHed key} {
-        r flushall
+        r del key
         r debug set-active-expire 0
 
-        r del key
-        r set key 1 px 2
-        r watch key
+        for {set j 0} {$j < 10} {incr j} {
+            r set key 1 px 100
+            r watch key
+            after 101
+            r multi
+            r incr key
 
-        after 100
+            set res [r exec]
+            if {$res eq {}} break
+        }
+        if {$::verbose} { puts "EXEC fail on lazy expired WATCHed key attempts: $j" }
 
+        r debug set-active-expire 1
+        set _ $res
+    } {} {needs:debug}
+
+    test {WATCH stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
         r multi
-        r incr key
-        assert_equal [r exec] {}
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {Delete WATCHed stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        # EXISTS triggers lazy expiry/deletion
+        assert_equal 0 [r exists x]
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {FLUSHDB while watching stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        r flushdb
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
@@ -244,6 +287,52 @@ start_server {tags {"multi"}} {
         r ping
         r exec
     } {} {singledb:skip}
+
+    test {SWAPDB does not touch watched stale keys} {
+        r flushall
+        r select 1
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        r swapdb 0 1 ; # expired key replaced with no key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
+    test {SWAPDB does not touch non-existing key replaced with stale key} {
+        r flushall
+        r select 0
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
+    test {SWAPDB does not touch stale key replaced with another stale key} {
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r set x foo px 1
+        r select 0
+        r set x bar px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
 
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5

@@ -1,8 +1,7 @@
-#!/usr/bin/env python
-
-import os
+#!/usr/bin/env python3
 import glob
 import json
+import os
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
@@ -59,15 +58,65 @@ RESP3_TYPES = {
     "null": "RESP3_NULL",
 }
 
+
 def get_optional_desc_string(desc, field, force_uppercase=False):
     v = desc.get(field, None)
     if v and force_uppercase:
         v = v.upper()
-    ret = "\"%s\"" % v if v else "NULL"    
-    return ret.replace("\n", "\\n") 
+    ret = "\"%s\"" % v if v else "NULL"
+    return ret.replace("\n", "\\n")
+
+
+def check_command_args_key_specs(args, command_key_specs_index_set, command_arg_key_specs_index_set):
+    if not args:
+        return True
+
+    for arg in args:
+        if arg.key_spec_index is not None:
+            assert isinstance(arg.key_spec_index, int)
+
+            if arg.key_spec_index not in command_key_specs_index_set:
+                print("command: %s arg: %s key_spec_index error" % (command.fullname(), arg.name))
+                return False
+
+            command_arg_key_specs_index_set.add(arg.key_spec_index)
+
+        if not check_command_args_key_specs(arg.subargs, command_key_specs_index_set, command_arg_key_specs_index_set):
+            return False
+
+    return True
+
+def check_command_key_specs(command):
+    if not command.key_specs:
+        return True
+
+    assert isinstance(command.key_specs, list)
+
+    for cmd_key_spec in command.key_specs:
+        if "flags" not in cmd_key_spec:
+            print("command: %s key_specs missing flags" % command.fullname())
+            return False
+
+        if "NOT_KEY" in cmd_key_spec["flags"]:
+            # Like SUNSUBSCRIBE / SPUBLISH / SSUBSCRIBE
+            return True
+
+    command_key_specs_index_set = set(range(len(command.key_specs)))
+    command_arg_key_specs_index_set = set()
+
+    # Collect key_spec used for each arg, including arg.subarg
+    if not check_command_args_key_specs(command.args, command_key_specs_index_set, command_arg_key_specs_index_set):
+        return False
+
+    # Check if we have key_specs not used
+    if command_key_specs_index_set != command_arg_key_specs_index_set:
+        print("command: %s may have unused key_spec" % command.fullname())
+        return False
+
+    return True
+
 
 # Globals
-
 subcommands = {}  # container_name -> dict(subcommand_name -> Subcommand) - Only subcommands
 commands = {}  # command_name -> Command - Only commands
 
@@ -118,7 +167,8 @@ class KeySpec(object):
                 print("Invalid find_keys! value=%s" % self.spec["find_keys"])
                 exit(1)
 
-        return "%s,%s,%s" % (
+        return "%s,%s,%s,%s" % (
+            get_optional_desc_string(self.spec, "notes"),
             _flags_code(),
             _begin_search_code(),
             _find_keys_code()
@@ -130,6 +180,7 @@ class Argument(object):
         self.desc = desc
         self.name = self.desc["name"].lower()
         self.type = self.desc["type"]
+        self.key_spec_index = self.desc.get("key_spec_index", None)
         self.parent_name = parent_name
         self.subargs = []
         self.subargs_name = None
@@ -152,6 +203,7 @@ class Argument(object):
         Output example:
         "expiration",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expiration_Subargs
         """
+
         def _flags_code():
             s = ""
             if self.desc.get("optional", False):
@@ -172,6 +224,8 @@ class Argument(object):
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
         )
+        if "deprecated_since" in self.desc:
+            s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 
@@ -195,6 +249,7 @@ class Command(object):
         self.name = name.upper()
         self.desc = desc
         self.group = self.desc["group"]
+        self.key_specs = self.desc.get("key_specs", [])
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
@@ -213,8 +268,8 @@ class Command(object):
     def history_table_name(self):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
-    def hints_table_name(self):
-        return "%s_Hints" % (self.fullname().replace(" ", "_"))
+    def tips_table_name(self):
+        return "%s_tips" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
@@ -231,20 +286,21 @@ class Command(object):
         s += "{0}"
         return s
 
-    def hints_code(self):
-        if not self.desc.get("hints"):
+    def tips_code(self):
+        if not self.desc.get("command_tips"):
             return ""
         s = ""
-        for hint in self.desc["hints"].split(' '):
-            s += "\"%s\",\n" % hint
+        for hint in self.desc["command_tips"]:
+            s += "\"%s\",\n" % hint.lower()
         s += "NULL"
         return s
 
     def struct_code(self):
         """
         Output example:
-        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_Hints,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
+        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
         """
+
         def _flags_code():
             s = ""
             for flag in self.desc.get("command_flags", []):
@@ -265,7 +321,7 @@ class Command(object):
 
         def _key_specs_code():
             s = ""
-            for spec in self.desc.get("key_specs", []):
+            for spec in self.key_specs:
                 s += "{%s}," % KeySpec(spec).struct_code()
             return s[:-1]
 
@@ -279,7 +335,7 @@ class Command(object):
             get_optional_desc_string(self.desc, "deprecated_since"),
             GROUPS[self.group],
             self.history_table_name(),
-            self.hints_table_name(),
+            self.tips_table_name(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code(),
@@ -325,14 +381,14 @@ class Command(object):
         else:
             f.write("#define %s NULL\n\n" % self.history_table_name())
 
-        f.write("/* %s hints */\n" % self.fullname())
-        code = self.hints_code()
+        f.write("/* %s tips */\n" % self.fullname())
+        code = self.tips_code()
         if code:
-            f.write("const char *%s[] = {\n" % self.hints_table_name())
+            f.write("const char *%s[] = {\n" % self.tips_table_name())
             f.write("%s\n" % code)
             f.write("};\n\n")
         else:
-            f.write("#define %s NULL\n\n" % self.hints_table_name())
+            f.write("#define %s NULL\n\n" % self.tips_table_name())
 
         if self.args:
             for arg in self.args:
@@ -372,10 +428,14 @@ srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
 # Create all command objects
 print("Processing json files...")
 for filename in glob.glob('%s/commands/*.json' % srcdir):
-    with open(filename,"r") as f:
-        d = json.load(f)
-        for name, desc in d.items():
-            create_command(name, desc)
+    with open(filename, "r") as f:
+        try:
+            d = json.load(f)
+            for name, desc in d.items():
+                create_command(name, desc)
+        except json.decoder.JSONDecodeError as err:
+            print("Error processing %s: %s" % (filename, err))
+            exit(1)
 
 # Link subcommands to containers
 print("Linking container command to subcommands...")
@@ -388,8 +448,19 @@ for command in commands.values():
         subcommand.group = command.group
         command.subcommands.append(subcommand)
 
+check_command_error_counter = 0  # An error counter is used to count errors in command checking.
+
+print("Checking all commands...")
+for command in commands.values():
+    if not check_command_key_specs(command):
+        check_command_error_counter += 1
+
+if check_command_error_counter != 0:
+    print("Error: There are errors in the commands check, please check the above logs.")
+    exit(1)
+
 print("Generating commands.c...")
-with open("%s/commands.c" % srcdir,"w") as f:
+with open("%s/commands.c" % srcdir, "w") as f:
     f.write("/* Automatically generated by %s, do not edit. */\n\n" % os.path.basename(__file__))
     f.write("#include \"server.h\"\n")
     f.write(
@@ -416,4 +487,3 @@ with open("%s/commands.c" % srcdir,"w") as f:
     f.write("};\n")
 
 print("All done, exiting.")
-

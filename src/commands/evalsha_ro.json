@@ -10,7 +10,9 @@
         "command_flags": [
             "NOSCRIPT",
             "SKIP_MONITOR",
-            "NO_MANDATORY_KEYS"
+            "NO_MANDATORY_KEYS",
+            "STALE",
+            "READONLY"
         ],
         "acl_categories": [
             "SCRIPTING"
@@ -18,7 +20,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {

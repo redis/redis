@@ -10,8 +10,10 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

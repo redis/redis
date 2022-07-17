@@ -128,6 +128,27 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
     return ret;
 }
 
+/* Defrag helper for lua scripts
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+luaScript *activeDefragLuaScript(luaScript *script, long *defragged) {
+    luaScript *ret = NULL;
+
+    /* try to defrag script struct */
+    if ((ret = activeDefragAlloc(script))) {
+        script = ret;
+        (*defragged)++;
+    }
+
+    /* try to defrag actual script object */
+    robj *ob = activeDefragStringOb(script->body, defragged);
+    if (ob) script->body = ob;
+
+    return ret;
+}
+
 /* Defrag helper for dictEntries to be used during dict iteration (called on
  * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
@@ -256,6 +277,7 @@ long activeDefragZsetEntry(zset *zs, dictEntry *de) {
 #define DEFRAG_SDS_DICT_VAL_IS_SDS 1
 #define DEFRAG_SDS_DICT_VAL_IS_STROB 2
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
+#define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
 long activeDefragSdsDict(dict* d, int val_type) {
@@ -280,6 +302,10 @@ long activeDefragSdsDict(dict* d, int val_type) {
             void *newptr, *ptr = dictGetVal(de);
             if ((newptr = activeDefragAlloc(ptr)))
                 de->v.val = newptr, defragged++;
+        } else if (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT) {
+            void *newptr, *ptr = dictGetVal(de);
+            if ((newptr = activeDefragLuaScript(ptr, &defragged)))
+                de->v.val = newptr;
         }
         defragged += dictIterDefragEntry(di);
     }
@@ -381,7 +407,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
  * Oldkey mey be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
- * moved. Return value is the the dictEntry if found, or NULL if not found.
+ * moved. Return value is the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
 dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, uint64_t hash, long *defragged) {
@@ -939,7 +965,7 @@ long defragOtherGlobals() {
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
-    defragged += activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_IS_STROB);
+    defragged += activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     defragged += moduleDefragGlobals();
     return defragged;
 }
@@ -1130,7 +1156,7 @@ void activeDefragCycle(void) {
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
-                defragOtherGlobals();
+                server.stat_active_defrag_hits += defragOtherGlobals();
 
                 long long now = ustime();
                 size_t frag_bytes;
@@ -1170,7 +1196,7 @@ void activeDefragCycle(void) {
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
-             * (if we have a lot of pointers in one hash bucket or rehasing),
+             * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */

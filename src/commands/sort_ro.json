@@ -6,6 +6,7 @@
         "since": "7.0.0",
         "arity": -2,
         "function": "sortroCommand",
+        "get_keys_function": "sortROGetKeys",
         "command_flags": [
             "READONLY"
         ],
@@ -18,7 +19,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -32,6 +34,19 @@
                         "limit": 0
                     }
                 }
+            },
+            {
+                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
             }
         ],
         "arguments": [
@@ -44,6 +59,7 @@
                 "token": "BY",
                 "name": "pattern",
                 "type": "pattern",
+                "key_spec_index": 1,
                 "optional": true
             },
             {
@@ -65,7 +81,8 @@
             {
                 "token": "GET",
                 "name": "pattern",
-                "type": "string",
+                "key_spec_index": 1,
+                "type": "pattern",
                 "optional": true,
                 "multiple": true,
                 "multiple_token": true

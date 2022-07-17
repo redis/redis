@@ -38,7 +38,7 @@ int getGenericCommand(client *c);
  *----------------------------------------------------------------------------*/
 
 static int checkStringLength(client *c, long long size) {
-    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+    if (!mustObeyClient(c) && size > server.proto_max_bulk_len) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
@@ -160,7 +160,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
         /* Negative value provided or multiplication is gonna overflow. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -172,7 +172,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0) {
         /* Overflow detected. */
-        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -557,8 +557,7 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -793,7 +792,7 @@ void lcsCommand(client *c) {
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
-     * we index it as LCS[j+(blen+1)*j] */
+     * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */

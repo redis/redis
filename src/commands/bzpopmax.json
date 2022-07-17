@@ -15,16 +15,18 @@
         "command_flags": [
             "WRITE",
             "NOSCRIPT",
-            "FAST"
+            "FAST",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "SORTEDSET",
-            "BLOCKING"
+            "SORTEDSET"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {

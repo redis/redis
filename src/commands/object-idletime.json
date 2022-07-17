@@ -8,16 +8,18 @@
         "container": "OBJECT",
         "function": "objectCommand",
         "command_flags": [
-            "READONLY",
-            "RANDOM"
+            "READONLY"
         ],
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {

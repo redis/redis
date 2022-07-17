@@ -136,6 +136,8 @@ size_t zmalloc_usable_size(void *ptr);
 #define zmalloc_usable_size(p) zmalloc_size(p)
 #endif
 
+int get_proc_stat_ll(int i, long long *res);
+
 #ifdef REDIS_TEST
 int zmalloc_test(int argc, char **argv, int flags);
 #endif

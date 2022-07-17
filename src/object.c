@@ -930,7 +930,6 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_INT: return "int";
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
-    case OBJ_ENCODING_ZIPLIST: return "ziplist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
@@ -958,7 +957,7 @@ char *strEncoding(int encoding) {
  * on the insertion speed and thus the ability of the radix tree
  * to compress prefixes. */
 size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
+    size_t size = sizeof(*rax);
     size = rax->numele * sizeof(streamID);
     size += rax->numnodes * sizeof(raxNode);
     /* Add a fixed overhead due to the aux data pointer, children, ... */
@@ -998,8 +997,6 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
                 samples++;
             } while ((node = node->next) && samples < sample_size);
             asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -1532,7 +1529,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,26+mh->num_dbs);
+        addReplyMapLen(c,27+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1551,6 +1548,9 @@ NULL
 
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
+
+        addReplyBulkCString(c,"cluster.links");
+        addReplyLongLong(c,mh->cluster_links);
 
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);

@@ -102,7 +102,7 @@ typedef struct redisAsyncContext {
 
     /* Subscription callbacks */
     struct {
-        redisCallbackList invalid;
+        redisCallbackList replies;
         struct dict *channels;
         struct dict *patterns;
     } sub;

@@ -2,11 +2,12 @@
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
+warning_cflags = -W -Wall -Wno-missing-field-initializers
 ifeq ($(uname_S),Darwin)
-	SHOBJ_CFLAGS ?= -W -Wall -dynamic -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= $(warning_cflags) -dynamic -fno-common -g -ggdb -std=c99 -O2
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 else	# Linux, others
-	SHOBJ_CFLAGS ?= -W -Wall -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= $(warning_cflags) -fno-common -g -ggdb -std=c99 -O2
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
@@ -40,6 +41,7 @@ TEST_MODULES = \
     keyspace_events.so \
     blockedclient.so \
     getkeys.so \
+    getchannels.so \
     test_lazyfree.so \
     timer.so \
     defragtest.so \
@@ -47,10 +49,16 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    mallocsize.so \
     aclcheck.so \
     list.so \
     subcommands.so \
     reply.so \
+    cmdintrospection.so \
+    eventloop.so \
+    moduleconfigs.so \
+    moduleconfigstwo.so \
+    publish.so \
     subscribe_channel.so \
     test_subscribe_channel.so
 
@@ -65,7 +73,7 @@ all: $(TEST_MODULES)
 	$(CC) -I../../src $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
 %.so: %.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LDFLAGS) $(LIBS)
+	$(LD) -o $@ $^ $(SHOBJ_LDFLAGS) $(LDFLAGS) $(LIBS)
 
 .PHONY: clean
 

@@ -24,12 +24,15 @@
         "command_flags": [
             "ADMIN",
             "NOSCRIPT",
-            "RANDOM",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

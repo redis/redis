@@ -15,9 +15,12 @@
         ],
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "LOADING",
             "STALE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

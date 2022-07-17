@@ -13,10 +13,14 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD",
+            "RESPONSE_POLICY:AGG_SUM"
+        ],
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {

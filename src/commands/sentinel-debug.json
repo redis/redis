@@ -1,5 +1,7 @@
 {
     "DEBUG": {
+        "summary": "List or update the current configurable parameters",
+        "complexity": "O(N) where N is the number of configurable parameters",
         "group": "sentinel",
         "since": "7.0.0",
         "arity": -2,
@@ -9,6 +11,23 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
+        ],
+        "arguments": [
+            {
+                "name": "parameter_value",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "parameter",
+                        "type": "string"
+                    },
+                    {
+                        "name": "value",
+                        "type": "string"
+                    }
+                ]
+            }
         ]
     }
 }

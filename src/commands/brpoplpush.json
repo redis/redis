@@ -20,17 +20,18 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "BLOCKING"
         ],
         "acl_categories": [
-            "LIST",
-            "BLOCKING"
+            "LIST"
         ],
         "key_specs": [
             {
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
@@ -47,7 +48,8 @@
             },
             {
                 "flags": [
-                    "WRITE"
+                    "RW",
+                    "INSERT"
                 ],
                 "begin_search": {
                     "index": {

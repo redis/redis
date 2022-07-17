@@ -15,7 +15,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -40,7 +41,7 @@
             {
                 "name": "key2",
                 "type": "key",
-                "key_spec_index": 1
+                "key_spec_index": 0
             },
             {
                 "name": "len",

@@ -9,10 +9,15 @@
         "function": "clusterCommand",
         "deprecated_since": "5.0.0",
         "replaced_by": "`CLUSTER REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "command_flags": [
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {

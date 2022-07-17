@@ -10,8 +10,10 @@
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ],
         "arguments": [
             {
@@ -24,17 +26,17 @@
                 "arguments": [
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IMPORTING"
                     },
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "MIGRATING"
                     },
                     {
                         "name": "node-id",
-                        "type": "integer",
+                        "type": "string",
                         "token": "NODE"
                     },
                     {

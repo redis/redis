@@ -72,8 +72,8 @@ proc sanitizer_errors_from_file {filename} {
 }
 
 proc getInfoProperty {infostr property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" $infostr _ value]} {
-        set _ $value
+    if {[regexp -lineanchor "^$property:(.*?)\r\n" $infostr _ value]} {
+        return $value
     }
 }
 
@@ -89,7 +89,7 @@ proc waitForBgsave r {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -103,7 +103,7 @@ proc waitForBgrewriteaof r {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
             }
-            after 1000
+            after 50
         } else {
             break
         }
@@ -118,11 +118,19 @@ proc wait_for_sync r {
     }
 }
 
+proc wait_replica_online r {
+    wait_for_condition 50 100 {
+        [string match "*slave0:*,state=online*" [$r info replication]]
+    } else {
+        fail "replica didn't online in time"
+    }
+}
+
 proc wait_for_ofs_sync {r1 r2} {
     wait_for_condition 50 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
     } else {
-        fail "replica didn't sync in time"
+        fail "replica offset didn't match in time"
     }
 }
 
@@ -639,7 +647,7 @@ proc latencyrstat_percentiles {cmd r} {
 
 proc generate_fuzzy_traffic_on_key {key duration} {
     # Commands per type, blocking commands removed
-    # TODO: extract these from help.h or elsewhere, and improve to include other types
+    # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
     set hash_commands {HDEL HEXISTS HGET HGETALL HINCRBY HINCRBYFLOAT HKEYS HLEN HMGET HMSET HSCAN HSET HSETNX HSTRLEN HVALS HRANDFIELD}
     set zset_commands {ZADD ZCARD ZCOUNT ZINCRBY ZINTERSTORE ZLEXCOUNT ZPOPMAX ZPOPMIN ZRANGE ZRANGEBYLEX ZRANGEBYSCORE ZRANK ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE ZREVRANGE ZREVRANGEBYLEX ZREVRANGEBYSCORE ZREVRANK ZSCAN ZSCORE ZUNIONSTORE ZRANDMEMBER}
@@ -815,9 +823,19 @@ proc subscribe {client channels} {
     consume_subscribe_messages $client subscribe $channels
 }
 
+proc ssubscribe {client channels} {
+    $client ssubscribe {*}$channels
+    consume_subscribe_messages $client ssubscribe $channels
+}
+
 proc unsubscribe {client {channels {}}} {
     $client unsubscribe {*}$channels
     consume_subscribe_messages $client unsubscribe $channels
+}
+
+proc sunsubscribe {client {channels {}}} {
+    $client sunsubscribe {*}$channels
+    consume_subscribe_messages $client sunsubscribe $channels
 }
 
 proc psubscribe {client channels} {

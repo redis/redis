@@ -39,7 +39,7 @@
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max lp bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
- * container: 2 bits, PLAIN=1, PACKED=2.
+ * container: 2 bits, PLAIN=1 (a single item as char array), PACKED=2 (listpack with multiple items).
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
@@ -116,7 +116,7 @@ typedef struct quicklist {
 typedef struct quicklistIter {
     quicklist *quicklist;
     quicklistNode *current;
-    unsigned char *zi;
+    unsigned char *zi; /* points to the current element */
     long offset; /* offset in current listpack */
     int direction;
 } quicklistIter;
@@ -141,7 +141,7 @@ typedef struct quicklistEntry {
 /* quicklist compression disable */
 #define QUICKLIST_NOCOMPRESS 0
 
-/* quicklist container formats */
+/* quicklist node container formats */
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_PACKED 2
 

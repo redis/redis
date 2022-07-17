@@ -21,7 +21,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {
@@ -44,11 +45,11 @@
                 "key_spec_index": 0
             },
             {
-                "name": "min",
+                "name": "start",
                 "type": "string"
             },
             {
-                "name": "max",
+                "name": "stop",
                 "type": "string"
             },
             {

@@ -43,6 +43,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <libgen.h>
 
 #include "util.h"
 #include "sha256.h"
@@ -405,8 +406,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
-    /* A zero length string is not a valid number. */
-    if (plen == slen)
+    /* A string of zero length or excessive length is not a valid number. */
+    if (plen == slen || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */
@@ -522,7 +523,7 @@ int string2ld(const char *s, size_t slen, long double *dp) {
     if (isspace(buf[0]) || eptr[0] != '\0' ||
         (size_t)(eptr-buf) != slen ||
         (errno == ERANGE &&
-            (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+            (value == HUGE_VAL || value == -HUGE_VAL || fpclassify(value) == FP_ZERO)) ||
         errno == EINVAL ||
         isnan(value))
         return 0;
@@ -546,10 +547,40 @@ int string2d(const char *s, size_t slen, double *dp) {
         isspace(((const char*)s)[0]) ||
         (size_t)(eptr-(char*)s) != slen ||
         (errno == ERANGE &&
-            (*dp == HUGE_VAL || *dp == -HUGE_VAL || *dp == 0)) ||
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
         isnan(*dp))
         return 0;
     return 1;
+}
+
+/* Returns 1 if the double value can safely be represented in long long without
+ * precision loss, in which case the corresponding long long is stored in the out variable. */
+int double2ll(double d, long long *out) {
+#if (DBL_MANT_DIG >= 52) && (DBL_MANT_DIG <= 63) && (LLONG_MAX == 0x7fffffffffffffffLL)
+    /* Check if the float is in a safe range to be casted into a
+     * long long. We are assuming that long long is 64 bit here.
+     * Also we are assuming that there are no implementations around where
+     * double has precision < 52 bit.
+     *
+     * Under this assumptions we test if a double is inside a range
+     * where casting to long long is safe. Then using two castings we
+     * make sure the decimal part is zero. If all this is true we can use
+     * integer without precision loss.
+     *
+     * Note that numbers above 2^52 and below 2^63 use all the fraction bits as real part,
+     * and the exponent bits are positive, which means the "decimal" part must be 0.
+     * i.e. all double values in that range are representable as a long without precision loss,
+     * but not all long values in that range can be represented as a double.
+     * we only care about the first part here. */
+    if (d < (double)(-LLONG_MAX/2) || d > (double)(LLONG_MAX/2))
+        return 0;
+    long long ll = d;
+    if (ll == d) {
+        *out = ll;
+        return 1;
+    }
+#endif
+    return 0;
 }
 
 /* Convert a double to a string representation. Returns the number of bytes
@@ -572,25 +603,28 @@ int d2string(char *buf, size_t len, double value) {
         else
             len = snprintf(buf,len,"0");
     } else {
-#if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
-        /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
-         * Also we are assuming that there are no implementations around where
-         * double has precision < 52 bit.
-         *
-         * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
-         * make sure the decimal part is zero. If all this is true we use
-         * integer printing function that is much faster. */
-        double min = -4503599627370495; /* (2^52)-1 */
-        double max = 4503599627370496; /* -(2^52) */
-        if (value > min && value < max && value == ((double)((long long)value)))
-            len = ll2string(buf,len,(long long)value);
+        long long lvalue;
+        /* Integer printing function is much faster, check if we can safely use it. */
+        if (double2ll(value, &lvalue))
+            len = ll2string(buf,len,lvalue);
         else
-#endif
             len = snprintf(buf,len,"%.17g",value);
     }
 
+    return len;
+}
+
+/* Trims off trailing zeros from a string representing a double. */
+int trimDoubleString(char *buf, size_t len) {
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    buf[len] = '\0';
     return len;
 }
 
@@ -888,6 +922,54 @@ int dirRemove(char *dname) {
 
 sds makePath(char *path, char *filename) {
     return sdscatfmt(sdsempty(), "%s/%s", path, filename);
+}
+
+/* Given the filename, sync the corresponding directory.
+ *
+ * Usually a portable and safe pattern to overwrite existing files would be like:
+ * 1. create a new temp file (on the same file system!)
+ * 2. write data to the temp file
+ * 3. fsync() the temp file
+ * 4. rename the temp file to the appropriate name
+ * 5. fsync() the containing directory */
+int fsyncFileDir(const char *filename) {
+#ifdef _AIX
+    /* AIX is unable to fsync a directory */
+    return 0;
+#endif
+    char temp_filename[PATH_MAX + 1];
+    char *dname;
+    int dir_fd;
+
+    if (strlen(filename) > PATH_MAX) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    /* In the glibc implementation dirname may modify their argument. */
+    memcpy(temp_filename, filename, strlen(filename) + 1);
+    dname = dirname(temp_filename);
+
+    dir_fd = open(dname, O_RDONLY);
+    if (dir_fd == -1) {
+        /* Some OSs don't allow us to open directories at all, just
+         * ignore the error in that case */
+        if (errno == EISDIR) {
+            return 0;
+        }
+        return -1;
+    }
+    /* Some OSs don't allow us to fsync directories at all, so we can ignore
+     * those errors. */
+    if (redis_fsync(dir_fd) == -1 && !(errno == EBADF || errno == EINVAL)) {
+        int save_errno = errno;
+        close(dir_fd);
+        errno = save_errno;
+        return -1;
+    }
+    
+    close(dir_fd);
+    return 0;
 }
 
 #ifdef REDIS_TEST

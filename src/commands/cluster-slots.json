@@ -7,15 +7,26 @@
         "arity": 2,
         "container": "CLUSTER",
         "function": "clusterCommand",
+        "deprecated_since": "7.0.0",
+        "replaced_by": "`CLUSTER SHARDS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "history": [
             [
                 "4.0.0",
                 "Added node IDs."
+            ],
+            [
+                "7.0.0",
+                "Added additional networking metadata field."
             ]
         ],
         "command_flags": [
-            "RANDOM",
             "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
         ]
     }
 }

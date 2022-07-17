@@ -68,4 +68,23 @@ start_server {tags {"modules"}} {
         assert_equal [r acl whoami] "default"
     }
 
+    test {modules can redact arguments} {
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        r auth.redact 1 2 3 4
+        r auth.redact 1 2 3
+        r config set slowlog-log-slower-than -1
+        set slowlog_resp [r slowlog get]
+
+        # There will be 3 records, slowlog reset and the
+        # two auth redact calls.
+        assert_equal 3 [llength $slowlog_resp]
+        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 2] 3]
+        assert_equal {auth.redact 1 (redacted) 3 (redacted)} [lindex [lindex $slowlog_resp 1] 3]
+        assert_equal {auth.redact (redacted) 2 (redacted)} [lindex [lindex $slowlog_resp 0] 3]
+    }
+
+    test "Unload the module - testacl" {
+        assert_equal {OK} [r module unload testacl]
+    }
 }

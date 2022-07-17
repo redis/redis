@@ -97,9 +97,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r del x
             r psetex x 100 somevalue
-            after 80
             set a [r get x]
-            after 120
+            after 101
             set b [r get x]
 
             if {$a eq {somevalue} && $b eq {}} break
@@ -114,9 +113,8 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             r pexpire x 100
-            after 80
             set c [r get x]
-            after 120
+            after 101
             set d [r get x]
 
             if {$c eq {somevalue} && $d eq {}} break
@@ -132,9 +130,8 @@ start_server {tags {"expire"}} {
             r set x somevalue
             set now [r time]
             r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
-            after 20
             set e [r get x]
-            after 220
+            after 201
             set f [r get x]
 
             if {$e eq {somevalue} && $f eq {}} break
@@ -247,35 +244,35 @@ start_server {tags {"expire"}} {
     test {SET with EX with big integer should report an error} {
         catch {r set foo bar EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {SET with EX with smallest integer should report an error} {
         catch {r SET foo bar EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {GETEX with big integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {GETEX with smallest integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
 
         # Hit `when > LLONG_MAX - basetime`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223370399119966}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223370399119966}
 
         # Hit `when > LLONG_MAX / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 10000000000000000}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo 18446744073709561}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 10000000000000000}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 18446744073709561}
 
         assert_equal {-1} [r ttl foo]
     }
@@ -284,14 +281,14 @@ start_server {tags {"expire"}} {
         r set foo bar
         catch {r PEXPIRE foo 9223372036854770000} e
         set e
-    } {ERR invalid expire time in pexpire}
+    } {ERR invalid expire time in 'pexpire' command}
 
     test {EXPIRE with big negative integer} {
         r set foo bar
 
         # Hit `when < LLONG_MIN / 1000`
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9223372036854776}
-        assert_error "ERR invalid expire time in expire" {r EXPIRE foo -9999999999999999}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9999999999999999}
 
         r ttl foo
     } {-1}

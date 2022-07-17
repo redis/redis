@@ -905,9 +905,9 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     return raxGenericInsert(rax,s,len,data,old,1);
 }
 
-/* Non overwriting insert function: this if an element with the same key
+/* Non overwriting insert function: if an element with the same key
  * exists, the value is not updated and the function returns 0.
- * This is a just a wrapper for raxGenericInsert(). */
+ * This is just a wrapper for raxGenericInsert(). */
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     return raxGenericInsert(rax,s,len,data,old,0);
 }

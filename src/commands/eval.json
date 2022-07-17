@@ -11,16 +11,19 @@
             "NOSCRIPT",
             "SKIP_MONITOR",
             "MAY_REPLICATE",
-            "NO_MANDATORY_KEYS"
+            "NO_MANDATORY_KEYS",
+            "STALE"
         ],
         "acl_categories": [
             "SCRIPTING"
         ],
         "key_specs": [
             {
+                "notes": "We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",
                 "flags": [
-                    "WRITE",
-                    "READ"
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

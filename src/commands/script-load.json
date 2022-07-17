@@ -8,10 +8,15 @@
         "container": "SCRIPT",
         "function": "scriptCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "NOSCRIPT",
+            "STALE"
         ],
         "acl_categories": [
             "SCRIPTING"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:ALL_SUCCEEDED"
         ],
         "arguments": [
             {

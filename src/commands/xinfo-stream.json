@@ -6,6 +6,16 @@
         "since": "5.0.0",
         "arity": -3,
         "container": "XINFO",
+        "history": [
+            [
+                "6.0.0",
+                "Added the `FULL` modifier."
+            ],
+            [
+                "7.0.0",
+                "Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"
+            ]
+        ],
         "function": "xinfoCommand",
         "command_flags": [
             "READONLY"
@@ -16,7 +26,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "READ"
+                    "RO",
+                    "ACCESS"
                 ],
                 "begin_search": {
                     "index": {

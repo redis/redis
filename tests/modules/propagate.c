@@ -41,6 +41,8 @@
 #include <pthread.h>
 #include <errno.h>
 
+#define UNUSED(V) ((void) V)
+
 RedisModuleCtx *detached_ctx = NULL;
 
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
@@ -387,6 +389,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 propagateTestIncr,
                 "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
+
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+
+    if (detached_ctx)
+        RedisModule_FreeThreadSafeContext(detached_ctx);
 
     return REDISMODULE_OK;
 }
