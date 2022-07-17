@@ -334,7 +334,7 @@ static void redisProtocolToLuaType_Error(void *ctx, const char *str, size_t len,
     /* push a field indicate to ignore updating the stats on this error
      * because it was already updated when executing the command. */
     lua_pushstring(lua,"ignore_error_stats_update");
-    lua_pushboolean(lua, true);
+    lua_pushboolean(lua, 1);
     lua_settable(lua,-3);
 }
 
@@ -891,7 +891,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         /* push a field indicate to ignore updating the stats on this error
          * because it was already updated when executing the command. */
         lua_pushstring(lua,"ignore_error_stats_update");
-        lua_pushboolean(lua, true);
+        lua_pushboolean(lua, 1);
         lua_settable(lua,-3);
         goto cleanup;
     }
