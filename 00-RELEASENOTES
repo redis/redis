@@ -13,6 +13,17 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.0.4 Released Monday Jul 18 12:00:00 IST 2022
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2022-31144) A specially crafted XAUTOCLAIM command on a stream
+  key in a specific state may result with heap overflow, and potentially
+  remote code execution. The problem affects Redis versions 7.0.0 or newer.
+
+================================================================================
 Redis 7.0.3 Released Monday Jul 11 12:00:00 IST 2022
 ================================================================================
 
