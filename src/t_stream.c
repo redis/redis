@@ -3421,6 +3421,7 @@ void xautoclaimCommand(client *c) {
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
+            count--; /* Count is a limit of the command response size. */
             continue;
         }
 
