@@ -33,7 +33,14 @@ int call_with_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleUser *user = RedisModule_CreateModuleUser("module_user");
     printf("acl = %.*s\n", (int) acl_len, acl);
-    RedisModule_Assert(RedisModule_SetModuleUserACL(user, acl) == REDISMODULE_OK);
+    RedisModuleString * error = RedisModule_SetModuleUserACLString(ctx, user, acl);
+    if (error) {
+        size_t len;
+        const char * e = RedisModule_StringPtrLen(error, &len);
+        printf("error = %p, e = %.*s\n", error, (int) len, e);
+        RedisModule_ReplyWithError(ctx, e);
+        return REDISMODULE_OK;
+    }
 
     size_t cmd_len;
     const char *cmd = RedisModule_StringPtrLen(argv[2], &cmd_len);

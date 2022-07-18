@@ -8756,6 +8756,25 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
+sds addACLsToUser(user *u, sds username, sds *argv, int argc);
+
+RedisModuleString * RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl) {
+    sds sacl = sdsnew(acl);
+    int argc;
+    sds *argv = sdssplitargs(sacl, &argc);
+
+    sds error = addACLsToUser(user->user, NULL, argv, argc);
+
+    sdsfreesplitres(argv, argc);
+    sdsfree(sacl);
+
+    if (error) {
+        return RM_CreateString(ctx, error, sdslen(error));
+    }
+
+    return NULL;
+}
+
 /* Retrieve the user name of the client connection behind the current context.
  * The user name can be used later, in order to get a RedisModuleUser.
  * See more information in RM_GetModuleUserFromUserName.
@@ -12802,6 +12821,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ScanKey);
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetModuleUserACL);
+    REGISTER_API(SetModuleUserACLString);
     REGISTER_API(GetCurrentUserName);
     REGISTER_API(GetModuleUserFromUserName);
     REGISTER_API(ACLCheckCommandPermissions);
