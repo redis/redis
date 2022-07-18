@@ -263,8 +263,8 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
- * than 0, and is smaller than 1 in most cases. The exact upper bound 
+/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger
+ * than 0, and is smaller than 1 in most cases. The exact upper bound
  * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
     if (d->pauserehash > 0) return 0;
@@ -1010,18 +1010,29 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
-/* TODO: clz optimization */
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
-    unsigned char e = DICT_HT_INITIAL_EXP;
+#if defined(__GNUC__) || defined(__clang__)
+    signed char shift;
 
-    if (size >= LONG_MAX) return (8*sizeof(long)-1);
-    while(1) {
-        if (((unsigned long)1<<e) >= size)
-            return e;
-        e++;
+    if (size < DICT_HT_INITIAL_SIZE)
+        return DICT_HT_INITIAL_EXP;
+
+    shift = (sizeof(size) * 8) - __builtin_clzl(size) - 1;
+    return ~(1 << shift) & size ? shift + 1 : shift;
+#else
+    unsigned char shift = DICT_HT_INITIAL_EXP;
+
+    if (size >= LONG_MAX)
+        return 8 * sizeof(long) - 1;
+
+    while (1) {
+        if ((1UL << shift) >= size)
+            return shift;
+        shift++;
     }
+#endif
 }
 
 /* Returns the index of a free slot that can be populated with
