@@ -162,6 +162,13 @@ void bioCreateFsyncJob(int fd) {
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
 
+void bioCreateFsyncCloseJob(int fd) {
+    struct bio_job *job = zmalloc(sizeof(*job));
+    job->fd = fd;
+
+    bioSubmitJob(BIO_FSYNC_AND_CLOSE, job);
+}
+
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
     unsigned long type = (unsigned long) arg;
@@ -183,6 +190,9 @@ void *bioProcessBackgroundJobs(void *arg) {
         break;
     case BIO_LAZY_FREE:
         redis_set_thread_title("bio_lazy_free");
+        break;
+    case BIO_FSYNC_AND_CLOSE:
+        redis_set_thread_title("bio_fsync_and_close");
         break;
     }
 
@@ -217,7 +227,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
             close(job->fd);
-        } else if (type == BIO_AOF_FSYNC) {
+        } else if (type == BIO_AOF_FSYNC || type == BIO_FSYNC_AND_CLOSE) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
@@ -234,6 +244,11 @@ void *bioProcessBackgroundJobs(void *arg) {
                 }
             } else {
                 atomicSet(server.aof_bio_fsync_status,C_OK);
+            }
+
+            if (type == BIO_FSYNC_AND_CLOSE) {
+                /* Close the fd after fsync, whether fsync succeeds or fails. */
+                close(job->fd);
             }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);
