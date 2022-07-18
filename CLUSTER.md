@@ -450,6 +450,10 @@ to the main Redis repo (with the same BSD license as Redis) and enhance it until
 we will use the next major version to deprecate the existing cluster implementation and release the two side-by-side (with a compilation
 flag to control which one is used).
 
+As a big TODO - we need to create a troubleshooting "Everything is broken, what do!" section once we have a more concrete
+implementation. Said implementation will also need to provide "force override" flags for various operations which will allow an admin
+to override some Flotilla validations in order to restore availability ASAP.
+
 <!--
 Some future topics:
 
