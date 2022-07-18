@@ -9,10 +9,13 @@
         "get_keys_function": "bevalGetKeys",
         "command_flags": [
             "NOSCRIPT",
+            "WRITE",
+            "DENYOOM",
             "SKIP_MONITOR",
             "MAY_REPLICATE",
             "NO_MANDATORY_KEYS",
-            "STALE"
+            "STALE",
+            "BLOCKING"
         ],
         "acl_categories": [
             "SCRIPTING"
@@ -102,7 +105,7 @@
             {
                 "name": "key",
                 "type": "key",
-                "key_spec_index": 0,
+                "key_spec_index": 2,
                 "optional": true,
                 "multiple": true
             },
