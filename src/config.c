@@ -1971,8 +1971,7 @@ static int enumConfigSet(standardConfig *config, sds *argv, int argc, const char
         }
         sdsrange(enumerr,0,-3); /* Remove final ", ". */
 
-        strncpy(loadbuf, enumerr, LOADBUF_SIZE);
-        loadbuf[LOADBUF_SIZE - 1] = '\0';
+        redis_strlcpy(loadbuf, enumerr, LOADBUF_SIZE);
 
         sdsfree(enumerr);
         *err = loadbuf;
@@ -2499,7 +2498,7 @@ static int updateMaxclients(const char **err) {
     adjustOpenFilesLimit();
     if (server.maxclients != new_maxclients) {
         static char msg[128];
-        sprintf(msg, "The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
+        snprintf(msg, sizeof(msg), "The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
         *err = msg;
         return 0;
     }
@@ -2896,7 +2895,7 @@ static sds getConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *c
     sds buf = sdsempty();
     for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
         char fbuf[128];
-        size_t len = sprintf(fbuf, "%f", server.latency_tracking_info_percentiles[j]);
+        size_t len = snprintf(fbuf, sizeof(fbuf), "%f", server.latency_tracking_info_percentiles[j]);
         len = trimDoubleString(fbuf, len);
         buf = sdscatlen(buf, fbuf, len);
         if (j != server.latency_tracking_info_percentiles_len-1)
@@ -2918,7 +2917,7 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
     } else {
         for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
             char fbuf[128];
-            size_t len = sprintf(fbuf, " %f", server.latency_tracking_info_percentiles[j]);
+            size_t len = snprintf(fbuf, sizeof(fbuf), " %f", server.latency_tracking_info_percentiles[j]);
             len = trimDoubleString(fbuf, len);
             line = sdscatlen(line, fbuf, len);
         }

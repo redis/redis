@@ -8095,7 +8095,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         return REDISMODULE_ERR;
     }
 
-    if (ip) strncpy(ip,node->ip,NET_IP_STR_LEN);
+    if (ip) redis_strlcpy(ip,node->ip,NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the
@@ -11468,8 +11468,7 @@ int moduleVerifyConfigName(sds name) {
 static char configerr[CONFIG_ERR_SIZE];
 static void propagateErrorString(RedisModuleString *err_in, const char **err) {
     if (err_in) {
-        strncpy(configerr, err_in->ptr, CONFIG_ERR_SIZE);
-        configerr[CONFIG_ERR_SIZE - 1] = '\0';
+        redis_strlcpy(configerr, err_in->ptr, CONFIG_ERR_SIZE);
         decrRefCount(err_in);
         *err = configerr;
     }
