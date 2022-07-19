@@ -64,10 +64,16 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Wait for cluster to be stable" {
-       wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster \
-            check 127.0.0.1:[srv 0 port] \
-            }] == 0
+        # Cluster check just verifies the the config state is self-consistent,
+        # waiting for cluster_state to be okay is an independent check that all the
+        # nodes actually believe each other are healthy, prevent cluster down error.
+        wait_for_condition 1000 50 {
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }
