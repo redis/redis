@@ -2576,7 +2576,7 @@ int RM_StringToStreamID(const RedisModuleString *str, RedisModuleStreamID *id) {
 /* Compare two string objects, returning -1, 0 or 1 respectively if
  * a < b, a == b, a > b. Strings are compared byte by byte as two
  * binary blobs without any encoding care / collation attempt. */
-int RM_StringCompare(RedisModuleString *a, RedisModuleString *b) {
+int RM_StringCompare(const RedisModuleString *a, const RedisModuleString *b) {
     return compareStringObjects(a,b);
 }
 
