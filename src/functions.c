@@ -674,7 +674,7 @@ void fcallroCommand(client *c) {
  * * Engine name
  * * Library description
  * * Library code
- * RDB_OPCODE_FUNCTION is saved before each library to present
+ * RDB_OPCODE_FUNCTION2 is saved before each library to present
  * that the payload is a library.
  * RDB version and crc64 is saved at the end of the payload.
  * The RDB version is saved for backward compatibility.

@@ -584,9 +584,9 @@ start_server {
         # from the PEL of consumer 1, this should return nil
         r XDEL mystream $id2
 
-        # id1 and id3 are self-claimed here but not id2 ('count' was set to 2)
+        # id1 and id3 are self-claimed here but not id2 ('count' was set to 3)
         # we make sure id2 is indeed skipped (the cursor points to id4)
-        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2]
+        set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 3]
 
         assert_equal [llength $reply] 3
         assert_equal [lindex $reply 0] $id4
@@ -595,6 +595,8 @@ start_server {
         assert_equal [llength [lindex $reply 1 0 1]] 2
         assert_equal [lindex $reply 1 0 1] {a 1}
         assert_equal [lindex $reply 1 1 1] {c 3}
+        assert_equal [llength [lindex $reply 2]] 1
+        assert_equal [llength [lindex $reply 2 0]] 1
 
         # Delete item 3 from the stream. Now consumer 1 has PEL that is empty.
         # Try to use consumer 2 to claim the deleted item 3 from the PEL
@@ -698,6 +700,21 @@ start_server {
         assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
         r XDEL x 2-0
         assert_equal [r XAUTOCLAIM x grp Bob 0 0-0] {0-0 {{1-0 {f v}} {3-0 {f v}}} 2-0}
+        assert_equal [r XPENDING x grp - + 10 Alice] {}
+    }
+
+    test {XAUTOCLAIM with XDEL and count} {
+        r DEL x
+        r XADD x 1-0 f v
+        r XADD x 2-0 f v
+        r XADD x 3-0 f v
+        r XGROUP CREATE x grp 0
+        assert_equal [r XREADGROUP GROUP grp Alice STREAMS x >] {{x {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}}}}
+        r XDEL x 1-0
+        r XDEL x 2-0
+        assert_equal [r XAUTOCLAIM x grp Bob 0 0-0 COUNT 1] {2-0 {} 1-0}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 2-0 COUNT 1] {3-0 {} 2-0}
+        assert_equal [r XAUTOCLAIM x grp Bob 0 3-0 COUNT 1] {0-0 {{3-0 {f v}}} {}}
         assert_equal [r XPENDING x grp - + 10 Alice] {}
     }
 

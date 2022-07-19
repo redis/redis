@@ -8,6 +8,7 @@ set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/aofmanifest.tcl
 source tests/support/server.tcl
+source tests/support/cluster_helper.tcl
 source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
@@ -90,11 +91,13 @@ set ::all_tests {
     unit/oom-score-adj
     unit/shutdown
     unit/networking
-    unit/cluster
     unit/client-eviction
     unit/violations
     unit/replybufsize
-    unit/cluster-scripting
+    unit/cluster/cli
+    unit/cluster/scripting
+    unit/cluster/hostnames
+    unit/cluster/multi-slot-operations
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -197,6 +200,13 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+# Provide easy access to a client for an inner server. Requires a positive
+# index, unlike r which uses an optional negative index.
+proc R {n args} {
+    set level [expr -1*$n]
+    [srv $level "client"] {*}$args
+}
+
 proc reconnect {args} {
     set level [lindex $args 0]
     if {[string length $level] == 0 || ![string is integer $level]} {
@@ -275,14 +285,9 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
-# Provide easy access to CLUSTER INFO properties. Same semantic as "proc s".
-proc csi {args} {
-    set level 0
-    if {[string is integer [lindex $args 0]]} {
-        set level [lindex $args 0]
-        set args [lrange $args 1 end]
-    }
-    cluster_info [srv $level "client"] [lindex $args 0]
+# Get the specified field from the givens instances cluster info output.
+proc CI {index field} {
+    getInfoProperty [R $index cluster info] $field
 }
 
 # Test wrapped into run_solo are sent back from the client to the
@@ -595,7 +600,7 @@ proc print_help_screen {} {
         "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line)."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line). This option can be repeated."
         "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
@@ -641,7 +646,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set fp [open $arg r]
         set file_data [read $fp]
         close $fp
-        set ::skiptests [split $file_data "\n"]
+        set ::skiptests [concat $::skiptests [split $file_data "\n"]]
     } elseif {$opt eq {--skiptest}} {
         lappend ::skiptests $arg
         incr j

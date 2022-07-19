@@ -127,6 +127,7 @@ typedef struct clusterNode {
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
+    unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t data_received;  /* Unix time we received any data */

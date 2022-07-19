@@ -1160,7 +1160,6 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 
 /* Save a few default AUX fields with information about the RDB generated. */
 int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    UNUSED(rdbflags);
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
     int aof_base = (rdbflags & RDBFLAGS_AOF_PREAMBLE) != 0;
 
@@ -1397,6 +1396,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     FILE *fp = NULL;
     rio rdb;
     int error = 0;
+    char *err_op;    /* For a detailed log */
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
@@ -1420,13 +1420,14 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
 
     if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
         errno = error;
+        err_op = "rdbSaveRio";
         goto werr;
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) goto werr;
-    if (fsync(fileno(fp))) goto werr;
-    if (fclose(fp)) { fp = NULL; goto werr; }
+    if (fflush(fp)) { err_op = "fflush"; goto werr; }
+    if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
+    if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
     
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -1445,6 +1446,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
+    if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -1454,7 +1456,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    serverLog(LL_WARNING,"Write error saving DB on disk(%s): %s", err_op, strerror(errno));
     if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
@@ -1506,10 +1508,10 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char pid[32];
 
     /* Generate temp rdb file name using async-signal safe functions. */
-    int pid_len = ll2string(pid, sizeof(pid), childpid);
-    strcpy(tmpfile, "temp-");
-    strncpy(tmpfile+5, pid, pid_len);
-    strcpy(tmpfile+5+pid_len, ".rdb");
+    ll2string(pid, sizeof(pid), childpid);
+    redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+    redis_strlcat(tmpfile, pid, sizeof(tmpfile));
+    redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
 
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really
@@ -3244,7 +3246,7 @@ eoferr:
  * to do the actual loading. Moreover the ETA displayed in the INFO
  * output is initialized and finalized.
  *
- * If you pass an 'rsi' structure initialized with RDB_SAVE_OPTION_INIT, the
+ * If you pass an 'rsi' structure initialized with RDB_SAVE_INFO_INIT, the
  * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
