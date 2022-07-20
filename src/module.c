@@ -970,21 +970,6 @@ void RM_ChannelAtPosWithFlags(RedisModuleCtx *ctx, int pos, int flags) {
     res->numkeys++;
 }
 
-/* Return the wall-clock Unix time, in microseconds */
-long long RM_Time() {
-    return ustime();
-}
-
-/* Returns a cached copy of th Unix time, in microseconds.
- * It is updated in the server cron job and before executing a command.
- * It is useful for complex call stacks, such as a command causing a
- * key space notification, causing a module to execute a RedisModule_Call,
- * causing another notification, etc.
- * It makes sense that all this callbacks would use the same clock. */
-long long RM_CachedTime() {
-    return server.ustime;
-}
-
 /* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
@@ -2042,13 +2027,28 @@ int RM_IsModuleNameBusy(const char *name) {
 }
 
 /* Return the current UNIX time in milliseconds. */
-long long RM_Milliseconds(void) {
+mstime_t RM_Milliseconds(void) {
     return mstime();
 }
 
 /* Return counter of micro-seconds relative to an arbitrary point in time. */
 uint64_t RM_MonotonicMicroseconds(void) {
     return getMonotonicUs();
+}
+
+/* Return the current UNIX time in microseconds */
+ustime_t RM_Microseconds() {
+    return ustime();
+}
+
+/* Return the cached UNIX time in microseconds.
+ * It is updated in the server cron job and before executing a command.
+ * It is useful for complex call stacks, such as a command causing a
+ * key space notification, causing a module to execute a RedisModule_Call,
+ * causing another notification, etc.
+ * It makes sense that all this callbacks would use the same clock. */
+long long RM_CachedMicroseconds() {
+    return server.ustime;
 }
 
 /* Mark a point in time that will be used as the start time to calculate
@@ -12530,8 +12530,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(KeyAtPosWithFlags);
     REGISTER_API(IsChannelsPositionRequest);
     REGISTER_API(ChannelAtPosWithFlags);
-    REGISTER_API(Time);
-    REGISTER_API(CachedTime);
     REGISTER_API(GetClientId);
     REGISTER_API(GetClientUserNameById);
     REGISTER_API(GetContextFlags);
@@ -12593,6 +12591,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
     REGISTER_API(MonotonicMicroseconds);
+    REGISTER_API(Microseconds);
+    REGISTER_API(CachedMicroseconds);
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);

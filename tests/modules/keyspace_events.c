@@ -35,7 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 
-long long cached_time = 0;
+ustime_t cached_time = 0;
 
 /** stores all the keys on which we got 'loaded' keyspace notification **/
 RedisModuleDict *loaded_event_log = NULL;
@@ -62,8 +62,8 @@ static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(type);
 
     if (cached_time) {
-        RedisModule_Assert(cached_time == RedisModule_CachedTime());
-        RedisModule_Assert(cached_time != RedisModule_Time());
+        RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
+        RedisModule_Assert(cached_time != RedisModule_Microseconds());
     }
 
     if (strcmp(event, "del") == 0) {
@@ -165,7 +165,7 @@ static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (argc != 2)
         return RedisModule_WrongArity(ctx);
 
-    cached_time = RedisModule_CachedTime();
+    cached_time = RedisModule_CachedMicroseconds();
 
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", argv[1]);
     if (!rep) {
