@@ -406,10 +406,11 @@ fmterr:
  * bigger we pad our payload with newlines that are anyway ignored and truncate
  * the file afterward. */
 int clusterSaveConfig(int do_fsync) {
-    sds ci;
-    size_t content_size;
-    struct stat sb;
-    int fd;
+    sds ci,tmpfilename;
+    size_t content_size,offset = 0;
+    ssize_t written_bytes;
+    int fd = -1;
+    int retval = C_ERR;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_SAVE_CONFIG;
 
@@ -421,36 +422,52 @@ int clusterSaveConfig(int do_fsync) {
         (unsigned long long) server.cluster->lastVoteEpoch);
     content_size = sdslen(ci);
 
-    if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
-        == -1) goto err;
-
-    if (redis_fstat(fd,&sb) == -1) goto err;
-
-    /* Pad the new payload if the existing file length is greater. */
-    if (sb.st_size > (off_t)content_size) {
-        ci = sdsgrowzero(ci,sb.st_size);
-        memset(ci+content_size,'\n',sb.st_size-content_size);
+    /* Create a temp file with the new content. */
+    tmpfilename = sdscatfmt(sdsempty(),"%s.tmp-%i-%I",
+        server.cluster_configfile,(int) getpid(),mstime());
+    if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
+        serverLog(LL_WARNING,"Could not open temp cluster config file: %s",strerror(errno));
+        goto cleanup;
     }
-    
-    if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
+
+    while (offset < content_size) {
+        written_bytes = write(fd,ci + offset,content_size - offset);
+        if (written_bytes <= 0) {
+            if (errno == EINTR) continue;
+            serverLog(LL_WARNING,"Failed after writing (%zd) bytes to tmp cluster config file: %s",
+                offset,strerror(errno));
+            goto cleanup;
+        }
+        offset += written_bytes;
+    }
+
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
-        if (fsync(fd) == -1) goto err;
+        if (redis_fsync(fd) == -1) {
+            serverLog(LL_WARNING,"Could not sync tmp cluster config file: %s",strerror(errno));
+            goto cleanup;
+        }
     }
 
-    /* Truncate the file if needed to remove the final \n padding that
-     * is just garbage. */
-    if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
-        /* ftruncate() failing is not a critical error. */
+    if (rename(tmpfilename, server.cluster_configfile) == -1) {
+        serverLog(LL_WARNING,"Could not rename tmp cluster config file: %s",strerror(errno));
+        goto cleanup;
     }
-    close(fd);
-    sdsfree(ci);
-    return 0;
 
-err:
+    if (do_fsync) {
+        if (fsyncFileDir(server.cluster_configfile) == -1) {
+            serverLog(LL_WARNING,"Could not sync cluster config file dir: %s",strerror(errno));
+            goto cleanup;
+        }
+    }
+    retval = C_OK; /* If we reached this point, everything is fine. */
+
+cleanup:
     if (fd != -1) close(fd);
+    if (retval) unlink(tmpfilename);
+    sdsfree(tmpfilename);
     sdsfree(ci);
-    return -1;
+    return retval;
 }
 
 void clusterSaveConfigOrDie(int do_fsync) {
