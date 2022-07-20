@@ -1763,12 +1763,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 /* IP -> string conversion. 'buf' is supposed to at least be 46 bytes.
  * If 'announced_ip' length is non-zero, it is used instead of extracting
  * the IP from the socket peer address. */
-void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
+int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
     if (announced_ip[0] != '\0') {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
+        return C_OK;
     } else {
-        connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL);
+        if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+            serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
+                link->conn ? connGetLastError(link->conn) : "no link");
+            return C_ERR;
+        }
+        return C_OK;
     }
 }
 
@@ -1800,7 +1806,11 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * it is safe to call during packet processing. */
     if (link == node->link) return 0;
 
-    nodeIp2String(ip,link,hdr->myip);
+    /* If the peer IP is unavailable for some reasons like invalid fd or closed
+     * link, just give up the update this time, and the update will be retried
+     * in the next round of PINGs */
+    if (nodeIp2String(ip,link,hdr->myip) == C_ERR) return 0;
+
     if (node->port == port && node->cport == cport && node->pport == pport &&
         strcmp(ip,node->ip) == 0) return 0;
 
@@ -2253,7 +2263,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterNode *node;
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            nodeIp2String(node->ip,link,hdr->myip);
+            serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
             node->port = ntohs(hdr->port);
             node->pport = ntohs(hdr->pport);
             node->cport = ntohs(hdr->cport);
