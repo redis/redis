@@ -2047,7 +2047,7 @@ ustime_t RM_Microseconds() {
  * key space notification, causing a module to execute a RedisModule_Call,
  * causing another notification, etc.
  * It makes sense that all this callbacks would use the same clock. */
-long long RM_CachedMicroseconds() {
+ustime_t RM_CachedMicroseconds() {
     return server.ustime;
 }
 
