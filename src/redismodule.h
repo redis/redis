@@ -1001,6 +1001,8 @@ REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDIS
 REDISMODULE_API void (*RedisModule_KeyAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsChannelsPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ChannelAtPosWithFlags)(RedisModuleCtx *ctx, int pos, int flags) REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_Time)() REDISMODULE_ATTR;
+REDISMODULE_API long long (*RedisModule_CachedTime)() REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_GetClientId)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_GetClientUserNameById)(RedisModuleCtx *ctx, uint64_t id) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetClientInfoById)(void *ci, uint64_t id) REDISMODULE_ATTR;
@@ -1339,6 +1341,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(KeyAtPosWithFlags);
     REDISMODULE_GET_API(IsChannelsPositionRequest);
     REDISMODULE_GET_API(ChannelAtPosWithFlags);
+    REDISMODULE_GET_API(Time);
+    REDISMODULE_GET_API(CachedTime);
     REDISMODULE_GET_API(GetClientId);
     REDISMODULE_GET_API(GetClientUserNameById);
     REDISMODULE_GET_API(GetContextFlags);
