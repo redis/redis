@@ -45,8 +45,8 @@ tags "modules" {
                     $master set x y
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {set x y}
                         {incr notifications}
                         {exec}
@@ -63,8 +63,8 @@ tags "modules" {
                     $master exec
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {set x1 y1}
                         {incr notifications}
                         {set x2 y2}
@@ -91,8 +91,8 @@ tags "modules" {
                     # Note whenever there's double notification: SET with PX issues two separate
                     # notifications: one for "set" and one for "expire"
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {set asdf1 1 PXAT *}
                         {incr notifications}
                         {incr notifications}
@@ -192,8 +192,8 @@ tags "modules" {
                     # Note that although CONFIG SET maxmemory is called in this flow (see issue #10014),
                     # eviction will happen and will not induce propagation of the CONFIG command (see #10019).
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {set asdf1 1 PXAT *}
                         {incr notifications}
                         {incr notifications}
@@ -244,8 +244,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {set timer-maxmemory-volatile-start 1 PXAT *}
                         {incr notifications}
                         {incr notifications}
@@ -275,8 +275,8 @@ tags "modules" {
                     $master propagate-test.timer-eval
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-eval-start 1}
                         {incr notifications}
                         {set foo bar}
@@ -301,8 +301,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-nested-start 1}
                         {incrby timer-nested-end 1}
                         {exec}
@@ -326,8 +326,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incrby timer-nested-start 1}
                         {incr using-call}
                         {incr notifications}
@@ -369,8 +369,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr a-from-thread}
                         {incr thread-call}
                         {incr notifications}
@@ -404,8 +404,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr thread-detached-before}
                         {incr thread-detached-1}
                         {incr notifications}
@@ -424,8 +424,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -450,8 +450,8 @@ tags "modules" {
                         redis.call("propagate-test.mixed"); return "OK" } 0 ] {OK}
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {set x y}
@@ -475,8 +475,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -501,8 +501,8 @@ tags "modules" {
                     $master propagate-test.mixed
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {exec}
@@ -534,8 +534,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {incr counter-1}
                         {incr counter-2}
                         {incr using-call}
@@ -585,8 +585,8 @@ tags "modules" {
                     $master propagate-test.incr k1
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {del k1}
                         {propagate-test.incr k1}
                         {exec}
@@ -619,8 +619,8 @@ tags "modules" {
                     }
 
                     assert_replication_stream $repl {
-                        {select *}
                         {multi}
+                        {select *}
                         {sadd s foo}
                         {incr notifications}
                         {exec}
@@ -630,6 +630,31 @@ tags "modules" {
                         {incr notifications}
                         {exec}
                     }
+                    close_replication_stream $repl
+                }
+
+                test {module key miss notification do not cause read command to be replicated} {
+                    set repl [attach_to_replication_stream]
+
+                    $master flushall
+                    
+                    $master get unexisting_key
+
+                    wait_for_condition 500 10 {
+                        [$replica get missed] eq "1"
+                    } else {
+                        fail "Failed to wait for set to be replicated"
+                    }
+
+                    assert_replication_stream $repl {
+                        {select *}
+                        {flushall}
+                        {multi}
+                        {incr missed}
+                        {incr notifications}
+                        {exec}
+                    }
+                    
                     close_replication_stream $repl
                 }
 

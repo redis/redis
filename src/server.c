@@ -2203,25 +2203,25 @@ void checkTcpBacklogSettings(void) {
     fclose(fp);
 #elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
     int somaxconn, mib[3];
-    size_t len = sizeof(int);
+    size_t used = sizeof(int);
 
     mib[0] = CTL_KERN;
     mib[1] = KERN_IPC;
     mib[2] = KIPC_SOMAXCONN;
 
-    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
+    if (sysctl(mib, 3, &somaxconn, &used, NULL, 0) == 0) {
         if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
 #elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
     int somaxconn, mib[2];
-    size_t len = sizeof(int);
+    size_t used = sizeof(int);
 
     mib[0] = CTL_KERN;
     mib[1] = KERN_SOMAXCONN;
 
-    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
+    if (sysctl(mib, 2, &somaxconn, &used, NULL, 0) == 0) {
         if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
@@ -2521,7 +2521,6 @@ void initServer(void) {
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
     server.busy_module_yield_reply = NULL;
     server.core_propagates = 0;
-    server.propagate_no_multi = 0;
     server.module_ctx_nesting = 0;
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
@@ -2911,33 +2910,40 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
-void redisOpArrayReset(redisOpArray *oa) {
-    oa->numops = 0;
-    oa->len = 0;
-}
-
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
     int prev_capacity = oa->capacity;
 
-    if (oa->len == 0) {
+    if (oa->used == 0) {
         oa->capacity = 16;
-    } else if (oa->len >= oa->capacity) {
+    } else if (oa->used >= oa->capacity) {
         oa->capacity *= 2;
     }
 
     if (prev_capacity != oa->capacity)
         oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
-    op = oa->ops+oa->len;
+    op = oa->ops+oa->used;
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
-    oa->len++;
+    oa->used++;
     if (op->target) {
         oa->numops++;
     }
-    return oa->len;
+    return oa->used;
+}
+
+void redisOpArrayTrim(redisOpArray *oa) {
+    if (!oa->used) {
+        /* nothing to trim */
+        return;
+    }
+    redisOp *last_op = oa->ops + (oa->used - 1);
+    if (!last_op->target) {
+        /* last op is a not used placeholder, we can remove it */
+        --oa->used;
+    }
 }
 
 int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
@@ -2946,6 +2952,7 @@ int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
 
 void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
     redisOp *op = oa->ops+index;
+    serverAssert(!op->target);
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
@@ -2954,12 +2961,12 @@ void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int targ
 }
 
 void redisOpArrayFree(redisOpArray *oa) {
-    while(oa->len) {
+    while(oa->used) {
         int j;
         redisOp *op;
 
-        oa->len--;
-        op = oa->ops+oa->len;
+        oa->used--;
+        op = oa->ops+oa->used;
         if (!op->target) {
             continue;
         }
@@ -2968,7 +2975,10 @@ void redisOpArrayFree(redisOpArray *oa) {
         }
         zfree(op->argv);
     }
-    redisOpArrayReset(oa);
+
+    /* no need to free the actual op array, we reuse the memory for future commands */
+    oa->numops = 0;
+    oa->used = 0;
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3097,6 +3107,9 @@ static int shouldPropagate(int target) {
  * This is an internal low-level function and should not be called!
  *
  * The API for propagating commands is alsoPropagate().
+ *
+ * dbid value of -1 is saved to indicate that the called do not want
+ * to replicate 'select' command.
  */
 static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (!shouldPropagate(target))
@@ -3210,42 +3223,32 @@ void propagatePendingCommands() {
 
     int j;
     redisOp *rop;
-    redisOp *last_command = NULL;
-    redisOp *first_command = NULL;
     int multi_emitted = 0;
 
-    for (j = 0; j < server.also_propagate.len; j++) {
+    /* Wrap the commands in server.also_propagate array,
+     * but don't wrap it if we are already in MULTI context,
+     * in case the nested MULTI/EXEC.
+     *
+     * And if the array contains only one command, no need to
+     * wrap it, since the single command is atomic. */
+    if (server.also_propagate.numops > 1) {
+        /* We use dbid=-1 to indicate we do not want to replicate select */
+        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        multi_emitted = 1;
+    }
+
+
+    for (j = 0; j < server.also_propagate.used; j++) {
         rop = &server.also_propagate.ops[j];
         if (!rop->target) {
             continue;
         }
-        if (!first_command) {
-            first_command = rop;
-            /* Wrap the commands in server.also_propagate array,
-             * but don't wrap it if we are already in MULTI context,
-             * in case the nested MULTI/EXEC.
-             *
-             * And if the array contains only one command, no need to
-             * wrap it, since the single command is atomic. */
-            if (server.also_propagate.numops > 1 && !server.propagate_no_multi) {
-                /* We use the first command-to-propagate to set the dbid for MULTI,
-                 * so that the SELECT will be propagated beforehand */
-                int multi_dbid = first_command->dbid;
-                propagateNow(multi_dbid,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
-                multi_emitted = 1;
-            }
-
-        }
-        last_command = rop;
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    serverAssert(last_command);
-
     if (multi_emitted) {
-        /* We take the dbid from last command so that propagateNow() won't inject another SELECT */
-        int exec_dbid = last_command->dbid;
-        propagateNow(exec_dbid,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        /* We use dbid=-1 to indicate we do not want to replicate select */
+        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -3354,18 +3357,23 @@ void call(client *c, int flags) {
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
-    /* Save placeholder for replication.
-     * If the command will be replicated, this is the location where it should be placed in the replication stream.
-     * If we just push the command to the replication buffer (without the placeholder), the replica might get the commands
-     * in a wrong order and we will end up with primary-replica inconsistency. To demonstrate, take the following example:
-     *
-     * 1. A module register a key space notification callback and inside the notification the module performed an incr command on the given key
-     * 2. User performs 'set x 1'
-     * 3. The module get the notification and perform 'incr x'
-     * 4. The command 'incr x' enters the replication buffer before the 'set x 1' command and the replica sees the command in the wrong order
-     *
-     * The final result is that the replica will have the value x=1 while the primary will have x=2 */
-    int index = redisOpArrayAppendPlaceholder(&server.also_propagate);
+    int index = -1;
+    if ((c->cmd->flags & CMD_WRITE) || (c->cmd->flags & CMD_MAY_REPLICATE)) {
+        /* Save placeholder for replication.
+         * If the command will be replicated, this is the location where it should be placed in the replication stream.
+         * If we just push the command to the replication buffer (without the placeholder), the replica might get the commands
+         * in a wrong order and we will end up with primary-replica inconsistency. To demonstrate, take the following example:
+         *
+         * 1. A module register a key space notification callback and inside the notification the module performed an incr command on the given key
+         * 2. User performs 'set x 1'
+         * 3. The module get the notification and perform 'incr x'
+         * 4. The command 'incr x' enters the replication buffer before the 'set x 1' command and the replica sees the command in the wrong order
+         *
+         * The final result is that the replica will have the value x=1 while the primary will have x=2
+         *
+         * Notice that we only do this if the command might cause replication (either its a WRITE command or MAY_REPLICATE) */
+        index = redisOpArrayAppendPlaceholder(&server.also_propagate);
+    }
 
     server.in_nested_call++;
     c->cmd->proc(c);
@@ -3462,7 +3470,8 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
         c->cmd->proc != execCommand &&
-        !(c->cmd->flags & CMD_MODULE))
+        !(c->cmd->flags & CMD_MODULE) &&
+        ((c->cmd->flags & CMD_WRITE) || (c->cmd->flags & CMD_MAY_REPLICATE)))
     {
         int propagate_flags = PROPAGATE_NONE;
 
@@ -3488,8 +3497,14 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
+            serverAssert(index >= 0); /* if we got here we must have a placeholder for the command */
             alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,index);
     }
+
+    /* Try to trim the last element if it is not used (if its still a placeholder). */
+    redisOpArrayTrim(&server.also_propagate);
+
+
 
     /* Restore the old replication flags, since call() can be executed
      * recursively. */

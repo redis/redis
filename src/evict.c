@@ -574,6 +574,11 @@ int performEvictions(void) {
     int prev_core_propagates = server.core_propagates;
     serverAssert(server.also_propagate.numops == 0);
     server.core_propagates = 1;
+
+    /* Increase nested call counter
+     * we add this in order to prevent any RM_Call that may exist
+     * in the notify CB to be propagated immediately.
+     * we want them in multi/exec with the DEL command */
     server.in_nested_call++;
 
     while (mem_freed < (long long)mem_tofree) {
