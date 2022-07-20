@@ -1296,7 +1296,7 @@ typedef struct redisOpArray {
                      differenced between the actual number of operations
                      and the used spots because there might be spots
                      that was saved as a placeholder for future command
-                     but was never actally used */
+                     but was never actually used */
     int capacity; /* The ops array capacity */
 } redisOpArray;
 
