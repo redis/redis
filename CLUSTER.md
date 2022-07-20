@@ -453,6 +453,10 @@ flag to control which one is used).
 As a big TODO - we need to create a troubleshooting "Everything is broken, what do!" section once we have a more concrete
 implementation. Said implementation will also need to provide "force override" flags for various operations which will allow an admin
 to override some Flotilla validations in order to restore availability ASAP.
+Specifically, need to address:
+- How to fix a situation where there's an FC level issue which prevents failovers from taking place.
+- Handling rejected topology changes due to nodes which haven't acknowledged a previous change by overriding the validation 
+  or removing the unresponsive nodes. 
 
 <!--
 Some future topics:
