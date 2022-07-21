@@ -5570,7 +5570,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 (long long) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
-                bioPendingJobsOfType(BIO_AOF_FSYNC) + bioPendingJobsOfType(BIO_FSYNC_AND_CLOSE),
+                bioPendingJobsOfType(BIO_AOF_FSYNC),
                 server.aof_delayed_fsync);
         }
 

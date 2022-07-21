@@ -79,6 +79,8 @@ static unsigned long long bio_pending[BIO_NUM_OPS];
 struct bio_job {
     /* Job specific arguments.*/
     int fd; /* Fd for file based background jobs */
+    unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
+                            * the file is closed. */
     lazy_free_fn *free_fn; /* Function that will free the provided arguments */
     void *free_args[]; /* List of arguments to be passed to the free function */
 };
@@ -148,9 +150,10 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     bioSubmitJob(BIO_LAZY_FREE, job);
 }
 
-void bioCreateCloseJob(int fd) {
+void bioCreateCloseJob(int fd, int need_fsync) {
     struct bio_job *job = zmalloc(sizeof(*job));
     job->fd = fd;
+    job->need_fsync = need_fsync;
 
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
@@ -160,13 +163,6 @@ void bioCreateFsyncJob(int fd) {
     job->fd = fd;
 
     bioSubmitJob(BIO_AOF_FSYNC, job);
-}
-
-void bioCreateFsyncCloseJob(int fd) {
-    struct bio_job *job = zmalloc(sizeof(*job));
-    job->fd = fd;
-
-    bioSubmitJob(BIO_FSYNC_AND_CLOSE, job);
 }
 
 void *bioProcessBackgroundJobs(void *arg) {
@@ -190,9 +186,6 @@ void *bioProcessBackgroundJobs(void *arg) {
         break;
     case BIO_LAZY_FREE:
         redis_set_thread_title("bio_lazy_free");
-        break;
-    case BIO_FSYNC_AND_CLOSE:
-        redis_set_thread_title("bio_fsync_and_close");
         break;
     }
 
@@ -226,8 +219,11 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
+            if (job->need_fsync) {
+                redis_fsync(job->fd);
+            }
             close(job->fd);
-        } else if (type == BIO_AOF_FSYNC || type == BIO_FSYNC_AND_CLOSE) {
+        } else if (type == BIO_AOF_FSYNC) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
@@ -244,11 +240,6 @@ void *bioProcessBackgroundJobs(void *arg) {
                 }
             } else {
                 atomicSet(server.aof_bio_fsync_status,C_OK);
-            }
-
-            if (type == BIO_FSYNC_AND_CLOSE) {
-                /* Close the fd after fsync, whether fsync succeeds or fails. */
-                close(job->fd);
             }
         } else if (type == BIO_LAZY_FREE) {
             job->free_fn(job->free_args);

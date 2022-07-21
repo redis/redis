@@ -37,16 +37,14 @@ void bioInit(void);
 unsigned long long bioPendingJobsOfType(int type);
 unsigned long long bioWaitStepOfType(int type);
 void bioKillThreads(void);
-void bioCreateCloseJob(int fd);
+void bioCreateCloseJob(int fd, int need_fsync);
 void bioCreateFsyncJob(int fd);
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
-void bioCreateFsyncCloseJob(int fd);
 
 /* Background job opcodes */
 #define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. */
 #define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
 #define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
-#define BIO_FSYNC_AND_CLOSE 3 /* Deferred fsync and close. */
-#define BIO_NUM_OPS       4
+#define BIO_NUM_OPS       3
 
 #endif
