@@ -4940,10 +4940,18 @@ struct redisCommandArg PSYNC_Args[] = {
 /* REPLICAOF tips */
 #define REPLICAOF_tips NULL
 
+/* REPLICAOF type argument table */
+struct redisCommandArg REPLICAOF_type_Subargs[] = {
+{"aof",ARG_TYPE_PURE_TOKEN,-1,"AOF",NULL,NULL,CMD_ARG_NONE},
+{"rdb",ARG_TYPE_PURE_TOKEN,-1,"RDB",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /* REPLICAOF argument table */
 struct redisCommandArg REPLICAOF_Args[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=REPLICAOF_type_Subargs},
 {0}
 };
 
