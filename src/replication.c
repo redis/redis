@@ -1816,6 +1816,22 @@ void readSyncBulkPayload(connection *conn) {
 
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
+    {
+        nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
+        if (nread == -1) {
+            serverLog(LL_WARNING,
+                      "I/O error reading bulk count from MASTER: %s",
+                      strerror(errno));
+            goto error;
+        } else {
+            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
+             * convert "\r\n" to '\0' so 1 byte is lost. */
+            serverLog(LL_NOTICE,"MASTER <-> REPLICA sync: success, data %s",buf);
+            connSetReadHandler(conn, NULL);
+            return;
+        }
+    }
+
     if (server.repl_transfer_size == -1) {
         nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
         if (nread == -1) {

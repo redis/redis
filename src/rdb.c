@@ -1022,7 +1022,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-                
+
                 /* Save the group's logical reads counter. */
                 if ((n = rdbSaveLen(rdb,cg->entries_read)) == -1) {
                     raxStop(&ri);
@@ -1430,7 +1430,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
-    
+
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -2177,7 +2177,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST: 
+            case RDB_TYPE_LIST_ZIPLIST:
                 {
                     quicklist *ql = quicklistNew(server.list_max_listpack_size,
                                                  server.list_compress_depth);
@@ -2394,7 +2394,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
-        
+
         if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
@@ -2413,9 +2413,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             s->max_deleted_entry_id.ms = 0;
             s->max_deleted_entry_id.seq = 0;
             s->entries_added = s->length;
-            
+
             /* Since the rax is already loaded, we can find the first entry's
-             * ID. */ 
+             * ID. */
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
@@ -2459,7 +2459,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
-            
+
             /* Load group offset. */
             uint64_t cg_offset;
             if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
@@ -3370,7 +3370,9 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     pid_t childpid;
     int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
 
-    if (hasActiveChildProcess()) return C_ERR;
+    if (hasActiveChildProcess()) {
+        return C_ERR;
+    }
 
     /* Even if the previous fork child exited, don't start a new one until we
      * drained the pipe. */
@@ -3410,6 +3412,62 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         }
     }
+    //TODO send test buf
+    /* Load BASE AOF if needed. */
+    aofManifest *am= server.aof_manifest;
+    sds aof_name;
+    int fd = 0;
+    if (am->base_aof_info) {
+        serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
+        aof_name = (char*)am->base_aof_info->file_name;
+        if((fd = open(makePath(server.aof_dirname, aof_name), O_RDONLY)) == -1){
+            fprintf(stderr,"%s open :%s\n",server.aof_filename, strerror(errno));
+            return -1;
+        }
+    }
+
+    /* Load INCR AOFs if needed. */
+//    if (listLength(am->incr_aof_list)) {
+//        listNode *ln;
+//        listIter li;
+//
+//        listRewind(am->incr_aof_list, &li);
+//        while ((ln = listNext(&li)) != NULL) {
+//            aofInfo *ai = (aofInfo*)ln->value;
+//            serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
+//            aof_name = (char*)ai->file_name;
+//            updateLoadingFileName(aof_name);
+//        }
+//    }
+    server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
+    for (int i=0; i < server.rdb_pipe_numconns; i++)
+    {
+        ssize_t nwritten;
+        connection *conn = server.rdb_pipe_conns[i];
+        if (!conn)
+            continue;
+
+        client *slave = connGetPrivateData(conn);
+        if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
+            if (connGetState(conn) != CONN_STATE_CONNECTED) {
+                serverLog(LL_WARNING,"Diskless rdb transfer, write error sending DB to replica: %s",
+                          connGetLastError(conn));
+                freeClient(slave);
+                server.rdb_pipe_conns[i] = NULL;
+                continue;
+            }
+            /* An error and still in connected state, is equivalent to EAGAIN */
+            slave->repldboff = 0;
+        } else {
+            /* Note: when use diskless replication, 'repldboff' is the offset
+             * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
+            slave->repldboff = nwritten;
+            atomicIncr(server.stat_net_repl_output_bytes, nwritten);
+        }
+        return C_OK;
+    }
+    // TODO over
+
 
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
