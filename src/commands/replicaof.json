@@ -20,6 +20,22 @@
             {
                 "name": "port",
                 "type": "integer"
+            },
+            {
+                "name": "type",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "aof",
+                        "type": "pure-token",
+                        "token": "AOF"
+                    },
+                    {
+                        "name": "rdb",
+                        "type": "pure-token",
+                        "token": "RDB"
+                    }
+                ]
             }
         ]
     }
