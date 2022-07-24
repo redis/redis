@@ -1796,6 +1796,10 @@ void replicationAttachToNewMaster() {
     freeReplicationBacklog(); /* Don't allow our chained replicas to PSYNC. */
 }
 
+void readSyncAofManifest(connection *coon){
+
+}
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
@@ -1816,22 +1820,6 @@ void readSyncBulkPayload(connection *conn) {
 
     /* If repl_transfer_size == -1 we still have to read the bulk length
      * from the master reply. */
-    {
-        nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
-        if (nread == -1) {
-            serverLog(LL_WARNING,
-                      "I/O error reading bulk count from MASTER: %s",
-                      strerror(errno));
-            goto error;
-        } else {
-            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
-             * convert "\r\n" to '\0' so 1 byte is lost. */
-            serverLog(LL_NOTICE,"MASTER <-> REPLICA sync: success, data %s",buf);
-            connSetReadHandler(conn, NULL);
-            return;
-        }
-    }
-
     if (server.repl_transfer_size == -1) {
         nread = connSyncReadLine(conn,buf,1024,server.repl_syncio_timeout*1000);
         if (nread == -1) {
@@ -2837,16 +2825,32 @@ void syncWithMaster(connection *conn) {
         server.repl_transfer_fd = dfd;
     }
 
-    /* Setup the non blocking download of the bulk file. */
-    if (connSetReadHandler(conn, readSyncBulkPayload)
+    const int use_aof = 1;
+
+    if (use_aof){
+        /* Setup the non blocking download of the bulk file. */
+        if (connSetReadHandler(conn, readSyncAofManifest)
             == C_ERR)
-    {
-        char conninfo[CONN_INFO_LEN];
-        serverLog(LL_WARNING,
-            "Can't create readable event for SYNC: %s (%s)",
-            strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
-        goto error;
-    }
+        {
+            char conninfo[CONN_INFO_LEN];
+            serverLog(LL_WARNING,
+                      "Can't create readable event for SYNC: %s (%s)",
+                      strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
+            goto error;
+        }
+    }else{
+        /* Setup the non blocking download of the bulk file. */
+        if (connSetReadHandler(conn, readSyncBulkPayload)
+            == C_ERR)
+        {
+            char conninfo[CONN_INFO_LEN];
+            serverLog(LL_WARNING,
+                      "Can't create readable event for SYNC: %s (%s)",
+                      strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
+            goto error;
+        }
+    };
+
 
     server.repl_state = REPL_STATE_TRANSFER;
     server.repl_transfer_size = -1;
