@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -860,7 +861,7 @@ typedef struct RedisModuleTypeMethods {
 } RedisModuleTypeMethods;
 
 #define REDISMODULE_GET_API(name) \
-    RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
+    assert(RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name)) == REDISMODULE_OK)
 
 /* Default API declaration prefix (not 'extern' for backwards compatibility) */
 #ifndef REDISMODULE_API
@@ -937,7 +938,6 @@ REDISMODULE_API void (*RedisModule_ReplySetArrayLength)(RedisModuleCtx *ctx, lon
 REDISMODULE_API void (*RedisModule_ReplySetMapLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetSetLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetAttributeLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_ReplySetPushLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithStringBuffer)(RedisModuleCtx *ctx, const char *buf, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithCString)(RedisModuleCtx *ctx, const char *buf) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
@@ -1237,7 +1237,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplySetMapLength);
     REDISMODULE_GET_API(ReplySetSetLength);
     REDISMODULE_GET_API(ReplySetAttributeLength);
-    REDISMODULE_GET_API(ReplySetPushLength);
     REDISMODULE_GET_API(ReplyWithStringBuffer);
     REDISMODULE_GET_API(ReplyWithCString);
     REDISMODULE_GET_API(ReplyWithString);
