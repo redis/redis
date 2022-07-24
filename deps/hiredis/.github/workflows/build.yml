@@ -122,7 +122,7 @@ jobs:
         run: $GITHUB_WORKSPACE/test.sh
 
   freebsd:
-    runs-on: macos-10.15
+    runs-on: macos-12
     name:  FreeBSD
     steps:
       - name: Checkout code
@@ -132,7 +132,7 @@ jobs:
           ref: ${{ env.GITHUB_HEAD_REF }}
 
       - name: Build in FreeBSD
-        uses: vmactions/freebsd-vm@v0.1.5
+        uses: vmactions/freebsd-vm@v0.2.0
         with:
           prepare: pkg install -y gmake cmake
           run: |
