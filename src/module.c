@@ -9330,6 +9330,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringTruncate);
     REGISTER_API(SetExpire);
     REGISTER_API(GetExpire);
+    REGISTER_API(SetAbsExpire);
+    REGISTER_API(GetAbsExpire);
     REGISTER_API(ResetDataset);
     REGISTER_API(DbSize);
     REGISTER_API(RandomKey);
