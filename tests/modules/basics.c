@@ -380,6 +380,16 @@ fail:
     return REDISMODULE_OK;
 }
 
+/* TEST.STRING.FREENULL -- Test calling RM_FreeString with a NULL pointer. */
+int TestStringFreeNull(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_FreeString(ctx,NULL);
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 /* TEST.STRING.APPEND -- Test appending to an existing string object. */
 int TestStringAppend(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
@@ -838,6 +848,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.ctxflags","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+    T("test.string.freenull","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.string.append","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
@@ -935,6 +948,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.callreplywithverbatimstringreply",
         TestCallResp3Verbatim,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.string.freenull",
+        TestStringFreeNull,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.string.append",

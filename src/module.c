@@ -2390,6 +2390,13 @@ RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisM
  * the context, so if you want to free a string out of context later, make sure
  * to create it using a NULL context. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
+    if (!str) {
+        char *module_name = (ctx && ctx->module) ? ctx->module->name : "module";
+        serverLog(LL_NOTICE, "Module <%s> called RM_FreeString with NULL value. "
+                  "This is valid but may crash on older Redis version. Please make sure this is intentional.",
+                  module_name);
+        return;
+    }
     decrRefCount(str);
     if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
 }
