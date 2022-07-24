@@ -1796,8 +1796,26 @@ void replicationAttachToNewMaster() {
     freeReplicationBacklog(); /* Don't allow our chained replicas to PSYNC. */
 }
 
-void readSyncAofManifest(connection *coon){
+void readSyncAofManifest(connection *coon) {
+    char buf[PROTO_IOBUF_LEN];
+    ssize_t nread;
+    if (server.repl_transfer_aof_nums == 0) {
+        nread = connSyncReadLine(coon, buf, 1024, server.repl_syncio_timeout * 1000);
+        if (nread == -1) {
+            serverLog(LL_WARNING,
+                      "I/O error reading aof info from MASTER: %s",
+                      strerror(errno));
+            goto error;
+        } else {
+            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
+             * convert "\r\n" to '\0' so 1 byte is lost. */
+            atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
+        }
+    }
 
+    error:
+    cancelReplicationHandshake(1);
+    return;
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -2857,6 +2875,8 @@ void syncWithMaster(connection *conn) {
     server.repl_transfer_read = 0;
     server.repl_transfer_last_fsync_off = 0;
     server.repl_transfer_lastio = server.unixtime;
+
+    server.repl_transfer_aof_nums= 0;
     return;
 
 no_response_error: /* Handle receiveSynchronousResponse() error when master has no reply */
