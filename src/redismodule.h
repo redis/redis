@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -860,8 +859,10 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeCopyFunc2 copy2;
 } RedisModuleTypeMethods;
 
+static int REDISMODULE_GET_API_RET = 1; /* Prevent forgetting to register API. */
 #define REDISMODULE_GET_API(name) \
-    assert(RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name)) == REDISMODULE_OK)
+    if (RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name)) != REDISMODULE_OK) \
+        REDISMODULE_GET_API_RET = 0;
 
 /* Default API declaration prefix (not 'extern' for backwards compatibility) */
 #ifndef REDISMODULE_API
@@ -1205,6 +1206,7 @@ REDISMODULE_API int (*RedisModule_RegisterEnumConfig)(RedisModuleCtx *ctx, const
 REDISMODULE_API int (*RedisModule_LoadConfigs)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
+#define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR_UNUSED;
@@ -1540,13 +1542,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RegisterStringConfig);
     REDISMODULE_GET_API(RegisterEnumConfig);
     REDISMODULE_GET_API(LoadConfigs);
+    RedisModule_Assert(REDISMODULE_GET_API_RET);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
 }
-
-#define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
 
 #define RMAPI_FUNC_SUPPORTED(func) (func != NULL)
 
