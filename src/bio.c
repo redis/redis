@@ -76,12 +76,19 @@ static unsigned long long bio_pending[BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
-struct bio_job {
+typedef union bio_job {
     /* Job specific arguments.*/
-    int fd; /* Fd for file based background jobs */
-    lazy_free_fn *free_fn; /* Function that will free the provided arguments */
-    void *free_args[]; /* List of arguments to be passed to the free function */
-};
+    struct {
+        int fd; /* Fd for file based background jobs */
+        unsigned need_fsync:1; /* A flag to indicate that a fsync is required before
+                                * the file is closed. */
+    } fd_args;
+
+    struct {
+        lazy_free_fn *free_fn; /* Function that will free the provided arguments */
+        void *free_args[]; /* List of arguments to be passed to the free function */
+    } free_args;
+} bio_job;
 
 void *bioProcessBackgroundJobs(void *arg);
 
@@ -125,7 +132,7 @@ void bioInit(void) {
     }
 }
 
-void bioSubmitJob(int type, struct bio_job *job) {
+void bioSubmitJob(int type, bio_job *job) {
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
     bio_pending[type]++;
@@ -137,33 +144,34 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     va_list valist;
     /* Allocate memory for the job structure and all required
      * arguments */
-    struct bio_job *job = zmalloc(sizeof(*job) + sizeof(void *) * (arg_count));
-    job->free_fn = free_fn;
+    bio_job *job = zmalloc(sizeof(*job) + sizeof(void *) * (arg_count));
+    job->free_args.free_fn = free_fn;
 
     va_start(valist, arg_count);
     for (int i = 0; i < arg_count; i++) {
-        job->free_args[i] = va_arg(valist, void *);
+        job->free_args.free_args[i] = va_arg(valist, void *);
     }
     va_end(valist);
     bioSubmitJob(BIO_LAZY_FREE, job);
 }
 
-void bioCreateCloseJob(int fd) {
-    struct bio_job *job = zmalloc(sizeof(*job));
-    job->fd = fd;
+void bioCreateCloseJob(int fd, int need_fsync) {
+    bio_job *job = zmalloc(sizeof(*job));
+    job->fd_args.fd = fd;
+    job->fd_args.need_fsync = need_fsync;
 
     bioSubmitJob(BIO_CLOSE_FILE, job);
 }
 
 void bioCreateFsyncJob(int fd) {
-    struct bio_job *job = zmalloc(sizeof(*job));
-    job->fd = fd;
+    bio_job *job = zmalloc(sizeof(*job));
+    job->fd_args.fd = fd;
 
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
 
 void *bioProcessBackgroundJobs(void *arg) {
-    struct bio_job *job;
+    bio_job *job;
     unsigned long type = (unsigned long) arg;
     sigset_t sigset;
 
@@ -216,12 +224,15 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
-            close(job->fd);
+            if (job->fd_args.need_fsync) {
+                redis_fsync(job->fd_args.fd);
+            }
+            close(job->fd_args.fd);
         } else if (type == BIO_AOF_FSYNC) {
             /* The fd may be closed by main thread and reused for another
              * socket, pipe, or file. We just ignore these errno because
              * aof fsync did not really fail. */
-            if (redis_fsync(job->fd) == -1 &&
+            if (redis_fsync(job->fd_args.fd) == -1 &&
                 errno != EBADF && errno != EINVAL)
             {
                 int last_status;
@@ -236,7 +247,7 @@ void *bioProcessBackgroundJobs(void *arg) {
                 atomicSet(server.aof_bio_fsync_status,C_OK);
             }
         } else if (type == BIO_LAZY_FREE) {
-            job->free_fn(job->free_args);
+            job->free_args.free_fn(job->free_args.free_args);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
