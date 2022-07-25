@@ -1782,6 +1782,7 @@ struct redisServer {
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
+
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     int repl_slave_ro;          /* Slave is read only? */
@@ -1797,6 +1798,11 @@ struct redisServer {
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
     int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
+    int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
+
+    aofManifest *repl_tmp_aof_manifest;
+    int repl_transfer_current_read_aof_index; /* Current read aof index */
+    bool repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
