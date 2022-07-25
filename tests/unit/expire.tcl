@@ -745,4 +745,23 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 GT] 0
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
+
+    test {Redis should propagate the read command on lazy expire} {
+        r debug set-active-expire 0
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
+        r set foo bar PX 1
+        set repl [attach_to_replication_stream]
+        wait_for_condition 50 100 {
+            [r get foo] eq {}
+        } else {
+            fail "Replication not started."
+        }
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
 }

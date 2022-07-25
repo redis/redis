@@ -2922,15 +2922,17 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
 
     if (prev_capacity != oa->capacity)
         oa->ops = zrealloc(oa->ops,sizeof(redisOp)*oa->capacity);
-    op = oa->ops+oa->used;
+    int idx = oa->used;
+    op = oa->ops+idx;
     op->dbid = dbid;
     op->argv = argv;
     op->argc = argc;
     op->target = target;
+    oa->used++;
     if (op->target) {
         oa->numops++;
     }
-    return oa->used++; /* return the index of the appended operation */
+    return idx; /* return the index of the appended operation */
 }
 
 void redisOpArrayTrim(redisOpArray *oa) {
