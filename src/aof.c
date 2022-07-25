@@ -1283,7 +1283,7 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
 /* Write the given command to the aof file.
  * dictid - dictionary id the command should be applied to,
  *          this is used in order to decide if a `select` command
- *          should also be writen to the aof. Value of -1 means
+ *          should also be written to the aof. Value of -1 means
  *          to avoid writing `select` command in any case.
  * argv   - The command to write to the aof.
  * argc   - Number of values in argv
