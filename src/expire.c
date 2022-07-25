@@ -266,7 +266,7 @@ void activeExpireCycle(int type) {
                         ttl = dictGetSignedIntegerVal(e)-now;
                         if (activeExpireCycleTryExpire(db,e,now)) {
                             expired++;
-                            /* Propagate all DELs */
+                            /* Propagate the DEL command */
                             propagatePendingCommands();
                         }
                         if (ttl > 0) {

@@ -1501,7 +1501,7 @@ static void sendGetackToReplicas(void) {
     argv[0] = shared.replconf;
     argv[1] = shared.getack;
     argv[2] = shared.special_asterick; /* Not used argument. */
-    replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+    replicationFeedSlaves(server.slaves, -1, argv, 3);
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -2203,25 +2203,25 @@ void checkTcpBacklogSettings(void) {
     fclose(fp);
 #elif defined(HAVE_SYSCTL_KIPC_SOMAXCONN)
     int somaxconn, mib[3];
-    size_t used = sizeof(int);
+    size_t len = sizeof(int);
 
     mib[0] = CTL_KERN;
     mib[1] = KERN_IPC;
     mib[2] = KIPC_SOMAXCONN;
 
-    if (sysctl(mib, 3, &somaxconn, &used, NULL, 0) == 0) {
+    if (sysctl(mib, 3, &somaxconn, &len, NULL, 0) == 0) {
         if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.ipc.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
     }
 #elif defined(HAVE_SYSCTL_KERN_SOMAXCONN)
     int somaxconn, mib[2];
-    size_t used = sizeof(int);
+    size_t len = sizeof(int);
 
     mib[0] = CTL_KERN;
     mib[1] = KERN_SOMAXCONN;
 
-    if (sysctl(mib, 2, &somaxconn, &used, NULL, 0) == 0) {
+    if (sysctl(mib, 2, &somaxconn, &len, NULL, 0) == 0) {
         if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
             serverLog(LL_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because kern.somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
         }
@@ -2927,11 +2927,10 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     op->argv = argv;
     op->argc = argc;
     op->target = target;
-    oa->used++;
     if (op->target) {
         oa->numops++;
     }
-    return oa->used;
+    return oa->used++; /* return the index of the appended operation */
 }
 
 void redisOpArrayTrim(redisOpArray *oa) {
@@ -2941,13 +2940,13 @@ void redisOpArrayTrim(redisOpArray *oa) {
     }
     redisOp *last_op = oa->ops + (oa->used - 1);
     if (!last_op->target) {
-        /* last op is a not used placeholder, we can remove it */
+        /* last op is an unused placeholder, we can remove it */
         --oa->used;
     }
 }
 
 int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
-    return redisOpArrayAppend(oa, 0, NULL, 0, 0) - 1;
+    return redisOpArrayAppend(oa, 0, NULL, 0, 0);
 }
 
 void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
@@ -2970,6 +2969,7 @@ void redisOpArrayFree(redisOpArray *oa) {
         if (!op->target) {
             continue;
         }
+        oa->numops--;
         for (j = 0; j < op->argc; j++) {
             decrRefCount(op->argv[j]);
         }
@@ -2977,8 +2977,8 @@ void redisOpArrayFree(redisOpArray *oa) {
     }
 
     /* no need to free the actual op array, we reuse the memory for future commands */
-    oa->numops = 0;
-    oa->used = 0;
+    serverAssert(!oa->numops);
+    serverAssert(!oa->used);
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3357,7 +3357,7 @@ void call(client *c, int flags) {
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
-    int index = -1;
+    int cmd_prop_index = -1;
     if ((c->cmd->flags & CMD_WRITE) || (c->cmd->flags & CMD_MAY_REPLICATE)) {
         /* Save placeholder for replication.
          * If the command will be replicated, this is the location where it should be placed in the replication stream.
@@ -3372,7 +3372,7 @@ void call(client *c, int flags) {
          * The final result is that the replica will have the value x=1 while the primary will have x=2
          *
          * Notice that we only do this if the command might cause replication (either its a WRITE command or MAY_REPLICATE) */
-        index = redisOpArrayAppendPlaceholder(&server.also_propagate);
+        cmd_prop_index = redisOpArrayAppendPlaceholder(&server.also_propagate);
     }
 
     server.in_nested_call++;
@@ -3466,7 +3466,18 @@ void call(client *c, int flags) {
     /* Propagate the command into the AOF and replication link.
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
-     * Also, module commands take care of themselves */
+     * Also, module commands take care of themselves
+     *
+     * Notice, we only propagate if the command has CMD_WRITE or CMD_MAY_REPLICATE
+     * flag enable, without this we might end up replicating a read command.
+     * Consider the following example:
+     * 1. Module register to a key miss event and perform a write command (using RM_Call).
+     * 2. The write command causes the dirte counter to increase.
+     * 3. When checking here if we should replicate the command, we will replicate it because
+     *    the dirty counter increased.
+     *
+     * Basically it means that the dirty counter is only relevant if the command is marked
+     * with either CMD_WRITE or CMD_MAY_REPLICATE. */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
         c->cmd->proc != execCommand &&
@@ -3497,14 +3508,12 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            serverAssert(index >= 0); /* if we got here we must have a placeholder for the command */
-            alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,index);
+            serverAssert(cmd_prop_index >= 0); /* if we got here we must have a placeholder for the command */
+            alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
     }
 
     /* Try to trim the last element if it is not used (if its still a placeholder). */
     redisOpArrayTrim(&server.also_propagate);
-
-
 
     /* Restore the old replication flags, since call() can be executed
      * recursively. */
