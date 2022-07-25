@@ -47,10 +47,12 @@ void replicationSendAck(void);
 void replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
-aofManifest *aofManifestDup(aofManifest *orig);
-aofManifest *aofManifestCreate(void);
-void aofManifestFreeAndUpdate(aofManifest *am);
+
 aofInfo *aofInfoCreate(void);
+aofManifest *aofManifestCreate(void);
+aofManifest *aofManifestDup(aofManifest *orig);
+int openNewIncrAofForAppend(void);
+void aofManifestFreeAndUpdate(aofManifest *am);
 int persistAofManifest(aofManifest *am);
 
 /* We take a global flag to remember if this instance generated an RDB
@@ -911,6 +913,132 @@ int startBgsaveForReplication(int mincapa, int req) {
     return retval;
 }
 
+/**
+ * Send bulks in slave->repldbfd to salve.
+ *
+ * @return whether reached eof: 1 when eof is reached, 0 when not eof and -1 on error. 
+ */
+int sendBulkToSlave(connection *conn) {
+    client *slave = connGetPrivateData(conn);
+    char buf[PROTO_IOBUF_LEN];
+    ssize_t nwritten, buflen;
+
+    /* Before sending the RDB file, we send the preamble as configured by the
+     * replication process. Currently the preamble is just the bulk count of
+     * the file in the form "$<length>\r\n". */
+    if (slave->replpreamble) {
+        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
+        if (nwritten == -1) {
+            serverLog(LL_WARNING,
+                "Write error sending preamble to replica: %s",
+                connGetLastError(conn));
+            freeClient(slave);
+            return -1;
+        }
+        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
+        sdsrange(slave->replpreamble,nwritten,-1);
+        if (sdslen(slave->replpreamble) == 0) {
+            sdsfree(slave->replpreamble);
+            slave->replpreamble = NULL;
+            /* fall through sending data. */
+        } else {
+            return 0;
+        }
+    }
+
+    /* If the preamble was already transferred, send the RDB bulk data. */
+    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    if (buflen <= 0) {
+        serverLog(LL_WARNING,"Read error sending DB to replica: %s",
+            (buflen == 0) ? "premature EOF" : strerror(errno));
+        freeClient(slave);
+        return -1;
+    }
+    if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
+        if (connGetState(conn) != CONN_STATE_CONNECTED) {
+            serverLog(LL_WARNING,"Write error sending DB to replica: %s",
+                connGetLastError(conn));
+            freeClient(slave);
+        }
+        return -1;
+    }
+    slave->repldboff += nwritten;
+    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
+    if (slave->repldboff == slave->repldbsize) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+/* Send files in aof manifest to slaver for sync. */
+void sendAofManifestToSlaver(struct connection *conn) {
+    client *slave = connGetPrivateData(conn);
+    int replstate = slave->replstate;
+    aofManifest *am = slave->repl_aof_manifest;
+
+    if (replstate != SLAVE_STATE_SEND_AOF_BASE && replstate != SLAVE_STATE_SEND_AOF_INCR) {
+        // TODO 错误处理
+        serverLog(LL_WARNING, "Replstate is not in sending");
+        exit(1);
+    }
+
+    // whether sending base file (or incr files)
+    int sending_base = replstate == SLAVE_STATE_SEND_AOF_BASE;
+
+    if (slave->repldbfd == -1) {
+        // starting send or last file send finished, open new file to send.
+        aofInfo *toOpen = sending_base ?
+            am->base_aof_info :
+            listIndex(am->incr_aof_list, ++slave->repl_aof_incr_idx)->value;
+        if (toOpen == NULL) {
+            serverLog(LL_WARNING,
+                      "SYNC(AOF) failed. Can't find aof %s file to open",
+                      sending_base ? "base" : "incr");
+            exit(1);
+        }
+        struct redis_stat stat;
+        if ((slave->repldbfd = open(am->base_aof_info->file_name, O_RDONLY)) == -1 ||
+            redis_fstat(slave->repldbfd, &stat) == -1) {
+            serverLog(LL_WARNING,
+                      "SYNC(AOF) failed. Can't open/stat aof %s file: %s",
+                      sending_base ? "base" : "incr",
+                      strerror(errno));
+            freeClientAsync(slave);
+            return;
+        }
+        slave->repldboff = 0;
+        slave->repldbsize = stat.st_size;
+        if (sending_base) {
+            slave->replpreamble = sdscatprintf(sdsempty(),
+                    "__$%lld\r\n", (unsigned long long) slave->repldbsize);
+            slave->replpreamble[0] = listLength(am->incr_aof_list) + 1;
+            slave->replpreamble[1] = 0;
+        } else {
+            slave->replpreamble = sdscatprintf(sdsempty(),
+                    "$%lld\r\n", (unsigned long long) slave->repldbsize);
+        }
+    }
+
+    if (sendBulkToSlave(conn) == 1) {
+        // current file send finished
+        close(slave->repldbfd);
+        slave->repldbfd = -1;
+
+        if (sending_base) {
+            // base finished, start to send incr files.
+            slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
+            slave->repl_aof_incr_idx = -1;
+        } else if (slave->repl_aof_incr_idx + 1 == (int) listLength(am->incr_aof_list)) {
+            // final incr finished
+            connSetWriteHandler(slave->conn,NULL);
+            replicaPutOnline(slave);
+            replicaStartCommandStream(slave);
+        }
+    }
+}
+
 /* SYNC and PSYNC command implementation. */
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
@@ -1012,15 +1140,6 @@ void syncCommand(client *c) {
     /* Full resynchronization. */
     server.stat_sync_full++;
 
-    /* Setup the slave as one waiting for BGSAVE to start. The following code
-     * paths will change the state if we handle the slave differently. */
-    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-    if (server.repl_disable_tcp_nodelay)
-        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
-    c->repldbfd = -1;
-    c->flags |= CLIENT_SLAVE;
-    listAddNodeTail(server.slaves,c);
-
     /* Create the replication backlog if needed. */
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
@@ -1033,6 +1152,71 @@ void syncCommand(client *c) {
                             "replication IDs are '%s' and '%s'",
                             server.replid, server.replid2);
     }
+
+    int use_aof = 1;
+    if (use_aof) {
+        // 0. 检查aof状态
+        //   - AOF_ON
+        //   - AOF_OFF
+        //   - AOF_WAIT_REWRITE
+        // 1. 检查rewrite状态
+        //   - 如果正在rewrite，等待rewrite结束
+        //   - 如果未在rewrite
+        // 2. 禁用rewrite，避免aof文件被修改
+        // 3. 复制一份当前的manifest，并打开一个新的aof文件
+        // 4. 发送备份的manifest
+        // 5. 结束后进行命令传播
+        //
+        // 在sync过程中，如果有新的sync命令过来，直接使用备份的manifest
+        // 在所有sync过程结束后，重新启用rewrite，并将scheduled置为1，请求一次rewrite
+
+        if (server.child_type == CHILD_TYPE_AOF) {
+            // rewriting TODO
+            serverLog(LL_WARNING, "Rewriting");
+            exit(1);
+            return;
+        }
+        c->replstate = SLAVE_STATE_SEND_AOF_BASE;
+        c->repl_aof_manifest = NULL;
+        c->repl_aof_incr_idx = -1;
+        c->repldbfd = -1;
+        c->repldboff = 0;
+        c->repldbsize = 0;
+        c->repl_aof_manifest = aofManifestDup(server.aof_manifest);
+        // TODO 错误处理
+        if (!c->repl_aof_manifest) {
+            serverLog(LL_WARNING, "Failed to dup aof manifest");
+            exit(1);
+        }
+        if (openNewIncrAofForAppend() != C_OK) {
+            serverLog(LL_WARNING, "Failed to open new incr aof file");
+            exit(1);
+        }
+        // Temporarily disable rewrite
+        // TODO 确认哪些路径修改scheduled的值
+        server.aof_rewrite_scheduled = 0;
+
+        connSetWriteHandler(c->conn, NULL);
+        if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
+            // TODO cleanup
+            freeClientAsync(c);
+            if (c->repl_aof_manifest) {
+                aofManifestFree(c->repl_aof_manifest);
+            }
+            server.aof_rewrite_scheduled = 1;
+            c->repl_aof_manifest = NULL;
+        }
+        return;
+    }
+
+    /* Setup the slave as one waiting for BGSAVE to start. The following code
+     * paths will change the state if we handle the slave differently. */
+    c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+    if (server.repl_disable_tcp_nodelay)
+        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
+    c->repldbfd = -1;
+    c->flags |= CLIENT_SLAVE;
+    listAddNodeTail(server.slaves,c);
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.child_type == CHILD_TYPE_RDB &&
@@ -1346,54 +1530,9 @@ void removeRDBUsedToSyncReplicas(void) {
     }
 }
 
-void sendBulkToSlave(connection *conn) {
+void sendRDBToSlave(connection *conn) {
     client *slave = connGetPrivateData(conn);
-    char buf[PROTO_IOBUF_LEN];
-    ssize_t nwritten, buflen;
-
-    /* Before sending the RDB file, we send the preamble as configured by the
-     * replication process. Currently the preamble is just the bulk count of
-     * the file in the form "$<length>\r\n". */
-    if (slave->replpreamble) {
-        nwritten = connWrite(conn,slave->replpreamble,sdslen(slave->replpreamble));
-        if (nwritten == -1) {
-            serverLog(LL_WARNING,
-                "Write error sending RDB preamble to replica: %s",
-                connGetLastError(conn));
-            freeClient(slave);
-            return;
-        }
-        atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        sdsrange(slave->replpreamble,nwritten,-1);
-        if (sdslen(slave->replpreamble) == 0) {
-            sdsfree(slave->replpreamble);
-            slave->replpreamble = NULL;
-            /* fall through sending data. */
-        } else {
-            return;
-        }
-    }
-
-    /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
-    if (buflen <= 0) {
-        serverLog(LL_WARNING,"Read error sending DB to replica: %s",
-            (buflen == 0) ? "premature EOF" : strerror(errno));
-        freeClient(slave);
-        return;
-    }
-    if ((nwritten = connWrite(conn,buf,buflen)) == -1) {
-        if (connGetState(conn) != CONN_STATE_CONNECTED) {
-            serverLog(LL_WARNING,"Write error sending DB to replica: %s",
-                connGetLastError(conn));
-            freeClient(slave);
-        }
-        return;
-    }
-    slave->repldboff += nwritten;
-    atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-    if (slave->repldboff == slave->repldbsize) {
+    if (sendBulkToSlave(conn) == 1) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
         connSetWriteHandler(slave->conn,NULL);
@@ -1616,7 +1755,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     (unsigned long long) slave->repldbsize);
 
                 connSetWriteHandler(slave->conn,NULL);
-                if (connSetWriteHandler(slave->conn,sendBulkToSlave) == C_ERR) {
+                if (connSetWriteHandler(slave->conn, sendRDBToSlave) == C_ERR) {
                     freeClientAsync(slave);
                     continue;
                 }

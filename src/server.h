@@ -272,7 +272,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                   * from the value of the key. */
 /* Other flags: */
 #define CMD_KEY_NOT_KEY (1ULL<<8)     /* A 'fake' key that should be routed
-                                       * like a key in cluster mode but is 
+                                       * like a key in cluster mode but is
                                        * excluded from other key checks. */
 #define CMD_KEY_INCOMPLETE (1ULL<<9)  /* Means that the keyspec might not point
                                        * out to all keys it should cover */
@@ -407,7 +407,7 @@ typedef enum {
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
-    REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
+    REPL_STATE_TRANSFER,        /* Receiving .rdb/.aof from master */
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;
 
@@ -426,6 +426,8 @@ typedef enum {
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
+#define SLAVE_STATE_SEND_AOF_BASE 10 /* Sending base file of AOF manifest to slave. */
+#define SLAVE_STATE_SEND_AOF_INCR 11 /* Sending incremental files of AOF manifest to slave. */
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
@@ -679,6 +681,7 @@ struct RedisModuleDefragCtx;
 struct RedisModuleInfoCtx;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
+typedef struct aofManifest aofManifest;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -791,7 +794,7 @@ typedef struct RedisModuleIO {
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
-} RedisModuleIO;       
+} RedisModuleIO;
 
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
@@ -891,7 +894,7 @@ typedef struct clientReplyBlock {
  *      |                                           /         \
  *      |                                          /           \
  *  Repl Backlog                               Replia_A      Replia_B
- * 
+ *
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
  * node, it should first increase the next node's refcount, and when we trim
@@ -1124,6 +1127,8 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
+    aofManifest *repl_aof_manifest;  /* Replication aof manifest (using aof replaction) */
+    int repl_aof_incr_idx;  /* Index of incr item in aof manifest to send (using aof replaction) */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
@@ -1226,8 +1231,8 @@ struct sharedObjectsStruct {
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
-    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,  
-    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
+    *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,
+    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
@@ -1411,7 +1416,7 @@ typedef struct {
     aof_file_type file_type;  /* file type */
 } aofInfo;
 
-typedef struct {
+struct aofManifest {
     aofInfo     *base_aof_info;       /* BASE file information. NULL if there is no BASE file. */
     list        *incr_aof_list;       /* INCR AOFs list. We may have multiple INCR AOF when rewrite fails. */
     list        *history_aof_list;    /* HISTORY AOF list. When the AOFRW success, The aofInfo contained in
@@ -1421,7 +1426,7 @@ typedef struct {
     long long   curr_incr_file_seq;   /* The sequence number used by the current INCR file. */
     int         dirty;                /* 1 Indicates that the aofManifest in the memory is inconsistent with
                                          disk, we need to persist it immediately. */
-} aofManifest;
+};
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -3017,7 +3022,7 @@ sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
 /* Configuration Flags */
-#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard 
+#define MODIFIABLE_CONFIG 0 /* This is the implied default for a standard
                              * config, which is mutable. */
 #define IMMUTABLE_CONFIG (1ULL<<0) /* Can this value only be set at startup? */
 #define SENSITIVE_CONFIG (1ULL<<1) /* Does this value contain sensitive information */
