@@ -3254,7 +3254,11 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     int retval;
     struct stat sb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
+        return C_ERR;
+    }
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
