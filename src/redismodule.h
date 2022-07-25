@@ -860,9 +860,10 @@ typedef struct RedisModuleTypeMethods {
 } RedisModuleTypeMethods;
 
 static int REDISMODULE_GET_API_RET = 1; /* Prevent forgetting to register API. */
-#define REDISMODULE_GET_API(name) \
+#define REDISMODULE_GET_API(name) do { \
     if (RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name)) != REDISMODULE_OK) \
-        REDISMODULE_GET_API_RET = 0;
+        REDISMODULE_GET_API_RET = 0; \
+} while(0)
 
 /* Default API declaration prefix (not 'extern' for backwards compatibility) */
 #ifndef REDISMODULE_API
