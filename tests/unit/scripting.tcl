@@ -3,6 +3,20 @@ start_server {tags {"scripting"}} {
         r eval {return 'hello'} 0
     } {hello}
 
+    test {EVAL - Return _G} {
+        r eval {return _G} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that raise error} {
+        r eval {local a = {}; setmetatable(a,{__index=function() foo() end}) return a} 0
+    } {}
+
+    test {EVAL - Return table with a metatable that call redis} {
+        r eval {local a = {}; setmetatable(a,{__index=function() redis.call('set', 'x', '1') end}) return a} 0
+        # make sure x was not set
+        r get x
+    } {}
+
     test {EVAL - Lua integer -> Redis protocol type conversion} {
         r eval {return 100.5} 0
     } {100}

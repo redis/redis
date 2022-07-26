@@ -468,7 +468,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         /* Handle error reply. */
         /* we took care of the stack size on function start */
         lua_pushstring(lua,"err");
-        lua_gettable(lua,-2);
+        lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
             addReplyErrorFormat(c,"-%s",lua_tostring(lua,-1));
@@ -479,7 +479,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
         /* Handle status reply. */
         lua_pushstring(lua,"ok");
-        lua_gettable(lua,-2);
+        lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TSTRING) {
             sds ok = sdsnew(lua_tostring(lua,-1));
@@ -493,7 +493,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
         /* Handle double reply. */
         lua_pushstring(lua,"double");
-        lua_gettable(lua,-2);
+        lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TNUMBER) {
             addReplyDouble(c,lua_tonumber(lua,-1));
@@ -504,7 +504,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
         /* Handle map reply. */
         lua_pushstring(lua,"map");
-        lua_gettable(lua,-2);
+        lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TTABLE) {
             int maplen = 0;
@@ -527,7 +527,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 
         /* Handle set reply. */
         lua_pushstring(lua,"set");
-        lua_gettable(lua,-2);
+        lua_rawget(lua,-2);
         t = lua_type(lua,-1);
         if (t == LUA_TTABLE) {
             int setlen = 0;
@@ -554,7 +554,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         while(1) {
             /* we took care of the stack size on function start */
             lua_pushnumber(lua,j++);
-            lua_gettable(lua,-2);
+            lua_rawget(lua,-2);
             t = lua_type(lua,-1);
             if (t == LUA_TNIL) {
                 lua_pop(lua,1);
