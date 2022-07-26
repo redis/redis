@@ -2891,7 +2891,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -2909,13 +2909,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
-        errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
-        errno = EINVAL;
         return C_ERR;
     }
 
