@@ -50,6 +50,7 @@ static char *libraries_allow_list[] = {
     "math",
     "table",
     "struct",
+    "os",
     NULL,
 };
 
@@ -1186,6 +1187,7 @@ LUALIB_API int (luaopen_cjson) (lua_State *L);
 LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
 LUALIB_API int (luaopen_bit) (lua_State *L);
+LUALIB_API int (ros) (lua_State *L);
 
 static void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "", luaopen_base);
@@ -1197,6 +1199,7 @@ static void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
     luaLoadLib(lua, "bit", luaopen_bit);
+    luaLoadLib(lua, "os", ros);
 
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
