@@ -6756,7 +6756,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 }
                 if (importing_slot && !multiple_keys && !equalStringObjects(firstkey,thiskey)) {
                     /* Flag this request as one with multiple different
-                     * keys/channels. */
+                     * keys/channels when the slot is in importing state. */
                     multiple_keys = 1;
                 }
             }
