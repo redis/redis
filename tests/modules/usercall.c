@@ -75,6 +75,24 @@ int add_to_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int get_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+
+    if (argc != 1) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModule_Assert(user != NULL);
+
+    RedisModuleString *acl = RedisModule_GetModuleUserACLString(ctx, user);
+
+    RedisModule_ReplyWithString(ctx, acl);
+
+    RedisModule_FreeString(ctx, acl);
+
+    return REDISMODULE_OK;
+}
+
 int reset_user(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
 
@@ -110,6 +128,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"usercall.reset_user", reset_user,"write",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"usercall.get_acl", get_acl,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

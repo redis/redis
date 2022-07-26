@@ -8769,10 +8769,28 @@ RedisModuleString * RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleU
     sdsfree(sacl);
 
     if (error) {
-        return RM_CreateString(ctx, error, sdslen(error));
+        RedisModuleString *s = createObject(OBJ_STRING, error);
+        if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
+
+        return s;
     }
 
     return NULL;
+}
+
+/* Get the ACL string for a given user
+ * Returns a RedisModuleString
+ */
+
+RedisModuleString *RM_GetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user) {
+    serverAssert(user != NULL);
+
+    sds acl = ACLDescribeUser(user->user);
+
+    RedisModuleString *s = createObject(OBJ_STRING, acl);
+    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
+
+    return s;
 }
 
 /* Retrieve the user name of the client connection behind the current context.
@@ -12822,6 +12840,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateModuleUser);
     REGISTER_API(SetModuleUserACL);
     REGISTER_API(SetModuleUserACLString);
+    REGISTER_API(GetModuleUserACLString);
     REGISTER_API(GetCurrentUserName);
     REGISTER_API(GetModuleUserFromUserName);
     REGISTER_API(ACLCheckCommandPermissions);

@@ -20,6 +20,8 @@ start_server {tags {"modules usercall"}} {
 
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
+        # off because module user / default value
+        assert_equal [r usercall.get_acl] "off ~* &* +@all -set"
 
         catch {r usercall.call_with_acl set x 10} e
         assert_match {*NOPERM this user has no permissions to run the 'set' command*} $e
