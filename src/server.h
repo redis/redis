@@ -304,8 +304,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* RDB return values for rdbLoad. */
 #define RDB_OK 0
 #define RDB_NOT_EXIST 1 /* RDB file doesn't exist. */
-#define RDB_OPEN_ERR 2 /* Failed to open the RDB file. */
-#define RDB_FAILED 3 /* Failed to load the RDB file. */
+#define RDB_FAILED 2 /* Failed to load the RDB file. */
 
 /* Command doc flags */
 #define CMD_DOC_NONE 0
