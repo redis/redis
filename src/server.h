@@ -301,6 +301,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_FAILED 4
 #define AOF_TRUNCATED 5
 
+/* RDB return values for rdbLoad. */
+#define RDB_OK 0
+#define RDB_NOT_EXIST 1 /* RDB file doesn't exist. */
+#define RDB_FAILED 2 /* Failed to load the RDB file. */
+
 /* Command doc flags */
 #define CMD_DOC_NONE 0
 #define CMD_DOC_DEPRECATED (1<<0) /* Command is deprecated */

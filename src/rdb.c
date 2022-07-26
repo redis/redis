@@ -3256,8 +3256,9 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
+        retval = (errno == ENOENT) ? RDB_NOT_EXIST : RDB_FAILED;
         serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
-        return C_ERR;
+        return retval;
     }
 
     if (fstat(fileno(fp), &sb) == -1)
@@ -3270,7 +3271,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
-    return retval;
+    return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.

@@ -6515,7 +6515,8 @@ void loadDataFromDisk(void) {
             createReplicationBacklog();
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
-        if (rdbLoad(server.rdb_filename,&rsi,rdb_flags) == C_OK) {
+        int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
+        if (rdb_load_ret == RDB_OK) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 
@@ -6550,7 +6551,7 @@ void loadDataFromDisk(void) {
                     server.repl_no_slaves_since = time(NULL);
                 }
             }
-        } else if (errno != ENOENT) {
+        } else if (rdb_load_ret != RDB_NOT_EXIST) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
         }
