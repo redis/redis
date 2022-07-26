@@ -56,6 +56,7 @@ static char *redis_api_allow_list[] = {
     "redis",
     "__redis__err__handler", /* error handler for eval, currently located on globals.
                                 Should move to registry. */
+    "__redis__compare_helper",
     NULL,
 };
 
