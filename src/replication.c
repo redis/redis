@@ -2161,7 +2161,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk: %s", strerror(errno));
