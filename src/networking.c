@@ -3487,9 +3487,6 @@ void helloCommand(client *c) {
         addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
         return;
     }
-    if (clientname) {
-        clientSetName(c, clientname);
-    }
 
     /* At this point we need to be authenticated to continue. */
     if (!c->authenticated) {
@@ -3498,6 +3495,11 @@ void helloCommand(client *c) {
                         "option can be used to authenticate the client and "
                         "select the RESP protocol version at the same time");
         return;
+    }
+
+    /* Now that we're authenticated, set the client name. */
+    if (clientname) {
+        clientSetName(c, clientname);
     }
 
     /* Let's switch to the specified RESP mode. */
