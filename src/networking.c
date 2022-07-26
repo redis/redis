@@ -2833,13 +2833,6 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
-/* Replies to the client with the error message to indicate an invalid client name. */
-void replyWithClientSetNameErr(client *c) {
-    addReplyError(c,
-            "Client names cannot contain spaces, "
-            "newlines or special characters.");
-}
-
 /* Returns C_OK if the name is valid or C_ERR otherwise. */
 int validateClientName(robj *name) {
     int len = (name != NULL) ? sdslen(name->ptr) : 0;
@@ -2889,7 +2882,9 @@ int clientSetName(client *c, robj *name) {
 int clientSetNameOrReply(client *c, robj *name) {
     int result = clientSetName(c, name);
     if (result == C_ERR) {
-        replyWithClientSetNameErr(c);
+        addReplyError(c,
+            "Client names cannot contain spaces, "
+            "newlines or special characters.");
     }
     return result;
 }
@@ -3476,7 +3471,9 @@ void helloCommand(client *c) {
         } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
             clientname = c->argv[j+1];
             if (validateClientName(clientname) == C_ERR) {
-                replyWithClientSetNameErr(c);
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
                 return;
             }
             j++;
