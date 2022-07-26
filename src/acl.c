@@ -385,6 +385,8 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
     u->passwords = listCreate();
+    u->acl_string_dirty = true;
+    u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -422,6 +424,7 @@ user *ACLCreateUnlinkedUser(void) {
  * will not remove the user from the Users global radix tree. */
 void ACLFreeUser(user *u) {
     sdsfree(u->name);
+    if (u->acl_string) sdsfree(u->acl_string);
     listRelease(u->passwords);
     listRelease(u->selectors);
     zfree(u);
@@ -466,6 +469,9 @@ void ACLCopyUser(user *dst, user *src) {
     dst->passwords = listDup(src->passwords);
     dst->selectors = listDup(src->selectors);
     dst->flags = src->flags;
+    dst->acl_string_dirty = true;
+    if (dst->acl_string) sdsfree(dst->acl_string);
+    dst->acl_string = NULL;
 }
 
 /* Free all the users registered in the radix tree 'users' and free the
@@ -803,6 +809,10 @@ sds ACLDescribeSelector(aclSelector *selector) {
  * when we want to rewrite the configuration files describing ACLs and
  * in order to show users with ACL LIST. */
 sds ACLDescribeUser(user *u) {
+    if (!u->acl_string_dirty) {
+        return sdsdup(u->acl_string);
+    }
+
     sds res = sdsempty();
 
     /* Flags. */
@@ -836,6 +846,11 @@ sds ACLDescribeUser(user *u) {
         }
         sdsfree(default_perm);
     }
+
+    if (u->acl_string) sdsfree(u->acl_string);
+    u->acl_string = sdsdup(res);
+    u->acl_string_dirty = false;
+
     return res;
 }
 
@@ -1208,6 +1223,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
+    u->acl_string_dirty = true;
+
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {

@@ -1041,6 +1041,9 @@ typedef struct {
     list *selectors; /* A list of selectors this user validates commands
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
+
+    sds acl_string;        /* cached string represent of ACLs */
+    bool acl_string_dirty; /* if the cache is valid or not */
 } user;
 
 /* With multiplexing we need to take per-client state.
