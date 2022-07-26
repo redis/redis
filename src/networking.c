@@ -2883,8 +2883,8 @@ int clientSetNameOrReply(client *c, robj *name) {
     int result = clientSetName(c, name);
     if (result == C_ERR) {
         addReplyError(c,
-            "Client names cannot contain spaces, "
-            "newlines or special characters.");
+                      "Client names cannot contain spaces, "
+                      "newlines or special characters.");
     }
     return result;
 }
