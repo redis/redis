@@ -999,22 +999,26 @@ void sendAofManifestToSlaver(struct connection *conn) {
             exit(1);
         }
         struct redis_stat stat;
-        if ((slave->repldbfd = open(am->base_aof_info->file_name, O_RDONLY)) == -1 ||
+        sds path = makePath(server.aof_dirname, am->base_aof_info->file_name);
+        if ((slave->repldbfd = open(path, O_RDONLY)) == -1 ||
             redis_fstat(slave->repldbfd, &stat) == -1) {
             serverLog(LL_WARNING,
                       "SYNC(AOF) failed. Can't open/stat aof %s file: %s",
                       sending_base ? "base" : "incr",
                       strerror(errno));
             freeClientAsync(slave);
+            sdsfree(path);
             return;
         }
+        sdsfree(path);
         slave->repldboff = 0;
         slave->repldbsize = stat.st_size;
         if (sending_base) {
             slave->replpreamble = sdscatprintf(sdsempty(),
-                    "__$%lld\r\n", (unsigned long long) slave->repldbsize);
+                    "__\r\n$%lld\r\n", (unsigned long long) slave->repldbsize);
             slave->replpreamble[0] = listLength(am->incr_aof_list) + 1;
-            slave->replpreamble[1] = 0;
+            slave->replpreamble[1] = 1; // TODO rdb/aof
+            serverLog(LL_WARNING, "preamble %s", slave->replpreamble);
         } else {
             slave->replpreamble = sdscatprintf(sdsempty(),
                     "$%lld\r\n", (unsigned long long) slave->repldbsize);
@@ -1191,6 +1195,14 @@ void syncCommand(client *c) {
         if (openNewIncrAofForAppend() != C_OK) {
             serverLog(LL_WARNING, "Failed to open new incr aof file");
             exit(1);
+        }
+        int buflen;
+        char buf[256];
+        buflen = snprintf(buf, sizeof(buf),
+                          "+FULLRESYNC %s %lld\r\n", server.replid, 0ll);
+        if (connWrite(c->conn, buf, buflen) != buflen) {
+            freeClientAsync(c);
+            return;
         }
         // Temporarily disable rewrite
         // TODO 确认哪些路径修改scheduled的值
@@ -1960,7 +1972,7 @@ void readSyncAofManifest(connection *conn) {
              * convert "\r\n" to '\0' so 1 byte is lost. */
             atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
         }
-        if (sdslen(buf) != 2) {
+        if (strlen(buf) != 2) {
             serverLog(LL_WARNING,
                       "Bad protocol from MASTER, we need buf len is 2,first is aof file nums, second is base aof type(we received '%s')",
                       buf);
@@ -1986,7 +1998,7 @@ void readSyncAofManifest(connection *conn) {
              * convert "\r\n" to '\0' so 1 byte is lost. */
             atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
         }
-        if (sdslen(buf) == 0 || buf[0] != '$') {
+        if (strlen(buf) == 0 || buf[0] != '$') {
             serverLog(LL_WARNING,
                       "Bad protocol from MASTER, we received '%s'",
                       buf);
