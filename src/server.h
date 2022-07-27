@@ -1807,7 +1807,7 @@ struct redisServer {
 
     aofManifest *repl_tmp_aof_manifest;
     int repl_transfer_current_read_aof_index; /* Current read aof index */
-    bool repl_transfer_wait_read_aof; /* Whether to read aof  */
+    int repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */

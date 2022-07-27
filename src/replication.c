@@ -54,6 +54,9 @@ aofManifest *aofManifestDup(aofManifest *orig);
 int openNewIncrAofForAppend(void);
 void aofManifestFreeAndUpdate(aofManifest *am);
 int persistAofManifest(aofManifest *am);
+int aofDelHistoryFiles(void);
+
+void cleanupTmpAof();
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -1979,7 +1982,7 @@ void readSyncAofManifest(connection *conn) {
             goto error;
         } else {
             server.repl_transfer_aof_nums = buf[0];
-            server.repl_transfer_base_aof_type = buf[1];
+            server.repl_transfer_base_aof_type = 0;
             server.repl_transfer_current_read_aof_index = 0;
             server.repl_transfer_wait_read_aof = false;
         }
@@ -2015,18 +2018,22 @@ void readSyncAofManifest(connection *conn) {
             char tmpfile[256];
             while (maxtries--) {
                 snprintf(tmpfile, 256,
-                         "%s.aof.%lld.%s.%s", server.aof_filename, server.repl_tmp_aof_manifest->curr_base_file_seq,
+                         "%s.%lld.%s.%s", server.aof_filename, server.repl_transfer_current_read_aof_index == 0 ?
+                                                                   server.repl_tmp_aof_manifest->curr_base_file_seq + 1
+                                                                                                                    :
+                                                                   server.repl_tmp_aof_manifest->curr_incr_file_seq + 1,
                          server.repl_transfer_current_read_aof_index == 0 ? "base" : "incr",
                          server.repl_transfer_current_read_aof_index > 0 || server.repl_transfer_base_aof_type ? "aof"
                                                                                                                : "rdb");
-                dfd = open(tmpfile, O_CREAT | O_WRONLY | O_EXCL, 0644);
+                sds path= makePath(server.aof_dirname, tmpfile);
+                dfd = open(path, O_CREAT | O_WRONLY | O_EXCL, 0644);
                 if (dfd != -1) break;
+                if (maxtries==0){
+                    serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
+                              strerror(errno));
+                    goto error;
+                }
                 sleep(1);
-            }
-            if (dfd == -1) {
-                serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
-                          strerror(errno));
-                goto error;
             }
             server.repl_transfer_tmpfile = zstrdup(tmpfile);
             server.repl_transfer_fd = dfd;
@@ -2081,7 +2088,7 @@ void readSyncAofManifest(connection *conn) {
             return;
         }
     }
-    /* we need to stop any aof rewriting. */
+    /* we need to stop any aof rewriting. TODO */
     if (server.aof_state != AOF_OFF) {
         stopAppendOnly();
     }
@@ -2095,6 +2102,9 @@ void readSyncAofManifest(connection *conn) {
         cancelReplicationHandshake(1);
         return;
     }
+    server.repl_transfer_read = 0;
+    close(server.repl_transfer_fd);
+    server.repl_transfer_fd = -1;
     if (server.repl_transfer_current_read_aof_index == 0) {
         server.repl_tmp_aof_manifest->base_aof_info->file_name = server.repl_transfer_tmpfile;
         server.repl_tmp_aof_manifest->base_aof_info->file_seq = ++server.repl_tmp_aof_manifest->curr_base_file_seq;
@@ -2103,10 +2113,11 @@ void readSyncAofManifest(connection *conn) {
         aofInfo *ai = aofInfoCreate();
         ai->file_name = server.repl_transfer_tmpfile;
         ai->file_seq = ++server.repl_tmp_aof_manifest->curr_incr_file_seq;
-        ai->file_type = AOF_FILE_TYPE_HIST;
-        listAddNodeTail(server.aof_manifest->incr_aof_list, ai);
+        ai->file_type = AOF_FILE_TYPE_INCR;
+        listAddNodeTail(server.repl_tmp_aof_manifest->incr_aof_list, ai);
     }
     server.repl_transfer_current_read_aof_index++;
+    server.repl_transfer_wait_read_aof = false;
     if (server.repl_transfer_current_read_aof_index == server.repl_transfer_aof_nums) {
         connSetReadHandler(conn, NULL);
         aofManifestFreeAndUpdate(server.repl_tmp_aof_manifest);
@@ -2123,6 +2134,7 @@ void readSyncAofManifest(connection *conn) {
                       (float) (ustime() - start) / 1000000);
         }
         /* cleanup. */
+        aofDelHistoryFiles();
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
@@ -2154,10 +2166,26 @@ void readSyncAofManifest(connection *conn) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
         return;
     }
+    return;
 
     error:
+    cleanupTmpAof();
     cancelReplicationHandshake(1);
     return;
+}
+
+void cleanupTmpAof() {
+    listNode *ln;
+    listIter li;
+    listRewind(server.repl_tmp_aof_manifest->incr_aof_list, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo *) ln->value;
+        unlink(makePath(server.aof_dirname, ai->file_name));
+    }
+    if (server.repl_tmp_aof_manifest->base_aof_info != NULL &&
+        server.repl_tmp_aof_manifest->base_aof_info->file_name != NULL) {
+        unlink(makePath(server.aof_dirname, server.repl_tmp_aof_manifest->base_aof_info->file_name));
+    }
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -3169,22 +3197,6 @@ void syncWithMaster(connection *conn) {
 
     const int use_aof = 1;
 
-    /* Prepare a suitable temp file for bulk transfer */
-    if (!useDisklessLoad()&&!use_aof) {
-        while(maxtries--) {
-            snprintf(tmpfile,256,
-                "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
-            dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
-            if (dfd != -1) break;
-            sleep(1);
-        }
-        if (dfd == -1) {
-            serverLog(LL_WARNING,"Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",strerror(errno));
-            goto error;
-        }
-        server.repl_transfer_tmpfile = zstrdup(tmpfile);
-        server.repl_transfer_fd = dfd;
-    }
 
     if (use_aof) {
         /* Setup the non blocking download of the aof manifest. */
@@ -3199,17 +3211,38 @@ void syncWithMaster(connection *conn) {
         server.repl_tmp_aof_manifest = aofManifestDup(server.aof_manifest);
 
         server.repl_transfer_aof_nums = 0;
+        server.repl_tmp_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
         listAddNodeTail(server.repl_tmp_aof_manifest->history_aof_list, server.repl_tmp_aof_manifest->base_aof_info);
         listNode *ln;
         listIter li;
         listRewind(server.repl_tmp_aof_manifest->incr_aof_list, &li);
         while ((ln = listNext(&li)) != NULL) {
             aofInfo *ai = (aofInfo *) ln->value;
+            ai->file_type = AOF_FILE_TYPE_HIST;
             listAddNodeTail(server.repl_tmp_aof_manifest->history_aof_list, ai);
         }
         server.repl_tmp_aof_manifest->incr_aof_list = listCreate();
+        server.repl_tmp_aof_manifest->base_aof_info = aofInfoCreate();
         server.repl_tmp_aof_manifest->dirty = 1;
     } else {
+        /* Prepare a suitable temp file for bulk transfer */
+        if (!useDisklessLoad()) {
+            while(maxtries--) {
+                snprintf(tmpfile,256,
+                         "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
+                dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
+                if (dfd != -1) break;
+                if (maxtries == 0) {
+                    serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
+                              strerror(errno));
+                    goto error;
+                }
+                sleep(1);
+            }
+            server.repl_transfer_tmpfile = zstrdup(tmpfile);
+            server.repl_transfer_fd = dfd;
+        }
+
         /* Setup the non blocking download of the bulk file. */
         if (connSetReadHandler(conn, readSyncBulkPayload)
             == C_ERR) {
