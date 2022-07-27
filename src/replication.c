@@ -55,6 +55,13 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
+static int connTypeOfReplication() {
+    if (server.tls_replication) {
+        return CONN_TYPE_TLS;
+    }
+
+    return CONN_TYPE_SOCKET;
+}
 
 /* Return the pointer to a string representing the slave ip:listening_port
  * pair. Mostly useful for logging, since we want to log a slave using its
@@ -2864,7 +2871,7 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
-    server.repl_transfer_s = server.tls_replication ? connCreateTLS() : connCreateSocket();
+    server.repl_transfer_s = connCreate(connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",

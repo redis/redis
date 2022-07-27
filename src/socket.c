@@ -49,7 +49,7 @@
  *    depending on the implementation (for TCP they are; for TLS they aren't).
  */
 
-ConnectionType CT_Socket;
+static ConnectionType CT_Socket;
 
 /* When a connection is created we must know its type already, but the
  * underlying socket may or may not exist:
@@ -74,7 +74,7 @@ ConnectionType CT_Socket;
  * be embedded in different structs, not just client.
  */
 
-connection *connCreateSocket() {
+static connection *connCreateSocket(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
@@ -92,7 +92,8 @@ connection *connCreateSocket() {
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
  */
-connection *connCreateAcceptedSocket(int fd) {
+static connection *connCreateAcceptedSocket(int fd, void *priv) {
+    UNUSED(priv);
     connection *conn = connCreateSocket();
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
@@ -348,7 +349,7 @@ static int connSocketGetType(connection *conn) {
     return CONN_TYPE_SOCKET;
 }
 
-ConnectionType CT_Socket = {
+static ConnectionType CT_Socket = {
     /* connection type */
     .get_type = connSocketGetType,
 
@@ -362,6 +363,8 @@ ConnectionType CT_Socket = {
     .addr = connSocketAddr,
 
     /* create/close connection */
+    .conn_create = connCreateSocket,
+    .conn_create_accepted = connCreateAcceptedSocket,
     .close = connSocketClose,
 
     /* connect & accept */

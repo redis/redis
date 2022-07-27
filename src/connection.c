@@ -152,3 +152,18 @@ void *connTypeGetClientCtx(int type) {
 
     return NULL;
 }
+connection *connCreate(int type) {
+    ConnectionType *ct = connectionByType(type);
+
+    serverAssert(ct && ct->conn_create);
+
+    return ct->conn_create();
+}
+
+connection *connCreateAccepted(int type, int fd, void *priv) {
+    ConnectionType *ct = connectionByType(type);
+
+    serverAssert(ct && ct->conn_create_accepted);
+
+    return ct->conn_create_accepted(fd, priv);
+}

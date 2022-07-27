@@ -74,6 +74,8 @@ typedef struct ConnectionType {
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
 
     /* create/close connection */
+    connection* (*conn_create)(void);
+    connection* (*conn_create_accepted)(int fd, void *priv);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -290,12 +292,6 @@ static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, in
     return connAddr(conn, ip, ip_len, port, 0);
 }
 
-connection *connCreateSocket();
-connection *connCreateAcceptedSocket(int fd);
-
-connection *connCreateTLS();
-connection *connCreateAcceptedTLS(int fd, int require_auth);
-
 static inline int connGetState(connection *conn) {
     return conn->state;
 }
@@ -357,6 +353,16 @@ int connTypeInitialize();
 
 /* Register a connection type into redis connection framework */
 int connTypeRegister(ConnectionType *ct);
+
+/* Lookup a connection type by index */
+ConnectionType *connectionByType(int type);
+
+/* Create a connection of specified type */
+connection *connCreate(int type);
+
+/* Create a accepted connection of specified type.
+ * @priv is connection type specified argument */
+connection *connCreateAccepted(int type, int fd, void *priv);
 
 /* Configure a connection type. A typical case is to configure TLS.
  * @priv is connection type specified,

@@ -119,6 +119,14 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
+static int connTypeOfCluster() {
+    if (server.tls_cluster) {
+        return CONN_TYPE_TLS;
+    }
+
+    return CONN_TYPE_SOCKET;
+}
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -865,6 +873,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
+    int require_auth = TLS_CLIENT_AUTH_YES;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);
@@ -882,8 +891,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-        connection *conn = server.tls_cluster ?
-            connCreateAcceptedTLS(cfd, TLS_CLIENT_AUTH_YES) : connCreateAcceptedSocket(cfd);
+        connection *conn = connCreateAccepted(connTypeOfCluster(), cfd, &require_auth);
 
         /* Make sure connection is not in an error state */
         if (connGetState(conn) != CONN_STATE_ACCEPTING) {
@@ -3969,7 +3977,7 @@ static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_
 
     if (node->link == NULL) {
         clusterLink *link = createClusterLink(node);
-        link->conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+        link->conn = connCreate(connTypeOfCluster());
         connSetPrivateData(link->conn, link);
         if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                     clusterLinkConnectHandler) == -1) {
@@ -6175,8 +6183,8 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
 
-    /* Create the socket */
-    conn = server.tls_cluster ? connCreateTLS() : connCreateSocket();
+    /* Create the connection */
+    conn = connCreate(connTypeOfCluster());
     if (connBlockingConnect(conn, host->ptr, atoi(port->ptr), timeout)
             != C_OK) {
         addReplyError(c,"-IOERR error or timeout connecting to the client");
