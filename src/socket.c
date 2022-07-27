@@ -379,6 +379,10 @@ ConnectionType CT_Socket = {
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
     .sync_readline = connSocketSyncReadLine,
+
+    /* pending data */
+    .has_pending_data = NULL,
+    .process_pending_data = NULL,
 };
 
 int connBlock(connection *conn) {

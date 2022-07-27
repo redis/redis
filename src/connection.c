@@ -100,3 +100,35 @@ int connTypeConfigure(int type, void *priv, int reconfigure) {
 
     return C_ERR;
 }
+
+/* walk all the connection types until has pending data */
+int connTypeHasPendingData(void) {
+    ConnectionType *ct;
+    int type;
+    int ret = 0;
+
+    for (type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (ct && ct->has_pending_data && (ret = ct->has_pending_data())) {
+            return ret;
+        }
+    }
+
+    return ret;
+}
+
+/* walk all the connection types and process pending data for each connection type */
+int connTypeProcessPendingData(void) {
+    ConnectionType *ct;
+    int type;
+    int ret = 0;
+
+    for (type = 0; type < CONN_TYPE_MAX; type++) {
+        ct = connTypes[type];
+        if (ct && ct->process_pending_data) {
+            ret += ct->process_pending_data();
+        }
+    }
+
+    return ret;
+}

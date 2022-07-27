@@ -91,6 +91,10 @@ typedef struct ConnectionType {
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
+
+    /* pending data */
+    int (*has_pending_data)(void);
+    int (*process_pending_data)(void);
 } ConnectionType;
 
 struct connection {
@@ -332,8 +336,6 @@ int connRecvTimeout(connection *conn, long long ms);
 
 /* Helpers for tls special considerations */
 sds connTLSGetPeerCert(connection *conn);
-int tlsHasPendingData();
-int tlsProcessPendingData();
 
 /* Initialize the redis connection framework */
 int connTypeInitialize();
@@ -351,6 +353,12 @@ void connTypeCleanup(int type);
 
 /* Walk all the connection type, and cleanup them all if possible */
 void connTypeCleanupAll();
+
+/* Test all the connection type has pending data or not. */
+int connTypeHasPendingData(void);
+
+/* walk all the connection types and process pending data for each connection type */
+int connTypeProcessPendingData(void);
 
 int RedisRegisterConnectionTypeSocket();
 int RedisRegisterConnectionTypeTLS();
