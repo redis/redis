@@ -30,10 +30,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _DEFAULT_SOURCE /* For usleep */
 
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 ustime_t cached_time = 0;
 
@@ -63,6 +65,7 @@ static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const cha
 
     if (cached_time) {
         RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
+        usleep(1);
         RedisModule_Assert(cached_time != RedisModule_Microseconds());
     }
 
