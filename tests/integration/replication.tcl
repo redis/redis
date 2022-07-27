@@ -1328,7 +1328,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'ping', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1346,7 +1345,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'xinfo|help', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1367,7 +1365,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica can't interact with the keyspace*" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
@@ -1386,7 +1383,6 @@ start_server {tags {"repl" "external:skip"}} {
         verify_log_message 0 "*Replica generated a reply to command 'slowlog|get', disconnecting it: *" $lines
 
         $rd close
-        catch {exec kill -9 [get_child_pid 0]}
         waitForBgsave r
     }
 
