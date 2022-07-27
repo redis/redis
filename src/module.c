@@ -8756,14 +8756,14 @@ int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
-sds addACLsToUser(user *u, sds username, sds *argv, int argc);
-
 RedisModuleString * RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleUser *user, const char* acl) {
+    serverAssert(user != NULL);
+
     sds sacl = sdsnew(acl);
     int argc;
     sds *argv = sdssplitargs(sacl, &argc);
 
-    sds error = addACLsToUser(user->user, NULL, argv, argc);
+    sds error = ACLStringSetUser(user->user, NULL, argv, argc);
 
     sdsfreesplitres(argv, argc);
     sdsfree(sacl);

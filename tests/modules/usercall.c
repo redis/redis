@@ -1,4 +1,4 @@
-#include "../../src/redismodule.h"
+#include "redismodule.h"
 #include <stdio.h>
 #include <strings.h>
 
