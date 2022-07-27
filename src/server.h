@@ -1516,7 +1516,7 @@ struct redisServer {
     unsigned int unixsocketperm; /* UNIX socket permission (see mode_t) */
     socketFds ipfd;             /* TCP socket file descriptors */
     socketFds tlsfd;            /* TLS socket file descriptors */
-    int sofd;                   /* Unix socket file descriptor */
+    socketFds sofd;             /* Unix socket file descriptor */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
     socketFds cfd;              /* Cluster bus listening socket */
     list *clients;              /* List of active clients */

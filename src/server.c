@@ -1864,7 +1864,7 @@ void initServerConfig(void) {
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
     server.ipfd.count = 0;
     server.tlsfd.count = 0;
-    server.sofd = -1;
+    server.sofd.count = 0;
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
     server.loading = 0;
@@ -2487,18 +2487,19 @@ void initServer(void) {
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket,
+        server.sofd.fd[0] = anetUnixServer(server.neterr,server.unixsocket,
             (mode_t)server.unixsocketperm, server.tcp_backlog);
-        if (server.sofd == ANET_ERR) {
+        if (server.sofd.fd[0] == ANET_ERR) {
             serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
             exit(1);
         }
-        anetNonBlock(NULL,server.sofd);
-        anetCloexec(server.sofd);
+        anetNonBlock(NULL,server.sofd.fd[0]);
+        anetCloexec(server.sofd.fd[0]);
+        server.sofd.count = 1;
     }
 
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd < 0) {
+    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd.count == 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -2591,8 +2592,9 @@ void initServer(void) {
     if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
-    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
-        acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
+    if (createSocketAcceptHandler(&server.sofd, acceptUnixHandler) != C_OK) {
+        serverPanic("Unrecoverable error creating server.sofd file event.");
+    }
 
 
     /* Register a readable event for the pipe used to awake the event loop
@@ -4067,7 +4069,7 @@ void closeListeningSockets(int unlink_unix_socket) {
 
     for (j = 0; j < server.ipfd.count; j++) close(server.ipfd.fd[j]);
     for (j = 0; j < server.tlsfd.count; j++) close(server.tlsfd.fd[j]);
-    if (server.sofd != -1) close(server.sofd);
+    for (j = 0; j < server.sofd.count; j++) close(server.sofd.fd[j]);
     if (server.cluster_enabled)
         for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
@@ -7135,7 +7137,7 @@ int main(int argc, char **argv) {
         }
         if (server.ipfd.count > 0 || server.tlsfd.count > 0)
             serverLog(LL_NOTICE,"Ready to accept connections");
-        if (server.sofd > 0)
+        if (server.sofd.count > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
