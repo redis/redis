@@ -56,6 +56,9 @@ int connTypeInitialize() {
     /* currently socket connection type is necessary  */
     serverAssert(RedisRegisterConnectionTypeSocket() == C_OK);
 
+    /* currently unix socket connection type is necessary  */
+    serverAssert(RedisRegisterConnectionTypeUnix() == C_OK);
+
     /* may fail if without BUILD_TLS=yes */
     RedisRegisterConnectionTypeTLS();
 

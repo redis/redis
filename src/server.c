@@ -2592,7 +2592,7 @@ void initServer(void) {
     if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.sofd, acceptUnixHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.sofd, connAcceptHandler(CONN_TYPE_UNIX)) != C_OK) {
         serverPanic("Unrecoverable error creating server.sofd file event.");
     }
 

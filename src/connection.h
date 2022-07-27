@@ -58,8 +58,9 @@ typedef enum {
 #define CONN_FLAG_WRITE_BARRIER     (1<<1)      /* Write barrier requested */
 
 #define CONN_TYPE_SOCKET            0
-#define CONN_TYPE_TLS               1
-#define CONN_TYPE_MAX               2
+#define CONN_TYPE_UNIX              1
+#define CONN_TYPE_TLS               2
+#define CONN_TYPE_MAX               3
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
 
@@ -394,6 +395,7 @@ static inline aeFileProc *connAcceptHandler(int type) {
 }
 
 int RedisRegisterConnectionTypeSocket();
+int RedisRegisterConnectionTypeUnix();
 int RedisRegisterConnectionTypeTLS();
 
 #endif  /* __REDIS_CONNECTION_H */
