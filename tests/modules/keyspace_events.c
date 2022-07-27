@@ -95,6 +95,12 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
     REDISMODULE_NOT_USED(event);
     REDISMODULE_NOT_USED(key);
 
+    int flags = RedisModule_GetContextFlags(ctx);
+    if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) {
+        return REDISMODULE_OK; // ignore the event on replica
+    }
+
+
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
     RedisModule_FreeCallReply(rep);
 

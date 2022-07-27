@@ -3468,23 +3468,11 @@ void call(client *c, int flags) {
     /* Propagate the command into the AOF and replication link.
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
-     * Also, module commands take care of themselves
-     *
-     * Notice, we only propagate if the command has CMD_WRITE or CMD_MAY_REPLICATE
-     * flag enable, without this we might end up replicating a read command.
-     * Consider the following example:
-     * 1. Module register to a key miss event and perform a write command (using RM_Call).
-     * 2. The write command causes the dirte counter to increase.
-     * 3. When checking here if we should replicate the command, we will replicate it because
-     *    the dirty counter increased.
-     *
-     * Basically it means that the dirty counter is only relevant if the command is marked
-     * with either CMD_WRITE or CMD_MAY_REPLICATE. */
+     * Also, module commands take care of themselves */
     if (flags & CMD_CALL_PROPAGATE &&
         (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP &&
         c->cmd->proc != execCommand &&
-        !(c->cmd->flags & CMD_MODULE) &&
-        ((c->cmd->flags & CMD_WRITE) || (c->cmd->flags & CMD_MAY_REPLICATE)))
+        !(c->cmd->flags & CMD_MODULE))
     {
         int propagate_flags = PROPAGATE_NONE;
 
@@ -3510,7 +3498,12 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            serverAssert(cmd_prop_index >= 0); /* if we got here we must have a placeholder for the command */
+            /* if we got here without a placeholder, the command will be added to the end
+             * of the replication buffer, this can only happened on a read that causes a key
+             * miss event which causes the module to perform a write command using RM_Call.
+             * In such case we will propagate a read command (or a write command that has no effect
+             * and should not have been propagated). This behavior is wrong and module writer is advised
+             * not to perform any write commands on key miss event. */
             alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
     }
 

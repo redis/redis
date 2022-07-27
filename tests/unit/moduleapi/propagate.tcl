@@ -646,12 +646,15 @@ tags "modules" {
                         fail "Failed to wait for set to be replicated"
                     }
 
+                    # Test is checking a wrong!!! behavior that causes a read command to be replicated to replica/aof.
+                    # We keep the test to verify that such a wrong behavior does not cause any crashes.
                     assert_replication_stream $repl {
                         {select *}
                         {flushall}
                         {multi}
                         {incr missed}
                         {incr notifications}
+                        {get unexisting_key}
                         {exec}
                     }
                     
