@@ -43,6 +43,31 @@ static int connUnixAddr(connection *conn, char *ip, size_t ip_len, int *port, in
     return connectionTypeTcp()->addr(conn, ip, ip_len, port, remote);
 }
 
+static int connUnixListen(connListener *listener) {
+    int fd;
+    mode_t *perm = (mode_t *)listener->priv;
+
+    if (listener->bindaddr_count == 0)
+        return C_OK;
+
+    /* currently listener->bindaddr_count is always 1, we still use a loop here in case Redis supports multi Unix socket in the future */
+    for (int j = 0; j < listener->bindaddr_count; j++) {
+        char *addr = listener->bindaddr[j];
+
+        unlink(addr); /* don't care if this fails */
+        fd = anetUnixServer(server.neterr, addr, *perm, server.tcp_backlog);
+        if (fd == ANET_ERR) {
+            serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
+            exit(1);
+        }
+        anetNonBlock(NULL, fd);
+        anetCloexec(fd);
+        listener->fd[listener->count++] = fd;
+    }
+
+    return C_OK;
+}
+
 static connection *connCreateUnix(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Unix;
@@ -135,6 +160,7 @@ static ConnectionType CT_Unix = {
     .ae_handler = connUnixEventHandler,
     .accept_handler = connUnixAcceptHandler,
     .addr = connUnixAddr,
+    .listen = connUnixListen,
 
     /* create/close connection */
     .conn_create = connCreateUnix,

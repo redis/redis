@@ -1376,11 +1376,6 @@ struct malloc_stats {
     size_t allocator_resident;
 };
 
-typedef struct socketFds {
-    int fd[CONFIG_BINDADDR_MAX];
-    int count;
-} socketFds;
-
 /*-----------------------------------------------------------------------------
  * TLS Context Configuration
  *----------------------------------------------------------------------------*/
@@ -1514,11 +1509,9 @@ struct redisServer {
     char *bind_source_addr;     /* Source address to bind on for outgoing connections */
     char *unixsocket;           /* UNIX socket path */
     unsigned int unixsocketperm; /* UNIX socket permission (see mode_t) */
-    socketFds ipfd;             /* TCP socket file descriptors */
-    socketFds tlsfd;            /* TLS socket file descriptors */
-    socketFds sofd;             /* Unix socket file descriptor */
+    connListener listeners[CONN_TYPE_MAX]; /* TCP/Unix/TLS even more types */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
-    socketFds cfd;              /* Cluster bus listening socket */
+    connListener clistener;     /* Cluster bus listener */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
@@ -2525,7 +2518,7 @@ char *getClientTypeName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
-int listenToPort(int port, socketFds *fds);
+int listenToPort(connListener *fds);
 void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
 void unpauseClients(pause_purpose purpose);
 int areClientsPaused(void);
@@ -2891,9 +2884,10 @@ int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
-int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler);
-int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler);
-int changeBindAddr(void);
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
+connListener *listenerByType(const char *typename);
+int changeListener(connListener *listener);
+void closeListener(connListener *listener);
 struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_name);
 struct redisCommand *lookupCommand(robj **argv, int argc);
 struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s);

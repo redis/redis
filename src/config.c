@@ -2430,7 +2430,14 @@ static int updateHZ(const char **err) {
 }
 
 static int updatePort(const char **err) {
-    if (changeListenPort(server.port, &server.ipfd, connAcceptHandler(connectionTypeTcp())) == C_ERR) {
+    connListener *listener = listenerByType(CONN_TYPE_SOCKET);
+
+    serverAssert(listener != NULL);
+    listener->bindaddr = server.bindaddr;
+    listener->bindaddr_count = server.bindaddr_count;
+    listener->port = server.port;
+    listener->ct = connectionByType(CONN_TYPE_SOCKET);
+    if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }
@@ -2545,10 +2552,34 @@ int updateRequirePass(const char **err) {
     return 1;
 }
 
+/* applyBind affects both TCP and TLS (if enabled) together */
 static int applyBind(const char **err) {
-    if (changeBindAddr() == C_ERR) {
+    connListener *tcp_listener = listenerByType(CONN_TYPE_SOCKET);
+    connListener *tls_listener = listenerByType(CONN_TYPE_TLS);
+
+    serverAssert(tcp_listener != NULL);
+    tcp_listener->bindaddr = server.bindaddr;
+    tcp_listener->bindaddr_count = server.bindaddr_count;
+    tcp_listener->port = server.port;
+    tcp_listener->ct = connectionByType(CONN_TYPE_SOCKET);
+    if (changeListener(tcp_listener) == C_ERR) {
         *err = "Failed to bind to specified addresses.";
+        if (tls_listener)
+            closeListener(tls_listener); /* failed with TLS together */
         return 0;
+    }
+
+    if (server.tls_port != 0) {
+        serverAssert(tls_listener != NULL);
+        tls_listener->bindaddr = server.bindaddr;
+        tls_listener->bindaddr_count = server.bindaddr_count;
+        tls_listener->port = server.tls_port;
+        tls_listener->ct = connectionByType(CONN_TYPE_TLS);
+        if (changeListener(tls_listener) == C_ERR) {
+            *err = "Failed to bind to specified addresses.";
+            closeListener(tcp_listener); /* failed with TCP together */
+            return 0;
+        }
     }
 
     return 1;
@@ -2591,7 +2622,13 @@ static int applyTLSPort(const char **err) {
         return 0;
     }
 
-    if (changeListenPort(server.tls_port, &server.tlsfd, connAcceptHandler(connectionTypeTls())) == C_ERR) {
+    connListener *listener = listenerByType(CONN_TYPE_TLS);
+    serverAssert(listener != NULL);
+    listener->bindaddr = server.bindaddr;
+    listener->bindaddr_count = server.bindaddr_count;
+    listener->port = server.tls_port;
+    listener->ct = connectionByType(CONN_TYPE_TLS);
+    if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }

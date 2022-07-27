@@ -329,6 +329,10 @@ static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, 
     return C_ERR;
 }
 
+static int connSocketListen(connListener *listener) {
+    return listenToPort(listener);
+}
+
 static int connSocketBlockingConnect(connection *conn, const char *addr, int port, long long timeout) {
     int fd = anetTcpNonBlockConnect(NULL,addr,port);
     if (fd == -1) {
@@ -382,6 +386,7 @@ static ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .accept_handler = connSocketAcceptHandler,
     .addr = connSocketAddr,
+    .listen = connSocketListen,
 
     /* create/close connection */
     .conn_create = connCreateSocket,

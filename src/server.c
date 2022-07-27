@@ -1862,9 +1862,7 @@ void initServerConfig(void) {
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
-    server.ipfd.count = 0;
-    server.tlsfd.count = 0;
-    server.sofd.count = 0;
+    memset(server.listeners, 0x00, sizeof(server.listeners));
     server.active_expire_enabled = 1;
     server.skip_checksum_validation = 0;
     server.loading = 0;
@@ -2232,7 +2230,7 @@ void checkTcpBacklogSettings(void) {
 #endif
 }
 
-void closeSocketListeners(socketFds *sfd) {
+void closeListener(connListener *sfd) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
@@ -2247,11 +2245,11 @@ void closeSocketListeners(socketFds *sfd) {
 
 /* Create an event handler for accepting new connections in TCP or TLS domain sockets.
  * This works atomically for all socket fds */
-int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler) {
     int j;
 
     for (j = 0; j < sfd->count; j++) {
-        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,NULL) == AE_ERR) {
+        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler,sfd) == AE_ERR) {
             /* Rollback */
             for (j = j-1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
             return C_ERR;
@@ -2264,7 +2262,8 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * binding the addresses specified in the Redis server configuration.
  *
  * The listening file descriptors are stored in the integer array 'fds'
- * and their number is set in '*count'.
+ * and their number is set in '*count'. Actually @sfd should be 'listener',
+ * for the historical reasons, let's keep 'sfd' here.
  *
  * The addresses to bind are specified in the global server.bindaddr array
  * and their number is server.bindaddr_count. If the server configuration
@@ -2278,14 +2277,15 @@ int createSocketAcceptHandler(socketFds *sfd, aeFileProc *accept_handler) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
-int listenToPort(int port, socketFds *sfd) {
+int listenToPort(connListener *sfd) {
     int j;
-    char **bindaddr = server.bindaddr;
+    int port = sfd->port;
+    char **bindaddr = sfd->bindaddr;
 
     /* If we have no bind address, we don't listen on a TCP socket */
-    if (server.bindaddr_count == 0) return C_OK;
+    if (sfd->bindaddr_count == 0) return C_OK;
 
-    for (j = 0; j < server.bindaddr_count; j++) {
+    for (j = 0; j < sfd->bindaddr_count; j++) {
         char* addr = bindaddr[j];
         int optional = *addr == '-';
         if (optional) addr++;
@@ -2309,7 +2309,7 @@ int listenToPort(int port, socketFds *sfd) {
                 continue;
 
             /* Rollback successful listens before exiting */
-            closeSocketListeners(sfd);
+            closeListener(sfd);
             return C_ERR;
         }
         if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
@@ -2470,38 +2470,38 @@ void initServer(void) {
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    /* Open the TCP listening socket for the user commands. */
-    if (server.port != 0 &&
-        listenToPort(server.port,&server.ipfd) == C_ERR) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (TCP), aborting.", server.port);
-        exit(1);
+    /* Setup listeners from server config for TCP/TLS/Unix */
+    int conn_index;
+    connListener *listener;
+    if (server.port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_SOCKET);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_SOCKET);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.port;
+        listener->ct = connectionByType(CONN_TYPE_SOCKET);
     }
-    if (server.tls_port != 0 &&
-        listenToPort(server.tls_port,&server.tlsfd) == C_ERR) {
-        /* Note: the following log text is matched by the test suite. */
-        serverLog(LL_WARNING, "Failed listening on port %u (TLS), aborting.", server.tls_port);
-        exit(1);
+    if (server.tls_port != 0) {
+        conn_index = connectionIndexByType(CONN_TYPE_TLS);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_TLS);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = server.bindaddr;
+        listener->bindaddr_count = server.bindaddr_count;
+        listener->port = server.tls_port;
+        listener->ct = connectionByType(CONN_TYPE_TLS);
     }
-
-    /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
-        unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd.fd[0] = anetUnixServer(server.neterr,server.unixsocket,
-            (mode_t)server.unixsocketperm, server.tcp_backlog);
-        if (server.sofd.fd[0] == ANET_ERR) {
-            serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
-            exit(1);
-        }
-        anetNonBlock(NULL,server.sofd.fd[0]);
-        anetCloexec(server.sofd.fd[0]);
-        server.sofd.count = 1;
-    }
-
-    /* Abort if there are no listening sockets at all. */
-    if (server.ipfd.count == 0 && server.tlsfd.count == 0 && server.sofd.count == 0) {
-        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
-        exit(1);
+        conn_index = connectionIndexByType(CONN_TYPE_UNIX);
+        if (conn_index < 0)
+            serverPanic("Failed finding connection listener of %s", CONN_TYPE_UNIX);
+        listener = &server.listeners[conn_index];
+        listener->bindaddr = &server.unixsocket;
+        listener->bindaddr_count = 1;
+        listener->ct = connectionByType(CONN_TYPE_UNIX);
+        listener->priv = &server.unixsocketperm; /* Unix socket specified */
     }
 
     /* Create the Redis databases, and initialize other internal state. */
@@ -2584,18 +2584,28 @@ void initServer(void) {
         exit(1);
     }
 
-    /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
-    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(connectionTypeTcp())) != C_OK) {
-        serverPanic("Unrecoverable error creating TCP socket accept handler.");
-    }
-    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(connectionTypeTls())) != C_OK) {
-        serverPanic("Unrecoverable error creating TLS socket accept handler.");
-    }
-    if (createSocketAcceptHandler(&server.sofd, connAcceptHandler(connectionTypeUnix())) != C_OK) {
-        serverPanic("Unrecoverable error creating server.sofd file event.");
+    /* create all the configured listener, and add handler to start to accept */
+    int listen_fds = 0;
+    for (j = 0; j < CONN_TYPE_MAX; j++) {
+        listener = &server.listeners[j];
+        if (listener->ct == NULL)
+            continue;
+
+        if (connListen(listener) == C_ERR) {
+            serverLog(LL_WARNING, "Failed listening on port %u (%s), aborting.", listener->port, listener->ct->get_type(NULL));
+            exit(1);
+        }
+
+        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK)
+            serverPanic("Unrecoverable error creating %s listener accept handler.", listener->ct->get_type(NULL));
+
+       listen_fds += listener->count;
     }
 
+    if (listen_fds == 0) {
+        serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
+        exit(1);
+    }
 
     /* Register a readable event for the pipe used to awake the event loop
      * from module threads. */
@@ -4067,11 +4077,16 @@ void incrementErrorCount(const char *fullerr, size_t namelen) {
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
-    for (j = 0; j < server.ipfd.count; j++) close(server.ipfd.fd[j]);
-    for (j = 0; j < server.tlsfd.count; j++) close(server.tlsfd.fd[j]);
-    for (j = 0; j < server.sofd.count; j++) close(server.sofd.fd[j]);
+    for (int i = 0; i < CONN_TYPE_MAX; i++) {
+        connListener *listener = &server.listeners[i];
+        if (listener->ct == NULL)
+            continue;
+
+        for (j = 0; j < listener->count; j++) close(listener->fd[j]);
+    }
+
     if (server.cluster_enabled)
-        for (j = 0; j < server.cfd.count; j++) close(server.cfd.fd[j]);
+        for (j = 0; j < server.clistener.count; j++) close(server.clistener.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         if (unlink(server.unixsocket) != 0)
@@ -6266,60 +6281,37 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-int changeBindAddr(void) {
-    /* Close old TCP and TLS servers */
-    closeSocketListeners(&server.ipfd);
-    closeSocketListeners(&server.tlsfd);
+/* Get the server listener by type name */
+connListener *listenerByType(const char *typename) {
+    int conn_index;
 
-    /* Bind to the new port */
-    if ((server.port != 0 && listenToPort(server.port, &server.ipfd) != C_OK) ||
-        (server.tls_port != 0 && listenToPort(server.tls_port, &server.tlsfd) != C_OK)) {
-        serverLog(LL_WARNING, "Failed to bind");
+    conn_index = connectionIndexByType(typename);
+    if (conn_index < 0)
+        return NULL;
 
-        closeSocketListeners(&server.ipfd);
-        closeSocketListeners(&server.tlsfd);
-        return C_ERR;
-    }
-
-    /* Create TCP and TLS event handlers */
-    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(connectionTypeTcp())) != C_OK) {
-        serverPanic("Unrecoverable error creating TCP socket accept handler.");
-    }
-    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(connectionTypeTls())) != C_OK) {
-        serverPanic("Unrecoverable error creating TLS socket accept handler.");
-    }
-
-    if (server.set_proc_title) redisSetProcTitle(NULL);
-
-    return C_OK;
+    return &server.listeners[conn_index];
 }
 
-int changeListenPort(int port, socketFds *sfd, aeFileProc *accept_handler) {
-    socketFds new_sfd = {{0}};
-
+/* Close original listener, re-create a new listener from the updated bind address & port */
+int changeListener(connListener *listener) {
     /* Close old servers */
-    closeSocketListeners(sfd);
+    closeListener(listener);
 
     /* Just close the server if port disabled */
-    if (port == 0) {
+    if (listener->port == 0) {
         if (server.set_proc_title) redisSetProcTitle(NULL);
         return C_OK;
     }
 
-    /* Bind to the new port */
-    if (listenToPort(port, &new_sfd) != C_OK) {
+    /* Re-create listener */
+    if (connListen(listener) != C_OK) {
         return C_ERR;
     }
 
     /* Create event handlers */
-    if (createSocketAcceptHandler(&new_sfd, accept_handler) != C_OK) {
-        closeSocketListeners(&new_sfd);
-        return C_ERR;
+    if (createSocketAcceptHandler(listener, listener->ct->accept_handler) != C_OK) {
+        serverPanic("Unrecoverable error creating %s accept handler.", listener->ct->get_type(NULL));
     }
-
-    /* Copy new descriptors */
-    sfd->count = new_sfd.count;
-    memcpy(sfd->fd, new_sfd.fd, sizeof(new_sfd.fd));
 
     if (server.set_proc_title) redisSetProcTitle(NULL);
 
@@ -7135,10 +7127,15 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd.count > 0 || server.tlsfd.count > 0)
-            serverLog(LL_NOTICE,"Ready to accept connections");
-        if (server.sofd.count > 0)
-            serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+
+        for (j = 0; j < CONN_TYPE_MAX; j++) {
+            connListener *listener = &server.listeners[j];
+            if (listener->ct == NULL)
+                continue;
+
+            serverLog(LL_NOTICE,"Ready to accept connections %s", listener->ct->get_type(NULL));
+        }
+
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             if (!server.masterhost) {
                 redisCommunicateSystemd("STATUS=Ready to accept connections\n");

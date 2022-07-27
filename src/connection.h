@@ -44,6 +44,7 @@
 
 struct aeEventLoop;
 typedef struct connection connection;
+typedef struct connListener connListener;
 
 typedef enum {
     CONN_STATE_NONE = 0,
@@ -77,6 +78,7 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     aeFileProc *accept_handler;
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
+    int (*listen)(connListener *listener);
 
     /* create/close connection */
     connection* (*conn_create)(void);
@@ -120,6 +122,19 @@ struct connection {
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
     int fd;
+};
+
+#define CONFIG_BINDADDR_MAX 16
+
+/* Setup a listener by a connection type */
+struct connListener {
+    int fd[CONFIG_BINDADDR_MAX];
+    int count;
+    char **bindaddr;
+    int bindaddr_count;
+    int port;
+    ConnectionType *ct;
+    void *priv; /* used by connection type specified data */
 };
 
 /* The connection module does not deal with listening and accepting sockets,
@@ -405,6 +420,11 @@ int connTypeHasPendingData(void);
 
 /* walk all the connection types and process pending data for each connection type */
 int connTypeProcessPendingData(void);
+
+/* Listen on an initialized listener */
+static inline int connListen(connListener *listener) {
+    return listener->ct->listen(listener);
+}
 
 /* Get accept_handler of a connection type */
 static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {

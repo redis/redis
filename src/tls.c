@@ -743,6 +743,10 @@ static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int
     return anetFdToString(conn->fd, ip, ip_len, port, remote);
 }
 
+static int connTLSListen(connListener *listener) {
+    return listenToPort(listener);
+}
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -1104,6 +1108,7 @@ static ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept_handler = tlsAcceptHandler,
     .addr = connTLSAddr,
+    .listen = connTLSListen,
 
     /* create/close connection */
     .conn_create = connCreateTLS,
