@@ -2586,10 +2586,10 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
     if (createSocketAcceptHandler(&server.sofd, acceptUnixHandler) != C_OK) {
@@ -6282,10 +6282,10 @@ int changeBindAddr(void) {
     }
 
     /* Create TCP and TLS event handlers */
-    if (createSocketAcceptHandler(&server.ipfd, acceptTcpHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) != C_OK) {
         serverPanic("Unrecoverable error creating TCP socket accept handler.");
     }
-    if (createSocketAcceptHandler(&server.tlsfd, acceptTLSHandler) != C_OK) {
+    if (createSocketAcceptHandler(&server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) != C_OK) {
         serverPanic("Unrecoverable error creating TLS socket accept handler.");
     }
 

@@ -36,8 +36,11 @@
 #include <string.h>
 #include <sys/uio.h>
 
+#include "ae.h"
+
 #define CONN_INFO_LEN   32
 #define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
+#define MAX_ACCEPTS_PER_CALL 1000
 
 struct aeEventLoop;
 typedef struct connection connection;
@@ -71,6 +74,7 @@ typedef struct ConnectionType {
 
     /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    aeFileProc *accept_handler;
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
 
     /* create/close connection */
@@ -380,6 +384,14 @@ int connTypeHasPendingData(void);
 
 /* walk all the connection types and process pending data for each connection type */
 int connTypeProcessPendingData(void);
+
+/* Get accept_handler of a connection type */
+static inline aeFileProc *connAcceptHandler(int type) {
+    ConnectionType *ct = connectionByType(type);
+    if (ct)
+        return ct->accept_handler;
+    return NULL;
+}
 
 int RedisRegisterConnectionTypeSocket();
 int RedisRegisterConnectionTypeTLS();

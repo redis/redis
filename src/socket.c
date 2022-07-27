@@ -301,6 +301,26 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     }
 }
 
+static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    char cip[NET_IP_STR_LEN];
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                serverLog(LL_WARNING,
+                    "Accepting client connection: %s", server.neterr);
+            return;
+        }
+        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        acceptCommonHandler(connCreateAcceptedSocket(cfd, NULL),0,cip);
+    }
+}
+
 static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
     if (anetFdToString(conn->fd, ip, ip_len, port, remote) == 0)
         return C_OK;
@@ -360,6 +380,7 @@ static ConnectionType CT_Socket = {
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = connSocketEventHandler,
+    .accept_handler = connSocketAcceptHandler,
     .addr = connSocketAddr,
 
     /* create/close connection */

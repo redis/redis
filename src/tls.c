@@ -719,6 +719,26 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
     tlsHandleEvent(conn, mask);
 }
 
+static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    char cip[NET_IP_STR_LEN];
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                serverLog(LL_WARNING,
+                    "Accepting client connection: %s", server.neterr);
+            return;
+        }
+        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        acceptCommonHandler(connCreateAcceptedTLS(cfd, &server.tls_auth_clients),0,cip);
+    }
+}
+
 static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
     return anetFdToString(conn->fd, ip, ip_len, port, remote);
 }
@@ -1082,6 +1102,7 @@ static ConnectionType CT_TLS = {
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = tlsEventHandler,
+    .accept_handler = tlsAcceptHandler,
     .addr = connTLSAddr,
 
     /* create/close connection */

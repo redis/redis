@@ -2430,7 +2430,7 @@ static int updateHZ(const char **err) {
 }
 
 static int updatePort(const char **err) {
-    if (changeListenPort(server.port, &server.ipfd, acceptTcpHandler) == C_ERR) {
+    if (changeListenPort(server.port, &server.ipfd, connAcceptHandler(CONN_TYPE_SOCKET)) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }
@@ -2591,7 +2591,7 @@ static int applyTLSPort(const char **err) {
         return 0;
     }
 
-    if (changeListenPort(server.tls_port, &server.tlsfd, acceptTLSHandler) == C_ERR) {
+    if (changeListenPort(server.tls_port, &server.tlsfd, connAcceptHandler(CONN_TYPE_TLS)) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
     }

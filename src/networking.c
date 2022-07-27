@@ -1255,8 +1255,7 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
-#define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(connection *conn, int flags, char *ip) {
+void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
     char conninfo[100];
     UNUSED(ip);
@@ -1325,46 +1324,6 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
                     connGetLastError(conn), connGetInfo(conn, conninfo, sizeof(conninfo)));
         freeClient(connGetPrivateData(conn));
         return;
-    }
-}
-
-void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAccepted(CONN_TYPE_SOCKET, cfd, NULL),0,cip);
-    }
-}
-
-void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
-    char cip[NET_IP_STR_LEN];
-    UNUSED(el);
-    UNUSED(mask);
-    UNUSED(privdata);
-
-    while(max--) {
-        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-        if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
-                serverLog(LL_WARNING,
-                    "Accepting client connection: %s", server.neterr);
-            return;
-        }
-        serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAccepted(CONN_TYPE_TLS, cfd, &server.tls_auth_clients),0,cip);
     }
 }
 
