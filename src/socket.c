@@ -118,26 +118,6 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
     return C_OK;
 }
 
-/* Returns true if a write handler is registered */
-int connHasWriteHandler(connection *conn) {
-    return conn->write_handler != NULL;
-}
-
-/* Returns true if a read handler is registered */
-int connHasReadHandler(connection *conn) {
-    return conn->read_handler != NULL;
-}
-
-/* Associate a private data pointer with the connection */
-void connSetPrivateData(connection *conn, void *data) {
-    conn->private_data = data;
-}
-
-/* Get the associated private data pointer */
-void *connGetPrivateData(connection *conn) {
-    return conn->private_data;
-}
-
 /* ------ Pure socket connections ------- */
 
 /* A very incomplete list of implementation-specific calls.  Much of the above shall
@@ -435,19 +415,5 @@ int connSendTimeout(connection *conn, long long ms) {
 
 int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
-}
-
-int connGetState(connection *conn) {
-    return conn->state;
-}
-
-/* Return a text that describes the connection, suitable for inclusion
- * in CLIENT LIST and similar outputs.
- *
- * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
- */
-const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
-    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
-    return buf;
 }
 
