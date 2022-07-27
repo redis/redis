@@ -3027,7 +3027,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     if (sentinel.announce_ip) {
         announce_ip = sentinel.announce_ip;
     } else {
-        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,FD_TO_SOCK_NAME) == -1)
+        if (anetFdToString(ri->link->cc->c.fd,ip,sizeof(ip),NULL,0) == -1)
             return C_ERR;
         announce_ip = ip;
     }

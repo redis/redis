@@ -5934,7 +5934,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 long lag = 0;
 
                 if (!slaveip) {
-                    if (connPeerToString(slave->conn,ip,sizeof(ip),&port) == -1)
+                    if (connAddrPeerName(slave->conn,ip,sizeof(ip),&port) == -1)
                         continue;
                     slaveip = ip;
                 }

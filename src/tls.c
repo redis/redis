@@ -718,6 +718,10 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
     tlsHandleEvent(conn, mask);
 }
 
+static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
+    return anetFdToString(conn->fd, ip, ip_len, port, remote);
+}
+
 static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
@@ -1064,6 +1068,7 @@ ConnectionType CT_TLS = {
 
     /* ae & accept & listen & error & address handler */
     .ae_handler = tlsEventHandler,
+    .addr = connTLSAddr,
 
     /* create/close connection */
     .close = connTLSClose,

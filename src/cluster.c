@@ -1769,7 +1769,7 @@ int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
         return C_OK;
     } else {
-        if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+        if (connAddrPeerName(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
             serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
                 link->conn ? connGetLastError(link->conn) : "no link");
             return C_ERR;
@@ -2273,7 +2273,7 @@ int clusterProcessPacket(clusterLink *link) {
         {
             char ip[NET_IP_STR_LEN];
 
-            if (connSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
+            if (connAddrSockName(link->conn,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,NET_IP_STR_LEN);

@@ -32,9 +32,12 @@
 #define __REDIS_CONNECTION_H
 
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/uio.h>
 
 #define CONN_INFO_LEN   32
+#define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
 
 struct aeEventLoop;
 typedef struct connection connection;
@@ -62,6 +65,7 @@ typedef struct ConnectionType {
 
     /* ae & accept & listen & error & address handler */
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
+    int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
 
     /* create/close connection */
     void (*close)(struct connection *conn);
@@ -233,6 +237,44 @@ static inline int connLastErrorRetryable(connection *conn) {
     return conn->last_errno == EINTR;
 }
 
+/* Get address information of a connection.
+ * @remote works as boolean type to get local/remote address */
+static inline int connAddr(connection *conn, char *ip, size_t ip_len, int *port, int remote) {
+    if (conn && conn->type->addr) {
+        return conn->type->addr(conn, ip, ip_len, port, remote);
+    }
+
+    return -1;
+}
+
+/* Format an IP,port pair into something easy to parse. If IP is IPv6
+ * (matches for ":"), the ip is surrounded by []. IP and port are just
+ * separated by colons. This the standard to display addresses within Redis. */
+static  inline int formatAddr(char *buf, size_t buf_len, char *ip, int port) {
+    return snprintf(buf,buf_len, strchr(ip,':') ?
+           "[%s]:%d" : "%s:%d", ip, port);
+}
+
+static inline int connFormatAddr(connection *conn, char *buf, size_t buf_len, int remote)
+{
+    char ip[CONN_ADDR_STR_LEN];
+    int port;
+
+    if (connAddr(conn, ip, sizeof(ip), &port, remote) < 0) {
+        return -1;
+    }
+
+    return formatAddr(buf, buf_len, ip, port);
+}
+
+static inline int connAddrPeerName(connection *conn, char *ip, size_t ip_len, int *port) {
+    return connAddr(conn, ip, ip_len, port, 1);
+}
+
+static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, int *port) {
+    return connAddr(conn, ip, ip_len, port, 0);
+}
+
 connection *connCreateSocket();
 connection *connCreateAcceptedSocket(int fd);
 
@@ -281,9 +323,6 @@ int connDisableTcpNoDelay(connection *conn);
 int connKeepAlive(connection *conn, int interval);
 int connSendTimeout(connection *conn, long long ms);
 int connRecvTimeout(connection *conn, long long ms);
-int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port);
-int connFormatFdAddr(connection *conn, char *buf, size_t buf_len, int fd_to_str_type);
-int connSockName(connection *conn, char *ip, size_t ip_len, int *port);
 
 /* Helpers for tls special considerations */
 sds connTLSGetPeerCert(connection *conn);
