@@ -3498,7 +3498,7 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            /* if we got here without a placeholder, the command will be added to the end
+            /* If we got here with cmd_prop_index == -1, the command will be added to the end
              * of the replication buffer, this can only happened on a read that causes a key
              * miss event which causes the module to perform a write command using RM_Call.
              * In such case we will propagate a read command (or a write command that has no effect

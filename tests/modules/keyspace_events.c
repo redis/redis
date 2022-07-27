@@ -100,7 +100,6 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
         return REDISMODULE_OK; // ignore the event on replica
     }
 
-
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
     RedisModule_FreeCallReply(rep);
 
