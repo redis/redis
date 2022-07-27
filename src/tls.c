@@ -595,7 +595,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
     switch (conn->c.state) {
         case CONN_STATE_CONNECTING:
-            conn_error = connGetSocketError((connection *) conn);
+            conn_error = anetGetError(conn->c.fd);
             if (conn_error) {
                 conn->c.last_errno = conn_error;
                 conn->c.state = CONN_STATE_ERROR;

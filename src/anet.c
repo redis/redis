@@ -62,6 +62,15 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
+int anetGetError(int fd) {
+    int sockerr = 0;
+    socklen_t errlen = sizeof(sockerr);
+
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
+        sockerr = errno;
+    return sockerr;
+}
+
 int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 

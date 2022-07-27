@@ -264,8 +264,6 @@ static inline const char *connGetInfo(connection *conn, char *buf, size_t buf_le
     return buf;
 }
 
-int connGetSocketError(connection *conn);
-
 /* anet-style wrappers to conns */
 int connBlock(connection *conn);
 int connNonBlock(connection *conn);

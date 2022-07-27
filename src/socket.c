@@ -255,7 +255,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
-        int conn_error = connGetSocketError(conn);
+        int conn_error = anetGetError(conn->fd);
         if (conn_error) {
             conn->last_errno = conn_error;
             conn->state = CONN_STATE_ERROR;
@@ -357,16 +357,6 @@ ConnectionType CT_Socket = {
     .sync_readline = connSocketSyncReadLine,
     .get_type = connSocketGetType
 };
-
-
-int connGetSocketError(connection *conn) {
-    int sockerr = 0;
-    socklen_t errlen = sizeof(sockerr);
-
-    if (getsockopt(conn->fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
-        sockerr = errno;
-    return sockerr;
-}
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
     if (anetFdToString(conn ? conn->fd : -1, ip, ip_len, port, FD_TO_PEER_NAME) == -1) {
