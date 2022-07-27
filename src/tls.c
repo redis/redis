@@ -1015,24 +1015,6 @@ static int connTLSGetType(connection *conn_) {
     return CONN_TYPE_TLS;
 }
 
-ConnectionType CT_TLS = {
-    .ae_handler = tlsEventHandler,
-    .accept = connTLSAccept,
-    .connect = connTLSConnect,
-    .blocking_connect = connTLSBlockingConnect,
-    .read = connTLSRead,
-    .write = connTLSWrite,
-    .writev = connTLSWritev,
-    .close = connTLSClose,
-    .set_write_handler = connTLSSetWriteHandler,
-    .set_read_handler = connTLSSetReadHandler,
-    .get_last_error = connTLSGetLastError,
-    .sync_write = connTLSSyncWrite,
-    .sync_read = connTLSSyncRead,
-    .sync_readline = connTLSSyncReadLine,
-    .get_type = connTLSGetType
-};
-
 int tlsHasPendingData() {
     if (!pending_list)
         return 0;
@@ -1075,6 +1057,33 @@ sds connTLSGetPeerCert(connection *conn_) {
 
     return cert_pem;
 }
+
+ConnectionType CT_TLS = {
+    /* connection type */
+    .get_type = connTLSGetType,
+
+    /* ae & accept & listen & error & address handler */
+    .ae_handler = tlsEventHandler,
+
+    /* create/close connection */
+    .close = connTLSClose,
+
+    /* connect & accept */
+    .connect = connTLSConnect,
+    .blocking_connect = connTLSBlockingConnect,
+    .accept = connTLSAccept,
+
+    /* IO */
+    .read = connTLSRead,
+    .write = connTLSWrite,
+    .writev = connTLSWritev,
+    .set_write_handler = connTLSSetWriteHandler,
+    .set_read_handler = connTLSSetReadHandler,
+    .get_last_error = connTLSGetLastError,
+    .sync_write = connTLSSyncWrite,
+    .sync_read = connTLSSyncRead,
+    .sync_readline = connTLSSyncReadLine,
+};
 
 #else   /* USE_OPENSSL */
 

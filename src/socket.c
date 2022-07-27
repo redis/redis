@@ -341,21 +341,30 @@ static int connSocketGetType(connection *conn) {
 }
 
 ConnectionType CT_Socket = {
+    /* connection type */
+    .get_type = connSocketGetType,
+
+    /* ae & accept & listen & error & address handler */
     .ae_handler = connSocketEventHandler,
+
+    /* create/close connection */
     .close = connSocketClose,
+
+    /* connect & accept */
+    .connect = connSocketConnect,
+    .blocking_connect = connSocketBlockingConnect,
+    .accept = connSocketAccept,
+
+    /* IO */
     .write = connSocketWrite,
     .writev = connSocketWritev,
     .read = connSocketRead,
-    .accept = connSocketAccept,
-    .connect = connSocketConnect,
     .set_write_handler = connSocketSetWriteHandler,
     .set_read_handler = connSocketSetReadHandler,
     .get_last_error = connSocketGetLastError,
-    .blocking_connect = connSocketBlockingConnect,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,
     .sync_readline = connSocketSyncReadLine,
-    .get_type = connSocketGetType
 };
 
 int connPeerToString(connection *conn, char *ip, size_t ip_len, int *port) {
