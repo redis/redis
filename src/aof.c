@@ -1432,7 +1432,6 @@ int loadSingleAppendOnlyFile(char *filename) {
             else
                 serverLog(LL_WARNING, "Error reading the RDB base file %s, AOF loading aborted", filename);
 
-            if (feof(fp)) goto uxeof;
             ret = AOF_FAILED;
             goto cleanup;
         } else {
