@@ -4428,6 +4428,7 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
     addReplyArrayLen(c, num_args);
     for (int j = 0; j<num_args; j++) {
         /* Count our reply len so we don't have to use deferred reply. */
+        int has_display = 1;
         long maplen = 2;
         if (args[j].key_spec_index != -1) maplen++;
         if (args[j].token) maplen++;
@@ -4435,8 +4436,11 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         if (args[j].since) maplen++;
         if (args[j].deprecated_since) maplen++;
         if (args[j].flags) maplen++;
-        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK)
+        if (args[j].type == ARG_TYPE_ONEOF || args[j].type == ARG_TYPE_BLOCK) {
+            has_display = 0;
             maplen++;
+        }
+        if (has_display) maplen++;
         addReplyMapLen(c, maplen);
 
         addReplyBulkCString(c, "name");
@@ -4445,6 +4449,10 @@ void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_arg
         addReplyBulkCString(c, "type");
         addReplyBulkCString(c, ARG_TYPE_STR[args[j].type]);
 
+        if (has_display) {
+            addReplyBulkCString(c, "display");
+            addReplyBulkCString(c, args[j].display ? args[j].display : args[j].name);
+        }
         if (args[j].key_spec_index != -1) {
             addReplyBulkCString(c, "key_spec_index");
             addReplyLongLong(c, args[j].key_spec_index);

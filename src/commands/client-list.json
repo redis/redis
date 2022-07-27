@@ -65,18 +65,12 @@
                 ]
             },
             {
-                "name": "id",
+                "name": "client-id",
                 "token": "ID",
-                "type": "block",
+                "type": "integer",
                 "optional": true,
-                "since": "6.2.0",
-                "arguments": [
-                    {
-                        "name": "client-id",
-                        "type": "integer",
-                        "multiple": true
-                    }
-                ]
+                "multiple": true,
+                "since": "6.2.0"
             }
         ]
     }

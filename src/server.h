@@ -2070,6 +2070,7 @@ typedef struct redisCommandArg {
     const char *since;
     int flags;
     const char *deprecated_since;
+    const char *display;
     struct redisCommandArg *subargs;
     /* runtime populated data */
     int num_args;

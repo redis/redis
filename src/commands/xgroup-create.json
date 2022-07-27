@@ -51,11 +51,11 @@
                 "type": "string"
             },
             {
-                "name": "id",
+                "name": "id_type",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     },
                     {

@@ -24,7 +24,8 @@
                         "multiple":true,
                         "arguments":[
                             {
-                                "name":"parameter",
+                                "name":"set_parameter",
+                                "display":"parameter",
                                 "type":"string"
                             },
                             {
@@ -36,7 +37,8 @@
                     {
                         "token":"GET",
                         "multiple":true,
-                        "name":"parameter",
+                        "name":"get_parameter",
+                        "display":"parameter",
                         "type":"string"
                     }
                 ]

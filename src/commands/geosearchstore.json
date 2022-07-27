@@ -73,7 +73,7 @@
                     },
                     {
                         "token": "FROMLONLAT",
-                        "name": "longitude_latitude",
+                        "name": "fromlonlat",
                         "type": "block",
                         "arguments": [
                             {
@@ -102,26 +102,30 @@
                                 "type": "double"
                             },
                             {
-                                "name": "unit",
+                                "name": "circle_unit",
                                 "type": "oneof",
                                 "arguments": [
                                     {
-                                        "name": "m",
+                                        "name": "circle_m",
+                                        "display": "m",
                                         "type": "pure-token",
                                         "token": "m"
                                     },
                                     {
-                                        "name": "km",
+                                        "name": "circle_km",
+                                        "display": "km",
                                         "type": "pure-token",
                                         "token": "km"
                                     },
                                     {
-                                        "name": "ft",
+                                        "name": "circle_ft",
+                                        "display": "ft",
                                         "type": "pure-token",
                                         "token": "ft"
                                     },
                                     {
-                                        "name": "mi",
+                                        "name": "circle_mi",
+                                        "display": "mi",
                                         "type": "pure-token",
                                         "token": "mi"
                                     }
@@ -143,26 +147,30 @@
                                 "type": "double"
                             },
                             {
-                                "name": "unit",
+                                "name": "box_unit",
                                 "type": "oneof",
                                 "arguments": [
                                     {
-                                        "name": "m",
+                                        "name": "box_m",
+                                        "display": "m",
                                         "type": "pure-token",
                                         "token": "m"
                                     },
                                     {
-                                        "name": "km",
+                                        "name": "box_km",
+                                        "display": "km",
                                         "type": "pure-token",
                                         "token": "km"
                                     },
                                     {
-                                        "name": "ft",
+                                        "name": "box_ft",
+                                        "display": "ft",
                                         "type": "pure-token",
                                         "token": "ft"
                                     },
                                     {
-                                        "name": "mi",
+                                        "name": "box_mi",
+                                        "display": "mi",
                                         "type": "pure-token",
                                         "token": "mi"
                                     }
@@ -190,7 +198,7 @@
                 ]
             },
             {
-                "name": "count",
+                "name": "count_block",
                 "type": "block",
                 "optional": true,
                 "arguments": [

@@ -90,7 +90,7 @@
                 "optional": true
             },
             {
-                "name": "id",
+                "name": "lastid",
                 "token": "LASTID",
                 "type": "string",
                 "optional": true

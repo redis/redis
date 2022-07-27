@@ -67,18 +67,20 @@
                                 "type": "integer"
                             },
                             {
-                                "name": "index_unit",
+                                "name": "unit",
                                 "type": "oneof",
                                 "optional": true,
                                 "since": "7.0.0",
                                 "arguments": [
                                     {
-                                        "name": "byte",
+                                        "name": "unit_byte",
+                                        "display": "byte",
                                         "type": "pure-token",
                                         "token": "BYTE"
                                     },
                                     {
-                                        "name": "bit",
+                                        "name": "unit_bit",
+                                        "display": "bit",
                                         "type": "pure-token",
                                         "token": "BIT"
                                     }

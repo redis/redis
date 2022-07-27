@@ -50,14 +50,16 @@
                 "arguments": [
                     {
                         "token": "GET",
-                        "name": "encoding_offset",
+                        "name": "get_block",
                         "type": "block",
                         "arguments": [
                             {
-                                "name": "encoding",
+                                "name": "get_encoding",
+                                "display": "encoding",
                                 "type": "string"
                             },
                             {
+                                "name": "get_offset",
                                 "name": "offset",
                                 "type": "integer"
                             }
@@ -69,7 +71,7 @@
                         "arguments": [
                             {
                                 "token": "OVERFLOW",
-                                "name": "wrap_sat_fail",
+                                "name": "overflow_block",
                                 "type": "oneof",
                                 "optional": true,
                                 "arguments": [
@@ -96,38 +98,44 @@
                                 "arguments": [
                                     {
                                         "token": "SET",
-                                        "name": "encoding_offset_value",
+                                        "name": "set_block",
                                         "type": "block",
                                         "arguments": [
                                             {
-                                                "name": "encoding",
+                                                "name": "set_encoding",
+                                                "display": "encoding",
                                                 "type": "string"
                                             },
                                             {
-                                                "name": "offset",
+                                                "name": "set_offset",
+                                                "display": "offset",
                                                 "type": "integer"
                                             },
                                             {
-                                                "name": "value",
+                                                "name": "set_value",
+                                                "display": "value",
                                                 "type": "integer"
                                             }
                                         ]
                                     },
                                     {
                                         "token": "INCRBY",
-                                        "name": "encoding_offset_increment",
+                                        "name": "incrby_info",
                                         "type": "block",
                                         "arguments": [
                                             {
-                                                "name": "encoding",
+                                                "name": "incrby_encoding",
+                                                "display": "encoding",
                                                 "type": "string"
                                             },
                                             {
-                                                "name": "offset",
+                                                "name": "incrby_offset",
+                                                "display": "offset",
                                                 "type": "integer"
                                             },
                                             {
-                                                "name": "increment",
+                                                "name": "incrby_increment",
+                                                "display": "increment",
                                                 "type": "integer"
                                             }
                                         ]

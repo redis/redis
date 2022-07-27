@@ -41,7 +41,8 @@
         ],
         "arguments": [
             {
-                "name": "ip:port",
+                "name": "old_format",
+                "display": "ip:port",
                 "type": "string",
                 "optional": true
             },
@@ -54,7 +55,7 @@
             },
             {
                 "token": "TYPE",
-                "name": "normal_master_slave_pubsub",
+                "name": "type",
                 "type": "oneof",
                 "optional": true,
                 "since": "2.8.12",
@@ -96,20 +97,23 @@
             },
             {
                 "token": "ADDR",
-                "name": "ip:port",
+                "name": "addr",
+                "display": "ip:port",
                 "type": "string",
                 "optional": true
             },
             {
                 "token": "LADDR",
-                "name": "ip:port",
+                "name": "laddr",
+                "display": "ip:port",
                 "type": "string",
                 "optional": true,
                 "since": "6.2.0"
             },
             {
                 "token": "SKIPME",
-                "name": "yes/no",
+                "name": "skipme",
+                "display": "yes/no",
                 "type": "string",
                 "optional": true
             }

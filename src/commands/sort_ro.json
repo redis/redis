@@ -57,7 +57,8 @@
             },
             {
                 "token": "BY",
-                "name": "pattern",
+                "name": "by_pattern",
+                "display": "pattern",
                 "type": "pattern",
                 "key_spec_index": 1,
                 "optional": true
@@ -80,7 +81,8 @@
             },
             {
                 "token": "GET",
-                "name": "pattern",
+                "name": "get_pattern",
+                "display": "pattern",
                 "key_spec_index": 1,
                 "type": "pattern",
                 "optional": true,

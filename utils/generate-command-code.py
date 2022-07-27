@@ -185,8 +185,14 @@ class Argument(object):
         self.subargs = []
         self.subargs_name = None
         if self.type in ["oneof", "block"]:
+            self.display = None
             for subdesc in self.desc["arguments"]:
                 self.subargs.append(Argument(self.fullname(), subdesc))
+            if len(self.subargs) < 2:
+                print("{}: oneof or block arg contains less than two subargs".format(self.fullname()))
+                exit(1)
+        else:
+            self.display = self.desc.get("display")
 
     def fullname(self):
         return ("%s %s" % (self.parent_name, self.name)).replace("-", "_")
@@ -226,6 +232,8 @@ class Argument(object):
         )
         if "deprecated_since" in self.desc:
             s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
+        if "display" in self.desc:
+            s += ",.display=\"%s\"" % self.desc["display"].lower()
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 
@@ -243,6 +251,12 @@ class Argument(object):
             f.write("{0}\n")
             f.write("};\n\n")
 
+    def all_names(self):
+        names = [self.name]
+        for subarg in self.subargs:
+            names += subarg.all_names()
+        return names
+
 
 class Command(object):
     def __init__(self, name, desc):
@@ -252,8 +266,14 @@ class Command(object):
         self.key_specs = self.desc.get("key_specs", [])
         self.subcommands = []
         self.args = []
+        all_arg_names = []
         for arg_desc in self.desc.get("arguments", []):
-            self.args.append(Argument(self.fullname(), arg_desc))
+            arg = Argument(self.fullname(), arg_desc)
+            self.args.append(arg)
+            all_arg_names += arg.all_names()
+        if len(all_arg_names) != len(set(all_arg_names)):
+            print("{}: Dup argument names: {}".format(self.fullname(), all_arg_names))
+            exit(1)
 
     def fullname(self):
         return self.name.replace("-", "_").replace(":", "")

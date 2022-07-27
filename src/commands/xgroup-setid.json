@@ -50,15 +50,15 @@
                 "type": "string"
             },
             {
-                "name": "id",
+                "name": "id_block",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     },
                     {
-                        "name": "new_id",
+                        "name": "lastid",
                         "type": "pure-token",
                         "token": "$"
                     }
