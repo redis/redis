@@ -3093,6 +3093,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             } else {
                 /* Skip the module aux data. We consider a aux data as a module metadata
                  * so we do not want to fail loading the RDB if the module is missing. */
+                if (!rdbCheckMode) {
+                    serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load: no matching module '%s'", name);
+                }
                 robj *aux = rdbSkipModuleValue(rdb,name);
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
