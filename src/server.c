@@ -2911,7 +2911,7 @@ void resetErrorTableStats(void) {
 /* ========================== Redis OP Array API ============================ */
 
 /* Used to update a placeholder previously created using `redisOpArrayAppendPlaceholder`.
- * We assume the updated placeholder as no target set yet (otherwise its not a placeholder). */
+ * We assume the updated placeholder has no target set yet (otherwise its not a placeholder). */
 void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
     redisOp *op = oa->ops+index;
     serverAssert(!op->target);

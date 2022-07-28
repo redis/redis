@@ -93,7 +93,7 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
 /* This key miss notification handler is performing a write command inside the notification callback.
  * Notice, it is discourage and currently wrong to perform a write command inside key miss event.
  * It can cause read commands to be replicated to the replica/aof. This test is here temporary (for coverage and
- * verification that its not crashing). */
+ * verification that it's not crashing). */
 static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
