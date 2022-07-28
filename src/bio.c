@@ -272,6 +272,28 @@ unsigned long bioPendingJobsOfType(int type) {
     return val;
 }
 
+/* If there are pending jobs for the specified type, the function blocks
+ * and waits that the next job was processed. Otherwise the function
+ * does not block and returns ASAP.
+ *
+ * The function returns the number of jobs still to process of the
+ * requested type.
+ *
+ * This function is useful when from another thread, we want to wait
+ * a bio.c thread to do more work in a blocking way.
+ */
+unsigned long bioWaitStepOfType(int type) {
+    unsigned long val;
+    pthread_mutex_lock(&bio_mutex[type]);
+    val = bio_pending[type];
+    if (val != 0) {
+        pthread_cond_wait(&bio_step_cond[type],&bio_mutex[type]);
+        val = bio_pending[type];
+    }
+    pthread_mutex_unlock(&bio_mutex[type]);
+    return val;
+}
+
 /* Kill the running bio threads in an unclean way. This function should be
  * used only when it's critical to stop the threads for some reason.
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
