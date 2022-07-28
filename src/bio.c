@@ -267,6 +267,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 /* Return the number of pending jobs of the specified type. */
 unsigned long bioPendingJobsOfType(int type) {
     unsigned long val;
+    /* No need to use mutex to read, since value is primitive (unsigned long) */
     val = bio_pending[type];
     return val;
 }
