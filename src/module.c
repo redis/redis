@@ -7789,6 +7789,12 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_MODULE: Module types events
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
+ *                                Notice, key-miss event is the only type
+ *                                of event that is fired from within a read command.
+ *                                Performing RM_Call with a write command from within
+ *                                this notification is wrong and discourage. It will
+ *                                cause the read command that trigger the event to be
+ *                                replicated to the AOF/Replica.
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
@@ -7820,6 +7826,7 @@ void moduleReleaseGIL(void) {
  * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
  *
+ * Warning: keymiss notification is a special type
  * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {

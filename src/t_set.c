@@ -491,6 +491,9 @@ void spopWithCountCommand(client *c) {
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
 
+        /* todo: Move the spop notification to be executed after the command logic.
+         * We can then decide if we want to keep the `alsoPropagate` or move to `rewriteClientCommandVector`. */
+
         /* Propagate del command */
         robj *propagate[2];
         propagate[0] = shared.del;

@@ -1279,6 +1279,7 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
  * after the propagation of the executed command. */
 typedef struct redisOp {
     robj **argv;
+    /* target=0 means the operation should not be propagate (unused placeholder), for more info look at redisOpArray */
     int argc, dbid, target;
 } redisOp;
 

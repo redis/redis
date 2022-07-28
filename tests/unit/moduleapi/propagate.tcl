@@ -618,6 +618,9 @@ tags "modules" {
                         fail "Failed to wait for set to be replicated"
                     }
 
+                    # Currently the `del` command comes after the notification.
+                    # When we fix spop to fire notification at the end (like all other commands),
+                    # the `del` will come first.
                     assert_replication_stream $repl {
                         {multi}
                         {select *}

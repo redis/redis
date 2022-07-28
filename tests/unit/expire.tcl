@@ -757,9 +757,13 @@ start_server {tags {"expire"}} {
             fail "Replication not started."
         }
 
+        # dummy command to verify nothing else gets into the replication stream.
+        r set x 1
+
         assert_replication_stream $repl {
             {select *}
             {del foo}
+            {set x 1}
         }
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}

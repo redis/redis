@@ -2910,6 +2910,26 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
+/* Used to update a placeholder previously created using `redisOpArrayAppendPlaceholder`.
+ * We assume the updated placeholder as no target set yet (otherwise its not a placeholder). */
+void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
+    redisOp *op = oa->ops+index;
+    serverAssert(!op->target);
+    op->dbid = dbid;
+    op->argv = argv;
+    op->argc = argc;
+    op->target = target;
+    oa->numops++;
+}
+
+/* Append an operation to the given redisOpArray.
+ * dbid - the id of the database to apply the operation on
+ * argv - operations arguments (including the command)
+ * argc - size of argv
+ * target - indicating how to propagate the opperation (PROPAGATE_AOF,PROPAGATE_REPL)
+ *
+ * Special case is when used with target 0, in this case the operation is a placeholder
+ * that is expected to be filled later on using redisOpArraySet. */
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
     redisOp *op;
     int prev_capacity = oa->capacity;
@@ -2930,6 +2950,8 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     op->target = target;
     oa->used++;
     if (op->target) {
+        /* if `target` is 0, the operation was added as a placeholder and is not yet counted as
+         * a command that need to be propagated, this is why we only increase `numops` if `target` is not 0. */
         oa->numops++;
     }
     return idx; /* return the index of the appended operation */
@@ -2949,16 +2971,6 @@ void redisOpArrayTrim(redisOpArray *oa) {
 
 int redisOpArrayAppendPlaceholder(redisOpArray *oa) {
     return redisOpArrayAppend(oa, 0, NULL, 0, 0);
-}
-
-void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int target, int index) {
-    redisOp *op = oa->ops+index;
-    serverAssert(!op->target);
-    op->dbid = dbid;
-    op->argv = argv;
-    op->argc = argc;
-    op->target = target;
-    oa->numops++;
 }
 
 void redisOpArrayFree(redisOpArray *oa) {
@@ -3127,7 +3139,10 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
-void alsoPropagateWithPlaceholder(int dbid, robj **argv, int argc, int target, int index) {
+/* Append or set the given operation to the replication buffer.
+ * If index is -1, the operation will be appended to the end of the buffer.
+ * Otherwise the operation will be set at the given index. */
+void alsoPropagateRaw(int dbid, robj **argv, int argc, int target, int index) {
     robj **argvcopy;
     int j;
 
@@ -3159,7 +3174,7 @@ void alsoPropagateWithPlaceholder(int dbid, robj **argv, int argc, int target, i
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
 void alsoPropagate(int dbid, robj **argv, int argc, int target) {
-    alsoPropagateWithPlaceholder(dbid, argv, argc, target, -1);
+    alsoPropagateRaw(dbid, argv, argc, target, -1);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3361,18 +3376,18 @@ void call(client *c, int flags) {
         monotonic_start = getMonotonicUs();
 
     int cmd_prop_index = -1;
-    if ((c->cmd->flags & CMD_WRITE) || (c->cmd->flags & CMD_MAY_REPLICATE)) {
+    if (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) {
         /* Save placeholder for replication.
          * If the command will be replicated, this is the location where it should be placed in the replication stream.
          * If we just push the command to the replication buffer (without the placeholder), the replica might get the commands
-         * in a wrong order and we will end up with primary-replica inconsistency. To demonstrate, take the following example:
+         * in a wrong order and we will end up with master-replica inconsistency. To demonstrate, take the following example:
          *
          * 1. A module register a key space notification callback and inside the notification the module performed an incr command on the given key
          * 2. User performs 'set x 1'
          * 3. The module get the notification and perform 'incr x'
          * 4. The command 'incr x' enters the replication buffer before the 'set x 1' command and the replica sees the command in the wrong order
          *
-         * The final result is that the replica will have the value x=1 while the primary will have x=2
+         * The final result is that the replica will have the value x=1 while the master will have x=2
          *
          * Notice that we only do this if the command might cause replication (either it's a WRITE command or MAY_REPLICATE) */
         cmd_prop_index = redisOpArrayAppendPlaceholder(&server.also_propagate);
@@ -3505,7 +3520,7 @@ void call(client *c, int flags) {
              * In such case we will propagate a read command (or a write command that has no effect
              * and should not have been propagated). This behavior is wrong and module writer is advised
              * not to perform any write commands on key miss event. */
-            alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
+            alsoPropagateRaw(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
     }
 
     /* Try to trim the last element if it is not used (if it's still a placeholder). */
