@@ -9,7 +9,8 @@
         "function": "commandGetKeysCommand",
         "command_flags": [
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
