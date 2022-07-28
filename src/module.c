@@ -6543,10 +6543,8 @@ saveerr:
  * new data types. */
 uint64_t RM_LoadUnsigned(RedisModuleIO *io) {
     if (io->error) return 0;
-    if (io->ver == 2) {
-        uint64_t opcode = rdbLoadLen(io->rio,NULL);
-        if (opcode != RDB_MODULE_OPCODE_UINT) goto loaderr;
-    }
+    uint64_t opcode = rdbLoadLen(io->rio,NULL);
+    if (opcode != RDB_MODULE_OPCODE_UINT) goto loaderr;
     uint64_t value;
     int retval = rdbLoadLenByRef(io->rio, NULL, &value);
     if (retval == -1) goto loaderr;
@@ -6614,10 +6612,8 @@ saveerr:
 /* Implements RM_LoadString() and RM_LoadStringBuffer() */
 void *moduleLoadString(RedisModuleIO *io, int plain, size_t *lenptr) {
     if (io->error) return NULL;
-    if (io->ver == 2) {
-        uint64_t opcode = rdbLoadLen(io->rio,NULL);
-        if (opcode != RDB_MODULE_OPCODE_STRING) goto loaderr;
-    }
+    uint64_t opcode = rdbLoadLen(io->rio,NULL);
+    if (opcode != RDB_MODULE_OPCODE_STRING) goto loaderr;
     void *s = rdbGenericLoadStringObject(io->rio,
               plain ? RDB_LOAD_PLAIN : RDB_LOAD_NONE, lenptr);
     if (s == NULL) goto loaderr;
@@ -6675,10 +6671,8 @@ saveerr:
  * double value saved by RedisModule_SaveDouble(). */
 double RM_LoadDouble(RedisModuleIO *io) {
     if (io->error) return 0;
-    if (io->ver == 2) {
-        uint64_t opcode = rdbLoadLen(io->rio,NULL);
-        if (opcode != RDB_MODULE_OPCODE_DOUBLE) goto loaderr;
-    }
+    uint64_t opcode = rdbLoadLen(io->rio,NULL);
+    if (opcode != RDB_MODULE_OPCODE_DOUBLE) goto loaderr;
     double value;
     int retval = rdbLoadBinaryDoubleValue(io->rio, &value);
     if (retval == -1) goto loaderr;
@@ -6712,10 +6706,8 @@ saveerr:
  * float value saved by RedisModule_SaveFloat(). */
 float RM_LoadFloat(RedisModuleIO *io) {
     if (io->error) return 0;
-    if (io->ver == 2) {
-        uint64_t opcode = rdbLoadLen(io->rio,NULL);
-        if (opcode != RDB_MODULE_OPCODE_FLOAT) goto loaderr;
-    }
+    uint64_t opcode = rdbLoadLen(io->rio,NULL);
+    if (opcode != RDB_MODULE_OPCODE_FLOAT) goto loaderr;
     float value;
     int retval = rdbLoadBinaryFloatValue(io->rio, &value);
     if (retval == -1) goto loaderr;
@@ -6866,7 +6858,6 @@ void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const module
     /* All RM_Save*() calls always write a version 2 compatible format, so we
      * need to make sure we read the same.
      */
-    io.ver = 2;
     ret = mt->rdb_load(&io,encver);
     if (io.ctx) {
         moduleFreeContext(io.ctx);

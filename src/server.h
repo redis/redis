@@ -791,8 +791,6 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
-    int ver;            /* Module serialization version: 1 (old),
-                         * 2 (current version with opcodes annotation). */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
     int dbid;            /* The dbid of the key being processed, -1 when unknown. */
@@ -805,7 +803,6 @@ typedef struct RedisModuleIO {
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
-    iovar.ver = 0; \
     iovar.key = keyptr; \
     iovar.dbid = db; \
     iovar.ctx = NULL; \
