@@ -1524,11 +1524,12 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     }
 }
 
-/* This function is called by rdbLoadObject() when the code is in RDB-check
- * mode and we find a module value of type 2 that can be parsed without
+/* This function is called by rdbLoadObject() or when we want to read RDB
+ * with module AUX data while we do not have the module loaded.
+ * This is only supported for module value of type 2 that can be parsed without
  * the need of the actual module. The value is parsed for errors, finally
- * a dummy redis object is returned just to conform to the API. */
-robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
+ * a dummy Redis object is returned just to conform to the API. */
+robj *rdbSkipModuleValue(rio *rdb, char *modulename) {
     uint64_t opcode;
     while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
         if (opcode == RDB_MODULE_OPCODE_SINT ||
@@ -2618,7 +2619,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
             char name[10];
             moduleTypeNameByID(name,moduleid);
-            return rdbLoadCheckModuleValue(rdb,name);
+            return rdbSkipModuleValue(rdb,name);
         }
 
         if (mt == NULL) {
@@ -3061,11 +3062,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             char name[10];
             moduleTypeNameByID(name,moduleid);
 
-            if (!rdbCheckMode && mt == NULL) {
-                /* Unknown module. */
-                serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load: no matching module '%s'", name);
-                exit(1);
-            } else if (!rdbCheckMode && mt != NULL) {
+            if (!rdbCheckMode && mt != NULL) {
                 if (!mt->aux_load) {
                     /* Module doesn't support AUX. */
                     serverLog(LL_WARNING,"The RDB file contains module AUX data, but the module '%s' doesn't seem to support it.", name);
@@ -3094,8 +3091,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 }
                 continue;
             } else {
-                /* RDB check mode. */
-                robj *aux = rdbLoadCheckModuleValue(rdb,name);
+                /* Skip the module aux data. We consider a aux data as a module metadata
+                 * so we do not want to fail loading the RDB if the module is missing. */
+                robj *aux = rdbSkipModuleValue(rdb,name);
                 decrRefCount(aux);
                 continue; /* Read next opcode. */
             }

@@ -309,7 +309,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             moduleTypeNameByID(name,moduleid);
             rdbCheckInfo("MODULE AUX for: %s", name);
 
-            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            robj *o = rdbSkipModuleValue(&rdb,name);
             decrRefCount(o);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_FUNCTION || type == RDB_OPCODE_FUNCTION2) {
