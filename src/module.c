@@ -7826,7 +7826,6 @@ void moduleReleaseGIL(void) {
  * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
  *
- * Warning: keymiss notification is a special type
  * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
