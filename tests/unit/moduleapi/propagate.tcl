@@ -149,7 +149,7 @@ tags "modules" {
                     # Bottom line: "notifications" always exists and we can't really determine the order of evictions
                     # This test is here only for sanity
 
-                    # slave will get the notification with multi exec and we have a generic notification handler
+                    # The replica will get the notification with multi exec and we have a generic notification handler
                     # that performs `RedisModule_Call(ctx, "INCR", "c", "multi");` if the notification is inside multi exec.
                     # so we will have 2 keys, "notifications" and "multi".
                     wait_for_condition 500 10 {

@@ -3111,7 +3111,7 @@ static int shouldPropagate(int target) {
  * The API for propagating commands is alsoPropagate().
  *
  * dbid value of -1 is saved to indicate that the called do not want
- * to replicate 'select' command.
+ * to replicate SELECT for this command (used for database neutral commands).
  */
 static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (!shouldPropagate(target))
@@ -3234,7 +3234,8 @@ void propagatePendingCommands() {
      * And if the array contains only one command, no need to
      * wrap it, since the single command is atomic. */
     if (server.also_propagate.numops > 1) {
-        /* We use dbid=-1 to indicate we do not want to replicate select */
+        /* We use dbid=-1 to indicate we do not want to replicate SELECT.
+         * It'll be inserted together with the next command (inside the MULTI) */
         propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
         multi_emitted = 1;
     }
@@ -3373,7 +3374,7 @@ void call(client *c, int flags) {
          *
          * The final result is that the replica will have the value x=1 while the primary will have x=2
          *
-         * Notice that we only do this if the command might cause replication (either its a WRITE command or MAY_REPLICATE) */
+         * Notice that we only do this if the command might cause replication (either it's a WRITE command or MAY_REPLICATE) */
         cmd_prop_index = redisOpArrayAppendPlaceholder(&server.also_propagate);
     }
 
@@ -3507,7 +3508,7 @@ void call(client *c, int flags) {
             alsoPropagateWithPlaceholder(c->db->id,c->argv,c->argc,propagate_flags,cmd_prop_index);
     }
 
-    /* Try to trim the last element if it is not used (if its still a placeholder). */
+    /* Try to trim the last element if it is not used (if it's still a placeholder). */
     redisOpArrayTrim(&server.also_propagate);
 
     /* Restore the old replication flags, since call() can be executed

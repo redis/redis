@@ -746,7 +746,7 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
 
-    test {Redis should propagate the read command on lazy expire} {
+    test {Redis should not propagate the read command on lazy expire} {
         r debug set-active-expire 0
         r flushall ; # Clean up keyspace to avoid interference by keys from other tests
         r set foo bar PX 1
