@@ -2041,12 +2041,7 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
 
 /* Write the forgotten node ping extension at the start of the cursor, update
  * the cursor to point to the end of the written extension and return the number
- * of bytes written.
- *
- * Sanitizer suppression: In clusterMsgPingExtForgottenNode, sizeof(name) is
- * CLUSTER_NAMELEN, and sizeof(clusterMsgPingExtForgottenNode) is > CLUSTER_NAMELEN.
- * Doing a (name + sizeof(clusterMsgPingExtForgottenNode)) sanitizer generates an
- * out-of-bounds error which is a false positive in here. */
+ * of bytes written. */
 REDIS_NO_SANITIZE("bounds")
 int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl) {
     serverAssert(sdslen(name) == CLUSTER_NAMELEN);
@@ -2056,7 +2051,8 @@ int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl
     uint32_t extension_size = sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode);
     (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE);
     (*cursor)->length = htonl(extension_size);
-    *cursor = (clusterMsgPingExt *) (ext->name + sizeof(clusterMsgPingExtForgottenNode));
+    /* Using ext instead of ext->name to avoid false positive sanitizer out-of-bounds. */
+    *cursor = (clusterMsgPingExt *) (ext + sizeof(clusterMsgPingExtForgottenNode));
     return extension_size;
 }
 
