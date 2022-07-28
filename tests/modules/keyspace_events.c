@@ -30,10 +30,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _DEFAULT_SOURCE /* For usleep */
 
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+ustime_t cached_time = 0;
 
 /** stores all the keys on which we got 'loaded' keyspace notification **/
 RedisModuleDict *loaded_event_log = NULL;
@@ -58,6 +62,12 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
+
+    if (cached_time) {
+        RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
+        usleep(1);
+        RedisModule_Assert(cached_time != RedisModule_Microseconds());
+    }
 
     if (strcmp(event, "del") == 0) {
         RedisModuleString *copykey = RedisModule_CreateStringPrintf(ctx, "%s_copy", RedisModule_StringPtrLen(key, NULL));
@@ -158,6 +168,8 @@ static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (argc != 2)
         return RedisModule_WrongArity(ctx);
 
+    cached_time = RedisModule_CachedMicroseconds();
+
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "DEL", "s!", argv[1]);
     if (!rep) {
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
@@ -165,6 +177,7 @@ static int cmdDelKeyCopy(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         RedisModule_ReplyWithCallReply(ctx, rep);
         RedisModule_FreeCallReply(rep);
     }
+    cached_time = 0;
     return REDISMODULE_OK;
 }
 

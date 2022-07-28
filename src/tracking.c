@@ -454,7 +454,12 @@ void trackingInvalidateKeysOnFlush(int async) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
             if (c->flags & CLIENT_TRACKING) {
-                sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
+                if (c == server.current_client) {
+                    incrRefCount(shared.null[c->resp]);
+                    listAddNodeTail(server.tracking_pending_keys,shared.null[c->resp]);
+                } else {
+                    sendTrackingMessage(c,shared.null[c->resp]->ptr,sdslen(shared.null[c->resp]->ptr),1);
+                }
             }
         }
     }

@@ -548,6 +548,20 @@ start_server {tags {"tracking network"}} {
         assert_equal [lindex [$rd_redirection read] 2] {}
     }
 
+    test {flushdb tracking invalidation message is not interleaved with transaction response} {
+        clean_all
+        r HELLO 3
+        r CLIENT TRACKING on
+        r SET a{t} 1
+        r GET a{t}
+        r MULTI
+        r FLUSHDB
+        set res [r EXEC]
+        assert_equal $res {OK}
+        # Consume the invalidate message which is after command response
+        r read
+    } {invalidate *_*}
+
     # Keys are defined to be evicted 100 at a time by default.
     # If after eviction the number of keys still surpasses the limit
     # defined in tracking-table-max-keys, we increases eviction 

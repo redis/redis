@@ -48,6 +48,7 @@
 
 #include "anet.h"
 #include "config.h"
+#include "util.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -388,7 +389,7 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
         return ANET_ERR;
 
     sa.sun_family = AF_LOCAL;
-    strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
+    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
     if (flags & ANET_CONNECT_NONBLOCK) {
         if (anetNonBlock(err,s) != ANET_OK) {
             close(s);
@@ -497,7 +498,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 
     memset(&sa,0,sizeof(sa));
     sa.sun_family = AF_LOCAL;
-    strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
+    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
     if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa),backlog) == ANET_ERR)
         return ANET_ERR;
     if (perm)
