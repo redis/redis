@@ -2042,7 +2042,6 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
 /* Write the forgotten node ping extension at the start of the cursor, update
  * the cursor to point to the end of the written extension and return the number
  * of bytes written. */
-REDIS_NO_SANITIZE("bounds")
 int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl) {
     serverAssert(sdslen(name) == CLUSTER_NAMELEN);
     clusterMsgPingExtForgottenNode *ext = &(*cursor)->ext[0].forgotten_node;
