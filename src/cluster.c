@@ -2050,8 +2050,9 @@ int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl
     uint32_t extension_size = sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode);
     (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE);
     (*cursor)->length = htonl(extension_size);
-    /* Using ext instead of ext->name to avoid false positive sanitizer out-of-bounds. */
-    *cursor = (clusterMsgPingExt *) (ext + sizeof(clusterMsgPingExtForgottenNode));
+    /* Using ext+1 instead of ext->name+sizeof(clusterMsgPingExtForgottenNode)
+     * to avoid false positive sanitizer out-of-bounds error. */
+    *cursor = (clusterMsgPingExt *) (ext + 1);
     return extension_size;
 }
 
