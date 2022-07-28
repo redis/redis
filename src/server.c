@@ -2926,7 +2926,7 @@ void redisOpArraySet(redisOpArray *oa, int dbid, robj **argv, int argc, int targ
  * dbid - the id of the database to apply the operation on
  * argv - operations arguments (including the command)
  * argc - size of argv
- * target - indicating how to propagate the opperation (PROPAGATE_AOF,PROPAGATE_REPL)
+ * target - indicating how to propagate the operation (PROPAGATE_AOF,PROPAGATE_REPL)
  *
  * Special case is when used with target 0, in this case the operation is a placeholder
  * that is expected to be filled later on using redisOpArraySet. */
