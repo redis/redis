@@ -754,7 +754,7 @@ void functionRestoreCommand(client *c) {
             err = sdsnew("can not read data type");
             goto load_error;
         }
-        if (type != RDB_OPCODE_FUNCTION_PRE_GA) {
+        if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
             err = sdsnew("Pre-GA function format not supported");
             goto load_error;
         }
