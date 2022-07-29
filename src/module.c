@@ -8853,6 +8853,14 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
     return REDISMODULE_OK;
 }
 
+/* Same as RedisModule_ACLCheckCommandPermissions, but infers the current user from the RedisModuleCtx */
+int RM_ACLCheckCommandPermissionsCurrentUser(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModuleUser user;
+    user.user = ctx->client->user;
+
+    return RM_ACLCheckCommandPermissions(&user, argv, argc);
+}
+
 /* Check if the key can be accessed by the user according to the ACLs attached to the user
  * and the flags representing the key access. The flags are the same that are used in the
  * keyspec for logical operations. These flags are documented in RedisModule_SetCommandInfo as
@@ -12844,6 +12852,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCurrentUserName);
     REGISTER_API(GetModuleUserFromUserName);
     REGISTER_API(ACLCheckCommandPermissions);
+    REGISTER_API(ACLCheckCommandPermissionsCurrentUser);
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
     REGISTER_API(ACLAddLogEntry);

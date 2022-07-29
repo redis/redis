@@ -1205,6 +1205,7 @@ REDISMODULE_API RedisModuleString * (*RedisModule_GetModuleUserACLString)(RedisM
 REDISMODULE_API RedisModuleString * (*RedisModule_GetCurrentUserName)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleUser * (*RedisModule_GetModuleUserFromUserName)(RedisModuleString *name) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissions)(RedisModuleUser *user, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ACLCheckCommandPermissionsCurrentUser)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckKeyPermissions)(RedisModuleUser *user, RedisModuleString *key, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ACLCheckChannelPermissions)(RedisModuleUser *user, RedisModuleString *ch, int literal) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ACLAddLogEntry)(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) REDISMODULE_ATTR;
@@ -1548,6 +1549,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetCurrentUserName);
     REDISMODULE_GET_API(GetModuleUserFromUserName);
     REDISMODULE_GET_API(ACLCheckCommandPermissions);
+    REDISMODULE_GET_API(ACLCheckCommandPermissionsCurrentUser);
     REDISMODULE_GET_API(ACLCheckKeyPermissions);
     REDISMODULE_GET_API(ACLCheckChannelPermissions);
     REDISMODULE_GET_API(ACLAddLogEntry);
