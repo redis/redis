@@ -7,6 +7,85 @@
 
 source "../tests/includes/init-tests.tcl"
 
+set ::user "testuser"
+set ::password "secret"
+
+proc server_set_password {} {
+    foreach_redis_id id {
+        assert_equal {OK} [R $id CONFIG SET requirepass $::password]
+        assert_equal {OK} [R $id AUTH $::password]
+        assert_equal {OK} [R $id CONFIG SET masterauth $::password]
+    }
+}
+
+proc server_reset_password {} {
+    foreach_redis_id id {
+        assert_equal {OK} [R $id CONFIG SET requirepass ""]
+        assert_equal {OK} [R $id CONFIG SET masterauth ""]
+    }
+}
+
+
+proc verify_sentinel_connect_replicas {id} {
+    foreach replica [S $id SENTINEL REPLICAS mymaster] {
+        if {[string match "*disconnected*" [dict get $replica flags]]} {
+            return 0
+        }
+    }
+    return 1
+}
+
+proc wait_for_sentinels_connect_servers { {is_connect 1} } {
+    foreach_sentinel_id id {
+        wait_for_condition 1000 50 {
+            [string match "*disconnected*" [dict get [S $id SENTINEL MASTER mymaster] flags]] != $is_connect
+        } else {
+            fail "At least some sentinel can't connect to master"
+        }
+
+        wait_for_condition 1000 50 {
+            [verify_sentinel_connect_replicas $id] == $is_connect
+        } else {
+            fail "At least some sentinel can't connect to replica"
+        }
+    }
+}
+
+test "Sentinels (re)connection following SENTINEL SET mymaster auth-pass" {
+    # 3 types of sentinels to test:
+    # (re)started while master changed pwd. Manage to connect only after setting pwd
+    set sent2re 0
+    # (up)dated in advance with master new password
+    set sent2up 1
+    # (un)touched. Yet manage to maintain (old) connection
+    set sent2un 2
+
+    wait_for_sentinels_connect_servers
+    kill_instance sentinel $sent2re
+    assert_equal {OK} [S $sent2up SENTINEL SET mymaster auth-pass $::password]
+    server_set_password
+    restart_instance sentinel $sent2re
+
+    # Verify sentinel that restarted failed to connect master
+    if {![string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]]} {
+       fail "Expected to be disconnected from master due to wrong password"
+    }
+
+    # Update restarted sentinel with master password
+    assert_equal {OK} [S $sent2re SENTINEL SET mymaster auth-pass $::password]
+
+    # All sentinels expected to connect successfully
+    wait_for_sentinels_connect_servers
+
+    # remove requirepass and verify sentinels manage to connect servers
+    server_reset_password
+    wait_for_sentinels_connect_servers
+    # Sanity check
+    verify_sentinel_auto_discovery
+}
+
+
+
 proc 02_test_slaves_replication {} {
     uplevel 1 {
         test "Check that slaves replicate from current master" {
