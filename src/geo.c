@@ -35,7 +35,7 @@
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */
-unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
+unsigned char *zlpFirstInRange(unsigned char *lp, zrangespec *range);
 int zslValueLteMax(double value, zrangespec *spec);
 
 /* ====================================================================
@@ -260,21 +260,21 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
     sds member;
 
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = zobj->ptr;
+        unsigned char *lp = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
         unsigned int vlen = 0;
         long long vlong = 0;
         double score = 0;
 
-        if ((eptr = zzlFirstInRange(zl, &range)) == NULL) {
+        if ((eptr = zlpFirstInRange(lp, &range)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
 
-        sptr = lpNext(zl, eptr);
+        sptr = lpNext(lp, eptr);
         while (eptr) {
-            score = zzlGetScore(sptr);
+            score = zlpGetScore(sptr);
 
             /* If we fell out of range, break. */
             if (!zslValueLteMax(score, &range))
@@ -286,7 +286,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (geoAppendIfWithinShape(ga,shape,score,member)
                 == C_ERR) sdsfree(member);
             if (ga->used && limit && ga->used >= limit) break;
-            zzlNext(zl, &eptr, &sptr);
+            zlpNext(lp, &eptr, &sptr);
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;

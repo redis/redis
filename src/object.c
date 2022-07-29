@@ -249,8 +249,8 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    unsigned char *zl = lpNew(0);
-    robj *o = createObject(OBJ_HASH, zl);
+    unsigned char *lp = lpNew(0);
+    robj *o = createObject(OBJ_HASH, lp);
     o->encoding = OBJ_ENCODING_LISTPACK;
     return o;
 }

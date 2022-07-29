@@ -1868,21 +1868,21 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = zsetLength(o);
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = o->ptr;
+        unsigned char *lp = o->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
         double score;
 
-        eptr = lpSeek(zl,0);
+        eptr = lpSeek(lp,0);
         serverAssert(eptr != NULL);
-        sptr = lpNext(zl,eptr);
+        sptr = lpNext(lp,eptr);
         serverAssert(sptr != NULL);
 
         while (eptr != NULL) {
             vstr = lpGetValue(eptr,&vlen,&vll);
-            score = zzlGetScore(sptr);
+            score = zlpGetScore(sptr);
 
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
@@ -1901,7 +1901,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             } else {
                 if (!rioWriteBulkLongLong(r,vll)) return 0;
             }
-            zzlNext(zl,&eptr,&sptr);
+            zlpNext(lp,&eptr,&sptr);
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }

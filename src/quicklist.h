@@ -161,7 +161,7 @@ int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
 int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
 void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
                    int where);
-void quicklistAppendListpack(quicklist *quicklist, unsigned char *zl);
+void quicklistAppendListpack(quicklist *quicklist, unsigned char *lp);
 void quicklistAppendPlainNode(quicklist *quicklist, unsigned char *data, size_t sz);
 void quicklistInsertAfter(quicklistIter *iter, quicklistEntry *entry,
                           void *value, const size_t sz);
