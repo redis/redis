@@ -2402,10 +2402,14 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
 }
 
 /* Validate specified string is a valid locale string, meanwhile do
-the setting work. */
+ * the setting work. */
 static int isValidLocale(char *val, const char **err) {
     const char *s = setlocale(LC_COLLATE, val);
-    return s != NULL;
+    if (s == NULL) {
+        *err = "Invalid locale name";
+        return 0;
+    }
+    return 1;
 }
 
 static int updateProcTitleTemplate(const char **err) {
