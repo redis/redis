@@ -26,6 +26,7 @@ n.aof
 - [x] 解警告
 - [x] 原有RDB路径崩溃
 
+- [ ] psync_initial_offset
 - [ ] 命令行replicaof
 - [ ] seldb
 - [ ] 单元测试
