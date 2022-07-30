@@ -2168,6 +2168,7 @@ void readSyncAofManifest(connection *conn) {
     server.repl_transfer_current_read_aof_index++;
     server.repl_transfer_wait_read_aof = false;
     if (server.repl_transfer_current_read_aof_index == server.repl_transfer_aof_nums) {
+        replicationAttachToNewMaster();
         connSetReadHandler(conn, NULL);
         aofManifestFreeAndUpdate(server.repl_aof_manifest);
         persistAofManifest(server.aof_manifest);
