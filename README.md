@@ -1,3 +1,6 @@
+[![Discord](https://img.shields.io/discord/697882427875393627?style=flat-square)](https://discord.gg/P3Bmqf62)
+[![Forum](https://img.shields.io/badge/forum-Redis-blue)](https://groups.google.com/g/redis-db)
+
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
 What is Redis?
