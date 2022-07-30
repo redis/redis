@@ -38,6 +38,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
+void cleanupAOFReplication(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1636,7 +1637,6 @@ void freeClient(client *c) {
 
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
-    // TODO dyk clean aof
     if (c->flags & CLIENT_SLAVE) {
         /* If there is no any other slave waiting dumping RDB finished, the
          * current child process need not continue to dump RDB, then we kill it.
@@ -1653,10 +1653,20 @@ void freeClient(client *c) {
         {
             killRDBChild();
         }
-        if (c->replstate == SLAVE_STATE_SEND_BULK) {
+        if (c->replstate == SLAVE_STATE_SEND_BULK ||
+                c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+                c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+            // in replication
+
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
+
+            if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+                    c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+                cleanupAOFReplication(c);
+            }
         }
+
         list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         serverAssert(ln != NULL);

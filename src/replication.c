@@ -57,6 +57,7 @@ int persistAofManifest(aofManifest *am);
 int aofDelHistoryFiles(void);
 
 void cleanupTmpAof();
+void cleanupAOFReplication(client *c);
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -1014,7 +1015,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
             sdsfree(path);
             return;
         }
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
                   "SYNC(AOF) open %s file: %s, size %ld",
                   sending_base ? "base" : "incr", toOpen->file_name, stat.st_size);
         sdsfree(path);
@@ -1022,7 +1023,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
         slave->repldbsize = stat.st_size;
         if (sending_base) {
             int is_rdb_fmt = stringmatch("*.rdb", path, 0);
-            serverLog(LL_WARNING, "base file is rdb format: %s", is_rdb_fmt ? "YES" : "NO");
+            serverLog(LL_DEBUG, "base file is rdb format: %s", is_rdb_fmt ? "YES" : "NO");
             slave->replpreamble = sdscatprintf(sdsempty(),
                     "%ld\r\n%s\r\n$%lld\r\n",
                     listLength(am->incr_aof_list) + 1,  // files count with base
@@ -1039,18 +1040,38 @@ void sendAofManifestToSlaver(struct connection *conn) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
 
-        serverLog(LL_WARNING, "SYNC(AOF) file sent: %s", sending_base ? "base" : "incr");
+        serverLog(LL_NOTICE, "SYNC(AOF) file sent: %s", sending_base ? "base" : "incr");
         if (sending_base) {
             // base finished, start to send incr files.
             slave->repl_aof_incr_idx = -1;
             slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
         } else if (slave->repl_aof_incr_idx + 1 == (int) listLength(am->incr_aof_list)) {
             // final incr finished
-            connSetWriteHandler(slave->conn,NULL);
+            cleanupAOFReplication(slave);
+            connSetWriteHandler(slave->conn, NULL);
             replicaPutOnline(slave);
             replicaStartCommandStream(slave);
-            serverLog(LL_WARNING, "SYNC(AOF) finished");
+            serverLog(LL_NOTICE, "SYNC(AOF) finished");
         }
+    }
+}
+
+void cleanupAOFReplication(client *c) {
+    serverLog(LL_NOTICE, "Cleaning aof replication %s.", replicationGetSlaveName(c));
+    if (c->replstate == SLAVE_STATE_SEND_AOF_BASE ||
+            c->replstate == SLAVE_STATE_SEND_AOF_INCR) {
+        // server.repl_aof_sending_slave_num is the ref-count of server.repl_aof_manifest.
+        // If master is sending files to slave (may disconnected unexpectedly),
+        //   we need to unref the server.repl_aof_manifest.
+        // Else if master is online, the ref-count should have decreased previously.
+        server.repl_aof_sending_slave_num--;
+    }
+    if (server.repl_aof_sending_slave_num == 0) {
+        // If this is final slave using server.repl_aof_manifest, we need to cleanup the manifest.
+        serverLog(LL_NOTICE, "Final slave using aof replication cleared, reenable aof rewrite");
+        aofManifestFree(server.repl_aof_manifest);
+        // TODO reenable rewrite
+        server.aof_rewrite_scheduled = 1;
     }
 }
 
@@ -1169,6 +1190,11 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
+    if (server.repl_disable_tcp_nodelay)
+        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
+    c->flags |= CLIENT_SLAVE;
+    listAddNodeTail(server.slaves,c);
+
     int use_aof = 1;
     if (use_aof) {
         // 0. 检查aof状态
@@ -1177,11 +1203,19 @@ void syncCommand(client *c) {
         //   - AOF_WAIT_REWRITE
         // 1. 检查rewrite状态
         //   - 如果正在rewrite，等待rewrite结束
-        //   - 如果未在rewrite
-        // 2. 禁用rewrite，避免已有的aof文件被修改
-        // 3. 复制一份当前的manifest，并打开一个新的aof文件
-        // 4. 发送备份的manifest
-        // 5. 结束后进行命令传播
+        //   - 如果未在rewrite，则继续
+        // 2. 禁用rewrite，避免已有的aof文件列表被修改
+        // 3. 如果当前server中没有用于repl的manifest，则：
+        //   复制一份当前的manifest，避免发送过程中修改
+        //     - 如果当前的最后一个aof文件不为空，则打开一个新的aof文件
+        //     - 如果当前的最后一个aof文件为空，且incr的文件数量==1，则打开一个新的aof文件，
+        //       这是为了避免一个aof文件都不发送
+        //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件 
+        // 4. 发送server中用于repl的manifest
+        // 5. 结束后
+        //   1. 将slave置为online
+        //   2. 准备进行命令传播
+        //   3. 如果这是最后一个aof sync的slave，则清空server.repl_aof_manifest
         //
         // 在sync过程中，如果有新的sync命令过来，直接使用备份的manifest
         // 在所有sync过程结束后，重新启用rewrite，并将scheduled置为1，请求一次rewrite
@@ -1192,39 +1226,38 @@ void syncCommand(client *c) {
             exit(1);
             return;
         }
-        server.repl_aof_manifest = NULL;
         c->replstate = SLAVE_STATE_SEND_AOF_BASE;
         c->repl_aof_incr_idx = -1;
         c->repldbfd = -1;
         c->repldboff = 0;
         c->repldbsize = 0;
-        server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
-        // TODO 错误处理
         if (!server.repl_aof_manifest) {
-            serverLog(LL_WARNING, "Failed to dup aof manifest");
-            exit(1);
-        }
-        // Temporarily disable rewrite
-        // TODO 确认哪些路径修改scheduled的值
-        server.aof_rewrite_scheduled = 0;
-        serverLog(LL_WARNING, "Current sever.aof_last_incr_size: %ld", server.aof_last_incr_size);
-        // We don't need open new incr aof file if current incr file size is zero.
-        // And we need to ensure at least one incr file will send.
-        if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
-            listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
-            if (last) {
-                listDelNode(server.repl_aof_manifest->incr_aof_list, last);
-            }
-        } else {
-            if (openNewIncrAofForAppend() != C_OK) {
-                serverLog(LL_WARNING, "Failed to open new incr aof file");
+            server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
+            // TODO 错误处理
+            if (!server.repl_aof_manifest) {
+                serverLog(LL_WARNING, "Failed to dup aof manifest");
                 exit(1);
             }
+            // We don't need open new incr aof file if current incr file size is zero.
+            // And we need to ensure at least one incr file will send.
+            if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
+                listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
+                if (last) {
+                    listDelNode(server.repl_aof_manifest->incr_aof_list, last);
+                }
+            } else {
+                if (openNewIncrAofForAppend() != C_OK) {
+                    serverLog(LL_WARNING, "Failed to open new incr aof file");
+                    exit(1);
+                }
+            }
+            // Temporarily disable rewrite
+            // TODO 确认哪些路径修改scheduled的值
+            server.aof_rewrite_scheduled = 0;
         }
+        server.repl_aof_sending_slave_num++;
 
-        serverLog(LL_WARNING, "psync initial offset: %lld", c->psync_initial_offset);
         replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
-
         connSetWriteHandler(c->conn, NULL);
         if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
             // TODO cleanup
@@ -1238,14 +1271,9 @@ void syncCommand(client *c) {
         return;
     }
 
-    /* Setup the slave as one waiting for BGSAVE to start. The following code
-     * paths will change the state if we handle the slave differently. */
+    /* Setup the slave as one waiting for BGSAVE to start. */
     c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-    if (server.repl_disable_tcp_nodelay)
-        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
     c->repldbfd = -1;
-    c->flags |= CLIENT_SLAVE;
-    listAddNodeTail(server.slaves,c);
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.child_type == CHILD_TYPE_RDB &&

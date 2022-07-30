@@ -1804,7 +1804,11 @@ struct redisServer {
     int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
     int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
 
-    aofManifest *repl_aof_manifest; /* Replication aof manifest (using aof replaction) */
+    aofManifest *repl_aof_manifest; /* In master, it is the aofManifest will be sent to slaves;
+                                     * In slave, it is the aofManifest will be persisted */
+    int repl_aof_sending_slave_num; /* The number of slaves using aof replication.
+                                     * When it down to 0, the repl_aof_manifest will be freed.
+                                     * Could be unstandand as the ref-count of repl_aof_manifest */
     int repl_transfer_current_read_aof_index; /* Current read aof index */
     int repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset
