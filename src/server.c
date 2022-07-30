@@ -5080,6 +5080,8 @@ const char *replstateToString(int replstate) {
         return "wait_bgsave";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";
+    case SLAVE_STATE_SEND_AOF_BASE:
+        return "send_aof_bulks";
     case SLAVE_STATE_ONLINE:
         return "online";
     default:

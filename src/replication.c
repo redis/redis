@@ -693,12 +693,12 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(client *slave, long long offset) {
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int aofSync) {
     char buf[128];
     int buflen;
 
     slave->psync_initial_offset = offset;
-    slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
+    slave->replstate = aofSync ? SLAVE_STATE_SEND_AOF_BASE : SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
      * a SELECT statement in the replication stream. */
@@ -908,7 +908,7 @@ int startBgsaveForReplication(int mincapa, int req) {
                 /* Check slave has the exact requirements */
                 if (slave->slave_req != req)
                     continue;
-                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+                replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset(), 0);
             }
         }
     }
@@ -952,7 +952,7 @@ int sendBulkToSlave(connection *conn) {
     /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
-    if (buflen <= 0) {
+    if (buflen <= 0 && slave->repldbsize != 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
             (buflen == 0) ? "premature EOF" : strerror(errno));
         freeClient(slave);
@@ -1020,10 +1020,13 @@ void sendAofManifestToSlaver(struct connection *conn) {
         slave->repldboff = 0;
         slave->repldbsize = stat.st_size;
         if (sending_base) {
+            int is_rdb_fmt = stringmatch("*.rdb", path, 0);
+            serverLog(LL_WARNING, "base file is rdb format: %s", is_rdb_fmt ? "YES" : "NO");
             slave->replpreamble = sdscatprintf(sdsempty(),
-                    "__\r\n$%lld\r\n", (unsigned long long) slave->repldbsize);
-            slave->replpreamble[0] = listLength(am->incr_aof_list) + 1;
-            slave->replpreamble[1] = 1; // TODO rdb/aof
+                    "%ld\r\n%s\r\n$%lld\r\n",
+                    listLength(am->incr_aof_list) + 1,  // files count with base
+                    is_rdb_fmt ? "rdb" : "aof",
+                    (unsigned long long) slave->repldbsize);
         } else {
             slave->replpreamble = sdscatprintf(sdsempty(),
                     "$%lld\r\n", (unsigned long long) slave->repldbsize);
@@ -1038,8 +1041,8 @@ void sendAofManifestToSlaver(struct connection *conn) {
         serverLog(LL_WARNING, "SYNC(AOF) file sent: %s", sending_base ? "base" : "incr");
         if (sending_base) {
             // base finished, start to send incr files.
-            slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
             slave->repl_aof_incr_idx = -1;
+            slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
         } else if (slave->repl_aof_incr_idx + 1 == (int) listLength(am->incr_aof_list)) {
             // final incr finished
             connSetWriteHandler(slave->conn,NULL);
@@ -1104,6 +1107,7 @@ void syncCommand(client *c) {
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
+    // TODO
     if (c->slave_req & SLAVE_REQ_RDB_MASK && !(c->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
@@ -1164,7 +1168,7 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
-    int use_aof = 0;
+    int use_aof = 1;
     if (use_aof) {
         // 0. 检查aof状态
         //   - AOF_ON
@@ -1203,7 +1207,9 @@ void syncCommand(client *c) {
         // TODO 确认哪些路径修改scheduled的值
         server.aof_rewrite_scheduled = 0;
         serverLog(LL_WARNING, "Current sever.aof_last_incr_size: %ld", server.aof_last_incr_size);
-        if (server.aof_last_incr_size <= 0) {
+        // We don't need open new incr aof file if current incr file size is zero.
+        // And we need to ensure at least one incr file will send.
+        if (server.aof_last_incr_size <= 0 && listLength(c->repl_aof_manifest->incr_aof_list) > 1) {
             listNode *last = listLast(c->repl_aof_manifest->incr_aof_list);
             if (last) {
                 listDelNode(c->repl_aof_manifest->incr_aof_list, last);
@@ -1214,14 +1220,9 @@ void syncCommand(client *c) {
                 exit(1);
             }
         }
-        int buflen;
-        char buf[256];
-        buflen = snprintf(buf, sizeof(buf),
-                          "+FULLRESYNC %s %lld\r\n", server.replid, 0ll);
-        if (connWrite(c->conn, buf, buflen) != buflen) {
-            freeClientAsync(c);
-            return;
-        }
+
+        serverLog(LL_WARNING, "psync initial offset: %lld", c->psync_initial_offset);
+        replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
 
         connSetWriteHandler(c->conn, NULL);
         if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
@@ -1276,7 +1277,7 @@ void syncCommand(client *c) {
              * We don't copy buffer if clients don't want. */
             if (!(c->flags & CLIENT_REPL_RDBONLY))
                 copyReplicaOutputBuffer(c,slave);
-            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset);
+            replicationSetupSlaveForFullResync(c,slave->psync_initial_offset,0);
             serverLog(LL_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
@@ -1651,7 +1652,7 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
                 stillUp++;
             }
             serverLog(LL_WARNING,"Diskless rdb transfer, done reading from pipe, %d replicas still up.", stillUp);
-            /* Now that the replicas have finished reading, notify the child that it's safe to exit. 
+            /* Now that the replicas have finished reading, notify the child that it's safe to exit.
              * When the server detects the child has exited, it can mark the replica as online, and
              * start streaming the replication buffers. */
             close(server.rdb_child_exit_pipe);
@@ -2687,7 +2688,7 @@ char *sendCommand(connection *conn, ...) {
     return NULL;
 }
 
-/* Compose a multi-bulk command and send it to the connection. 
+/* Compose a multi-bulk command and send it to the connection.
  * Used to send AUTH and REPLCONF commands to the master before starting the
  * replication.
  *

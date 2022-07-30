@@ -17,8 +17,13 @@ n.aof
 
 ## TODO
 
-- [ ] 字符串前导
+- [x] 字符串前导
+- [ ] 空AOF是否要发：一定要发，因为base格式的aof有可能
 - [ ] 判断当前base文件类型
-- [ ] `info Replication`
 - [ ] repl buffer/backlog
 - [ ] 多个slave同时sync
+
+- [ ] `use_aof_sync`配置 + Command
+- [ ] 单元测试
+- [ ] `info Replication`
+- [ ] 原有RDB路径崩溃

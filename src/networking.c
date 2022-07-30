@@ -1468,6 +1468,7 @@ void unlinkClient(client *c) {
             c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
             server.rdb_pipe_conns)
         {
+            // TODO dyk
             int i;
             for (i=0; i < server.rdb_pipe_numconns; i++) {
                 if (server.rdb_pipe_conns[i] == c->conn) {
@@ -1635,6 +1636,7 @@ void freeClient(client *c) {
 
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
+    // TODO dyk clean aof
     if (c->flags & CLIENT_SLAVE) {
         /* If there is no any other slave waiting dumping RDB finished, the
          * current child process need not continue to dump RDB, then we kill it.

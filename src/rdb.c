@@ -3409,7 +3409,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             if (slave->slave_req != req)
                 continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
-            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset(),0);
         }
     }
     //TODO send test buf

@@ -428,7 +428,7 @@ typedef enum {
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
 #define SLAVE_STATE_SEND_AOF_BASE 10 /* Sending base file of AOF manifest to slave. */
 #define SLAVE_STATE_SEND_AOF_INCR 11 /* Sending incremental files of AOF manifest to slave. */
-#define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
+#define SLAVE_STATE_ONLINE 9 /* RDB/AOF file(s) transmitted, sending just updates. */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
@@ -2700,7 +2700,7 @@ void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
 long long getPsyncInitialOffset(void);
-int replicationSetupSlaveForFullResync(client *slave, long long offset);
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int aofSync);
 void changeReplicationId(void);
 void clearReplicationId2(void);
 void createReplicationBacklog(void);
