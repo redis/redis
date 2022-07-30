@@ -2145,12 +2145,12 @@ void readSyncAofManifest(connection *conn) {
     close(server.repl_transfer_fd);
     server.repl_transfer_fd = -1;
     if (server.repl_transfer_current_read_aof_index == 0) {
-        server.repl_aof_manifest->base_aof_info->file_name = server.repl_transfer_tmpfile;
+        server.repl_aof_manifest->base_aof_info->file_name = sdsnew(server.repl_transfer_tmpfile);
         server.repl_aof_manifest->base_aof_info->file_seq = ++server.repl_aof_manifest->curr_base_file_seq;
         server.repl_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_BASE;
     } else {
         aofInfo *ai = aofInfoCreate();
-        ai->file_name = server.repl_transfer_tmpfile;
+        ai->file_name = sdsnew(server.repl_transfer_tmpfile);
         ai->file_seq = ++server.repl_aof_manifest->curr_incr_file_seq;
         ai->file_type = AOF_FILE_TYPE_INCR;
         listAddNodeTail(server.repl_aof_manifest->incr_aof_list, ai);
