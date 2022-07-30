@@ -1139,6 +1139,8 @@ void syncCommand(client *c) {
     serverLog(LL_NOTICE,"Replica %s asks for synchronization",
         replicationGetSlaveName(c));
 
+    int useAofSync = 0;
+
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
      * when this happens replicationSetupSlaveForFullResync will replied
@@ -1151,9 +1153,9 @@ void syncCommand(client *c) {
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
         if (c->argc > 3) {
             if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
-                server.repl_full_sync_type = 0;
-            } else if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
-                server.repl_full_sync_type = 1;
+                useAofSync = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
+                useAofSync = 1;
             }
         }
         long long psync_offset;
@@ -1182,9 +1184,9 @@ void syncCommand(client *c) {
         c->flags |= CLIENT_PRE_PSYNC;
         if (c->argc > 1) {
             if (!strcasecmp(c->argv[1]->ptr, "rdb")) {
-                server.repl_full_sync_type = 0;
-            } else if (!strcasecmp(c->argv[1]->ptr, "rdb")) {
-                server.repl_full_sync_type = 1;
+                useAofSync = 0;
+            } else if (!strcasecmp(c->argv[1]->ptr, "aof")) {
+                useAofSync = 1;
             }
         }
     }
@@ -1210,7 +1212,7 @@ void syncCommand(client *c) {
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
-    if (server.repl_full_sync_type) {
+    if (useAofSync) {
         // 0. 检查aof状态
         //   - AOF_ON
         //   - AOF_OFF

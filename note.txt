@@ -22,6 +22,7 @@ n.aof
 - [x] 判断当前base文件类型
 - [ ] 多个slave同时sync
 - [ ] repl buffer/backlog
+- [ ] 解警告
 
 - [ ] `use_aof_sync`配置 + Command
 - [ ] 单元测试
