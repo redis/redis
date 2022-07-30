@@ -1970,7 +1970,7 @@ void replicationAttachToNewMaster() {
 /* Asynchronously read the SYNC aof manifest we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncAofManifest(connection *conn) {
-    /* we need to stop any aof rewriting. TODO */
+    /* we need to stop any aof rewriting. */
     if (server.aof_state != AOF_OFF) {
         stopAppendOnly();
     }
@@ -1995,9 +1995,9 @@ void readSyncAofManifest(connection *conn) {
             atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
         }
         if (server.repl_transfer_aof_nums == 0) {
-            server.repl_transfer_aof_nums = strtol(buf, NULL, 10);
+            server.repl_transfer_aof_nums = (int) strtol(buf, NULL, 10);
             return;
-        } else if (server.repl_transfer_base_aof_type == 0) {
+        } else if (server.repl_transfer_base_aof_type == -1) {
             if (strcmp(buf, "aof") == 0) {
                 server.repl_transfer_base_aof_type = 0;
             } else if (strcmp(buf, "rdb") == 0) {
@@ -2026,7 +2026,7 @@ void readSyncAofManifest(connection *conn) {
                                                                                                                 :
                                                                server.repl_tmp_aof_manifest->curr_incr_file_seq + 1,
                          server.repl_transfer_current_read_aof_index == 0 ? "base" : "incr",
-                         server.repl_transfer_current_read_aof_index > 0 || server.repl_transfer_base_aof_type ? "aof"
+                         server.repl_transfer_current_read_aof_index > 0 || !server.repl_transfer_base_aof_type ? "aof"
                                                                                                                : "rdb");
                 sds path = makePath(server.aof_dirname, tmpfile);
                 dfd = open(path, O_CREAT | O_WRONLY | O_EXCL, 0644);
@@ -2041,13 +2041,17 @@ void readSyncAofManifest(connection *conn) {
             server.repl_transfer_tmpfile = zstrdup(tmpfile);
             server.repl_transfer_fd = dfd;
         }
-        return;
+        /* We can receive empty database, and in the last file we don't need to return, just run down */
+        if (!(server.repl_transfer_size == 0 &&
+              server.repl_transfer_current_read_aof_index + 1 == server.repl_transfer_aof_nums)) {
+            return;
+        }
     } else {
         /* read aof data into file */
         left = server.repl_transfer_size - server.repl_transfer_read;
         readlen = (left < (signed) sizeof(buf)) ? left : (signed) sizeof(buf);
         nread = connRead(conn, buf, readlen);
-        if (nread <= 0) {
+        if (nread <= 0 && server.repl_transfer_read != 0) {
             if (connGetState(conn) == CONN_STATE_CONNECTED) {
                 /* equivalent to EAGAIN */
                 return;
@@ -2090,16 +2094,16 @@ void readSyncAofManifest(connection *conn) {
         if (!eof_reached) {
             return;
         }
-    }
-    /* update aof file to manifest */
-    /* Make sure the new file (also used for persistence) is fully synced. */
-    if (fsync(server.repl_transfer_fd) == -1) {
-        serverLog(LL_WARNING,
-                  "Failed trying to sync the temp DB to disk in "
-                  "MASTER <-> REPLICA synchronization: %s",
-                  strerror(errno));
-        cancelReplicationHandshake(1);
-        return;
+        /* update aof file to manifest */
+        /* Make sure the new file (also used for persistence) is fully synced. */
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,
+                      "Failed trying to sync the temp DB to disk in "
+                      "MASTER <-> REPLICA synchronization: %s",
+                      strerror(errno));
+            cancelReplicationHandshake(1);
+            return;
+        }
     }
     server.repl_transfer_read = 0;
     close(server.repl_transfer_fd);
@@ -3196,7 +3200,6 @@ void syncWithMaster(connection *conn) {
 
     const int use_aof = 1;
 
-
     if (use_aof) {
         /* Setup the non blocking download of the aof manifest. */
         if (connSetReadHandler(conn, readSyncAofManifest)
@@ -3207,8 +3210,8 @@ void syncWithMaster(connection *conn) {
                       strerror(errno), connGetInfo(conn, conninfo, sizeof(conninfo)));
             goto error;
         }
+        /* dup tmp aof manifest */
         server.repl_tmp_aof_manifest = aofManifestDup(server.aof_manifest);
-
         server.repl_transfer_aof_nums = 0;
         server.repl_transfer_base_aof_type = -1;
         server.repl_tmp_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
@@ -3253,7 +3256,6 @@ void syncWithMaster(connection *conn) {
             goto error;
         }
     };
-
 
     server.repl_state = REPL_STATE_TRANSFER;
     server.repl_transfer_size = -1;
