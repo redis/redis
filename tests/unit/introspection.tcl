@@ -141,10 +141,7 @@ start_server {tags {"introspection"}} {
     test {CLIENT SETMETADATA can assign a meta to this connection} {
         assert_equal [r client setmetadata meta foo] {OK}
         r client list
-    } {*meta=%1
-+meta
-:foo
-*}
+    } {*meta=meta=foo*}
 
     test {CLIENT GETMETADATA should return empty info for non-existing meta attributes} {
         assert_equal [r client setmetadata meta foo] {OK}
@@ -154,19 +151,12 @@ start_server {tags {"introspection"}} {
     test {CLIENT GETMETADATA should return specific meta attributes} {
         assert_equal [r client setmetadata meta foo meta2 bar] {OK}
         r client getmetadata meta
-    } {%1
-+meta
-:foo
-}
+    } {meta foo}
 
     test {CLIENT GETMETADATA should return all meta attributes} {
         assert_equal [r client setmetadata meta foo meta2 bar] {OK}
-        assert_match {*+meta2
-:bar
-*} [r client getmetadata]
-        assert_match {*+meta
-:foo
-*} [r client getmetadata]
+        assert_match {*meta2 bar*} [r client getmetadata]
+        assert_match {*meta foo*} [r client getmetadata]
     }
 
     test {CLIENT LIST shows empty fields for unassigned names} {

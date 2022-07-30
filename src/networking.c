@@ -118,20 +118,33 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-sds getAllClientMetaFields(dict *meta) {
+void getAllClientMetaFields(client *c) {
+    dictIterator *di = dictGetIterator(c->meta);
+    dictEntry *de;
+    
+    void *ufields = addReplyDeferredLen(c);
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+        sds value = dictGetVal(de);
+
+        addReplyBulkCBuffer(c, key, sdslen(key));
+        addReplyBulkCBuffer(c, value, sdslen(value));
+    }
+    dictReleaseIterator(di);
+    setDeferredMapLen(c, ufields, (int) dictSize(c->meta));
+}
+
+sds getClientMetadata(dict *meta) {
     dictIterator *di = dictGetIterator(meta);
     dictEntry *de;
-    sds result = sdscatfmt(sdsempty(),
-        "%%%i\n",
-        (int) dictSize(meta)
-    );
+    sds result = sdsempty();
 
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         sds value = dictGetVal(de);
 
         result = sdscatfmt(result,
-            "+%s\n:%s\n",
+            "%s=%s ",
             key,
             value
         );
@@ -141,40 +154,25 @@ sds getAllClientMetaFields(dict *meta) {
     return result;
 }
 
-sds getClientMetaFields(client *c) {
+void getClientMetaFields(client *c) {
     int i;
     int count = 0;
-    sds partialResult = sdsempty();
 
+    void *ufields = addReplyDeferredLen(c);
     for (i = 2; i < c->argc; i++) {
         dictEntry *de;
         de = dictFind(c->meta, c->argv[i]->ptr);
         if (de == NULL) {
             continue;
         };
+        sds key = dictGetKey(de);
         sds value = dictGetVal(de);
-        
-        partialResult = sdscatfmt(partialResult,
-            "+%s\n:%s\n",
-            c->argv[i]->ptr,
-            value
-        );
+
+        addReplyBulkCBuffer(c, key, sdslen(key));
+        addReplyBulkCBuffer(c, value, sdslen(value));
         count++;
     }
-
-    if(count == 0){
-        return partialResult;
-    }
-    
-    sds size = sdscatfmt(sdsempty(),
-        "%%%i\n",
-        count
-    );
-
-    sds result = sdscatfmt(size, partialResult);
-    sdsfree(partialResult);
-
-    return result;
+    setDeferredMapLen(c, ufields, count);
 }
 
 client *createClient(connection *conn) {
@@ -2852,7 +2850,7 @@ sds catClientInfoString(sds s, client *client) {
         replBufBlock *cur = listNodeValue(client->ref_repl_buf_node);
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
-    sds meta = client->meta ? getAllClientMetaFields(client->meta) : NULL;
+    sds meta = client->meta ? getClientMetadata(client->meta) : NULL;
 
     sds ret = sdscatfmt(s,
         "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%s",
@@ -3295,11 +3293,10 @@ NULL
         /* CLIENT GETMETADATA */
         sds meta = NULL;
         if (c->argc == 2) {
-            meta = c->meta ? getAllClientMetaFields(c->meta) : sdsempty();
+            getAllClientMetaFields(c);
         } else {
-            meta = c->meta ? getClientMetaFields(c) : sdsempty();
+            getClientMetaFields(c);
         }
-        addReplyVerbatim(c,meta,sdslen(meta),"txt");
         sdsfree(meta);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
