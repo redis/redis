@@ -1070,8 +1070,9 @@ void cleanupAOFReplication(client *c) {
         // If this is final slave using server.repl_aof_manifest, we need to cleanup the manifest.
         serverLog(LL_NOTICE, "Final slave using aof replication cleared, reenable aof rewrite");
         aofManifestFree(server.repl_aof_manifest);
+        server.repl_aof_manifest = NULL;
         // TODO reenable rewrite
-        server.aof_rewrite_scheduled = 1;
+        /*server.aof_rewrite_scheduled = 1;*/
     }
 }
 
@@ -1276,13 +1277,7 @@ void syncCommand(client *c) {
         replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
         connSetWriteHandler(c->conn, NULL);
         if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
-            // TODO cleanup
             freeClientAsync(c);
-            if (server.repl_aof_manifest) {
-                aofManifestFree(server.repl_aof_manifest);
-            }
-            server.aof_rewrite_scheduled = 1;
-            server.repl_aof_manifest = NULL;
         }
         return;
     }

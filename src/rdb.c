@@ -1022,7 +1022,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-
+                
                 /* Save the group's logical reads counter. */
                 if ((n = rdbSaveLen(rdb,cg->entries_read)) == -1) {
                     raxStop(&ri);
@@ -1160,7 +1160,6 @@ ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 
 /* Save a few default AUX fields with information about the RDB generated. */
 int rdbSaveInfoAuxFields(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    UNUSED(rdbflags);
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
     int aof_base = (rdbflags & RDBFLAGS_AOF_PREAMBLE) != 0;
 
@@ -1430,7 +1429,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
     fp = NULL;
-
+    
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
@@ -2177,7 +2176,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST:
+            case RDB_TYPE_LIST_ZIPLIST: 
                 {
                     quicklist *ql = quicklistNew(server.list_max_listpack_size,
                                                  server.list_compress_depth);
@@ -2394,7 +2393,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
-
+        
         if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
@@ -2413,9 +2412,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             s->max_deleted_entry_id.ms = 0;
             s->max_deleted_entry_id.seq = 0;
             s->entries_added = s->length;
-
+            
             /* Since the rax is already loaded, we can find the first entry's
-             * ID. */
+             * ID. */ 
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
@@ -2459,7 +2458,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 decrRefCount(o);
                 return NULL;
             }
-
+            
             /* Load group offset. */
             uint64_t cg_offset;
             if (rdbtype == RDB_TYPE_STREAM_LISTPACKS_2) {
@@ -3247,7 +3246,7 @@ eoferr:
  * to do the actual loading. Moreover the ETA displayed in the INFO
  * output is initialized and finalized.
  *
- * If you pass an 'rsi' structure initialized with RDB_SAVE_OPTION_INIT, the
+ * If you pass an 'rsi' structure initialized with RDB_SAVE_INFO_INIT, the
  * loading code will fill the information fields in the structure. */
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     FILE *fp;
@@ -3370,9 +3369,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     pid_t childpid;
     int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
 
-    if (hasActiveChildProcess()) {
-        return C_ERR;
-    }
+    if (hasActiveChildProcess()) return C_ERR;
 
     /* Even if the previous fork child exited, don't start a new one until we
      * drained the pipe. */
@@ -3409,7 +3406,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             if (slave->slave_req != req)
                 continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
-            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset(),0);
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         }
     }
 

@@ -20,7 +20,8 @@ n.aof
 - [x] 字符串前导
 - [x] 空AOF是否要发：一定要发，因为base格式的aof有可能
 - [x] 判断当前base文件类型
-- [ ] 多个slave同时sync
+- [x] 多个slave同时sync
+- [ ] rewrite
 - [ ] repl buffer/backlog
 - [ ] 解警告
 
