@@ -1016,7 +1016,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
             return;
         }
         serverLog(LL_NOTICE,
-                  "SYNC(AOF) open %s file: %s, size %ld",
+                  "SYNC(AOF) open %s file: %s, size %lld",
                   sending_base ? "base" : "incr", toOpen->file_name, stat.st_size);
         sdsfree(path);
         slave->repldboff = 0;
@@ -3595,7 +3595,7 @@ void replicaofCommand(client *c) {
             return;
         }
 
-        if (c->argc >= 3) {
+        if (c->argc > 3) {
             if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
                 server.repl_full_sync_type = 0;
             } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
