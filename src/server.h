@@ -1127,7 +1127,6 @@ typedef struct client {
     off_t repldboff;        /* Replication DB file offset. */
     off_t repldbsize;       /* Replication DB file size. */
     sds replpreamble;       /* Replication DB preamble. */
-    aofManifest *repl_aof_manifest;  /* Replication aof manifest (using aof replaction) */
     int repl_aof_incr_idx;  /* Index of incr item in aof manifest to send (using aof replaction) */
     long long read_reploff; /* Read replication offset if this is a master. */
     long long reploff;      /* Applied replication offset if this is a master. */
@@ -1805,7 +1804,7 @@ struct redisServer {
     int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
     int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
 
-    aofManifest *repl_aof_manifest;
+    aofManifest *repl_aof_manifest; /* Replication aof manifest (using aof replaction) */
     int repl_transfer_current_read_aof_index; /* Current read aof index */
     int repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset

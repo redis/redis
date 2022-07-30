@@ -977,9 +977,10 @@ int sendBulkToSlave(connection *conn) {
 
 /* Send files in aof manifest to slaver for sync. */
 void sendAofManifestToSlaver(struct connection *conn) {
+    serverAssert(server.repl_aof_manifest != NULL);
     client *slave = connGetPrivateData(conn);
     int replstate = slave->replstate;
-    aofManifest *am = slave->repl_aof_manifest;
+    aofManifest *am = server.repl_aof_manifest;
 
     if (replstate != SLAVE_STATE_SEND_AOF_BASE && replstate != SLAVE_STATE_SEND_AOF_INCR) {
         // TODO 错误处理
@@ -1191,15 +1192,15 @@ void syncCommand(client *c) {
             exit(1);
             return;
         }
+        server.repl_aof_manifest = NULL;
         c->replstate = SLAVE_STATE_SEND_AOF_BASE;
-        c->repl_aof_manifest = NULL;
         c->repl_aof_incr_idx = -1;
         c->repldbfd = -1;
         c->repldboff = 0;
         c->repldbsize = 0;
-        c->repl_aof_manifest = aofManifestDup(server.aof_manifest);
+        server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
         // TODO 错误处理
-        if (!c->repl_aof_manifest) {
+        if (!server.repl_aof_manifest) {
             serverLog(LL_WARNING, "Failed to dup aof manifest");
             exit(1);
         }
@@ -1209,10 +1210,10 @@ void syncCommand(client *c) {
         serverLog(LL_WARNING, "Current sever.aof_last_incr_size: %ld", server.aof_last_incr_size);
         // We don't need open new incr aof file if current incr file size is zero.
         // And we need to ensure at least one incr file will send.
-        if (server.aof_last_incr_size <= 0 && listLength(c->repl_aof_manifest->incr_aof_list) > 1) {
-            listNode *last = listLast(c->repl_aof_manifest->incr_aof_list);
+        if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
+            listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
             if (last) {
-                listDelNode(c->repl_aof_manifest->incr_aof_list, last);
+                listDelNode(server.repl_aof_manifest->incr_aof_list, last);
             }
         } else {
             if (openNewIncrAofForAppend() != C_OK) {
@@ -1228,11 +1229,11 @@ void syncCommand(client *c) {
         if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
             // TODO cleanup
             freeClientAsync(c);
-            if (c->repl_aof_manifest) {
-                aofManifestFree(c->repl_aof_manifest);
+            if (server.repl_aof_manifest) {
+                aofManifestFree(server.repl_aof_manifest);
             }
             server.aof_rewrite_scheduled = 1;
-            c->repl_aof_manifest = NULL;
+            server.repl_aof_manifest = NULL;
         }
         return;
     }
