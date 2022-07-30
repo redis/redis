@@ -1194,6 +1194,11 @@ void syncCommand(client *c) {
     /* Full resynchronization. */
     server.stat_sync_full++;
 
+    if (server.repl_disable_tcp_nodelay)
+        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
+    c->flags |= CLIENT_SLAVE;
+    listAddNodeTail(server.slaves,c);
+
     /* Create the replication backlog if needed. */
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
@@ -1206,11 +1211,6 @@ void syncCommand(client *c) {
                             "replication IDs are '%s' and '%s'",
                             server.replid, server.replid2);
     }
-
-    if (server.repl_disable_tcp_nodelay)
-        connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
-    c->flags |= CLIENT_SLAVE;
-    listAddNodeTail(server.slaves,c);
 
     if (useAofSync) {
         // 0. 检查aof状态
