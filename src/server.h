@@ -1801,6 +1801,7 @@ struct redisServer {
                                      * when it receives an error on the replication stream */
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
+    int repl_full_sync_type; /*full sync use type default is 0 means rdb,1 is aof*/
     int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
     int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
 

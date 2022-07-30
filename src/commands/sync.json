@@ -3,13 +3,31 @@
         "summary": "Internal command used for replication",
         "group": "server",
         "since": "1.0.0",
-        "arity": 1,
+        "arity": -1,
         "function": "syncCommand",
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",
             "NO_MULTI",
             "NOSCRIPT"
+        ],
+        "arguments": [
+            {
+                "name": "type",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "aof",
+                        "type": "pure-token",
+                        "token": "AOF"
+                    },
+                    {
+                        "name": "rdb",
+                        "type": "pure-token",
+                        "token": "RDB"
+                    }
+                ]
+            }
         ]
     }
 }

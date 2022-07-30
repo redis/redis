@@ -1082,8 +1082,9 @@ void syncCommand(client *c) {
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
-    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") &&
-        !strcasecmp(c->argv[3]->ptr,"failover"))
+    if (!strcasecmp(c->argv[0]->ptr, "psync") &&
+        ((c->argc > 3 && !strcasecmp(c->argv[3]->ptr, "failover")) ||
+         ((c->argc > 4 && !strcasecmp(c->argv[4]->ptr, "failover")))))
     {
         serverLog(LL_WARNING, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
@@ -1148,6 +1149,13 @@ void syncCommand(client *c) {
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+        if (c->argc > 3) {
+            if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
+                server.repl_full_sync_type = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
+                server.repl_full_sync_type = 1;
+            }
+        }
         long long psync_offset;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &psync_offset, NULL) != C_OK) {
             serverLog(LL_WARNING, "Replica %s asks for synchronization but with a wrong offset",
@@ -1172,6 +1180,13 @@ void syncCommand(client *c) {
          * of the replication protocol (like redis-cli --slave). Flag the client
          * so that we don't expect to receive REPLCONF ACK feedbacks. */
         c->flags |= CLIENT_PRE_PSYNC;
+        if (c->argc > 1) {
+            if (!strcasecmp(c->argv[1]->ptr, "rdb")) {
+                server.repl_full_sync_type = 0;
+            } else if (!strcasecmp(c->argv[1]->ptr, "rdb")) {
+                server.repl_full_sync_type = 1;
+            }
+        }
     }
 
     /* Full resynchronization. */
@@ -1195,8 +1210,7 @@ void syncCommand(client *c) {
     c->flags |= CLIENT_SLAVE;
     listAddNodeTail(server.slaves,c);
 
-    int use_aof = 1;
-    if (use_aof) {
+    if (server.repl_full_sync_type) {
         // 0. 检查aof状态
         //   - AOF_ON
         //   - AOF_OFF
@@ -1210,7 +1224,7 @@ void syncCommand(client *c) {
         //     - 如果当前的最后一个aof文件不为空，则打开一个新的aof文件
         //     - 如果当前的最后一个aof文件为空，且incr的文件数量==1，则打开一个新的aof文件，
         //       这是为了避免一个aof文件都不发送
-        //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件 
+        //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件
         // 4. 发送server中用于repl的manifest
         // 5. 结束后
         //   1. 将slave置为online
@@ -2830,9 +2844,11 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
          * progress then send the failover argument to the replica to cause it
          * to become a master */
         if (server.failover_state == FAILOVER_IN_PROGRESS) {
-            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,"FAILOVER",NULL);
+            reply = sendCommand(conn, "PSYNC", psync_replid, psync_offset, server.repl_full_sync_type ? "aof" : "rdb",
+                                "FAILOVER", NULL);
         } else {
-            reply = sendCommand(conn,"PSYNC",psync_replid,psync_offset,NULL);
+            reply = sendCommand(conn, "PSYNC", psync_replid, psync_offset, server.repl_full_sync_type ? "aof" : "rdb",
+                                NULL);
         }
 
         if (reply != NULL) {
@@ -3220,17 +3236,17 @@ void syncWithMaster(connection *conn) {
      * and the server.master_replid and master_initial_offset are
      * already populated. */
     if (psync_result == PSYNC_NOT_SUPPORTED) {
-        serverLog(LL_NOTICE,"Retrying with SYNC...");
-        if (connSyncWrite(conn,"SYNC\r\n",6,server.repl_syncio_timeout*1000) == -1) {
-            serverLog(LL_WARNING,"I/O error writing to MASTER: %s",
-                strerror(errno));
-            goto error;
+        serverLog(LL_NOTICE, "Retrying with SYNC...");
+        err = sendCommand(conn, "SYNC",
+                          server.repl_full_sync_type == 0 ? "rbd" : "aof");
+        if (err) {
+            serverLog(LL_WARNING, "I/O error writing to MASTER: %s",
+                      strerror(errno));
         }
+        goto error;
     }
 
-    const int use_aof = 1;
-
-    if (use_aof) {
+    if (server.repl_full_sync_type) {
         /* Setup the non blocking download of the aof manifest. */
         if (connSetReadHandler(conn, readSyncAofManifest)
             == C_ERR) {
@@ -3576,6 +3592,15 @@ void replicaofCommand(client *c) {
                                  "master\r\n"));
             return;
         }
+
+        if (c->argc >= 3) {
+            if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
+                server.repl_full_sync_type = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
+                server.repl_full_sync_type = 1;
+            }
+        }
+
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
