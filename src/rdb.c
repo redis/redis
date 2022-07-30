@@ -3412,62 +3412,6 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset(),0);
         }
     }
-    //TODO send test buf
-    /* Load BASE AOF if needed. */
-    aofManifest *am= server.aof_manifest;
-    sds aof_name;
-    int fd = 0;
-    if (am->base_aof_info) {
-        serverAssert(am->base_aof_info->file_type == AOF_FILE_TYPE_BASE);
-        aof_name = (char*)am->base_aof_info->file_name;
-        if((fd = open(makePath(server.aof_dirname, aof_name), O_RDONLY)) == -1){
-            fprintf(stderr,"%s open :%s\n",server.aof_filename, strerror(errno));
-            return -1;
-        }
-    }
-
-    /* Load INCR AOFs if needed. */
-//    if (listLength(am->incr_aof_list)) {
-//        listNode *ln;
-//        listIter li;
-//
-//        listRewind(am->incr_aof_list, &li);
-//        while ((ln = listNext(&li)) != NULL) {
-//            aofInfo *ai = (aofInfo*)ln->value;
-//            serverAssert(ai->file_type == AOF_FILE_TYPE_INCR);
-//            aof_name = (char*)ai->file_name;
-//            updateLoadingFileName(aof_name);
-//        }
-//    }
-    server.rdb_pipe_bufflen = read(fd, server.rdb_pipe_buff, PROTO_IOBUF_LEN);
-    for (int i=0; i < server.rdb_pipe_numconns; i++)
-    {
-        ssize_t nwritten;
-        connection *conn = server.rdb_pipe_conns[i];
-        if (!conn)
-            continue;
-
-        client *slave = connGetPrivateData(conn);
-        if ((nwritten = connWrite(conn, server.rdb_pipe_buff, server.rdb_pipe_bufflen)) == -1) {
-            if (connGetState(conn) != CONN_STATE_CONNECTED) {
-                serverLog(LL_WARNING,"Diskless rdb transfer, write error sending DB to replica: %s",
-                          connGetLastError(conn));
-                freeClient(slave);
-                server.rdb_pipe_conns[i] = NULL;
-                continue;
-            }
-            /* An error and still in connected state, is equivalent to EAGAIN */
-            slave->repldboff = 0;
-        } else {
-            /* Note: when use diskless replication, 'repldboff' is the offset
-             * of 'rdb_pipe_buff' sent rather than the offset of entire RDB. */
-            slave->repldboff = nwritten;
-            atomicIncr(server.stat_net_repl_output_bytes, nwritten);
-        }
-        return C_OK;
-    }
-    // TODO over
-
 
     /* Create the child process. */
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
