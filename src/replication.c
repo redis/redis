@@ -1980,7 +1980,8 @@ void readSyncAofManifest(connection *conn) {
 
     off_t left;
 
-    int need_read_preambles = server.repl_transfer_aof_nums == 0 || !server.repl_transfer_wait_read_aof;
+    int need_read_preambles = server.repl_transfer_aof_nums == 0 || server.repl_transfer_base_aof_type == -1 ||
+                              !server.repl_transfer_wait_read_aof;
     if (need_read_preambles) {
         nread = connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
         if (nread == -1) {
@@ -1994,17 +1995,19 @@ void readSyncAofManifest(connection *conn) {
             atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
         }
         if (server.repl_transfer_aof_nums == 0) {
-            if (strlen(buf) != 2) {
-                serverLog(LL_WARNING,
-                          "Bad protocol from MASTER, we need buf len is 2,first is aof file nums, second is base aof type(we received '%s')",
-                          buf);
-                goto error;
-            } else {
-                server.repl_transfer_aof_nums = buf[0];
+            server.repl_transfer_aof_nums = strtol(buf, NULL, 10);
+            return;
+        } else if (server.repl_transfer_base_aof_type == 0) {
+            if (strcmp(buf, "aof") == 0) {
                 server.repl_transfer_base_aof_type = 0;
-                server.repl_transfer_current_read_aof_index = 0;
-                server.repl_transfer_wait_read_aof = false;
+            } else if (strcmp(buf, "rdb") == 0) {
+                server.repl_transfer_base_aof_type = 1;
+            } else {
+                serverLog(LL_WARNING, "Bad protocol from MASTER, only support rdb or aof type (we received '%s')", buf);
+                goto error;
             }
+            server.repl_transfer_current_read_aof_index = 0;
+            server.repl_transfer_wait_read_aof = false;
             return;
         } else {
             server.repl_transfer_size = strtol(buf + 1, NULL, 10);
@@ -3207,6 +3210,7 @@ void syncWithMaster(connection *conn) {
         server.repl_tmp_aof_manifest = aofManifestDup(server.aof_manifest);
 
         server.repl_transfer_aof_nums = 0;
+        server.repl_transfer_base_aof_type = -1;
         server.repl_tmp_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
         listAddNodeTail(server.repl_tmp_aof_manifest->history_aof_list, server.repl_tmp_aof_manifest->base_aof_info);
         listNode *ln;
