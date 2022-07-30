@@ -1281,6 +1281,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * a BGSAVE was in progress. */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
+        !server.repl_transfer_aof_nums && // If any slave using aof sync, we should not rewrite
         !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();

@@ -21,11 +21,12 @@ n.aof
 - [x] 空AOF是否要发：一定要发，因为base格式的aof有可能
 - [x] 判断当前base文件类型
 - [x] 多个slave同时sync
-- [ ] rewrite
-- [ ] repl buffer/backlog
-- [ ] 解警告
+- [x] rewrite: disable + enable
+- [x] repl buffer/backlog
+- [x] 解警告
+- [x] 原有RDB路径崩溃
 
-- [ ] `use_aof_sync`配置 + Command
+- [ ] 命令行replicaof
+- [ ] seldb
 - [ ] 单元测试
 - [ ] `info Replication`
-- [ ] 原有RDB路径崩溃

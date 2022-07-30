@@ -1071,8 +1071,7 @@ void cleanupAOFReplication(client *c) {
         serverLog(LL_NOTICE, "Final slave using aof replication cleared, reenable aof rewrite");
         aofManifestFree(server.repl_aof_manifest);
         server.repl_aof_manifest = NULL;
-        // TODO reenable rewrite
-        /*server.aof_rewrite_scheduled = 1;*/
+        server.aof_rewrite_scheduled = 1;
     }
 }
 
@@ -1232,13 +1231,11 @@ void syncCommand(client *c) {
         // 5. 结束后
         //   1. 将slave置为online
         //   2. 准备进行命令传播
-        //   3. 如果这是最后一个aof sync的slave，则清空server.repl_aof_manifest
-        //
-        // 在sync过程中，如果有新的sync命令过来，直接使用备份的manifest
-        // 在所有sync过程结束后，重新启用rewrite，并将scheduled置为1，请求一次rewrite
+        //   3. 如果这是最后一个aof sync的slave，则
+        //      1. 清空server.repl_aof_manifest
+        //      2. 重新启用rewrite
 
         if (server.child_type == CHILD_TYPE_AOF) {
-            // rewriting TODO
             serverLog(LL_WARNING, "Rewriting");
             exit(1);
             return;
@@ -1248,6 +1245,7 @@ void syncCommand(client *c) {
         c->repldbfd = -1;
         c->repldboff = 0;
         c->repldbsize = 0;
+
         if (!server.repl_aof_manifest) {
             server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
             // TODO 错误处理
@@ -1268,9 +1266,6 @@ void syncCommand(client *c) {
                     exit(1);
                 }
             }
-            // Temporarily disable rewrite
-            // TODO 确认哪些路径修改scheduled的值
-            server.aof_rewrite_scheduled = 0;
         }
         server.repl_aof_sending_slave_num++;
 
