@@ -2023,9 +2023,9 @@ void readSyncAofManifest(connection *conn) {
             while (maxtries--) {
                 snprintf(tmpfile, 256,
                          "%s.%lld.%s.%s", server.aof_filename, server.repl_transfer_current_read_aof_index == 0 ?
-                                                               server.repl_tmp_aof_manifest->curr_base_file_seq + 1
+                                                               server.repl_aof_manifest->curr_base_file_seq + 1
                                                                                                                 :
-                                                               server.repl_tmp_aof_manifest->curr_incr_file_seq + 1,
+                                                               server.repl_aof_manifest->curr_incr_file_seq + 1,
                          server.repl_transfer_current_read_aof_index == 0 ? "base" : "incr",
                          server.repl_transfer_current_read_aof_index > 0 || !server.repl_transfer_base_aof_type ? "aof"
                                                                                                                : "rdb");
@@ -2110,21 +2110,21 @@ void readSyncAofManifest(connection *conn) {
     close(server.repl_transfer_fd);
     server.repl_transfer_fd = -1;
     if (server.repl_transfer_current_read_aof_index == 0) {
-        server.repl_tmp_aof_manifest->base_aof_info->file_name = server.repl_transfer_tmpfile;
-        server.repl_tmp_aof_manifest->base_aof_info->file_seq = ++server.repl_tmp_aof_manifest->curr_base_file_seq;
-        server.repl_tmp_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_BASE;
+        server.repl_aof_manifest->base_aof_info->file_name = server.repl_transfer_tmpfile;
+        server.repl_aof_manifest->base_aof_info->file_seq = ++server.repl_aof_manifest->curr_base_file_seq;
+        server.repl_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_BASE;
     } else {
         aofInfo *ai = aofInfoCreate();
         ai->file_name = server.repl_transfer_tmpfile;
-        ai->file_seq = ++server.repl_tmp_aof_manifest->curr_incr_file_seq;
+        ai->file_seq = ++server.repl_aof_manifest->curr_incr_file_seq;
         ai->file_type = AOF_FILE_TYPE_INCR;
-        listAddNodeTail(server.repl_tmp_aof_manifest->incr_aof_list, ai);
+        listAddNodeTail(server.repl_aof_manifest->incr_aof_list, ai);
     }
     server.repl_transfer_current_read_aof_index++;
     server.repl_transfer_wait_read_aof = false;
     if (server.repl_transfer_current_read_aof_index == server.repl_transfer_aof_nums) {
         connSetReadHandler(conn, NULL);
-        aofManifestFreeAndUpdate(server.repl_tmp_aof_manifest);
+        aofManifestFreeAndUpdate(server.repl_aof_manifest);
         persistAofManifest(server.aof_manifest);
         long long start = ustime();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
@@ -2181,14 +2181,14 @@ void readSyncAofManifest(connection *conn) {
 void cleanupTmpAof() {
     listNode *ln;
     listIter li;
-    listRewind(server.repl_tmp_aof_manifest->incr_aof_list, &li);
+    listRewind(server.repl_aof_manifest->incr_aof_list, &li);
     while ((ln = listNext(&li)) != NULL) {
         aofInfo *ai = (aofInfo *) ln->value;
         unlink(makePath(server.aof_dirname, ai->file_name));
     }
-    if (server.repl_tmp_aof_manifest->base_aof_info != NULL &&
-        server.repl_tmp_aof_manifest->base_aof_info->file_name != NULL) {
-        unlink(makePath(server.aof_dirname, server.repl_tmp_aof_manifest->base_aof_info->file_name));
+    if (server.repl_aof_manifest->base_aof_info != NULL &&
+        server.repl_aof_manifest->base_aof_info->file_name != NULL) {
+        unlink(makePath(server.aof_dirname, server.repl_aof_manifest->base_aof_info->file_name));
     }
 }
 
@@ -3212,22 +3212,22 @@ void syncWithMaster(connection *conn) {
             goto error;
         }
         /* dup tmp aof manifest */
-        server.repl_tmp_aof_manifest = aofManifestDup(server.aof_manifest);
+        server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
         server.repl_transfer_aof_nums = 0;
         server.repl_transfer_base_aof_type = -1;
-        server.repl_tmp_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
-        listAddNodeTail(server.repl_tmp_aof_manifest->history_aof_list, server.repl_tmp_aof_manifest->base_aof_info);
+        server.repl_aof_manifest->base_aof_info->file_type = AOF_FILE_TYPE_HIST;
+        listAddNodeTail(server.repl_aof_manifest->history_aof_list, server.repl_aof_manifest->base_aof_info);
         listNode *ln;
         listIter li;
-        listRewind(server.repl_tmp_aof_manifest->incr_aof_list, &li);
+        listRewind(server.repl_aof_manifest->incr_aof_list, &li);
         while ((ln = listNext(&li)) != NULL) {
             aofInfo *ai = (aofInfo *) ln->value;
             ai->file_type = AOF_FILE_TYPE_HIST;
-            listAddNodeTail(server.repl_tmp_aof_manifest->history_aof_list, ai);
+            listAddNodeTail(server.repl_aof_manifest->history_aof_list, ai);
         }
-        server.repl_tmp_aof_manifest->incr_aof_list = listCreate();
-        server.repl_tmp_aof_manifest->base_aof_info = aofInfoCreate();
-        server.repl_tmp_aof_manifest->dirty = 1;
+        server.repl_aof_manifest->incr_aof_list = listCreate();
+        server.repl_aof_manifest->base_aof_info = aofInfoCreate();
+        server.repl_aof_manifest->dirty = 1;
     } else {
         /* Prepare a suitable temp file for bulk transfer */
         if (!useDisklessLoad()) {

@@ -1805,7 +1805,7 @@ struct redisServer {
     int repl_transfer_aof_nums; /* Number of AOF to be transmitted */
     int repl_transfer_base_aof_type; /* Type of base AOF 0 is rdb,1 is aof */
 
-    aofManifest *repl_tmp_aof_manifest;
+    aofManifest *repl_aof_manifest;
     int repl_transfer_current_read_aof_index; /* Current read aof index */
     int repl_transfer_wait_read_aof; /* Whether to read aof  */
     /* The following two fields is where we store master PSYNC replid/offset
