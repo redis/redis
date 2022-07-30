@@ -31,3 +31,4 @@ n.aof
 - [ ] seldb
 - [ ] 单元测试
 - [ ] `info Replication`
+- [ ] 设计文档
