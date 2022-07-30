@@ -1,5 +1,24 @@
+触发：cli/slave
+---
 1. 创建文件 // bgSave -> null(aof_filename)
 2. 读+发送 // rdb_fd -> aof_fd + sendBulkToSlave
 ---
 3. 接受+写 // (已有) readSyncBulkPayload => fd
+  - 已有AOF：清空
 4. 还原数据 // fd + remove
+
+n.aof
+
+## AFO清单修改的时机
+
+1. loadFromDisk
+2. rewrite: 标记为histroy
+3. debug.c/loadaof
+
+## TODO
+
+- [ ] 字符串前导
+- [ ] 判断当前base文件类型
+- [ ] `info Replication`
+- [ ] repl buffer/backlog
+- [ ] 多个slave同时sync

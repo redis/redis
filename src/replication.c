@@ -1002,7 +1002,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
             exit(1);
         }
         struct redis_stat stat;
-        sds path = makePath(server.aof_dirname, am->base_aof_info->file_name);
+        sds path = makePath(server.aof_dirname, toOpen->file_name);
         if ((slave->repldbfd = open(path, O_RDONLY)) == -1 ||
             redis_fstat(slave->repldbfd, &stat) == -1) {
             serverLog(LL_WARNING,
@@ -1013,6 +1013,9 @@ void sendAofManifestToSlaver(struct connection *conn) {
             sdsfree(path);
             return;
         }
+        serverLog(LL_WARNING,
+                  "SYNC(AOF) open %s file: %s, size %ld",
+                  sending_base ? "base" : "incr", toOpen->file_name, stat.st_size);
         sdsfree(path);
         slave->repldboff = 0;
         slave->repldbsize = stat.st_size;
@@ -1021,7 +1024,6 @@ void sendAofManifestToSlaver(struct connection *conn) {
                     "__\r\n$%lld\r\n", (unsigned long long) slave->repldbsize);
             slave->replpreamble[0] = listLength(am->incr_aof_list) + 1;
             slave->replpreamble[1] = 1; // TODO rdb/aof
-            serverLog(LL_WARNING, "preamble %s", slave->replpreamble);
         } else {
             slave->replpreamble = sdscatprintf(sdsempty(),
                     "$%lld\r\n", (unsigned long long) slave->repldbsize);
@@ -1033,6 +1035,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
         close(slave->repldbfd);
         slave->repldbfd = -1;
 
+        serverLog(LL_WARNING, "SYNC(AOF) file sent: %s", sending_base ? "base" : "incr");
         if (sending_base) {
             // base finished, start to send incr files.
             slave->replstate = SLAVE_STATE_SEND_AOF_INCR;
@@ -1042,6 +1045,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
             connSetWriteHandler(slave->conn,NULL);
             replicaPutOnline(slave);
             replicaStartCommandStream(slave);
+            serverLog(LL_WARNING, "SYNC(AOF) finished");
         }
     }
 }
@@ -1160,7 +1164,7 @@ void syncCommand(client *c) {
                             server.replid, server.replid2);
     }
 
-    int use_aof = 1;
+    int use_aof = 0;
     if (use_aof) {
         // 0. 检查aof状态
         //   - AOF_ON
@@ -1169,7 +1173,7 @@ void syncCommand(client *c) {
         // 1. 检查rewrite状态
         //   - 如果正在rewrite，等待rewrite结束
         //   - 如果未在rewrite
-        // 2. 禁用rewrite，避免aof文件被修改
+        // 2. 禁用rewrite，避免已有的aof文件被修改
         // 3. 复制一份当前的manifest，并打开一个新的aof文件
         // 4. 发送备份的manifest
         // 5. 结束后进行命令传播
@@ -1195,9 +1199,20 @@ void syncCommand(client *c) {
             serverLog(LL_WARNING, "Failed to dup aof manifest");
             exit(1);
         }
-        if (openNewIncrAofForAppend() != C_OK) {
-            serverLog(LL_WARNING, "Failed to open new incr aof file");
-            exit(1);
+        // Temporarily disable rewrite
+        // TODO 确认哪些路径修改scheduled的值
+        server.aof_rewrite_scheduled = 0;
+        serverLog(LL_WARNING, "Current sever.aof_last_incr_size: %ld", server.aof_last_incr_size);
+        if (server.aof_last_incr_size <= 0) {
+            listNode *last = listLast(c->repl_aof_manifest->incr_aof_list);
+            if (last) {
+                listDelNode(c->repl_aof_manifest->incr_aof_list, last);
+            }
+        } else {
+            if (openNewIncrAofForAppend() != C_OK) {
+                serverLog(LL_WARNING, "Failed to open new incr aof file");
+                exit(1);
+            }
         }
         int buflen;
         char buf[256];
@@ -1207,9 +1222,6 @@ void syncCommand(client *c) {
             freeClientAsync(c);
             return;
         }
-        // Temporarily disable rewrite
-        // TODO 确认哪些路径修改scheduled的值
-        server.aof_rewrite_scheduled = 0;
 
         connSetWriteHandler(c->conn, NULL);
         if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
