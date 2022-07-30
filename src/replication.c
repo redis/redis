@@ -1057,7 +1057,7 @@ void syncCommand(client *c) {
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
-    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") && 
+    if (c->argc > 3 && !strcasecmp(c->argv[0]->ptr,"psync") &&
         !strcasecmp(c->argv[3]->ptr,"failover"))
     {
         serverLog(LL_WARNING, "Failover request received for replid %s.",
@@ -1075,7 +1075,7 @@ void syncCommand(client *c) {
             sdsfree(client);
         } else {
             addReplyError(c, "PSYNC FAILOVER replid must match my replid.");
-            return;            
+            return;
         }
     }
 
@@ -1957,7 +1957,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster() {
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
@@ -1970,12 +1970,18 @@ void replicationAttachToNewMaster() {
 /* Asynchronously read the SYNC aof manifest we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncAofManifest(connection *conn) {
+    /* we need to stop any aof rewriting. TODO */
+    if (server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    }
+
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
 
     off_t left;
 
-    if (server.repl_transfer_aof_nums == 0) {
+    int need_read_preambles = server.repl_transfer_aof_nums == 0 || !server.repl_transfer_wait_read_aof;
+    if (need_read_preambles) {
         nread = connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
         if (nread == -1) {
             serverLog(LL_WARNING,
@@ -1987,37 +1993,19 @@ void readSyncAofManifest(connection *conn) {
              * convert "\r\n" to '\0' so 1 byte is lost. */
             atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
         }
-        if (strlen(buf) != 2) {
-            serverLog(LL_WARNING,
-                      "Bad protocol from MASTER, we need buf len is 2,first is aof file nums, second is base aof type(we received '%s')",
-                      buf);
-            goto error;
-        } else {
-            server.repl_transfer_aof_nums = buf[0];
-            server.repl_transfer_base_aof_type = 0;
-            server.repl_transfer_current_read_aof_index = 0;
-            server.repl_transfer_wait_read_aof = false;
-        }
-        return;
-    }
-    /* not in read aof, it will read aof file length. */
-    if (!server.repl_transfer_wait_read_aof) {
-        nread = connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
-        if (nread == -1) {
-            serverLog(LL_WARNING,
-                      "I/O error reading aof info from MASTER: %s",
-                      strerror(errno));
-            goto error;
-        } else {
-            /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
-             * convert "\r\n" to '\0' so 1 byte is lost. */
-            atomicIncr(server.stat_net_repl_input_bytes, nread + 1);
-        }
-        if (strlen(buf) == 0 || buf[0] != '$') {
-            serverLog(LL_WARNING,
-                      "Bad protocol from MASTER, we received '%s'",
-                      buf);
-            goto error;
+        if (server.repl_transfer_aof_nums == 0) {
+            if (strlen(buf) != 2) {
+                serverLog(LL_WARNING,
+                          "Bad protocol from MASTER, we need buf len is 2,first is aof file nums, second is base aof type(we received '%s')",
+                          buf);
+                goto error;
+            } else {
+                server.repl_transfer_aof_nums = buf[0];
+                server.repl_transfer_base_aof_type = 0;
+                server.repl_transfer_current_read_aof_index = 0;
+                server.repl_transfer_wait_read_aof = false;
+            }
+            return;
         } else {
             server.repl_transfer_size = strtol(buf + 1, NULL, 10);
             serverLog(LL_NOTICE,
@@ -2031,16 +2019,16 @@ void readSyncAofManifest(connection *conn) {
             while (maxtries--) {
                 snprintf(tmpfile, 256,
                          "%s.%lld.%s.%s", server.aof_filename, server.repl_transfer_current_read_aof_index == 0 ?
-                                                                   server.repl_tmp_aof_manifest->curr_base_file_seq + 1
-                                                                                                                    :
-                                                                   server.repl_tmp_aof_manifest->curr_incr_file_seq + 1,
+                                                               server.repl_tmp_aof_manifest->curr_base_file_seq + 1
+                                                                                                                :
+                                                               server.repl_tmp_aof_manifest->curr_incr_file_seq + 1,
                          server.repl_transfer_current_read_aof_index == 0 ? "base" : "incr",
                          server.repl_transfer_current_read_aof_index > 0 || server.repl_transfer_base_aof_type ? "aof"
                                                                                                                : "rdb");
-                sds path= makePath(server.aof_dirname, tmpfile);
+                sds path = makePath(server.aof_dirname, tmpfile);
                 dfd = open(path, O_CREAT | O_WRONLY | O_EXCL, 0644);
                 if (dfd != -1) break;
-                if (maxtries==0){
+                if (maxtries == 0) {
                     serverLog(LL_WARNING, "Opening the temp file needed for MASTER <-> REPLICA synchronization: %s",
                               strerror(errno));
                     goto error;
@@ -2052,6 +2040,7 @@ void readSyncAofManifest(connection *conn) {
         }
         return;
     } else {
+        /* read aof data into file */
         left = server.repl_transfer_size - server.repl_transfer_read;
         readlen = (left < (signed) sizeof(buf)) ? left : (signed) sizeof(buf);
         nread = connRead(conn, buf, readlen);
@@ -2070,8 +2059,7 @@ void readSyncAofManifest(connection *conn) {
         int eof_reached = 0;
 
         /* Update the last I/O time for the replication transfer (used in
-         * order to detect timeouts during replication), and write what we
-         * got from the socket to the dump file on disk. */
+         * order to detect timeouts during replication) */
         server.repl_transfer_lastio = server.unixtime;
         if ((nwritten = write(server.repl_transfer_fd, buf, nread)) != nread) {
             serverLog(LL_WARNING,
@@ -2099,10 +2087,6 @@ void readSyncAofManifest(connection *conn) {
         if (!eof_reached) {
             return;
         }
-    }
-    /* we need to stop any aof rewriting. TODO */
-    if (server.aof_state != AOF_OFF) {
-        stopAppendOnly();
     }
     /* update aof file to manifest */
     /* Make sure the new file (also used for persistence) is fully synced. */
@@ -2418,7 +2402,7 @@ void readSyncBulkPayload(connection *conn) {
      * rdbLoad() will call the event loop to process events from time to
      * time for non blocking loading. */
     connSetReadHandler(conn, NULL);
-    
+
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     if (use_diskless_load) {
@@ -3467,7 +3451,7 @@ void replicationUnsetMaster(void) {
      * starting from now. Otherwise the backlog will be freed after a
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
-    
+
     /* Reset down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
 
@@ -4294,9 +4278,9 @@ void abortFailover(const char *err) {
 
     if (server.target_replica_host) {
         serverLog(LL_NOTICE,"FAILOVER to %s:%d aborted: %s",
-            server.target_replica_host,server.target_replica_port,err);  
+            server.target_replica_host,server.target_replica_port,err);
     } else {
-        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);  
+        serverLog(LL_NOTICE,"FAILOVER to any replica aborted: %s",err);
     }
     if (server.failover_state == FAILOVER_IN_PROGRESS) {
         replicationUnsetMaster();
@@ -4337,7 +4321,7 @@ void failoverCommand(client *c) {
                         "Use CLUSTER FAILOVER command instead.");
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
@@ -4368,7 +4352,7 @@ void failoverCommand(client *c) {
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"to") && (j + 2 < c->argc) &&
-            !host) 
+            !host)
         {
             if (getLongFromObjectOrReply(c,c->argv[j + 2],&port,NULL) != C_OK)
                 return;
@@ -4394,13 +4378,13 @@ void failoverCommand(client *c) {
 
     if (listLength(server.slaves) == 0) {
         addReplyError(c,"FAILOVER requires connected replicas.");
-        return; 
+        return;
     }
 
     if (force_flag && (!timeout_in_ms || !host)) {
         addReplyError(c,"FAILOVER with force option requires both a timeout "
             "and target HOST and IP.");
-        return;     
+        return;
     }
 
     /* If a replica address was provided, validate that it is connected. */
@@ -4430,7 +4414,7 @@ void failoverCommand(client *c) {
     if (timeout_in_ms) {
         server.failover_end_time = now + timeout_in_ms;
     }
-    
+
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
@@ -4470,7 +4454,7 @@ void updateFailoverStatus(void) {
     /* Check to see if the replica has caught up so failover can start */
     client *replica = NULL;
     if (server.target_replica_host) {
-        replica = findReplica(server.target_replica_host, 
+        replica = findReplica(server.target_replica_host,
             server.target_replica_port);
     } else {
         listIter li;
