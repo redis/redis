@@ -2215,8 +2215,7 @@ void readSyncAofManifest(connection *conn) {
         server.repl_transfer_tmpfile = NULL;
 
         /* Final setup of the connected slave <- master link */
-        //TODO dbid
-        replicationCreateMasterClient(server.repl_transfer_s, -1);
+        replicationCreateMasterClient(server.repl_transfer_s, server.slaveseldb);
         server.repl_state = REPL_STATE_CONNECTED;
         server.repl_down_since = 0;
 
