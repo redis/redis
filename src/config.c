@@ -2814,9 +2814,17 @@ static int setConfigBindOption(standardConfig *config, sds* argv, int argc, cons
 static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc, const char **err) {
     UNUSED(config);
 
-    if (argc != 2) {
+    if (argc > 3) {
         *err = "wrong number of arguments";
         return 0;
+    }
+
+    if (argc == 3) {
+        if (!strcasecmp(argv[2], "rdb")) {
+            server.repl_full_sync_type = 0;
+        } else if (!strcasecmp(argv[2], "aof")) {
+            server.repl_full_sync_type = 1;
+        }
     }
 
     sdsfree(server.masterhost);
