@@ -59,6 +59,9 @@ int aofDelHistoryFiles(void);
 void cleanupTmpAof();
 void cleanupAOFReplication(client *c);
 
+void initServerDB(void);
+void updateClientsSelectDB();
+
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
  * the instance is configured to have no persistence. */
@@ -2193,13 +2196,19 @@ void readSyncAofManifest(connection *conn) {
     server.repl_transfer_wait_read_aof = false;
     if (server.repl_transfer_current_read_aof_index == server.repl_transfer_aof_nums) {
         replicationAttachToNewMaster();
+        redisDb * tmpDB = server.db;
         connSetReadHandler(conn, NULL);
         aofManifestFreeAndUpdate(server.repl_aof_manifest);
+        server.db = zmalloc(sizeof(redisDb) * server.dbnum);
+        initServerDB();
+        updateClientsSelectDB();
         persistAofManifest(server.aof_manifest);
         long long start = ustime();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR) {
             serverLog(LL_NOTICE, "load the MASTER failed DB:%s", strerror(errno));
+            server.db = tmpDB;
+            updateClientsSelectDB();
             cancelReplicationHandshake(1);
             return;
         }
@@ -2245,6 +2254,16 @@ void readSyncAofManifest(connection *conn) {
     cleanupTmpAof();
     cancelReplicationHandshake(1);
     return;
+}
+
+void updateClientsSelectDB(){
+    listNode *ln;
+    listIter li;
+    listRewind(server.clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = (client *) ln->value;
+        selectDb(c, c->db->id);
+    }
 }
 
 void cleanupTmpAof() {
