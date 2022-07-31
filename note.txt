@@ -25,10 +25,11 @@ n.aof
 - [x] repl buffer/backlog
 - [x] 解警告
 - [x] 原有RDB路径崩溃
+- [x] 命令行replicaof
 
 - [ ] psync_initial_offset
-- [ ] 命令行replicaof
 - [ ] seldb
-- [ ] 单元测试
 - [ ] `info Replication`
+- [ ] 单元测试
 - [ ] 设计文档
+- [ ] remove note.txt & format.txt
