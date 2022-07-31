@@ -694,12 +694,12 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(client *slave, long long offset, int aofSync) {
+int replicationSetupSlaveForFullResync(client *slave, long long offset, int isAofSync) {
     char buf[128];
     int buflen;
 
     slave->psync_initial_offset = offset;
-    slave->replstate = aofSync ? SLAVE_STATE_SEND_AOF_BASE : SLAVE_STATE_WAIT_BGSAVE_END;
+    slave->replstate = isAofSync ? SLAVE_STATE_SEND_AOF_BASE : SLAVE_STATE_WAIT_BGSAVE_END;
     /* We are going to accumulate the incremental changes for this
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
      * a SELECT statement in the replication stream. */
@@ -983,11 +983,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
     int replstate = slave->replstate;
     aofManifest *am = server.repl_aof_manifest;
 
-    if (replstate != SLAVE_STATE_SEND_AOF_BASE && replstate != SLAVE_STATE_SEND_AOF_INCR) {
-        // TODO 错误处理
-        serverLog(LL_WARNING, "Replstate is not in sending");
-        exit(1);
-    }
+    serverAssert(replstate == SLAVE_STATE_SEND_AOF_BASE || replstate == SLAVE_STATE_SEND_AOF_INCR);
 
     // whether sending base file (or incr files)
     int sending_base = replstate == SLAVE_STATE_SEND_AOF_BASE;
@@ -995,13 +991,16 @@ void sendAofManifestToSlaver(struct connection *conn) {
     if (slave->repldbfd == -1) {
         // starting send or last file send finished, open new file to send.
         aofInfo *toOpen = sending_base ?
-            am->base_aof_info :
+            // base file
+            am->base_aof_info : 
+            // or next incr file
             listIndex(am->incr_aof_list, ++slave->repl_aof_incr_idx)->value;
         if (toOpen == NULL) {
             serverLog(LL_WARNING,
                       "SYNC(AOF) failed. Can't find aof %s file to open",
                       sending_base ? "base" : "incr");
-            exit(1);
+            addReplyError(slave, "SYNC(AOF) failed. Can't find aof %s file to open");
+            return;
         }
         struct redis_stat stat;
         sds path = makePath(server.aof_dirname, toOpen->file_name);
@@ -1017,7 +1016,7 @@ void sendAofManifestToSlaver(struct connection *conn) {
         }
         serverLog(LL_NOTICE,
                   "SYNC(AOF) open %s file: %s, size %lld",
-                  sending_base ? "base" : "incr", toOpen->file_name, stat.st_size);
+                  sending_base ? "base" : "incr", toOpen->file_name, (long long) stat.st_size);
         sdsfree(path);
         slave->repldboff = 0;
         slave->repldbsize = stat.st_size;
@@ -1071,7 +1070,97 @@ void cleanupAOFReplication(client *c) {
         serverLog(LL_NOTICE, "Final slave using aof replication cleared, reenable aof rewrite");
         aofManifestFree(server.repl_aof_manifest);
         server.repl_aof_manifest = NULL;
+        // We may called openNewIncrAofForAppend before, so we need trigger a rewrite.
         server.aof_rewrite_scheduled = 1;
+    }
+}
+
+int prepareAofManifestForReplication() {
+    serverAssert(server.repl_aof_manifest == NULL && server.repl_aof_sending_slave_num == 0);
+    server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
+    if (!server.repl_aof_manifest) {
+        serverLog(LL_WARNING, "Failed to dup aof manifest");
+        return C_ERR;
+    }
+    // We don't need open new incr aof file if current incr file size is zero.
+    // And we need to ensure at least one incr file will send.
+    if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
+        listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
+        if (last) {
+            listDelNode(server.repl_aof_manifest->incr_aof_list, last);
+        }
+    } else {
+        if (openNewIncrAofForAppend() != C_OK) {
+            serverLog(LL_WARNING, "Failed to open new incr aof file");
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+int prepareClientForAofReplication(client *c) {
+    // 0. 检查aof状态
+    //   - AOF_ON
+    //   - AOF_OFF
+    //   - AOF_WAIT_REWRITE
+    // 1. 检查rewrite状态
+    //   - 如果正在rewrite，等待rewrite结束
+    //   - 如果未在rewrite，则继续
+    // 2. 禁用rewrite，避免已有的aof文件列表被修改
+    // 3. 如果当前server中没有用于repl的manifest，则：
+    //   复制一份当前的manifest，避免发送过程中修改
+    //     - 如果当前的最后一个aof文件不为空，则打开一个新的aof文件
+    //     - 如果当前的最后一个aof文件为空，且incr的文件数量==1，则打开一个新的aof文件，
+    //       这是为了避免一个aof文件都不发送
+    //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件
+    // 4. 发送server中用于repl的manifest
+    // 5. 结束后
+    //   1. 将slave置为online
+    //   2. 准备进行命令传播
+    //   3. 如果这是最后一个aof sync的slave，则
+    //      1. 清空server.repl_aof_manifest
+    //      2. 重新启用rewrite
+
+    // rewriteDoneHandler is called before server.child_type change, so we
+    // cannot assert child_type.
+    /* serverAssert(server.child_type != CHILD_TYPE_AOF); */
+    c->replstate = SLAVE_STATE_SEND_AOF_BASE;
+    c->repl_aof_incr_idx = -1;
+    c->repldbfd = -1;
+    c->repldboff = 0;
+    c->repldbsize = 0;
+
+    if (!server.repl_aof_manifest) {
+        if (prepareAofManifestForReplication() != C_OK) {
+            serverLog(LL_WARNING, "Failed to prepare aof manifest for aof replication");
+            addReplyError(c, "Failed to prepare aof manifest for aof replication");
+        }
+    }
+    server.repl_aof_sending_slave_num++;
+
+    replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
+    connSetWriteHandler(c->conn, NULL);
+    if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
+        freeClientAsync(c);
+    }
+    return C_OK;
+}
+
+void rewriteDoneHandlerForAofReplication(int rewrite_status) {
+    listIter li;
+    listNode *ln;
+
+    serverLog(LL_WARNING, "Checking slaves for aof replication after rewrite");
+    listRewind(server.slaves, &li);
+    while ((ln = listNext(&li))) {
+        client *c = ln->value;
+        if (c->replstate == SLAVE_STATE_WAIT_REWRITE) {
+            if (rewrite_status == C_OK) {
+                prepareClientForAofReplication(c);
+            } else {
+                addReplyError(c, "AOF rewrite failed, cannot start aof replication");
+            }
+        }
     }
 }
 
@@ -1213,66 +1302,11 @@ void syncCommand(client *c) {
     }
 
     if (useAofSync) {
-        // 0. 检查aof状态
-        //   - AOF_ON
-        //   - AOF_OFF
-        //   - AOF_WAIT_REWRITE
-        // 1. 检查rewrite状态
-        //   - 如果正在rewrite，等待rewrite结束
-        //   - 如果未在rewrite，则继续
-        // 2. 禁用rewrite，避免已有的aof文件列表被修改
-        // 3. 如果当前server中没有用于repl的manifest，则：
-        //   复制一份当前的manifest，避免发送过程中修改
-        //     - 如果当前的最后一个aof文件不为空，则打开一个新的aof文件
-        //     - 如果当前的最后一个aof文件为空，且incr的文件数量==1，则打开一个新的aof文件，
-        //       这是为了避免一个aof文件都不发送
-        //     - 如果当前的最后一个aof文件为空，且incr的文件数量>=2，则不打开新的aof文件
-        // 4. 发送server中用于repl的manifest
-        // 5. 结束后
-        //   1. 将slave置为online
-        //   2. 准备进行命令传播
-        //   3. 如果这是最后一个aof sync的slave，则
-        //      1. 清空server.repl_aof_manifest
-        //      2. 重新启用rewrite
-
         if (server.child_type == CHILD_TYPE_AOF) {
-            serverLog(LL_WARNING, "Rewriting");
-            exit(1);
-            return;
-        }
-        c->replstate = SLAVE_STATE_SEND_AOF_BASE;
-        c->repl_aof_incr_idx = -1;
-        c->repldbfd = -1;
-        c->repldboff = 0;
-        c->repldbsize = 0;
-
-        if (!server.repl_aof_manifest) {
-            server.repl_aof_manifest = aofManifestDup(server.aof_manifest);
-            // TODO 错误处理
-            if (!server.repl_aof_manifest) {
-                serverLog(LL_WARNING, "Failed to dup aof manifest");
-                exit(1);
-            }
-            // We don't need open new incr aof file if current incr file size is zero.
-            // And we need to ensure at least one incr file will send.
-            if (server.aof_last_incr_size <= 0 && listLength(server.repl_aof_manifest->incr_aof_list) > 1) {
-                listNode *last = listLast(server.repl_aof_manifest->incr_aof_list);
-                if (last) {
-                    listDelNode(server.repl_aof_manifest->incr_aof_list, last);
-                }
-            } else {
-                if (openNewIncrAofForAppend() != C_OK) {
-                    serverLog(LL_WARNING, "Failed to open new incr aof file");
-                    exit(1);
-                }
-            }
-        }
-        server.repl_aof_sending_slave_num++;
-
-        replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
-        connSetWriteHandler(c->conn, NULL);
-        if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
-            freeClientAsync(c);
+            serverLog(LL_WARNING, "Rewriting, waiting for rewrite finish");
+            c->replstate = SLAVE_STATE_WAIT_REWRITE;
+        } else if (prepareClientForAofReplication(c) != C_OK) {
+            addReplyError(c, "Failed to prepare for aof replication");
         }
         return;
     }

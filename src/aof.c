@@ -49,6 +49,7 @@ int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
+void rewriteDoneHandlerForAofReplication(int rewrite_status);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -2682,6 +2683,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated by signal %d", bysignal);
     }
+    rewriteDoneHandlerForAofReplication(server.aof_lastbgrewrite_status);
 
 cleanup:
     aofRemoveTempFile(server.child_pid);

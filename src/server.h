@@ -423,11 +423,15 @@ typedef enum {
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
  * to start the next background saving in order to send updates to it. */
+/* RDB replication states */
 #define SLAVE_STATE_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
 #define SLAVE_STATE_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
 #define SLAVE_STATE_SEND_BULK 8 /* Sending RDB file to slave. */
-#define SLAVE_STATE_SEND_AOF_BASE 10 /* Sending base file of AOF manifest to slave. */
-#define SLAVE_STATE_SEND_AOF_INCR 11 /* Sending incremental files of AOF manifest to slave. */
+/* AOF replication states */
+#define SLAVE_STATE_WAIT_REWRITE 10 /* Currently rewriting, waiting for completion*/
+#define SLAVE_STATE_SEND_AOF_BASE 11 /* Sending base file of AOF manifest to slave. */
+#define SLAVE_STATE_SEND_AOF_INCR 12 /* Sending incremental files of AOF manifest to slave. */
+/* Replication finished, online */
 #define SLAVE_STATE_ONLINE 9 /* RDB/AOF file(s) transmitted, sending just updates. */
 
 /* Slave capabilities. */
