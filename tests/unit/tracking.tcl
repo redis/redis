@@ -560,7 +560,7 @@ start_server {tags {"tracking network"}} {
         assert_equal $res {OK}
         # Consume the invalidate message which is after command response
         r read
-    } {invalidate *_*}
+    } {invalidate {}}
 
     # Keys are defined to be evicted 100 at a time by default.
     # If after eviction the number of keys still surpasses the limit
