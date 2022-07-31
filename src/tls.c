@@ -722,6 +722,8 @@ static void connTLSClose(connection *conn_) {
     tls_connection *conn = (tls_connection *) conn_;
 
     if (conn->ssl) {
+        if (conn->c.state == CONN_STATE_CONNECTED)
+            SSL_shutdown(conn->ssl);
         SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
