@@ -2823,6 +2823,10 @@ static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc,
         if (!strcasecmp(argv[2], "rdb")) {
             server.repl_full_sync_type = 0;
         } else if (!strcasecmp(argv[2], "aof")) {
+            if (!server.aof_enabled || server.aof_state == AOF_OFF) {
+                *err = "Cannot use aof to sync: aof is off";
+                return 0;
+            }
             server.repl_full_sync_type = 1;
         }
     }

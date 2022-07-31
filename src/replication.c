@@ -3650,6 +3650,11 @@ void replicaofCommand(client *c) {
             if (!strcasecmp(c->argv[3]->ptr, "rdb")) {
                 server.repl_full_sync_type = 0;
             } else if (!strcasecmp(c->argv[3]->ptr, "aof")) {
+                if (!server.aof_enabled || server.aof_state == AOF_OFF) {
+                    serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
+                    addReplyError(c, "Cannot use aof to sync: aof is off");
+                    return;
+                }
                 server.repl_full_sync_type = 1;
             }
         }
