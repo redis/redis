@@ -5782,22 +5782,47 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             );
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
-                double perc = 0;
-                if (server.repl_transfer_size) {
-                    perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
+                if (server.repl_full_sync_type == 0) {
+                    double perc = 0;
+                    if (server.repl_transfer_size) {
+                        perc = ((double) server.repl_transfer_read / server.repl_transfer_size) * 100;
+                    }
+                    info = sdscatprintf(info,
+                                        "master_sync_total_bytes:%lld\r\n"
+                                        "master_sync_read_bytes:%lld\r\n"
+                                        "master_sync_left_bytes:%lld\r\n"
+                                        "master_sync_perc:%.2f\r\n"
+                                        "master_sync_last_io_seconds_ago:%d\r\n",
+                                        (long long) server.repl_transfer_size,
+                                        (long long) server.repl_transfer_read,
+                                        (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                                        perc,
+                                        (int) (server.unixtime - server.repl_transfer_lastio)
+                    );
+                } else {
+                    double perc = 0;
+                    if (server.repl_transfer_size) {
+                        perc = ((double) server.repl_transfer_read / server.repl_transfer_size) * 100;
+                    } else {
+                        perc = 1;
+                    }
+                    info = sdscatprintf(info,
+                                        "master_sync_total_aof_file_nums:%d\r\n"
+                                        "master_sync_current_aof_file_index:%d\r\n"
+                                        "master_sync_current_aof_file_total_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_read_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_left_bytes:%lld\r\n"
+                                        "master_sync_current_aof_file_perc:%.2f\r\n"
+                                        "master_sync_last_io_seconds_ago:%d\r\n",
+                                        server.repl_transfer_aof_nums,
+                                        server.repl_transfer_current_read_aof_index,
+                                        (long long) server.repl_transfer_size,
+                                        (long long) server.repl_transfer_read,
+                                        (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                                        perc,
+                                        (int) (server.unixtime - server.repl_transfer_lastio)
+                    );
                 }
-                info = sdscatprintf(info,
-                    "master_sync_total_bytes:%lld\r\n"
-                    "master_sync_read_bytes:%lld\r\n"
-                    "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_perc:%.2f\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n",
-                    (long long) server.repl_transfer_size,
-                    (long long) server.repl_transfer_read,
-                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
-                    perc,
-                    (int)(server.unixtime-server.repl_transfer_lastio)
-                );
             }
 
             if (server.repl_state != REPL_STATE_CONNECTED) {
