@@ -982,6 +982,7 @@ int sendBulkToSlave(connection *conn) {
 /* Send files in aof manifest to slaver for sync. */
 void sendAofManifestToSlaver(struct connection *conn) {
     serverAssert(server.repl_aof_manifest != NULL);
+
     client *slave = connGetPrivateData(conn);
     int replstate = slave->replstate;
     aofManifest *am = server.repl_aof_manifest;
@@ -1137,11 +1138,12 @@ int prepareClientForAofReplication(client *c) {
         if (prepareAofManifestForReplication() != C_OK) {
             serverLog(LL_WARNING, "Failed to prepare aof manifest for aof replication");
             addReplyError(c, "Failed to prepare aof manifest for aof replication");
+            return C_ERR;
         }
     }
     server.repl_aof_sending_slave_num++;
 
-    replicationSetupSlaveForFullResync(c, c->psync_initial_offset, 1);
+    replicationSetupSlaveForFullResync(c, getPsyncInitialOffset(), 1);
     connSetWriteHandler(c->conn, NULL);
     if (connSetWriteHandler(c->conn, sendAofManifestToSlaver) == C_ERR) {
         freeClientAsync(c);
@@ -1152,12 +1154,14 @@ int prepareClientForAofReplication(client *c) {
 void rewriteDoneHandlerForAofReplication(int rewrite_status) {
     listIter li;
     listNode *ln;
+    int needReplNum = 0;
 
     serverLog(LL_WARNING, "Checking slaves for aof replication after rewrite");
     listRewind(server.slaves, &li);
     while ((ln = listNext(&li))) {
         client *c = ln->value;
         if (c->replstate == SLAVE_STATE_WAIT_REWRITE) {
+            needReplNum++;
             if (rewrite_status == C_OK) {
                 prepareClientForAofReplication(c);
             } else {
@@ -1165,6 +1169,7 @@ void rewriteDoneHandlerForAofReplication(int rewrite_status) {
             }
         }
     }
+    serverLog(LL_WARNING, "%d slave(s) need start aof replication after rewrite", needReplNum);
 }
 
 /* SYNC and PSYNC command implementation. */
@@ -1222,7 +1227,6 @@ void syncCommand(client *c) {
     /* Fail sync if slave doesn't support EOF capability but wants a filtered RDB. This is because we force filtered
      * RDB's to be generated over a socket and not through a file to avoid conflicts with the snapshot files. Forcing
      * use of a socket is handled, if needed, in `startBgsaveForReplication`. */
-    // TODO
     if (c->slave_req & SLAVE_REQ_RDB_MASK && !(c->slave_capa & SLAVE_CAPA_EOF)) {
         addReplyError(c,"Filtered replica requires EOF capability");
         return;
@@ -1305,7 +1309,11 @@ void syncCommand(client *c) {
     }
 
     if (useAofSync) {
-        if (server.child_type == CHILD_TYPE_AOF) {
+        serverLog(LL_WARNING, "AOF_ENABLED: %d, AOF_STATE: %d", server.aof_enabled, server.aof_state);
+        if (!server.aof_enabled || server.aof_state == AOF_OFF) {
+            serverLog(LL_WARNING, "Cannot use aof to sync: aof is off");
+            addReplyError(c, "Cannot use aof to sync: aof is off");
+        } else if (server.child_type == CHILD_TYPE_AOF) {
             serverLog(LL_WARNING, "Rewriting, waiting for rewrite finish");
             c->replstate = SLAVE_STATE_WAIT_REWRITE;
         } else if (prepareClientForAofReplication(c) != C_OK) {
