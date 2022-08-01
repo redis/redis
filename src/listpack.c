@@ -1967,7 +1967,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         char buf[32];
         int i,len;
         for (i = 0; i < 1000; i++) {
-            len = sprintf(buf, "%d", i);
+            len = snprintf(buf, sizeof(buf), "%d", i);
             lp = lpAppend(lp, (unsigned char*)buf, len);
         }
         for (i = 0; i < 1000; i++) {
@@ -2271,13 +2271,13 @@ int listpackTest(int argc, char *argv[], int flags) {
                 } else {
                     switch(rand() % 3) {
                     case 0:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) >> 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) >> 20);
                         break;
                     case 1:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()));
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()));
                         break;
                     case 2:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) << 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) << 20);
                         break;
                     default:
                         assert(NULL);

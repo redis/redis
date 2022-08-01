@@ -508,7 +508,6 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * On I/O error NULL is returned.
  */
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
-    int encode = flags & RDB_LOAD_ENC;
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
@@ -547,8 +546,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
-                           tryCreateRawStringObject(SDS_NOINIT,len);
+        robj *o = tryCreateStringObject(SDS_NOINIT,len);
         if (!o) {
             serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
             return NULL;
@@ -1508,10 +1506,10 @@ void rdbRemoveTempFile(pid_t childpid, int from_signal) {
     char pid[32];
 
     /* Generate temp rdb file name using async-signal safe functions. */
-    int pid_len = ll2string(pid, sizeof(pid), childpid);
-    strcpy(tmpfile, "temp-");
-    strncpy(tmpfile+5, pid, pid_len);
-    strcpy(tmpfile+5+pid_len, ".rdb");
+    ll2string(pid, sizeof(pid), childpid);
+    redis_strlcpy(tmpfile, "temp-", sizeof(tmpfile));
+    redis_strlcat(tmpfile, pid, sizeof(tmpfile));
+    redis_strlcat(tmpfile, ".rdb", sizeof(tmpfile));
 
     if (from_signal) {
         /* bg_unlink is not async-signal-safe, but in this case we don't really
@@ -3254,7 +3252,12 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     int retval;
     struct stat sb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        retval = (errno == ENOENT) ? RDB_NOT_EXIST : RDB_FAILED;
+        serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
+        return retval;
+    }
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
@@ -3266,7 +3269,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
-    return retval;
+    return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.

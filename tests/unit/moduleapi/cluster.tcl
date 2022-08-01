@@ -69,9 +69,12 @@ start_cluster 3 0 [list config_lines $modules] {
 
     test "Wait for cluster to be stable" {
         wait_for_condition 1000 50 {
-            [catch {exec src/redis-cli --cluster \
-            check 127.0.0.1:[srv 0 port] \
-            }] == 0
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv 0 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -1 port]}] == 0 &&
+            [catch {exec src/redis-cli --cluster check 127.0.0.1:[srv -2 port]}] == 0 &&
+            [CI 0 cluster_state] eq {ok} &&
+            [CI 1 cluster_state] eq {ok} &&
+            [CI 2 cluster_state] eq {ok}
         } else {
             fail "Cluster doesn't stabilize"
         }

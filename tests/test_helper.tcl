@@ -600,7 +600,7 @@ proc print_help_screen {} {
         "--timeout <sec>    Test timeout in seconds (default 20 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--config <k> <v>   Extra config file argument."
-        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line)."
+        "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line). This option can be repeated."
         "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
@@ -646,7 +646,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set fp [open $arg r]
         set file_data [read $fp]
         close $fp
-        set ::skiptests [split $file_data "\n"]
+        set ::skiptests [concat $::skiptests [split $file_data "\n"]]
     } elseif {$opt eq {--skiptest}} {
         lappend ::skiptests $arg
         incr j

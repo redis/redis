@@ -301,6 +301,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_FAILED 4
 #define AOF_TRUNCATED 5
 
+/* RDB return values for rdbLoad. */
+#define RDB_OK 0
+#define RDB_NOT_EXIST 1 /* RDB file doesn't exist. */
+#define RDB_FAILED 2 /* Failed to load the RDB file. */
+
 /* Command doc flags */
 #define CMD_DOC_NONE 0
 #define CMD_DOC_DEPRECATED (1<<0) /* Command is deprecated */
@@ -2651,8 +2656,8 @@ int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg);
 int getIntFromObjectOrReply(client *c, robj *o, int *target, const char *msg);
 char *strEncoding(int encoding);
-int compareStringObjects(robj *a, robj *b);
-int collateStringObjects(robj *a, robj *b);
+int compareStringObjects(const robj *a, const robj *b);
+int collateStringObjects(const robj *a, const robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o);

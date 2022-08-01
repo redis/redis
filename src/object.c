@@ -710,7 +710,7 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
 
-int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
+int compareStringObjectsWithFlags(const robj *a, const robj *b, int flags) {
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
@@ -743,12 +743,12 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
-int compareStringObjects(robj *a, robj *b) {
+int compareStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_BINARY);
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using collation. */
-int collateStringObjects(robj *a, robj *b) {
+int collateStringObjects(const robj *a, const robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 

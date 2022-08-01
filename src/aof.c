@@ -49,6 +49,7 @@ int aofFileExist(char *filename);
 int rewriteAppendOnlyFile(char *filename);
 aofManifest *aofLoadManifestFromFile(sds am_filepath);
 void aofManifestFreeAndUpdate(aofManifest *am);
+void aof_background_fsync_and_close(int fd);
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -826,8 +827,14 @@ int openNewIncrAofForAppend(void) {
     /* If reaches here, we can safely modify the `server.aof_manifest`
      * and `server.aof_fd`. */
 
-    /* Close old aof_fd if needed. */
-    if (server.aof_fd != -1) bioCreateCloseJob(server.aof_fd);
+    /* fsync and close old aof_fd if needed. In fsync everysec it's ok to delay
+     * the fsync as long as we grantee it happens, and in fsync always the file
+     * is already synced at this point so fsync doesn't matter. */
+    if (server.aof_fd != -1) {
+        aof_background_fsync_and_close(server.aof_fd);
+        server.aof_fsync_offset = server.aof_current_size;
+        server.aof_last_fsync = server.unixtime;
+    }
     server.aof_fd = newfd;
 
     /* Reset the aof_last_incr_size. */
@@ -904,6 +911,9 @@ int aofRewriteLimited(void) {
 /* Return true if an AOf fsync is currently already in progress in a
  * BIO thread. */
 int aofFsyncInProgress(void) {
+    /* Note that we don't care about aof_background_fsync_and_close because
+     * server.aof_fd has been replaced by the new INCR AOF file fd,
+     * see openNewIncrAofForAppend. */
     return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 }
 
@@ -911,6 +921,11 @@ int aofFsyncInProgress(void) {
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
     bioCreateFsyncJob(fd);
+}
+
+/* Close the fd on the basis of aof_background_fsync. */
+void aof_background_fsync_and_close(int fd) {
+    bioCreateCloseJob(fd, 1);
 }
 
 /* Kills an AOFRW child process if exists */
