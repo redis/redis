@@ -820,8 +820,8 @@ commandHistory CLIENT_KILL_History[] = {
 /* CLIENT KILL tips */
 #define CLIENT_KILL_tips NULL
 
-/* CLIENT KILL normal_master_slave_pubsub argument table */
-struct redisCommandArg CLIENT_KILL_normal_master_slave_pubsub_Subargs[] = {
+/* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
+struct redisCommandArg CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs[] = {
 {"normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE},
 {"master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE},
 {"slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE},
@@ -830,15 +830,27 @@ struct redisCommandArg CLIENT_KILL_normal_master_slave_pubsub_Subargs[] = {
 {0}
 };
 
-/* CLIENT KILL argument table */
-struct redisCommandArg CLIENT_KILL_Args[] = {
-{"ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL},
+/* CLIENT KILL filter new_format argument table */
+struct redisCommandArg CLIENT_KILL_filter_new_format_Subargs[] = {
 {"client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL},
-{"normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_normal_master_slave_pubsub_Subargs},
+{"normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
 {"username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL},
 {"ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL},
 {"ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL},
 {"yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL},
+{0}
+};
+
+/* CLIENT KILL filter argument table */
+struct redisCommandArg CLIENT_KILL_filter_Subargs[] = {
+{"ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,.deprecated_since="2.8.12"},
+{"new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,.subargs=CLIENT_KILL_filter_new_format_Subargs},
+{0}
+};
+
+/* CLIENT KILL argument table */
+struct redisCommandArg CLIENT_KILL_Args[] = {
+{"filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=CLIENT_KILL_filter_Subargs},
 {0}
 };
 
