@@ -46,6 +46,7 @@
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
+#include "crc64.h"
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -83,12 +84,19 @@ uint8_t *dictGetHashFunctionSeed(void) {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-uint64_t dictGenHashFunction(const void *key, size_t len) {
-    return siphash(key,len,dict_hash_function_seed);
-}
+// USR ADDED: Changing default function to CRC64 hash function.
+void crc64_init(void);
+uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
+uint64_t dictGenHashFunction(const void *key, size_t len) {
+	crc64_init();
+	return crc64(0, key, (uint64_t) len);
+    	// return siphash(key,len,dict_hash_function_seed);
+}
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
-    return siphash_nocase(buf,len,dict_hash_function_seed);
+	crc64_init();
+	return crc64(0, buf, (uint64_t) len);
+	// return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
 /* ----------------------------- API implementation ------------------------- */
