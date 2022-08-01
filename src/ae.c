@@ -241,6 +241,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
     while(te) {
         if (te->id == id) {
             te->id = AE_DELETED_EVENT_ID;
+            te->when = MONOTIME_MAX;
             return AE_OK;
         }
         te = te->next;
@@ -332,6 +333,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 te->when = now + retval * 1000;
             } else {
                 te->id = AE_DELETED_EVENT_ID;
+                te->when = MONOTIME_MAX;
             }
         }
         te = te->next;
