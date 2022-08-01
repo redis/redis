@@ -1041,9 +1041,7 @@ typedef struct {
     list *selectors; /* A list of selectors this user validates commands
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
-
-    sds acl_string;        /* cached string represent of ACLs */
-    bool acl_string_dirty; /* if the cache is valid or not */
+    robj *acl_string; /* cached string represent of ACLs */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -2787,7 +2785,7 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
-sds ACLDescribeUser(user *u);
+robj *ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 user *ACLCreateUnlinkedUser();

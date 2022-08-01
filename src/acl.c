@@ -385,7 +385,6 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
     u->passwords = listCreate();
-    u->acl_string_dirty = true;
     u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
@@ -424,7 +423,8 @@ user *ACLCreateUnlinkedUser(void) {
  * will not remove the user from the Users global radix tree. */
 void ACLFreeUser(user *u) {
     sdsfree(u->name);
-    if (u->acl_string) sdsfree(u->acl_string);
+    if (u->acl_string) decrRefCount(u->acl_string);
+    u->acl_string = NULL;
     listRelease(u->passwords);
     listRelease(u->selectors);
     zfree(u);
@@ -469,8 +469,9 @@ void ACLCopyUser(user *dst, user *src) {
     dst->passwords = listDup(src->passwords);
     dst->selectors = listDup(src->selectors);
     dst->flags = src->flags;
-    dst->acl_string_dirty = true;
-    if (dst->acl_string) sdsfree(dst->acl_string);
+    if (dst->acl_string) {
+        decrRefCount(dst->acl_string);
+    }
     dst->acl_string = NULL;
 }
 
@@ -808,9 +809,10 @@ sds ACLDescribeSelector(aclSelector *selector) {
  * the ACLDescribeSelectorCommandRules() function. This is the function we call
  * when we want to rewrite the configuration files describing ACLs and
  * in order to show users with ACL LIST. */
-sds ACLDescribeUser(user *u) {
-    if (!u->acl_string_dirty) {
-        return sdsdup(u->acl_string);
+robj *ACLDescribeUser(user *u) {
+    if (u->acl_string) {
+        incrRefCount(u->acl_string);
+        return u->acl_string;
     }
 
     sds res = sdsempty();
@@ -847,11 +849,12 @@ sds ACLDescribeUser(user *u) {
         sdsfree(default_perm);
     }
 
-    if (u->acl_string) sdsfree(u->acl_string);
-    u->acl_string = sdsdup(res);
-    u->acl_string_dirty = false;
+    if (u->acl_string) decrRefCount(u->acl_string);
+    u->acl_string = createObject(OBJ_STRING, res);
+    /* because we are returning it, have to incr count */
+    incrRefCount(u->acl_string);
 
-    return res;
+    return u->acl_string;
 }
 
 /* Get a command from the original command table, that is not affected
@@ -1223,7 +1226,8 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
-    u->acl_string_dirty = true;
+    if (u->acl_string) decrRefCount(u->acl_string);
+    u->acl_string = NULL;
 
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
@@ -2331,9 +2335,9 @@ int ACLSaveToFile(const char *filename) {
         sds user = sdsnew("user ");
         user = sdscatsds(user,u->name);
         user = sdscatlen(user," ",1);
-        sds descr = ACLDescribeUser(u);
-        user = sdscatsds(user,descr);
-        sdsfree(descr);
+        robj *descr = ACLDescribeUser(u);
+        user = sdscatsds(user,descr->ptr);
+        decrRefCount(descr);
         acl = sdscatsds(acl,user);
         acl = sdscatlen(acl,"\n",1);
         sdsfree(user);
@@ -2764,9 +2768,9 @@ void aclCommand(client *c) {
                 sds config = sdsnew("user ");
                 config = sdscatsds(config,u->name);
                 config = sdscatlen(config," ",1);
-                sds descr = ACLDescribeUser(u);
-                config = sdscatsds(config,descr);
-                sdsfree(descr);
+                robj *descr = ACLDescribeUser(u);
+                config = sdscatsds(config,descr->ptr);
+                decrRefCount(descr);
                 addReplyBulkSds(c,config);
             }
         }

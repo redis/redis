@@ -8782,15 +8782,10 @@ RedisModuleString * RM_SetModuleUserACLString(RedisModuleCtx * ctx, RedisModuleU
  * Returns a RedisModuleString
  */
 
-RedisModuleString *RM_GetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user) {
+RedisModuleString *RM_GetModuleUserACLString(RedisModuleUser *user) {
     serverAssert(user != NULL);
 
-    sds acl = ACLDescribeUser(user->user);
-
-    RedisModuleString *s = createObject(OBJ_STRING, acl);
-    if (ctx != NULL) autoMemoryAdd(ctx, REDISMODULE_AM_STRING, s);
-
-    return s;
+    return ACLDescribeUser(user->user);
 }
 
 /* Retrieve the user name of the client connection behind the current context.

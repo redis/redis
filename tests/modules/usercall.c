@@ -84,11 +84,11 @@ int get_acl(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModule_Assert(user != NULL);
 
-    RedisModuleString *acl = RedisModule_GetModuleUserACLString(ctx, user);
+    RedisModuleString *acl = RedisModule_GetModuleUserACLString(user);
 
     RedisModule_ReplyWithString(ctx, acl);
 
-    RedisModule_FreeString(ctx, acl);
+    RedisModule_FreeString(NULL, acl);
 
     return REDISMODULE_OK;
 }
