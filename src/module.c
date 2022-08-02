@@ -565,7 +565,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(user * user) {
+client *moduleAllocTempClient(user *user) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -5765,7 +5765,7 @@ static int validateACLS(RedisModuleCtx *ctx, client *c, int flags, RedisModuleCa
     return acl_retval;
 }
 
-RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user * user, robj **argv, int argc, int argv_len, int flags) {
+RedisModuleCallReply *CallWithUserInternal(RedisModuleCtx *ctx, user *user, robj **argv, int argc, int argv_len, int flags) {
     struct redisCommand *cmd;
     client *c = NULL;
     RedisModuleCallReply *reply = NULL;
