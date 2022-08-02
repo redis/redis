@@ -423,8 +423,10 @@ user *ACLCreateUnlinkedUser(void) {
  * will not remove the user from the Users global radix tree. */
 void ACLFreeUser(user *u) {
     sdsfree(u->name);
-    if (u->acl_string) decrRefCount(u->acl_string);
-    u->acl_string = NULL;
+    if (u->acl_string) {
+        decrRefCount(u->acl_string);
+        u->acl_string = NULL;
+    }
     listRelease(u->passwords);
     listRelease(u->selectors);
     zfree(u);
@@ -472,7 +474,11 @@ void ACLCopyUser(user *dst, user *src) {
     if (dst->acl_string) {
         decrRefCount(dst->acl_string);
     }
-    dst->acl_string = NULL;
+    dst->acl_string = src->acl_string;
+    if (dst->acl_string) {
+        /* if src is NULL, we set it to NULL, if not, need to increment reference count */
+        incrRefCount(dst->acl_string);
+    }
 }
 
 /* Free all the users registered in the radix tree 'users' and free the
@@ -851,7 +857,7 @@ robj *ACLDescribeUser(user *u) {
 
     if (u->acl_string) decrRefCount(u->acl_string);
     u->acl_string = createObject(OBJ_STRING, res);
-    /* because we are returning it, have to incr count */
+    /* because we are returning it, have to increase count */
     incrRefCount(u->acl_string);
 
     return u->acl_string;
@@ -1226,8 +1232,11 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * ECHILD: Attempt to allow a specific first argument of a subcommand
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
-    if (u->acl_string) decrRefCount(u->acl_string);
-    u->acl_string = NULL;
+    /* as we are changing the ACL, the old generated string is now invalid */
+    if (u->acl_string) {
+        decrRefCount(u->acl_string);
+        u->acl_string = NULL;
+    }
 
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
