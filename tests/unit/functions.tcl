@@ -38,7 +38,7 @@ start_server {tags {"scripting"}} {
             r function load [get_function_code LUA {bad\0foramat} test {return 'hello1'}]
         } e
         set _ $e
-    } {*Library names can only contain letters and numbers*}
+    } {*Library names can only contain letters, numbers, or underscores(_)*}
 
     test {FUNCTION - Create library with unexisting engine} {
         catch {
@@ -597,7 +597,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*Function names can only contain letters and numbers and must be at least one character long*}
+    } {*Library names can only contain letters, numbers, or underscores(_) and must be at least one character long*}
 
     test {LIBRARIES - test registration with empty name} {
         catch {
@@ -606,7 +606,7 @@ start_server {tags {"scripting"}} {
             }
         } e
         set _ $e
-    } {*Function names can only contain letters and numbers and must be at least one character long*}
+    } {*Library names can only contain letters, numbers, or underscores(_) and must be at least one character long*}
 
     test {LIBRARIES - math.random from function load} {
         catch {
