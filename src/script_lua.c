@@ -1553,6 +1553,7 @@ void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info) {
         err_info->line = NULL;
         err_info->source = NULL;
         err_info->ignore_err_stats_update = 0;
+        return;
     }
 
     lua_getfield(lua, -1, "err");

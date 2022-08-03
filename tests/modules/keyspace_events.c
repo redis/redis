@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _BSD_SOURCE
 #define _DEFAULT_SOURCE /* For usleep */
 
 #include "redismodule.h"

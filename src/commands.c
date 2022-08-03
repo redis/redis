@@ -1250,8 +1250,8 @@ keySpec CLIENT_KILL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 
 #endif /* REDIS_CLI_COMMANDS */
 
-/* CLIENT KILL normal_master_slave_pubsub argument table */
-struct COMMAND_ARG CLIENT_KILL_normal_master_slave_pubsub_Subargs[] = {
+/* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
+struct COMMAND_ARG CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs[] = {
 {MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0)},
 {MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE,0)},
 {MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0)},
@@ -1260,15 +1260,27 @@ struct COMMAND_ARG CLIENT_KILL_normal_master_slave_pubsub_Subargs[] = {
 {0}
 };
 
-/* CLIENT KILL argument table */
-struct COMMAND_ARG CLIENT_KILL_Args[] = {
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+/* CLIENT KILL filter new_format argument table */
+struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5),.subargs=CLIENT_KILL_normal_master_slave_pubsub_Subargs},
+{MAKE_ARG("normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5),.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
 {MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0)},
 {MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0)},
 {MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
 {MAKE_ARG("yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{0}
+};
+
+/* CLIENT KILL filter argument table */
+struct COMMAND_ARG CLIENT_KILL_filter_Subargs[] = {
+{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0),.deprecated_since="2.8.12"},
+{MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,6),.subargs=CLIENT_KILL_filter_new_format_Subargs},
+{0}
+};
+
+/* CLIENT KILL argument table */
+struct COMMAND_ARG CLIENT_KILL_Args[] = {
+{MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=CLIENT_KILL_filter_Subargs},
 {0}
 };
 
@@ -1546,7 +1558,7 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,CLIENT_HELP_Tips,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_HELP_Keyspecs,NULL,0)},
 {MAKE_CMD("id","Returns the client ID for the current connection","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_ID_History,CLIENT_ID_Tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_ID_Keyspecs,NULL,0)},
 {MAKE_CMD("info","Returns information about the current client connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_INFO_History,CLIENT_INFO_Tips,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_INFO_Keyspecs,NULL,0)},
-{MAKE_CMD("kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_Tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_KILL_Keyspecs,NULL,7),.args=CLIENT_KILL_Args},
+{MAKE_CMD("kill","Kill the connection of a client","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_KILL_History,CLIENT_KILL_Tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_KILL_Keyspecs,NULL,1),.args=CLIENT_KILL_Args},
 {MAKE_CMD("list","Get the list of client connections","O(N) where N is the number of client connections","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_LIST_History,CLIENT_LIST_Tips,clientCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_LIST_Keyspecs,NULL,2),.args=CLIENT_LIST_Args},
 {MAKE_CMD("no-evict","Set client eviction mode for the current connection","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_EVICT_History,CLIENT_NO_EVICT_Tips,clientCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_NO_EVICT_Keyspecs,NULL,1),.args=CLIENT_NO_EVICT_Args},
 {MAKE_CMD("pause","Stop processing commands from clients for some time","O(1)","2.9.50",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,CLIENT_PAUSE_Tips,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,NULL,2),.args=CLIENT_PAUSE_Args},
