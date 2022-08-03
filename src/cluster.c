@@ -2035,7 +2035,7 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
     (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_HOSTNAME);
     (*cursor)->length = htonl(extension_size);
     /* Make sure the string is NULL terminated by adding 1 */
-    *cursor = (clusterMsgPingExt *) (ext->hostname + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
+    *cursor = (clusterMsgPingExt *) ((intptr_t)ext + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
     return extension_size;
 }
 
@@ -2050,7 +2050,7 @@ int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl
     uint32_t extension_size = sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode);
     (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE);
     (*cursor)->length = htonl(extension_size);
-    *cursor = (clusterMsgPingExt *) (ext->name + sizeof(clusterMsgPingExtForgottenNode));
+    *cursor = (clusterMsgPingExt *) (ext + 1);
     return extension_size;
 }
 
