@@ -961,7 +961,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     if (functionsVerifyName(md.name)) {
-        *err = sdsnew("Library names can only contain letters, numbers, or underscore(_) and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         goto error;
     }
 
