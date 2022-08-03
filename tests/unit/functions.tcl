@@ -38,7 +38,7 @@ start_server {tags {"scripting"}} {
             r function load [get_function_code LUA {bad\0foramat} test {return 'hello1'}]
         } e
         set _ $e
-    } {*Library names can only contain letters, numbers, or underscore(_)*}
+    } {*Library names can only contain letters, numbers, or underscores(_)*}
 
     test {FUNCTION - Create library with unexisting engine} {
         catch {
