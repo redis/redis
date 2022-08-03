@@ -245,7 +245,7 @@ functionsLibCtx* functionsLibCtxCreate() {
  */
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err) {
     if (functionsVerifyName(name) != C_OK) {
-        *err = sdsnew("Function names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         return C_ERR;
     }
 
@@ -819,7 +819,7 @@ void functionFlushCommand(client *c) {
 /* FUNCTION HELP */
 void functionHelpCommand(client *c) {
     const char *help[] = {
-"LOAD <ENGINE NAME> <LIBRARY NAME> [REPLACE] [DESCRIPTION <LIBRARY DESCRIPTION>] <LIBRARY CODE>",
+"LOAD [REPLACE] <FUNCTION CODE>",
 "    Create a new library with the given library name and code.",
 "DELETE <LIBRARY NAME>",
 "    Delete the given library.",
@@ -847,7 +847,7 @@ void functionHelpCommand(client *c) {
 "    * ASYNC: Asynchronously flush the libraries.",
 "    * SYNC: Synchronously flush the libraries.",
 "DUMP",
-"    Returns a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
+"    Return a serialized payload representing the current libraries, can be restored using FUNCTION RESTORE command",
 "RESTORE <PAYLOAD> [FLUSH|APPEND|REPLACE]",
 "    Restore the libraries represented by the given payload, it is possible to give a restore policy to",
 "    control how to handle existing libraries (default APPEND):",
@@ -961,7 +961,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     if (functionsVerifyName(md.name)) {
-        *err = sdsnew("Library names can only contain letters and numbers and must be at least one character long");
+        *err = sdsnew("Library names can only contain letters, numbers, or underscores(_) and must be at least one character long");
         goto error;
     }
 
