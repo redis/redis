@@ -618,7 +618,7 @@ typedef enum {
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
-#define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
+#define run_with_period(_ms_) if (((_ms_) <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
@@ -667,8 +667,8 @@ typedef enum {
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
 #define REDISMODULE_TYPE_ENCVER_MASK ((1<<REDISMODULE_TYPE_ENCVER_BITS)-1)
-#define REDISMODULE_TYPE_ENCVER(id) (id & REDISMODULE_TYPE_ENCVER_MASK)
-#define REDISMODULE_TYPE_SIGN(id) ((id & ~((uint64_t)REDISMODULE_TYPE_ENCVER_MASK)) >>REDISMODULE_TYPE_ENCVER_BITS)
+#define REDISMODULE_TYPE_ENCVER(id) ((id) & REDISMODULE_TYPE_ENCVER_MASK)
+#define REDISMODULE_TYPE_SIGN(id) (((id) & ~((uint64_t)REDISMODULE_TYPE_ENCVER_MASK)) >>REDISMODULE_TYPE_ENCVER_BITS)
 
 /* Bit flags for moduleTypeAuxSaveFunc */
 #define REDISMODULE_AUX_BEFORE_RDB (1<<0)
@@ -801,14 +801,14 @@ typedef struct RedisModuleIO {
 /* Macro to initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
 #define moduleInitIOContext(iovar,mtype,rioptr,keyptr,db) do { \
-    iovar.rio = rioptr; \
-    iovar.type = mtype; \
-    iovar.bytes = 0; \
-    iovar.error = 0; \
-    iovar.ver = 0; \
-    iovar.key = keyptr; \
-    iovar.dbid = db; \
-    iovar.ctx = NULL; \
+    (iovar).rio = (rioptr); \
+    (iovar).type = (mtype); \
+    (iovar).bytes = 0; \
+    (iovar).error = 0; \
+    (iovar).ver = 0; \
+    (iovar).key = (keyptr); \
+    (iovar).dbid = (db); \
+    (iovar).ctx = NULL; \
 } while(0)
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
@@ -825,8 +825,8 @@ typedef struct RedisModuleDigest {
 
 /* Just start with a digest composed of all zero bytes. */
 #define moduleInitDigestContext(mdvar) do { \
-    memset(mdvar.o,0,sizeof(mdvar.o)); \
-    memset(mdvar.x,0,sizeof(mdvar.x)); \
+    memset((mdvar).o,0,sizeof((mdvar).o)); \
+    memset((mdvar).x,0,sizeof((mdvar).x)); \
 } while(0)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
@@ -872,10 +872,10 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    _var.refcount = OBJ_STATIC_REFCOUNT; \
-    _var.type = OBJ_STRING; \
-    _var.encoding = OBJ_ENCODING_RAW; \
-    _var.ptr = _ptr; \
+    (_var).refcount = OBJ_STATIC_REFCOUNT; \
+    (_var).type = OBJ_STRING; \
+    (_var).encoding = OBJ_ENCODING_RAW; \
+    (_var).ptr = _ptr; \
 } while(0)
 
 struct evictionPoolEntry; /* Defined in evict.c */

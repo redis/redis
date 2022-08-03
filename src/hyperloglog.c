@@ -349,15 +349,15 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 /* Set the value of the register at position 'regnum' to 'val'.
  * 'p' is an array of unsigned bytes. */
 #define HLL_DENSE_SET_REGISTER(p,regnum,val) do { \
-    uint8_t *_p = (uint8_t*) p; \
-    unsigned long _byte = regnum*HLL_BITS/8; \
-    unsigned long _fb = regnum*HLL_BITS&7; \
-    unsigned long _fb8 = 8 - _fb; \
-    unsigned long _v = val; \
-    _p[_byte] &= ~(HLL_REGISTER_MAX << _fb); \
-    _p[_byte] |= _v << _fb; \
-    _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8); \
-    _p[_byte+1] |= _v >> _fb8; \
+    uint8_t *_p = (uint8_t*) (p);                 \
+    unsigned long _byte = (regnum)*HLL_BITS/8;    \
+    unsigned long _fb = (regnum)*HLL_BITS&7;      \
+    unsigned long _fb8 = 8 - _fb;                 \
+    unsigned long _v = (val);                     \
+    _p[_byte] &= ~(HLL_REGISTER_MAX << _fb);      \
+    _p[_byte] |= _v << _fb;                       \
+    _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8);   \
+    _p[_byte+1] |= _v >> _fb8;                    \
 } while(0)
 
 /* Macros to access the sparse representation.
