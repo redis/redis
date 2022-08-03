@@ -825,8 +825,8 @@ typedef struct RedisModuleDigest {
 
 /* Just start with a digest composed of all zero bytes. */
 #define moduleInitDigestContext(mdvar) do { \
-    memset((mdvar).o,0,sizeof((mdvar).o)); \
-    memset((mdvar).x,0,sizeof((mdvar).x)); \
+    memset(mdvar.o,0,sizeof(mdvar.o)); \
+    memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0)
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
@@ -872,10 +872,10 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    (_var).refcount = OBJ_STATIC_REFCOUNT; \
-    (_var).type = OBJ_STRING; \
-    (_var).encoding = OBJ_ENCODING_RAW; \
-    (_var).ptr = _ptr; \
+    _var.refcount = OBJ_STATIC_REFCOUNT; \
+    _var.type = OBJ_STRING; \
+    _var.encoding = OBJ_ENCODING_RAW; \
+    _var.ptr = _ptr; \
 } while(0)
 
 struct evictionPoolEntry; /* Defined in evict.c */
