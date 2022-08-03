@@ -14,6 +14,7 @@ typedef struct cliCommandArg {
     int flags;
     int numsubargs;
     struct cliCommandArg *subargs;
+    char *deprecated_since;
 
     /* Fields used to keep track of input word matches for command-line hinting. */
     int matched;  /* How many input words have been matched by this argument? */
