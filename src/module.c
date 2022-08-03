@@ -3529,6 +3529,10 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_RESP3: Indicate the that client attached to this
  *                                 context is using RESP3.
+ *
+ *  * REDISMODULE_CTX_FLAGS_SERVER_STARTUP: The Redis instance is starting
+ *
+ *  * REDISMODULE_CTX_FLAGS_SENTINEL: The Redis instance is in sentinel mode
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int flags = 0;
@@ -3613,6 +3617,13 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     /* Presence of children processes. */
     if (hasActiveChildProcess()) flags |= REDISMODULE_CTX_FLAGS_ACTIVE_CHILD;
     if (server.in_fork_child) flags |= REDISMODULE_CTX_FLAGS_IS_CHILD;
+
+    /* Non-empty server.loadmodule_queue means that Redis is starting. */
+    if (listLength(server.loadmodule_queue) > 0)
+        flags |= REDISMODULE_CTX_FLAGS_SERVER_STARTUP;
+
+    if (server.sentinel_mode)
+        flags |= REDISMODULE_CTX_FLAGS_SENTINEL;
 
     return flags;
 }
