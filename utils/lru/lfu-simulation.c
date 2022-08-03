@@ -18,7 +18,7 @@ struct entry {
     time_t ctime;       /* Key creation time. */
 };
 
-#define to_16bit_minutes(x) (((x)/60) & 65535)
+#define to_16bit_minutes(x) ((x/60) & 65535)
 #define LFU_INIT_VAL 5
 
 /* Compute the difference in minutes between two 16 bit minutes times
