@@ -6551,7 +6551,7 @@ void loadDataFromDisk(void) {
                 }
             }
         } else if (rdb_load_ret != RDB_NOT_EXIST) {
-            serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
+            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
             exit(1);
         }
 
