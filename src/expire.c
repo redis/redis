@@ -264,7 +264,6 @@ void activeExpireCycle(int type) {
                         de = de->next;
 
                         ttl = dictGetSignedIntegerVal(e)-now;
-                        if (activeExpireCycleTryExpire(db,e,now)) expired++;
                         if (ttl > 0) {
                             /* We want the average TTL of keys yet
                              * not expired. */
@@ -272,6 +271,17 @@ void activeExpireCycle(int type) {
                             ttl_samples++;
                         }
                         sampled++;
+                        if (activeExpireCycleTryExpire(db,e,now)) {
+                            expired++;
+                            /* Some modules may delete the next entries of
+                             * current bucket if their subscriber functions
+                             * interest the expired key, so we try to scan
+                             * this bucket again if it may have more entries. */
+                            if (de != NULL) {
+                                table--;
+                                break;
+                            }
+                        }
                     }
                 }
                 db->expires_cursor++;
