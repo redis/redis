@@ -3481,6 +3481,7 @@ void InitServerLast() {
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
+    swapTxidInit();
     swapInit();
     initSwapWholeKey();
     initThreadedIO();

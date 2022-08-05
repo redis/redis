@@ -429,10 +429,12 @@ int parallelSyncDrain();
 int parallelSyncSwapRequestSubmit(swapRequest *req);
 
 /* --- Wait --- */
+#define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 8
+
 typedef void (*freefunc)(void *);
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
-typedef struct requestListener {
+typedef struct requestListenerEntry {
   redisDb *db;    /* key level request listener might bind on svr/db level */
   robj *key;      /* so we need to save db&key for each requst listener. */
   client *c;
@@ -442,12 +444,23 @@ typedef struct requestListener {
 #ifdef SWAP_DEBUG
   swapDebugMsgs *msgs;
 #endif
+} requestListenerEntry;
+
+typedef struct requestListener {
+  int64_t txid;
+  struct requestListenerEntry buf[DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE];
+  struct requestListenerEntry *entries; /* hold entries that wait for same listener reentrantly. */
+  int capacity;
+  int count;
+  int proceeded;
+  int notified;
+  int ntxlistener; /* # of txlistener of current and childs. */
 } requestListener;
 
 typedef struct requestListeners {
   list *listeners;                  /* list of listenters */
   struct requestListeners *parent;  /* parent lisenter */
-  int nlisteners;                   /* # of listeners of current and childs */
+  int nlistener;                   /* # of listeners of current and childs */
   int level;                        /* key/db/svr */
   union {
       struct {
@@ -462,13 +475,18 @@ typedef struct requestListeners {
           robj *key;
       } key;
   };
+  int64_t cur_txid;
+  int cur_ntxlistener;
 } requestListeners;
 
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
-int requestWouldBlock(redisDb *db, robj *key);
-int requestWait(redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
+int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key);
+int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
 int requestNotify(void *listeners);
+
+int64_t swapTxidInit();
+int64_t swapTxidNext();
 
 /* --- Evict --- */
 #define EVICT_SUCC_SWAPPED      1

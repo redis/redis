@@ -1729,6 +1729,8 @@ struct redisServer {
     unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */
     unsigned long long swap_max_iter_rate; /* max swap iter rate. */ 
     int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
+
+    int64_t swap_txid; /* swap txid. */
 };
 
 #define MAX_KEYS_BUFFER 256

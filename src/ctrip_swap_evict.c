@@ -146,7 +146,7 @@ int tryEvictKey(redisDb *db, robj *key, int *evict_result) {
     robj *o;
     client *evict_client = server.evict_clients[db->id];
 
-    if (requestWouldBlock(db, key)) {
+    if (requestWaitWouldBlock(swapTxidNext(), db, key)) {
         if (evict_result) *evict_result = EVICT_FAIL_SWAPPING;
         return 0;
     }

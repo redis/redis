@@ -251,7 +251,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
-        requestWait(db,key,genericRequestProceed,c,ctx,
+        requestWait(swapTxidNext(),db,key,genericRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
 }

@@ -28,39 +28,151 @@
 
 #include "ctrip_swap.h"
 
-/* Normally pd is swapCtx, which should not be freed untill binded listener
- * released. so we pass pdfree to listener to free it. */
-requestListener *requestListenerCreate(redisDb *db, robj *key,
-        requestProceed cb, client *c, void *pd, freefunc pdfree,
-        void *msgs) {
-    requestListener *listener = zmalloc(sizeof(requestListener));
-    UNUSED(msgs);
-    listener->db = db;
-    if (key) incrRefCount(key);
-    listener->key = key;
-    listener->proceed = cb;
-    listener->c = c;
-    listener->pd = pd;
-    listener->pdfree = pdfree;
-#ifdef SWAP_DEBUG
-    listener->msgs = msgs;
-#endif
+int64_t swapTxidInit() {
+    return server.swap_txid = 0;
+}
+
+int64_t swapTxidNext() {
+    return server.swap_txid++;
+}
+
+static inline void requestListenersLink(requestListeners *listeners,
+        requestListener *listener) {
+    while (listeners) {
+        listeners->nlistener++;
+        if (listeners->cur_txid != listener->txid) {
+            listeners->cur_txid = listener->txid;
+            listeners->cur_ntxlistener = 0;
+        }
+        listeners->cur_ntxlistener++;
+        listeners = listeners->parent;
+    }
+}
+
+static inline void requestListenersUnlink(requestListeners *listeners) {
+    while (listeners) {
+        listeners->nlistener--;
+        listeners = listeners->parent;
+    }
+}
+
+static void requestListenersPush(requestListeners *listeners,
+        requestListener *listener) {
+    serverAssert(listeners);
+    listAddNodeTail(listeners->listeners, listener);
+    requestListenersLink(listeners, listener);
+}
+
+requestListener *requestListenersPop(requestListeners *listeners) {
+    serverAssert(listeners);
+    if (!listLength(listeners->listeners)) return NULL;
+    listNode *ln = listFirst(listeners->listeners);
+    requestListener *listener = listNodeValue(ln);
+    listDelNode(listeners->listeners, ln);
+    requestListenersUnlink(listeners);
     return listener;
 }
 
+requestListener *requestListenersPeek(requestListeners *listeners) {
+    serverAssert(listeners);
+    if (!listLength(listeners->listeners)) return NULL;
+    listNode *ln = listFirst(listeners->listeners);
+    requestListener *listener = listNodeValue(ln);
+    return listener;
+}
+
+static requestListener *requestListenersFirst(requestListeners *listeners) {
+    serverAssert(listeners);
+    listNode *ln = listFirst(listeners->listeners);
+    return ln ? listNodeValue(ln) : NULL;
+}
+
+requestListener *requestListenerCreate(requestListeners *listeners,
+        int64_t txid) {
+    requestListener *listener = zcalloc(sizeof(requestListener));
+    UNUSED(listeners);
+    listener->txid = txid;
+    listener->entries = listener->buf;
+    listener->capacity = sizeof(listener->buf)/sizeof(requestListenerEntry);
+    listener->count = 0;
+    listener->proceeded = 0;
+    listener->notified = 0;
+    requestListenersPush(listeners, listener);
+    serverAssert(listener->txid == listeners->cur_txid);
+    listener->ntxlistener = listeners->cur_ntxlistener;
+    return listener;
+}
+
+/* Normally pd is swapCtx, which should not be freed untill binded listener
+ * released. so we pass pdfree to listener to free it. */
+void requestListenerPushEntry(requestListener *listener,
+        redisDb *db, robj *key, requestProceed cb, client *c, void *pd,
+        freefunc pdfree, void *msgs) {
+    requestListenerEntry *entry;
+    UNUSED(msgs);
+
+    if (listener->count == listener->capacity) {
+        size_t orig_capacity = listener->capacity;
+        listener->capacity *= 2;
+        if (listener->buf == listener->entries) {
+            listener->entries = zcalloc(
+                    listener->capacity * sizeof(requestListenerEntry));
+            memcpy(listener->entries, listener->buf,
+                    sizeof(requestListenerEntry) * orig_capacity);
+        } else {
+            listener->entries = zrealloc(listener->entries,
+                    listener->capacity * sizeof(requestListenerEntry));
+        }
+        serverAssert(listener->capacity > listener->count);
+    }
+
+    entry = listener->entries + listener->count;
+
+    entry->db = db;
+    if (key) incrRefCount(key);
+    entry->key = key;
+    entry->proceed = cb;
+    entry->c = c;
+    entry->pd = pd;
+    entry->pdfree = pdfree;
+#ifdef SWAP_DEBUG
+    entry->msgs = msgs;
+
+    listener->count++;
+#endif
+}
+
 void requestListenerRelease(requestListener *listener) {
+    int i;
+    requestListenerEntry *entry;
     if (!listener) return;
-    if (listener->key) decrRefCount(listener->key);
-    if (listener->pdfree) listener->pdfree(listener->pd);
+    for (i = 0; i < listener->count; i++) {
+       entry = listener->entries + i; 
+       if (entry->key) decrRefCount(entry->key);
+       if (entry->pdfree) entry->pdfree(entry->pd);
+    }
+    if (listener->buf != listener->entries) zfree(listener->entries);
     zfree(listener);
 }
 
 char *requestListenerDump(requestListener *listener) {
-    static char repr[64];
-    const char *intention = listener->c->cmd ? swapIntentionName(listener->c->cmd->intention) : "<nil>";
-    char *cmd = (listener->c && listener->c->cmd) ? listener->c->cmd->name : "<nil>";
-    char *key = listener->key ? listener->key->ptr : "<nil>";
-    snprintf(repr,sizeof(repr)-1,"(%s:%s:%s)",intention,cmd,key);
+    static char repr[256];
+    char *ptr = repr, *end = repr + sizeof(repr) - 1;
+    
+    ptr += snprintf(ptr,end-ptr,
+            "txid=%ld,count=%d,proceeded=%d,notified=%d,ntxlistener=%d,entries=[",
+            listener->txid,listener->count,listener->proceeded,listener->notified,
+            listener->ntxlistener);
+
+    for (int i = 0; i < listener->count && ptr < end; i++) {
+        requestListenerEntry *entry = listener->entries+i;
+        const char *intention = entry->c->cmd ? swapIntentionName(entry->c->cmd->intention) : "<nil>";
+        char *cmd = (entry->c && entry->c->cmd) ? entry->c->cmd->name : "<nil>";
+        char *key = entry->key ? entry->key->ptr : "<nil>";
+        ptr += snprintf(ptr,end-ptr,"(%s:%s:%s),",intention,cmd,key);
+    }
+
+    if (ptr < end) snprintf(ptr, end-ptr, "]");
     return repr;
 }
 
@@ -80,9 +192,11 @@ static requestListeners *requestListenersCreate(int level, redisDb *db,
 
     listeners = zmalloc(sizeof(requestListeners));
     listeners->listeners = listCreate();
-    listeners->nlisteners = 0;
+    listeners->nlistener = 0;
     listeners->parent = parent;
     listeners->level = level;
+    listeners->cur_txid = -1;
+    listeners->cur_ntxlistener = 0;
 
     switch (level) {
     case REQUEST_LEVEL_SVR:
@@ -167,57 +281,6 @@ sds requestListenersDump(requestListeners *listeners) {
     return result;
 }
 
-static inline void requestListenersLink(requestListeners *listeners) {
-    while (listeners) {
-        listeners->nlisteners++;
-        listeners = listeners->parent;
-    }
-}
-
-static inline void requestListenersUnlink(requestListeners *listeners) {
-    while (listeners) {
-        listeners->nlisteners--;
-        listeners = listeners->parent;
-    }
-}
-
-static void requestListenersPush(requestListeners *listeners,
-        requestListener *listener) {
-    serverAssert(listeners);
-    listAddNodeTail(listeners->listeners, listener);
-    requestListenersLink(listeners);
-}
-
-requestListener *requestListenersPop(requestListeners *listeners) {
-    serverAssert(listeners);
-    if (!listLength(listeners->listeners)) return NULL;
-    listNode *ln = listFirst(listeners->listeners);
-    requestListener *listener = listNodeValue(ln);
-    listDelNode(listeners->listeners, ln);
-    requestListenersUnlink(listeners);
-    return listener;
-}
-
-requestListener *requestListenersPeek(requestListeners *listeners) {
-    serverAssert(listeners);
-    if (!listLength(listeners->listeners)) return NULL;
-    listNode *ln = listFirst(listeners->listeners);
-    requestListener *listener = listNodeValue(ln);
-    return listener;
-}
-
-/* return true if current or lower level listeners not finished.
- * - swap should not proceed if current or lower level listeners exists.
- *   (e.g. flushdb shoul not proceed if SWAP GET key exits.)
- * - can't release listeners if current or lower level listeners exists. */
-int requestListenersTreeBlocking(requestListeners *listeners) {
-    if (listeners && (listLength(listeners->listeners) ||
-                listeners->nlisteners > 0)) {
-        return 1;
-    } else {
-        return 0;
-    }
-}
 
 requestListeners *serverRequestListenersCreate() {
     int i;
@@ -268,28 +331,62 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
 
 static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
+    int i, retval, result;
+
     DEBUG_MSGS_APPEND(listener->msgs,"wait-proceed","listener=%s",
             requestListenerDump(listener));
-    return listener->proceed(listeners,listener->db,
-            listener->key,listener->c,listener->pd);
+    for (i = listener->proceeded; i < listener->count; i++) {
+        requestListenerEntry *entry = listener->entries+i;
+        retval = entry->proceed(listeners,entry->db,
+                entry->key,entry->c,entry->pd);
+        if (retval < 0) result = retval;
+        listener->proceeded++;
+    }
+    serverAssert(listener->proceeded == listener->count);
+
+    return result;
 }
 
-int requestWouldBlock(redisDb *db, robj *key) {
+static inline requestListener *requestListenersLast(requestListeners *listeners) {
+    listNode *ln = listLast(listeners->listeners);
+    return ln ? listNodeValue(ln) : NULL;
+}
+
+/* There are listener in listeners blocking txid from proceeding. */
+static int listenerWaitWouldBlock(int64_t txid, requestListeners *listeners) {
+    int64_t ntxlistener;
+    ntxlistener = listeners->cur_txid == txid ? listeners->cur_ntxlistener : 0;
+    return listeners->nlistener > ntxlistener;
+}
+
+int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key) {
     requestListeners *listeners = requestBindListeners(db,key,0);
     if (listeners == NULL) return 0;
-    return listeners->nlisteners > 0;
+    return listenerWaitWouldBlock(txid, listeners);
 }
 
-int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
-        void *pd, freefunc pdfree, void *msgs) {
+requestListener *requestBindListener(int64_t txid,
+        requestListeners *listeners) {
+    requestListener *last = requestListenersLast(listeners);
+    if (last == NULL || last->txid != txid) {
+        last = requestListenerCreate(listeners,txid);
+    }
+    return last;
+}
+
+/* Note: to support reentrant wait, requestWait for one txid MUST next to
+ * each other (submit by main thread in one batch). */
+int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb,
+        client *c, void *pd, freefunc pdfree, void *msgs) {
     int blocking;
     requestListeners *listeners;
     requestListener *listener;
 
     listeners = requestBindListeners(db,key,1);
-    blocking = listeners->nlisteners > 0;
-    listener = requestListenerCreate(db,key,cb,c,pd,pdfree,msgs);
-    requestListenersPush(listeners,listener);
+    blocking = listenerWaitWouldBlock(txid,listeners);
+
+    listener = requestBindListener(txid,listeners);
+    requestListenerPushEntry(listener,db,key,cb,c,pd,pdfree,msgs);
 
 #ifdef SWAP_DEBUG
     sds dump = requestListenersDump(listeners);
@@ -298,8 +395,40 @@ int requestWait(redisDb *db, robj *key, requestProceed cb, client *c,
 #endif
 
     /* Proceed right away if request key is not blocking, otherwise
-     * execution is defered. */
+     * proceed is defered. */
     if (!blocking) proceed(listeners,listener);
+
+    return 0;
+}
+
+int proceedChain(requestListeners *listeners, requestListener *listener) {
+    int nchilds;
+    requestListeners *parent;
+    requestListener *first;
+    int64_t txid = listener->txid;
+
+    while (1) {
+        if (listener != NULL) proceed(listeners,listener);
+
+        parent = listeners->parent;
+        if (parent == NULL) break;
+
+        first = requestListenersFirst(parent);
+        if (first) {
+            nchilds = parent->nlistener-(int)listLength(parent->listeners);
+        }
+
+        /* Proceed upwards if:
+         * - parent is empty.
+         * - all childs and parent are in the same tx. */ 
+        if (first == NULL || (first->txid == txid &&
+                    first->ntxlistener > nchilds)) {
+            listeners = parent;
+            listener = first;
+        } else {
+            break;
+        }
+    }
 
     return 0;
 }
@@ -308,7 +437,7 @@ int requestNotify(void *listeners_) {
     requestListeners *listeners = listeners_, *parent;
     requestListener *current, *next;
 
-    current = requestListenersPop(listeners);
+    current = requestListenersPeek(listeners);
 
 #ifdef SWAP_DEBUG
     sds dump = requestListenersDump(listeners);
@@ -316,42 +445,42 @@ int requestNotify(void *listeners_) {
     sdsfree(dump);
 #endif
 
-    requestListenerRelease(current);
+    serverAssert(current->count > current->notified);
+    current->notified++;
+    if (current->notified < current->count) {
+        /* wait untill all notified for reentrant listener. */
+        return 0;
+    } else {
+        requestListenersPop(listeners);
+        requestListenerRelease(current);
+    }
 
-    /* Find next proceed-able listeners, then trigger proceed. */
     while (listeners) {
-        /* First, try proceed current level listener. */
         if (listLength(listeners->listeners)) {
             next = requestListenersPeek(listeners);
-            proceed(listeners,next);
+            proceedChain(listeners,next);
             break;
         }
 
-        /* If current level drained, try proceed parent listener. */ 
-        if (listeners->nlisteners) {
-            /* child listeners exists, wait untill all child finished. */
-            break;
-        } else {
-            parent = listeners->parent;
-            if (listeners->level == REQUEST_LEVEL_KEY) {
-                /* Only key level listeners releases, DB or server level
-                 * key released only when server exit. */
-                requestListenersRelease(listeners);
-            }
-
-            if (parent == NULL) {
-                listeners = NULL;
-                break;
-            }
-
-            /* Parent is not proceed-able if sibling listeners exists. */
-            if (parent->nlisteners > (int)listLength(parent->listeners)) {
-                listeners = NULL;
-                break;
-            }
-
-            listeners = parent;
+        parent = listeners->parent;
+        if (listeners->level == REQUEST_LEVEL_KEY) {
+            /* Only key level listeners releases, DB or server level
+             * key released only when server exit. */
+            requestListenersRelease(listeners);
         }
+
+        if (parent == NULL) {
+            listeners = NULL;
+            break;
+        }
+
+        /* Go upwards if all sibling listeners notified. */
+        if (parent->nlistener > (int)listLength(parent->listeners)) {
+            listeners = NULL; 
+            break;
+        }
+
+        listeners = parent;
     }
 
     return 0;
@@ -378,6 +507,7 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
     redisDb *db, *db2;
     robj *key1, *key2, *key3;
     void *handle1, *handle2, *handle3, *handledb, *handledb2, *handlesvr;
+    int64_t txid = 0;
 
     TEST("wait: init") {
         int i;
@@ -397,104 +527,104 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
 
    TEST("wait: parallel key") {
        handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-       requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
-       requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
-       requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
+       requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL), blocked++;
+       requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL), blocked++;
+       requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL), blocked++;
        test_assert(!blocked);
-       test_assert(requestWouldBlock(db,key1));
-       test_assert(requestWouldBlock(db,key2));
-       test_assert(requestWouldBlock(db,key3));
-       test_assert(requestWouldBlock(db,NULL));
+       test_assert(requestWaitWouldBlock(txid++,db,key1));
+       test_assert(requestWaitWouldBlock(txid++,db,key2));
+       test_assert(requestWaitWouldBlock(txid++,db,key3));
+       test_assert(requestWaitWouldBlock(txid++,db,NULL));
        requestNotify(handle1);
-       test_assert(!requestWouldBlock(db,key1));
+       test_assert(!requestWaitWouldBlock(txid++,db,key1));
        requestNotify(handle2);
-       test_assert(!requestWouldBlock(db,key2));
+       test_assert(!requestWaitWouldBlock(txid++,db,key2));
        requestNotify(handle3);
-       test_assert(!requestWouldBlock(db,key3));
-       test_assert(!requestWouldBlock(NULL,NULL));
+       test_assert(!requestWaitWouldBlock(txid++,db,key3));
+       test_assert(!requestWaitWouldBlock(txid++,NULL,NULL));
    } 
 
    TEST("wait: pipelined key") {
        int i;
        for (i = 0; i < 3; i++) {
            blocked++;
-           requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
+           requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL);
        }
-       test_assert(requestWouldBlock(db,key1));
+       test_assert(requestWaitWouldBlock(txid++,db,key1));
        /* first one proceeded, others blocked */
        test_assert(blocked == 2);
        for (i = 0; i < 2; i++) {
            requestNotify(handle1);
-           test_assert(requestWouldBlock(db,key1));
+           test_assert(requestWaitWouldBlock(txid++,db,key1));
        }
        test_assert(blocked == 0);
        requestNotify(handle1);
-       test_assert(!requestWouldBlock(db,key1));
+       test_assert(!requestWaitWouldBlock(txid++,db,key1));
    }
 
    TEST("wait: parallel db") {
-       requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
-       requestWait(db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
+       requestWait(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL), blocked++;
+       requestWait(txid++,db2,NULL,proceedNotifyLater,NULL,&handledb2,NULL,NULL), blocked++;
        test_assert(!blocked);
-       test_assert(requestWouldBlock(db,NULL));
-       test_assert(requestWouldBlock(db2,NULL));
+       test_assert(requestWaitWouldBlock(txid++,db,NULL));
+       test_assert(requestWaitWouldBlock(txid++,db2,NULL));
        requestNotify(handledb);
        requestNotify(handledb2);
-       test_assert(!requestWouldBlock(db,NULL));
-       test_assert(!requestWouldBlock(db2,NULL));
+       test_assert(!requestWaitWouldBlock(txid++,db,NULL));
+       test_assert(!requestWaitWouldBlock(txid++,db2,NULL));
    }
 
     TEST("wait: mixed parallel-key/db/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handledb = NULL;
-        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
-        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
-        requestWait(db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
-        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
+        requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestWait(txid++,db,NULL,proceedNotifyLater,NULL,&handledb,NULL,NULL),blocked++;
+        requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, db/key3 blocked */
-        test_assert(requestWouldBlock(db,NULL));
+        test_assert(requestWaitWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
         requestNotify(handle1);
-        test_assert(requestWouldBlock(db,NULL));
+        test_assert(requestWaitWouldBlock(txid++,db,NULL));
         requestNotify(handle2);
-        test_assert(requestWouldBlock(db,NULL));
+        test_assert(requestWaitWouldBlock(txid++,db,NULL));
         /* db proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* db notified, key3 proceeds but still blocked */
         requestNotify(handledb);
         test_assert(!blocked);
-        test_assert(requestWouldBlock(db,NULL));
+        test_assert(requestWaitWouldBlock(txid++,db,NULL));
         /* db3 proceed, noting would block */
         requestNotify(handle3);
-        test_assert(!requestWouldBlock(db,NULL));
+        test_assert(!requestWaitWouldBlock(txid++,db,NULL));
     }
 
     TEST("wait: mixed parallel-key/server/parallel-key") {
         handle1 = NULL, handle2 = NULL, handle3 = NULL, handlesvr = NULL;
-        requestWait(db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
-        requestWait(db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
-        requestWait(NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
-        requestWait(db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
+        requestWait(txid++,db,key1,proceedNotifyLater,NULL,&handle1,NULL,NULL),blocked++;
+        requestWait(txid++,db,key2,proceedNotifyLater,NULL,&handle2,NULL,NULL),blocked++;
+        requestWait(txid++,NULL,NULL,proceedNotifyLater,NULL,&handlesvr,NULL,NULL),blocked++;
+        requestWait(txid++,db,key3,proceedNotifyLater,NULL,&handle3,NULL,NULL),blocked++;
         /* key1/key2 proceeded, svr/key3 blocked */
-        test_assert(requestWouldBlock(NULL,NULL));
-        test_assert(requestWouldBlock(db,NULL));
+        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
+        test_assert(requestWaitWouldBlock(txid++,db,NULL));
         test_assert(blocked == 2);
         /* key1/key2 notify */
         requestNotify(handle1);
-        test_assert(requestWouldBlock(NULL,NULL));
+        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
         requestNotify(handle2);
-        test_assert(requestWouldBlock(NULL,NULL));
+        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
         /* svr proceeded, key3 still blocked. */
         test_assert(blocked == 1);
         test_assert(handle3 == NULL);
         /* svr notified, db3 proceeds but still would block */
         requestNotify(handlesvr);
         test_assert(!blocked);
-        test_assert(requestWouldBlock(NULL,NULL));
+        test_assert(requestWaitWouldBlock(txid++,NULL,NULL));
         /* db3 proceed, noting would block */
         requestNotify(handle3);
-        test_assert(!requestWouldBlock(NULL,NULL));
+        test_assert(!requestWaitWouldBlock(txid++,NULL,NULL));
     }
 
     return error;
