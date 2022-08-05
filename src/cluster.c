@@ -7061,6 +7061,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
+	propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         decrRefCount(key);
         j++;
     }
