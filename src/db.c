@@ -2389,6 +2389,7 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
  * read-only if the BITFIELD GET subcommand is used. */
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
+    int readonly = 0;
     UNUSED(cmd);
 
     keys = getKeysPrepareResult(result, 1);
@@ -2399,11 +2400,17 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         int remargs = argc - i - 1; /* Remaining args other than current. */
         char *arg = argv[i]->ptr;
         if (!strcasecmp(arg, "get") && remargs >= 2) {
-            keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-            return 1;
+            readonly = 1;
+        } else if ((!strcasecmp(arg, "set") || !strcasecmp(arg, "incrby")) && remargs >= 3) {
+            readonly = 0;
+            break;
         }
     }
 
-    keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    if (readonly) {
+        keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
+    } else {
+        keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    }
     return 1;
 }
