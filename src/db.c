@@ -2401,8 +2401,13 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         char *arg = argv[i]->ptr;
         if (!strcasecmp(arg, "get") && remargs >= 2) {
             readonly = 1;
+            i += 2;
         } else if ((!strcasecmp(arg, "set") || !strcasecmp(arg, "incrby")) && remargs >= 3) {
             readonly = 0;
+            break;
+        } else if (!strcasecmp(arg, "overflow") && remargs >= 1) {
+            i += 1;
+        } else {
             break;
         }
     }
