@@ -572,16 +572,36 @@ unsigned long long dictFingerprint(dict *d) {
     return hash;
 }
 
-dictIterator *dictGetIterator(dict *d)
+void dictInitIterator(dictIterator *iter, dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
-
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+}
+
+void dictInitSafeIterator(dictIterator *i, dict *d)
+{
+    dictInitIterator(i, d);
+    i->safe = 1;
+}
+
+void dictResetIterator(dictIterator *iter)
+{
+    if (!(iter->index == -1 && iter->table == 0)) {
+        if (iter->safe)
+            dictResumeRehashing(iter->d);
+        else
+            assert(iter->fingerprint == dictFingerprint(iter->d));
+    }
+}
+
+dictIterator *dictGetIterator(dict *d)
+{
+    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictInitIterator(iter, d);
     return iter;
 }
 
@@ -627,12 +647,7 @@ dictEntry *dictNext(dictIterator *iter)
 
 void dictReleaseIterator(dictIterator *iter)
 {
-    if (!(iter->index == -1 && iter->table == 0)) {
-        if (iter->safe)
-            dictResumeRehashing(iter->d);
-        else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
-    }
+    dictResetIterator(iter);
     zfree(iter);
 }
 
