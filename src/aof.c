@@ -1432,7 +1432,8 @@ int loadSingleAppendOnlyFile(char *filename) {
             else
                 serverLog(LL_WARNING, "Error reading the RDB base file %s, AOF loading aborted", filename);
 
-            goto readerr;
+            ret = AOF_FAILED;
+            goto cleanup;
         } else {
             loadingAbsProgress(ftello(fp));
             last_progress_report_size = ftello(fp);

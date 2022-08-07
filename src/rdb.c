@@ -51,7 +51,7 @@
 
 /* This macro tells if we are in the context of a RESTORE command, and not loading an RDB or AOF. */
 #define isRestoreContext() \
-    (server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1
+    ((server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
@@ -2889,7 +2889,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -2907,13 +2907,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
-        errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
-        errno = EINVAL;
         return C_ERR;
     }
 
@@ -3254,9 +3252,10 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
-        retval = (errno == ENOENT) ? RDB_NOT_EXIST : RDB_FAILED;
+        if (errno == ENOENT) return RDB_NOT_EXIST;
+
         serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
-        return retval;
+        return RDB_FAILED;
     }
 
     if (fstat(fileno(fp), &sb) == -1)

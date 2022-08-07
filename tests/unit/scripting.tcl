@@ -677,7 +677,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
         set res [run_script {redis.setresp(2); return redis.call('hgetall', KEYS[1])} 1 hash]
         assert_equal $res $expected_list
-    }
+    } {} {resp3}
 
     test {Script return recursive object} {
         r readraw 1
@@ -1231,8 +1231,12 @@ start_server {tags {"scripting needs:debug"}} {
 
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } else {
+                r hello $client_proto
+            }
             set extra "RESP$i/$client_proto"
-            r hello $client_proto
             r readraw 1
 
             test "test $extra big number protocol parsing" {

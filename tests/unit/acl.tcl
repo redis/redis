@@ -383,7 +383,8 @@ start_server {tags {"acl external:skip"}} {
     } {}
 
     test {ACLs including of a type includes also subcommands} {
-        r ACL setuser newuser -@all +acl +@stream
+        r ACL setuser newuser -@all +del +acl +@stream
+        r DEL key
         r XADD key * field value
         r XINFO STREAM key
     }
@@ -395,10 +396,11 @@ start_server {tags {"acl external:skip"}} {
         r SELECT 0
         catch {r SELECT 1} e
         set e
-    } {*NOPERM*select*}
+    } {*NOPERM*select*} {singledb:skip}
 
     test {ACLs can block all DEBUG subcommands except one} {
-        r ACL setuser newuser -@all +acl +incr +debug|object
+        r ACL setuser newuser -@all +acl +del +incr +debug|object
+        r DEL key
         set cmdstr [dict get [r ACL getuser newuser] commands]
         assert_match {*+debug|object*} $cmdstr
         r INCR key

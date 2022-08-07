@@ -2055,7 +2055,7 @@ void readSyncBulkPayload(connection *conn) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
-                      "from socket: %s", strerror(errno));
+                      "from socket, check server logs.");
             loadingFailed = 1;
         } else if (usemark) {
             /* Verify the end mark is correct. */
@@ -2164,7 +2164,7 @@ void readSyncBulkPayload(connection *conn) {
         if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
-                "DB from disk: %s", strerror(errno));
+                "DB from disk, check server logs.");
             cancelReplicationHandshake(1);
             if (server.rdb_del_sync_files && allPersistenceDisabled()) {
                 serverLog(LL_NOTICE,"Removing the RDB file obtained from "

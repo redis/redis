@@ -1680,7 +1680,6 @@ void createSharedObjects(void) {
     int j;
 
     /* Shared command responses */
-    shared.crlf = createObject(OBJ_STRING,sdsnew("\r\n"));
     shared.ok = createObject(OBJ_STRING,sdsnew("+OK\r\n"));
     shared.emptybulk = createObject(OBJ_STRING,sdsnew("$0\r\n\r\n"));
     shared.czero = createObject(OBJ_STRING,sdsnew(":0\r\n"));
@@ -6552,7 +6551,7 @@ void loadDataFromDisk(void) {
                 }
             }
         } else if (rdb_load_ret != RDB_NOT_EXIST) {
-            serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
+            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
             exit(1);
         }
 
