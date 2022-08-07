@@ -1232,10 +1232,11 @@ start_server {tags {"scripting needs:debug"}} {
     for {set i 2} {$i <= 3} {incr i} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             if {[lsearch $::denytags "resp3"] >= 0} {
-                if {$i == 3 || $client_proto == 3} {continue}
+                if {$client_proto == 3} {continue}
+            } else {
+                r hello $client_proto
             }
             set extra "RESP$i/$client_proto"
-            r hello $client_proto
             r readraw 1
 
             test "test $extra big number protocol parsing" {
