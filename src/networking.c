@@ -844,8 +844,8 @@ void addReplyDouble(client *c, double d) {
         int dlen = 0;
         if (c->resp == 2) {
             int offset;
-            int extralen = strlen("$0000\r\n\r\n");
-            dlen = snprintf(dbuf,sizeof(dbuf),"$0000\r\n%.17g\r\n",d) - extralen;
+            int frontlen = strlen("$0000\r\n");
+            dlen = snprintf(dbuf+frontlen,sizeof(dbuf)-frontlen,"%.17g",d);
             if (dlen < 10) {
                 memcpy(dbuf + 3, shared.bulkhdr[dlen]->ptr, 4);
                 offset = 3;
@@ -858,8 +858,13 @@ void addReplyDouble(client *c, double d) {
                 memcpy(dbuf + 1 + (4 - lenlen), lenbuf, lenlen);
                 offset = 4 - lenlen;
                 dbuf[offset] = '$';
+                dbuf[4+1] = '\r';
+                dbuf[4+2] = '\n';
             }
-            addReplyProto(c,dbuf + offset,dlen + extralen - offset);
+            int totallen = frontlen + dlen; 
+            dbuf[totallen++] = '\r';
+            dbuf[totallen++] = '\n';
+            addReplyProto(c,dbuf + offset,dlen + totallen - offset);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
