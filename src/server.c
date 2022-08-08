@@ -291,17 +291,17 @@ uint64_t dictSdsCaseHash(const void *key) {
 }
 
 /* Dict hash function for null terminated string */
-uint64_t distCStrHash(const void *key) {
+uint64_t dictCStrHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
 /* Dict hash function for null terminated string */
-uint64_t distCStrCaseHash(const void *key) {
+uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
 /* Dict compare function for null terminated string */
-int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
     UNUSED(d);
 
@@ -312,7 +312,7 @@ int distCStrKeyCompare(dict *d, const void *key1, const void *key2) {
 }
 
 /* Dict case insensitive compare function for null terminated string */
-int distCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
+int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
     UNUSED(d);
     return strcasecmp(key1, key2) == 0;
 }
@@ -518,10 +518,10 @@ dictType migrateCacheDictType = {
 /* Dict for for case-insensitive search using null terminated C strings.
  * The keys stored in dict are sds though. */
 dictType stringSetDictType = {
-    distCStrCaseHash,           /* hash function */
+    dictCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    distCStrKeyCaseCompare,     /* key compare */
+    dictCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
@@ -530,10 +530,10 @@ dictType stringSetDictType = {
 /* Dict for for case-insensitive search using null terminated C strings.
  * The key and value do not have a destructor. */
 dictType externalStringType = {
-    distCStrCaseHash,           /* hash function */
+    dictCStrCaseHash,           /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    distCStrKeyCaseCompare,     /* key compare */
+    dictCStrKeyCaseCompare,     /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
