@@ -238,6 +238,7 @@ noswap:
 
 void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         clientKeyRequestFinished cb) {
+    int64_t txid = swapTxidNext();
     for (int i = 0; i < result->num; i++) {
         void *msgs = NULL;
         keyRequest *key_request = result->key_requests + i;
@@ -251,7 +252,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         DEBUG_MSGS_APPEND(&ctx->msgs,"request-wait", "key=%s",
                 key ? (sds)key->ptr : "<nil>");
 
-        requestWait(swapTxidNext(),db,key,genericRequestProceed,c,ctx,
+        requestWait(txid,db,key,genericRequestProceed,c,ctx,
                 (freefunc)swapCtxFree,msgs);
     }
 }
@@ -383,6 +384,7 @@ int clearTestRedisServer() {
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
   result += swapWaitTest(argc, argv, accurate);
+  result += swapWaitReentrantTest(argc, argv, accurate);
   result += swapCmdTest(argc, argv, accurate);
   result += swapExecTest(argc, argv, accurate);
   result += swapRdbTest(argc, argv, accurate);

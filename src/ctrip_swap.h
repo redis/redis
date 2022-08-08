@@ -851,6 +851,7 @@ int clearTestRedisServer(void);
 int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataBigHashTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
+int swapWaitReentrantTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);

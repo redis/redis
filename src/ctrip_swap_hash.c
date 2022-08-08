@@ -945,7 +945,6 @@ int swapDataBigHashTest(int argc, char **argv, int accurate) {
         server.swap_big_hash_threshold = 0;
         int err = 0, version;
 		sds myhash_key = sdsnew("myhash");
-        sds myhash1_key = sdsnew("myhash1");
 		robj *myhash = createHashObject();
         sds f1 = sdsnew("f1"), f2 = sdsnew("f2");
         sds rdbv1 = rocksEncodeValRdb(createStringObject("v1", 2));

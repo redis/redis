@@ -137,9 +137,9 @@ void requestListenerPushEntry(requestListener *listener,
     entry->pdfree = pdfree;
 #ifdef SWAP_DEBUG
     entry->msgs = msgs;
+#endif
 
     listener->count++;
-#endif
 }
 
 void requestListenerRelease(requestListener *listener) {
@@ -155,6 +155,15 @@ void requestListenerRelease(requestListener *listener) {
     zfree(listener);
 }
 
+char *requestListenerEntryDump(requestListenerEntry *entry) {
+    static char repr[64];
+    const char *intention = (entry->c && entry->c->cmd) ? swapIntentionName(entry->c->cmd->intention) : "<nil>";
+    char *cmd = (entry->c && entry->c->cmd) ? entry->c->cmd->name : "<nil>";
+    char *key = entry->key ? entry->key->ptr : "<nil>";
+    snprintf(repr,sizeof(repr)-1,"(%s:%s:%s)",intention,cmd,key);
+    return repr;
+}
+
 char *requestListenerDump(requestListener *listener) {
     static char repr[256];
     char *ptr = repr, *end = repr + sizeof(repr) - 1;
@@ -164,12 +173,9 @@ char *requestListenerDump(requestListener *listener) {
             listener->txid,listener->count,listener->proceeded,listener->notified,
             listener->ntxlistener);
 
-    for (int i = 0; i < listener->count && ptr < end; i++) {
+    for (int i = listener->proceeded; i < listener->count && ptr < end; i++) {
         requestListenerEntry *entry = listener->entries+i;
-        const char *intention = entry->c->cmd ? swapIntentionName(entry->c->cmd->intention) : "<nil>";
-        char *cmd = (entry->c && entry->c->cmd) ? entry->c->cmd->name : "<nil>";
-        char *key = entry->key ? entry->key->ptr : "<nil>";
-        ptr += snprintf(ptr,end-ptr,"(%s:%s:%s),",intention,cmd,key);
+        ptr += snprintf(ptr,end-ptr,"%s,",requestListenerEntryDump(entry));
     }
 
     if (ptr < end) snprintf(ptr, end-ptr, "]");
@@ -333,12 +339,14 @@ static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
     int i, retval, result;
 
-    DEBUG_MSGS_APPEND(listener->msgs,"wait-proceed","listener=%s",
-            requestListenerDump(listener));
     for (i = listener->proceeded; i < listener->count; i++) {
         requestListenerEntry *entry = listener->entries+i;
-        retval = entry->proceed(listeners,entry->db,
-                entry->key,entry->c,entry->pd);
+
+        DEBUG_MSGS_APPEND(entry->msgs,"wait-proceed","entry=%s",
+                requestListenerEntryDump(entry));
+
+        retval = entry->proceed(listeners,entry->db,entry->key,
+                entry->c,entry->pd);
         if (retval < 0) result = retval;
         listener->proceeded++;
     }
@@ -441,7 +449,8 @@ int requestNotify(void *listeners_) {
 
 #ifdef SWAP_DEBUG
     sds dump = requestListenersDump(listeners);
-    DEBUG_MSGS_APPEND(current->msgs,"wait-unbind","listener=%s", dump);
+    requestListenerEntry *entry = current->entries + current->notified;
+    DEBUG_MSGS_APPEND(entry->msgs,"wait-unbind","listener=%s", dump);
     sdsfree(dump);
 #endif
 
@@ -626,6 +635,293 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
         requestNotify(handle3);
         test_assert(!requestWaitWouldBlock(txid++,NULL,NULL));
     }
+
+    return error;
+}
+
+
+static int proceeded = 0;
+int proceededCounter(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    proceeded++;
+    return 0;
+}
+
+#define reentrant_case_reset() do { \
+    proceeded = 0; \
+    handle1 = NULL, handle2 = NULL, handle3 = NULL, handle4 = NULL; \
+    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL;\
+} while (0)
+
+int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2;
+    void *handle1, *handle2, *handle3, *handle4, *handle5, *handle6,
+         *handle7, *handle8;
+
+    TEST("wait-reentrant: init") {
+        int i;
+        server.hz = 10;
+        server.dbnum = 4;
+        server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+        for (i = 0; i < server.dbnum; i++) server.db[i].id = i;
+        db = server.db, db2 = server.db+1;
+        server.request_listeners = serverRequestListenersCreate();
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+
+        test_assert(server.request_listeners);
+        test_assert(!blocked);
+    }
+
+   TEST("wait-reentrant: key (without prceeding listener)") {
+       test_assert(!requestWaitWouldBlock(10,db,key1));
+       requestWait(10,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(!requestWaitWouldBlock(10,db,key1));
+       requestWait(10,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle1 != NULL && handle1 == handle2);
+       test_assert(requestWaitWouldBlock(11,db,key1));
+       requestWait(11,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       requestNotify(handle1);
+       requestNotify(handle2);
+       test_assert(proceeded == 3);
+       test_assert(handle1 == handle3);
+       test_assert(requestBindListeners(db,key1,0) != NULL);
+       requestNotify(handle3);
+       test_assert(requestBindListeners(db,key1,0) == NULL);
+       test_assert(proceeded == 3);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: key (with prceeding listener)") {
+       test_assert(!requestWaitWouldBlock(20,db,key1));
+       requestWait(20,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(handle1 != NULL);
+       test_assert(proceeded == 1);
+       test_assert(requestWaitWouldBlock(21,db,key1));
+       requestWait(21,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(requestWaitWouldBlock(21,db,key1));
+       requestWait(21,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(requestWaitWouldBlock(22,db,key1));
+       requestWait(22,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 1);
+       requestNotify(handle1);
+       test_assert(proceeded == 3);
+       test_assert(handle1 == handle2);
+       test_assert(handle1 == handle3);
+       requestNotify(handle2);
+       test_assert(proceeded == 3);
+       requestNotify(handle3);
+       test_assert(proceeded == 4);
+       test_assert(handle1 == handle4);
+       test_assert(requestBindListeners(db,key1,0) != NULL);
+       requestNotify(handle4);
+       test_assert(requestBindListeners(db,key1,0) == NULL);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: db listener") {
+       requestWait(30,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       requestWait(30,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle1 == handle2);
+       requestWait(31,db,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(31,db2,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 3);
+       test_assert(handle4 != NULL && handle1 != handle4);
+       requestNotify(handle1);
+       requestNotify(handle2);
+       test_assert(proceeded == 4);
+       test_assert(handle1 == handle3);
+       requestNotify(handle3);
+       requestNotify(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: svr listener") {
+       requestWait(40,NULL,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       requestWait(40,NULL,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle1 == handle2);
+       requestWait(41,NULL,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(41,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestNotify(handle1);
+       test_assert(proceeded == 2);
+       requestNotify(handle2);
+       test_assert(proceeded == 4);
+       test_assert(handle1 == handle3);
+       test_assert(handle1 == handle4);
+       requestNotify(handle3);
+       test_assert(proceeded == 4);
+       requestNotify(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: db and svr listener") {
+       requestWait(50,db,NULL,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       requestWait(51,db,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle2 == NULL);
+       requestWait(51,db2,NULL,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle3 != NULL);
+       requestWait(51,NULL,NULL,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(handle4 == NULL);
+       test_assert(proceeded == 2);
+       requestNotify(handle1);
+       test_assert(handle1 == handle2);
+       test_assert(handle4 != NULL);
+       test_assert(proceeded == 4);
+       requestNotify(handle2);
+       requestNotify(handle3);
+       requestNotify(handle4);
+       test_assert(proceeded == 4);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: multi-level (with key & db listener)") {
+       requestWait(60,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1);
+       test_assert(handle1 != NULL);
+       requestWait(61,db,key1,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 1);
+       requestWait(61,db,key2,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       test_assert(handle3 != NULL && handle1 != handle3);
+       requestWait(61,db,key1,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(61,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(61,db,key1,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(62,db,key2,proceededCounter,NULL,&handle7,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestNotify(handle1);
+       test_assert(proceeded == 6);
+       test_assert(handle1 == handle2);
+       test_assert(handle1 == handle4);
+       test_assert(handle5 != NULL && handle1 != handle5 && handle3 != handle5);
+       test_assert(handle6 == handle5);
+       requestNotify(handle2);
+       requestNotify(handle3);
+       requestNotify(handle4);
+       requestNotify(handle5);
+       test_assert(proceeded == 6);
+       requestNotify(handle6);
+       test_assert(proceeded == 7);
+       test_assert(handle7 == handle5);
+       requestNotify(handle7);
+       test_assert(proceeded == 7);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: multi-level (with key & svr listener)") {
+       requestWait(70,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(proceeded == 1 && handle1 != NULL);
+       requestWait(70,db,key2,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(proceeded == 2 && handle2 != NULL);
+       test_assert(handle1 != handle2);
+       requestWait(71,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(71,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestWait(71,NULL,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 2 && handle5 == NULL);
+       requestWait(72,NULL,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 2);
+       requestNotify(handle1);
+       test_assert(proceeded == 3);
+       test_assert(handle3 != NULL && handle3 == handle1);
+       requestNotify(handle2);
+       test_assert(proceeded == 5);
+       test_assert(handle4 != NULL && handle4 == handle2);
+       test_assert(handle5 != NULL && handle5 != handle4 && handle5 != handle3);
+       requestNotify(handle3);
+       requestNotify(handle4);
+       test_assert(proceeded == 5);
+       requestNotify(handle5);
+       test_assert(proceeded == 6);
+       test_assert(handle5 == handle6);
+       requestNotify(handle6);
+       test_assert(proceeded == 6);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: multi-level (with key & db & svr listener)") {
+       requestWait(80,db,key2,proceededCounter,NULL,&handle1,NULL,NULL);
+       test_assert(handle1 != NULL);
+       requestWait(80,db2,NULL,proceededCounter,NULL,&handle2,NULL,NULL);
+       test_assert(handle2 != NULL);
+       test_assert(proceeded == 2);
+       requestWait(81,db,key1,proceededCounter,NULL,&handle3,NULL,NULL);
+       test_assert(handle3 != NULL);
+       test_assert(handle1 != handle2 && handle1 != handle3);
+       test_assert(proceeded == 3);
+       requestWait(81,db,key2,proceededCounter,NULL,&handle4,NULL,NULL);
+       test_assert(proceeded == 3);
+       requestWait(81,db,NULL,proceededCounter,NULL,&handle5,NULL,NULL);
+       test_assert(proceeded == 3);
+       requestWait(81,db2,NULL,proceededCounter,NULL,&handle6,NULL,NULL);
+       test_assert(proceeded == 3);
+       requestWait(81,NULL,NULL,proceededCounter,NULL,&handle7,NULL,NULL);
+       test_assert(proceeded == 3);
+       requestWait(82,NULL,NULL,proceededCounter,NULL,&handle8,NULL,NULL);
+       test_assert(proceeded == 3);
+       requestNotify(handle1);
+       test_assert(proceeded == 5);
+       test_assert(handle4 != NULL && handle4 == handle1);
+       test_assert(handle5 != NULL && handle5 != handle4);
+       requestNotify(handle2);
+       test_assert(proceeded == 7);
+       test_assert(handle6 == handle2);
+       test_assert(handle7 != handle6);
+       requestNotify(handle3);
+       requestNotify(handle4);
+       requestNotify(handle5);
+       requestNotify(handle6);
+       test_assert(proceeded == 7);
+       requestNotify(handle7);
+       test_assert(proceeded == 8);
+       test_assert(handle8 == handle7);
+       requestNotify(handle8);
+       test_assert(proceeded == 8);
+       reentrant_case_reset();
+   }
+
+   TEST("wait-reentrant: expand entries buf") {
+       int i, count = DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE*4;
+       for (i = 0; i < count; i++) {
+           requestWait(90,db,key1,proceededCounter,NULL,&handle1,NULL,NULL);
+       }
+       test_assert(proceeded == count);
+       for (i = 0; i < count; i++) {
+           requestNotify(handle1);
+       }
+       test_assert(proceeded == count);
+       reentrant_case_reset();
+   }
 
     return error;
 }
