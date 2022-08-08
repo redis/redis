@@ -2753,7 +2753,7 @@ void xsetidCommand(client *c) {
             if (getLongLongFromObjectOrReply(c,c->argv[i+1],&entries_added,NULL) != C_OK) {
                 return;
             } else if (entries_added < 0) {
-                addReplyError(c,"entries_added must be positive");
+                addReplyError(c,"entries_added can only be 0 or positive");
                 return;
             }
             i += 2;

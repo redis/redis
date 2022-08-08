@@ -790,7 +790,7 @@ start_server {tags {"stream xsetid"}} {
     test {XSETID errors on negstive offset} {
         catch {r XSETID stream 1-1 ENTRIESADDED -1 MAXDELETEDID 0-0} err
         set _ $err
-    } {ERR *must be positive}
+    } {ERR *can only be 0 or positive}
 
     test {XSETID cannot set the maximal tombstone with larger ID} {
         r DEL x
