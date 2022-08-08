@@ -181,11 +181,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
             /* Don't accept write commands if there are not enough good slaves and
              * user configured the min-slaves-to-write option. */
-            if (server.masterhost == NULL &&
-                server.repl_min_slaves_max_lag &&
-                server.repl_min_slaves_to_write &&
-                server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-            {
+            if (!checkGoodReplicasStatus()) {
                 addReplyErrorObject(caller, shared.noreplicaserr);
                 return C_ERR;
             }

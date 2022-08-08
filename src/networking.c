@@ -860,7 +860,7 @@ void addReplyBigNum(client *c, const char* num, size_t len) {
     } else {
         addReplyProto(c,"(",1);
         addReplyProto(c,num,len);
-        addReply(c,shared.crlf);
+        addReplyProto(c,"\r\n",2);
     }
 }
 
@@ -991,21 +991,21 @@ void addReplyBulkLen(client *c, robj *obj) {
 void addReplyBulk(client *c, robj *obj) {
     addReplyBulkLen(c,obj);
     addReply(c,obj);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReplyLongLongWithPrefix(c,len,'$');
     addReplyProto(c,p,len);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
-    addReply(c,shared.crlf);
+    addReplyProto(c,"\r\n",2);
 }
 
 /* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */

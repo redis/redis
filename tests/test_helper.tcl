@@ -50,6 +50,7 @@ set ::all_tests {
     integration/replication-buffer
     integration/shutdown
     integration/aof
+    integration/aof-race
     integration/aof-multi-part
     integration/rdb
     integration/corrupt-dump
