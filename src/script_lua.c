@@ -173,6 +173,7 @@ void* luaGetFromRegistry(lua_State* lua, const char* name) {
     lua_gettable(lua, LUA_REGISTRYINDEX);
 
     if (lua_isnil(lua, -1)) {
+        lua_pop(lua, 1); /* pops the value */
         return NULL;
     }
     /* must be light user data */
