@@ -803,13 +803,50 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
 }
 
 /* USR ADDED COMMAND
- * This command is used for KV Migration project
+ * This command is used for KV Migration project.
+ * Arguments: Cursor (default: 0) and Count (default: 10)
 */
 void MIGRATE_UNBLOCKED(client *c) {
+    int arg_count = c->argc;
+    char *ptr;
+    unsigned long cursor = strtoul(c->argv[1]->ptr, &ptr, 10);
+    unsigned long count = 10;
 
-   printf("Hello: %d\n", c->argc);
-   addReplyLongLong(c, c->argc);
-   return;
+    if (arg_count >= 3) {
+        count = strtoul(c->argv[2]->ptr, &ptr, 10);
+    }
+    // Error check arguments:
+    // * can't be negative, check cursor val, only 2 or 3 arguments allowed
+   
+    // Get dictionary (assume kv store, assume not rehashing)
+    dict *ht;
+    ht = c->db->dict;   
+    list *keys = listCreate();
+    dictEntry *de, *next;
+    unsigned long m0;
+    int htidx0 = 0;
+    void *privdata[2];
+    privdata[0] = keys;
+    privdata[1] = NULL;
+
+    if (!dictIsRehashing(ht)) {
+        
+        m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
+        de = ht->ht_table[htidx0][cursor & m0];
+        while (de) {
+            next = de->next;
+            scanCallback(privdata, de);
+            de = next;
+        }
+    }
+
+    // Output kv pairs
+    //addReplyLongLong(c, c->argc);
+    addReplyArrayLen(c, 2);
+    addReplyBulkLongLong(c, cursor);
+    addReplyBulkLongLong(c, listLength(keys));
+    listNode *node, *nextnode;
+//    while ((node = listFirst(keys))
 }
 
 
@@ -911,6 +948,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way. */
+
         privdata[0] = keys;
         privdata[1] = o;
         do {
