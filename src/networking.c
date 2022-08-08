@@ -840,13 +840,26 @@ void addReplyDouble(client *c, double d) {
                               d > 0 ? 6 : 7);
         }
     } else {
-        char dbuf[MAX_LONG_DOUBLE_CHARS+3],
-             sbuf[MAX_LONG_DOUBLE_CHARS+32];
-        int dlen, slen;
+        char dbuf[MAX_LONG_DOUBLE_CHARS+32];
+        int dlen = 0;
         if (c->resp == 2) {
-            dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-            slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-            addReplyProto(c,sbuf,slen);
+            int offset;
+            int extralen = strlen("$0000\r\n\r\n");
+            dlen = snprintf(dbuf,sizeof(dbuf),"$0000\r\n%.17g\r\n",d) - extralen;
+            if (dlen < 10) {
+                memcpy(dbuf + 3, shared.bulkhdr[dlen]->ptr, 4);
+                offset = 3;
+            } else if (dlen < 32) {
+                memcpy(dbuf + 2, shared.bulkhdr[dlen]->ptr, 5);
+                offset = 2;
+            } else {
+                char lenbuf[4];
+                int lenlen = ll2string(lenbuf, 4, dlen);
+                memcpy(dbuf + 1 + (4 - lenlen), lenbuf, lenlen);
+                offset = 4 - lenlen;
+                dbuf[offset] = '$';
+            }
+            addReplyProto(c,dbuf + offset,dlen + extralen - offset);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
