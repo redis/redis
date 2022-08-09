@@ -235,6 +235,16 @@ start_server {tags {"tracking network"}} {
         assert_equal "PONG" [r ping]
     }
 
+    test {Tracking should not occur for scripts in NOLOOP mode} {
+        r CLIENT TRACKING off
+        r CLIENT TRACKING on NOLOOP
+        r HELLO 3
+        r SET key1 1
+        assert_equal "1" [r GET key1]
+        r eval "return redis.call('set', 'key1', '2')" 0
+        assert_equal "2" [r GET key1]
+    }
+
     test {RESP3 Client gets tracking-redir-broken push message after cached key changed when rediretion client is terminated} {
         r CLIENT TRACKING on REDIRECT $redir_id
         $rd_sg SET key1 1
