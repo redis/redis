@@ -802,6 +802,9 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     return C_OK;
 }
 
+// USR ADDED:
+void scanCallback_KVpairs(void *privdata, const dictEntry *de);
+
 /* USR ADDED COMMAND
  * This command is used for KV Migration project.
  * Arguments: Cursor (default: 0) and Count (default: 10)
@@ -822,14 +825,14 @@ void MIGRATE_UNBLOCKED(client *c) {
     dict *ht;
     ht = c->db->dict;   
     list *keys = listCreate();
+    list *vals = listCreate();
     dictEntry *de, *next;
     unsigned long m0; // size mask
     int htidx0 = 0;
-    void *privdata[2];
+    void *privdata[3];
     privdata[0] = keys;
     privdata[1] = NULL;
-    long maxiterations = count * 10;
-   
+    privdata[2] = vals;
     if (!dictIsRehashing(ht)) {
         
         m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
@@ -837,8 +840,9 @@ void MIGRATE_UNBLOCKED(client *c) {
         do {
             de = ht->ht_table[htidx0][cursor & m0];
             while (de) {
+                // Get Key
                 next = de->next;
-                scanCallback(privdata, de);
+                scanCallback_KVpairs(privdata, de);
                 de = next;
             }
             cursor++;
@@ -853,7 +857,7 @@ void MIGRATE_UNBLOCKED(client *c) {
 
     // Output kv pairs
     //addReplyLongLong(c, c->argc);
-    addReplyArrayLen(c, 2);
+    addReplyArrayLen(c, 3);
     addReplyBulkLongLong(c, cursor);
     addReplyArrayLen(c, listLength(keys));
 
@@ -864,6 +868,38 @@ void MIGRATE_UNBLOCKED(client *c) {
         decrRefCount(kobj);
         listDelNode(keys, node); 
     }
+    
+    addReplyArrayLen(c, listLength(vals));
+    while ((node = listFirst(vals)) != NULL) {
+        robj *kobj = listNodeValue(node);
+        addReplyBulk(c, kobj);
+        decrRefCount(kobj);
+        listDelNode(vals, node); 
+    }
+}
+
+/* USR ADDED COMMAND
+ * This command is a modified version of scanCallback
+
+*/
+void scanCallback_KVpairs(void *privdata, const dictEntry *de) {
+    void **pd = (void**) privdata;
+    list *keys = pd[0];
+    robj *o = pd[1];
+    list *vals = pd[2];
+    robj *key, *val = NULL;
+    robj *temp_val = NULL;
+
+    // Function only works when o is NULL
+    if (o == NULL) {
+        temp_val = dictGetVal(de);        
+
+        sds sdskey = dictGetKey(de);
+        key = createStringObject(sdskey, sdslen(sdskey));
+    }
+    listAddNodeTail(vals, temp_val);
+    listAddNodeTail(keys, key);
+    if (val) listAddNodeTail(keys, val);
 }
 
 
