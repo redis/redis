@@ -487,10 +487,11 @@ static int isSafeToPerformEvictions(void) {
      * and just be masters exact copies. */
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return 0;
 
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
+    /* Either because of clients are paused, failover or shutdown the
+     * dataset should be static not just from the POV of clients not
+     * being able to write, but also from the POV of expires and evictions
+     * of keys not being performed. */
+    if (isPausedServicesWithUpdate(PAUSE_SVC_EVICT)) return 0;
 
     return 1;
 }

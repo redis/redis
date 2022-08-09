@@ -3611,7 +3611,7 @@ void replicationCron(void) {
             ((server.cluster_enabled &&
               server.cluster->mf_end) ||
             server.failover_end_time) &&
-            checkClientPauseTimeoutAndReturnIfPaused();
+            isPausedServicesWithUpdate(PAUSE_SVC_REPLICA);
 
         if (!manual_failover_in_progress) {
             ping_argv[0] = shared.ping;
@@ -3849,7 +3849,7 @@ void clearFailoverState() {
     server.target_replica_host = NULL;
     server.target_replica_port = 0;
     server.failover_state = NO_FAILOVER;
-    unpauseClients(PAUSE_DURING_FAILOVER);
+    unpauseServices(PAUSE_DURING_FAILOVER);
 }
 
 /* Abort an ongoing failover if one is going on. */
@@ -3998,7 +3998,9 @@ void failoverCommand(client *c) {
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
     /* Cluster failover will unpause eventually */
-    pauseClients(PAUSE_DURING_FAILOVER, LLONG_MAX, CLIENT_PAUSE_WRITE);
+    pauseServices(PAUSE_DURING_FAILOVER,
+                  LLONG_MAX,
+                  PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA);
     addReply(c,shared.ok);
 }
 

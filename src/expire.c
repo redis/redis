@@ -138,7 +138,7 @@ void activeExpireCycle(int type) {
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return;
+    if (isPausedServicesWithUpdate(PAUSE_SVC_EXPIRE)) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exit

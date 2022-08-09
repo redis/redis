@@ -3178,20 +3178,19 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
-        unpauseClients(PAUSE_BY_CLIENT_COMMAND);
+        unpauseServices(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
     {
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         mstime_t end;
-        int type = CLIENT_PAUSE_ALL;
+        /* This feature externally is refactored internally to become services-paused */
+        uint32_t services = PAUSE_SVC_CLIENT_ALL|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
-                type = CLIENT_PAUSE_WRITE;
-            } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
-                type = CLIENT_PAUSE_ALL;
-            } else {
+                services = PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA;
+            } else if (strcasecmp(c->argv[3]->ptr,"all")) {
                 addReplyError(c,
                     "CLIENT PAUSE mode must be WRITE or ALL");  
                 return;       
@@ -3200,7 +3199,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseClients(PAUSE_BY_CLIENT_COMMAND, end, type);
+        pauseServices(PAUSE_BY_CLIENT_COMMAND, end, services);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3848,36 +3847,20 @@ void flushSlavesOutputBuffers(void) {
 
 /* Compute current most restrictive pause type and its end time, aggregated for
  * all pause purposes. */
-static void updateClientPauseTypeAndEndTime(void) {
-    pause_type old_type = server.client_pause_type;
-    pause_type type = CLIENT_PAUSE_OFF;
-    mstime_t end = 0;
+void updatePausedServices(void) {
+    uint32_t prev_paused_services = server.paused_services;
+    server.paused_services = 0;
+
     for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
-        pause_event *p = server.client_pause_per_purpose[i];
-        if (p == NULL) {
-            /* Nothing to do. */
-        } else if (p->end < server.mstime) {
-            /* This one expired. */
-            zfree(p);
-            server.client_pause_per_purpose[i] = NULL;
-        } else if (p->type > type) {
-            /* This type is the most restrictive so far. */
-            type = p->type;
-        }
+        pause_event *p = &(server.client_pause_per_purpose[i]);
+        if (p->end > server.mstime) server.paused_services |= p->paused_services;
     }
 
-    /* Find the furthest end time among the pause purposes of the most
-     * restrictive type */
-    for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
-        pause_event *p = server.client_pause_per_purpose[i];
-        if (p != NULL && p->type == type && p->end > end) end = p->end;
-    }
-    server.client_pause_type = type;
-    server.client_pause_end_time = end;
 
-    /* If the pause type is less restrictive than before, we unblock all clients
-     * so they are reprocessed (may get re-paused). */
-    if (type < old_type) {
+    /* If paused-clients state changed, we unblock all clients so they are
+     * reprocessed (may get re-paused) */
+    uint32_t mask_cli = (PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_CLIENT_ALL);
+    if ((server.paused_services & mask_cli) != (prev_paused_services & mask_cli)) {
         unblockPostponedClients();
     }
 }
@@ -3905,20 +3888,13 @@ void unblockPostponedClients() {
  * failover procedure implemented by CLUSTER FAILOVER.
  *
  * The function always succeed, even if there is already a pause in progress.
- * In such a case, the duration is set to the maximum and new end time and the
- * type is set to the more restrictive type of pause. */
-void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
+ * The new values of a given 'purpose' will override the old ones */
+void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask) {
     /* Manage pause type and end time per pause purpose. */
-    if (server.client_pause_per_purpose[purpose] == NULL) {
-        server.client_pause_per_purpose[purpose] = zmalloc(sizeof(pause_event));
-        server.client_pause_per_purpose[purpose]->type = type;
-        server.client_pause_per_purpose[purpose]->end = end;
-    } else {
-        pause_event *p = server.client_pause_per_purpose[purpose];
-        p->type = max(p->type, type);
-        p->end = max(p->end, end);
-    }
-    updateClientPauseTypeAndEndTime();
+    server.client_pause_per_purpose[purpose].paused_services = bitmask;
+    server.client_pause_per_purpose[purpose].end = end;
+
+    updatePausedServices();
 
     /* We allow write commands that were queued
      * up before and after to execute. We need
@@ -3930,28 +3906,22 @@ void pauseClients(pause_purpose purpose, mstime_t end, pause_type type) {
 }
 
 /* Unpause clients and queue them for reprocessing. */
-void unpauseClients(pause_purpose purpose) {
-    if (server.client_pause_per_purpose[purpose] == NULL) return;
-    zfree(server.client_pause_per_purpose[purpose]);
-    server.client_pause_per_purpose[purpose] = NULL;
-    updateClientPauseTypeAndEndTime();
+void unpauseServices(pause_purpose purpose) {
+    server.client_pause_per_purpose[purpose].end = 0;
+    server.client_pause_per_purpose[purpose].paused_services = 0;
+    updatePausedServices();
 }
 
-/* Returns true if clients are paused and false otherwise. */ 
-int areClientsPaused(void) {
-    return server.client_pause_type != CLIENT_PAUSE_OFF;
+/* Returns bitmask of paused services */
+uint32_t isPausedServices(uint32_t bitmask) {
+    return (server.paused_services & bitmask);
 }
 
-/* Checks if the current client pause has elapsed and unpause clients
- * if it has. Also returns true if clients are now paused and false 
- * otherwise. */
-int checkClientPauseTimeoutAndReturnIfPaused(void) {
-    if (!areClientsPaused())
-        return 0;
-    if (server.client_pause_end_time < server.mstime) {
-        updateClientPauseTypeAndEndTime();
-    }
-    return areClientsPaused();
+/* Returns bitmask of paused services */
+uint32_t isPausedServicesWithUpdate(uint32_t bitmask) {
+    if (!(server.paused_services & bitmask)) return 0;  // common-flow
+    updatePausedServices();
+    return (server.paused_services & bitmask);
 }
 
 /* This function is called by Redis in order to process a few events from

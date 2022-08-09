@@ -563,13 +563,12 @@ typedef enum {
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
 
-/* Client pause types, larger types are more restrictive
- * pause types than smaller pause types. */
-typedef enum {
-    CLIENT_PAUSE_OFF = 0, /* Pause no commands */
-    CLIENT_PAUSE_WRITE,   /* Pause write commands */
-    CLIENT_PAUSE_ALL      /* Pause all commands */
-} pause_type;
+/* Services pause types */
+#define PAUSE_SVC_CLIENT_WRITE  (1<<0)
+#define PAUSE_SVC_CLIENT_ALL    (1<<1)
+#define PAUSE_SVC_EXPIRE        (1<<2)
+#define PAUSE_SVC_EVICT         (1<<3)
+#define PAUSE_SVC_REPLICA       (1<<4) /* pause replica traffic */
 
 /* Client pause purposes. Each purpose has its own end time and pause type. */
 typedef enum {
@@ -580,7 +579,7 @@ typedef enum {
 } pause_purpose;
 
 typedef struct {
-    pause_type type;
+    uint32_t paused_services; /* Bitmask of services */
     mstime_t end;
 } pause_event;
 
@@ -1531,10 +1530,9 @@ struct redisServer {
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
-    pause_type client_pause_type;      /* True if clients are currently paused */
+    uint32_t paused_services;   /* Bitmask of services that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
-    mstime_t client_pause_end_time;    /* Time when we undo clients_paused */
-    pause_event *client_pause_per_purpose[NUM_PAUSE_PURPOSES];
+    pause_event client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
@@ -2520,10 +2518,11 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(int port, socketFds *fds);
-void pauseClients(pause_purpose purpose, mstime_t end, pause_type type);
-void unpauseClients(pause_purpose purpose);
-int areClientsPaused(void);
-int checkClientPauseTimeoutAndReturnIfPaused(void);
+void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask);
+void unpauseServices(pause_purpose purpose);
+uint32_t isPausedServices(uint32_t bitmask);
+uint32_t isPausedServicesWithUpdate(uint32_t bitmask);
+void updatePausedServices(void);
 void unblockPostponedClients();
 void processEventsWhileBlocked(void);
 void whileBlockedCron();
