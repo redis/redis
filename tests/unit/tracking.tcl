@@ -241,7 +241,7 @@ start_server {tags {"tracking network"}} {
         r HELLO 3
         r SET key1 1
         assert_equal "1" [r GET key1]
-        r eval "return redis.call('set', 'key1', '2')" 0
+        r eval "return redis.call('set', 'key1', '2')" 1 key1
         assert_equal "2" [r GET key1]
     }
 
