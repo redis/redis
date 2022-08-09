@@ -1071,7 +1071,7 @@ static void initQpsControl() {
         qps_per_thread = 1;
     }
     for (int i = 0; i < num_threads; ++i) {
-        config.paused_clients[i] = zmalloc(sizeof(list));
+        config.paused_clients[i] = listCreate();
         config.last_resume_time[i] = -1;
         config.control_granularity[i] = qps_per_thread;
         config.resume_interval[i] = USECOND;
