@@ -828,6 +828,11 @@ void setDeferredPushLen(client *c, void *node, long length) {
     setDeferredAggregateLen(c,node,length,'>');
 }
 
+inline void utoa(char *buf, uint32_t val, int len) {
+	for(; val && len ; --len, val /= 10)
+		buf[len - 1] = "0123456789"[val % 10];
+}
+
 /* Add a double as a bulk reply */
 void addReplyDouble(client *c, double d) {
     if (isinf(d)) {
@@ -843,28 +848,17 @@ void addReplyDouble(client *c, double d) {
         char dbuf[MAX_LONG_DOUBLE_CHARS+32];
         int dlen = 0;
         if (c->resp == 2) {
-            int offset;
-            int frontlen = strlen("$0000\r\n");
-            dlen = snprintf(dbuf+frontlen,sizeof(dbuf)-frontlen,"%.17g",d);
-            if (dlen < 10) {
-                memcpy(dbuf + 3, shared.bulkhdr[dlen]->ptr, 4);
-                offset = 3;
-            } else if (dlen < 32) {
-                memcpy(dbuf + 2, shared.bulkhdr[dlen]->ptr, 5);
-                offset = 2;
-            } else {
-                char lenbuf[4];
-                int lenlen = ll2string(lenbuf, 4, dlen);
-                memcpy(dbuf + 1 + (4 - lenlen), lenbuf, lenlen);
-                offset = 4 - lenlen;
-                dbuf[offset] = '$';
-                dbuf[4+1] = '\r';
-                dbuf[4+2] = '\n';
-            }
-            int totallen = frontlen + dlen; 
-            dbuf[totallen++] = '\r';
-            dbuf[totallen++] = '\n';
-            addReplyProto(c,dbuf + offset,dlen + totallen - offset);
+            // Preserve chars before the double for $0000\r\n, and trim unused.
+            int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
+            int digits = digits10(dlen);
+            int start = 4 - digits;
+            dbuf[start] = '$';
+            utoa(dbuf+start+1,dlen,digits);
+            dbuf[5] = '\r';
+            dbuf[6] = '\n';
+            dbuf[dlen+7] = '\r';
+            dbuf[dlen+8] = '\n';
+            addReplyProto(c,dbuf+start,dlen+9-start);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
