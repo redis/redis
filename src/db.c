@@ -823,7 +823,7 @@ void MIGRATE_UNBLOCKED(client *c) {
     ht = c->db->dict;   
     list *keys = listCreate();
     dictEntry *de, *next;
-    unsigned long m0;
+    unsigned long m0; // size mask
     int htidx0 = 0;
     void *privdata[2];
     privdata[0] = keys;
@@ -833,7 +833,7 @@ void MIGRATE_UNBLOCKED(client *c) {
     if (!dictIsRehashing(ht)) {
         
         m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
-        
+
         do {
             de = ht->ht_table[htidx0][cursor & m0];
             while (de) {
@@ -842,10 +842,14 @@ void MIGRATE_UNBLOCKED(client *c) {
                 de = next;
             }
             cursor++;
-        } while (cursor && 
-                maxiterations-- && 
-                listLength(keys) < (unsigned long) count);
-    }
+         
+        } while (cursor <= m0 && listLength(keys) < (unsigned long) count);
+
+        if (cursor > m0) {
+            cursor = 0; // indicates scanning is complete
+        }
+
+    } // else: error message?
 
     // Output kv pairs
     //addReplyLongLong(c, c->argc);
