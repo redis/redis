@@ -1,6 +1,6 @@
 {
-  "SETMETADATA": {
-      "summary": "Set the current connection meta info",
+  "SETCUSTOMDATA": {
+      "summary": "Set the current connection custom info",
       "complexity": "O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.",
       "group": "connection",
       "since": "7.2.0",
@@ -17,7 +17,7 @@
       ],
       "arguments": [
           {
-              "name": "connection-meta",
+              "name": "connection-custom-data",
               "type": "string",
               "multiple": true,
               "optional": true

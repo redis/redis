@@ -1,6 +1,6 @@
 {
-  "GETMETADATA": {
-      "summary": "Get the current connection meta info",
+  "GETCUSTOMDATA": {
+      "summary": "Get the current connection custom info",
       "complexity": "O(N) where N is the number of fields being requested.",
       "group": "connection",
       "since": "7.2.0",
@@ -17,7 +17,7 @@
       ],
       "arguments": [
         {
-            "name": "connection-meta",
+            "name": "connection-custom-data",
             "type": "string",
             "optional": true
         }

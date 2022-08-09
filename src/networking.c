@@ -118,8 +118,8 @@ int authRequired(client *c) {
     return auth_required;
 }
 
-void getAllClientMetaFields(client *c) {
-    dictIterator *di = dictGetIterator(c->meta);
+void getAllClientCustomDataFields(client *c) {
+    dictIterator *di = dictGetIterator(c->custom_data);
     dictEntry *de;
     
     void *ufields = addReplyDeferredLen(c);
@@ -131,11 +131,11 @@ void getAllClientMetaFields(client *c) {
         addReplyBulkCBuffer(c, value, sdslen(value));
     }
     dictReleaseIterator(di);
-    setDeferredMapLen(c, ufields, (int) dictSize(c->meta));
+    setDeferredMapLen(c, ufields, (int) dictSize(c->custom_data));
 }
 
-sds getClientMetadata(dict *meta) {
-    dictIterator *di = dictGetIterator(meta);
+sds getClientCustomData(dict *custom_data) {
+    dictIterator *di = dictGetIterator(custom_data);
     dictEntry *de;
     sds result = sdsempty();
 
@@ -154,14 +154,14 @@ sds getClientMetadata(dict *meta) {
     return result;
 }
 
-void getClientMetaFields(client *c) {
+void getClientCustomDataFields(client *c) {
     int i;
     int count = 0;
 
     void *ufields = addReplyDeferredLen(c);
     for (i = 2; i < c->argc; i++) {
         dictEntry *de;
-        de = dictFind(c->meta, c->argv[i]->ptr);
+        de = dictFind(c->custom_data, c->argv[i]->ptr);
         if (de == NULL) {
             continue;
         };
@@ -197,7 +197,7 @@ client *createClient(connection *conn) {
     c->resp = 2;
     c->conn = conn;
     c->name = NULL;
-    c->meta = NULL;
+    c->custom_data = NULL;
     c->bufpos = 0;
     c->buf_usable_size = zmalloc_usable_size(c->buf);
     c->buf_peak = c->buf_usable_size;
@@ -1603,9 +1603,9 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
-    if(c->meta){
-        dictRelease(c->meta);
-        c->meta = NULL;
+    if(c->custom_data){
+        dictRelease(c->custom_data);
+        c->custom_data = NULL;
     }
 
     /* Selectively clear state flags not covered above */
@@ -1680,8 +1680,8 @@ void freeClient(client *c) {
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
-    if(c->meta){
-        dictRelease(c->meta);
+    if(c->custom_data){
+        dictRelease(c->custom_data);
     }
     listRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -2850,10 +2850,10 @@ sds catClientInfoString(sds s, client *client) {
         replBufBlock *cur = listNodeValue(client->ref_repl_buf_node);
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
-    sds meta = client->meta ? getClientMetadata(client->meta) : NULL;
+    sds custom_data = client->custom_data ? getClientCustomData(client->custom_data) : NULL;
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i meta=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i custom-data=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2882,8 +2882,8 @@ sds catClientInfoString(sds s, client *client) {
         client->user ? client->user->name : "(superuser)",
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
-        meta ? meta : "");
-    sdsfree(meta);
+        custom_data ? custom_data : "");
+    sdsfree(custom_data);
 
     return ret;
 }
@@ -2950,31 +2950,31 @@ int clientSetNameOrReply(client *c, robj *name) {
     return result;
 }
 
-/* This function implements CLIENT SETMETADATA, including replying to the
+/* This function implements CLIENT SETCUSTOMDATA, including replying to the
  * user with an error if the charset is wrong (in that case C_ERR is
  * returned). If the function succeeded C_OK is returned, and it's up
  * to the caller to send a reply if needed.
  *
- * Setting an empty string as meta has the effect of unsetting the
- * currently set meta: the client will remain without meta.*/
-int clientSetMetaOrReply(client *c)
+ * Setting an empty string as custom data has the effect of unsetting the
+ * currently set custom data: the client will remain without custom data.*/
+int clientSetCustomDataOrReply(client *c)
 {
-    if (c->meta != NULL)
+    if (c->custom_data != NULL)
     {
-        dictRelease(c->meta);
-        c->meta = NULL;    
+        dictRelease(c->custom_data);
+        c->custom_data = NULL;
     }
 
     if (c->argc != 2)
     {
-        c->meta = dictCreate(&hashDictType);
+        c->custom_data = dictCreate(&hashDictType);
 
         for (int i = 2; i < c->argc; i++) {
             robj *o1 = c->argv[i++];
             robj *o2 = c->argv[i];
             sds key = sdsdup(o1->ptr);
             sds val = sdsdup(o2->ptr);
-            if (dictAdd(c->meta, key, val) != DICT_OK){
+            if (dictAdd(c->custom_data, key, val) != DICT_OK){
                 sdsfree(key);
                 sdsfree(val);
             }
@@ -3020,8 +3020,8 @@ void clientCommand(client *c) {
 "    Return the client ID we are redirecting to when tracking is enabled.",
 "GETNAME",
 "    Return the name of the current connection.",
-"GETMETADATA [<field>]",
-"    Return the meta info of the current connection.",
+"GETCUSTOMDATA [<field>]",
+"    Return the custom info of the current connection.",
 "ID",
 "    Return the ID of the current connection.",
 "INFO",
@@ -3052,8 +3052,8 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
-"SETMETADATA <meta>",
-"    Assign the meta info <meta> to the current connection.",
+"SETCUSTOMDATA <data>",
+"    Assign the custom info <data> to the current connection.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",
@@ -3279,9 +3279,9 @@ NULL
         /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"setmetadata") && ((c->argc % 2) == 0)) {
-        /* CLIENT SETMETADATA */
-        if (clientSetMetaOrReply(c) == C_OK)
+    } else if (!strcasecmp(c->argv[1]->ptr,"setcustomdata") && ((c->argc % 2) == 0)) {
+        /* CLIENT SETCUSTOMDATA */
+        if (clientSetCustomDataOrReply(c) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         /* CLIENT GETNAME */
@@ -3289,15 +3289,13 @@ NULL
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"getmetadata")) {
-        /* CLIENT GETMETADATA */
-        sds meta = NULL;
+    } else if (!strcasecmp(c->argv[1]->ptr,"getcustomdata")) {
+        /* CLIENT GETCUSTOMDATA */
         if (c->argc == 2) {
-            getAllClientMetaFields(c);
+            getAllClientCustomDataFields(c);
         } else {
-            getClientMetaFields(c);
+            getClientCustomDataFields(c);
         }
-        sdsfree(meta);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
         unpauseClients(PAUSE_BY_CLIENT_COMMAND);
@@ -3793,9 +3791,9 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
      * to the strings themselves because they aren't stored per client. */
     mem += pubsubMemOverhead(c);
 
-    if (c->meta)
-        mem += dictSize(c->meta) * sizeof(dictEntry) +
-            dictSlots(c->meta) * sizeof(dictEntry*) +
+    if (c->custom_data)
+        mem += dictSize(c->custom_data) * sizeof(dictEntry) +
+            dictSlots(c->custom_data) * sizeof(dictEntry*) +
             sizeof(dict);
 
     /* Add memory overhead of the tracking prefixes, this is an underestimation so we don't need to traverse the entire rax */

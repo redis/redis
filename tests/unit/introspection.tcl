@@ -127,36 +127,36 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
-    test {CLIENT SETMETADATA does not accept odd params} {
-        catch {r client setmetadata foo} e
+    test {CLIENT SETCUSTOMDATA does not accept odd params} {
+        catch {r client setcustomdata foo} e
         set e
     } {ERR*}
 
-    test {CLIENT SETMETADATA can clean meta info to this connection} {
-        assert_equal [r client setmetadata meta foo] {OK}
-        assert_equal [r client setmetadata] {OK}
+    test {CLIENT SETCUSTOMDATA can clean custom data info to this connection} {
+        assert_equal [r client setcustomdata meta foo] {OK}
+        assert_equal [r client setcustomdata] {OK}
         r client list
-    } {*meta=*}
+    } {*custom-data=*}
 
-    test {CLIENT SETMETADATA can assign a meta to this connection} {
-        assert_equal [r client setmetadata meta foo] {OK}
+    test {CLIENT SETCUSTOMDATA can assign a custom data to this connection} {
+        assert_equal [r client setcustomdata meta foo] {OK}
         r client list
-    } {*meta=meta=foo*}
+    } {*custom-data=meta=foo*}
 
-    test {CLIENT GETMETADATA should return empty info for non-existing meta attributes} {
-        assert_equal [r client setmetadata meta foo] {OK}
-        r client getmetadata meta2 meta3
+    test {CLIENT GETCUSTOMDATA should return empty info for non-existing custom data attributes} {
+        assert_equal [r client setcustomdata meta foo] {OK}
+        r client getcustomdata meta2 meta3
     } {}
 
-    test {CLIENT GETMETADATA should return specific meta attributes} {
-        assert_equal [r client setmetadata meta foo meta2 bar] {OK}
-        r client getmetadata meta
+    test {CLIENT GETCUSTOMDATA should return specific custom data attributes} {
+        assert_equal [r client setcustomdata meta foo meta2 bar] {OK}
+        r client getcustomdata meta
     } {meta foo}
 
-    test {CLIENT GETMETADATA should return all meta attributes} {
-        assert_equal [r client setmetadata meta foo meta2 bar] {OK}
-        assert_match {*meta2 bar*} [r client getmetadata]
-        assert_match {*meta foo*} [r client getmetadata]
+    test {CLIENT GETCUSTOMDATA should return all custom data attributes} {
+        assert_equal [r client setcustomdata meta foo meta2 bar] {OK}
+        assert_match {*meta2 bar*} [r client getcustomdata]
+        assert_match {*meta foo*} [r client getcustomdata]
     }
 
     test {CLIENT LIST shows empty fields for unassigned names} {
