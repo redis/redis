@@ -828,25 +828,38 @@ void MIGRATE_UNBLOCKED(client *c) {
     void *privdata[2];
     privdata[0] = keys;
     privdata[1] = NULL;
-
+    long maxiterations = count * 10;
+   
     if (!dictIsRehashing(ht)) {
         
         m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
-        de = ht->ht_table[htidx0][cursor & m0];
-        while (de) {
-            next = de->next;
-            scanCallback(privdata, de);
-            de = next;
-        }
+        
+        do {
+            de = ht->ht_table[htidx0][cursor & m0];
+            while (de) {
+                next = de->next;
+                scanCallback(privdata, de);
+                de = next;
+            }
+            cursor++;
+        } while (cursor && 
+                maxiterations-- && 
+                listLength(keys) < (unsigned long) count);
     }
 
     // Output kv pairs
     //addReplyLongLong(c, c->argc);
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c, cursor);
-    addReplyBulkLongLong(c, listLength(keys));
+    addReplyArrayLen(c, listLength(keys));
+
     listNode *node, *nextnode;
-//    while ((node = listFirst(keys))
+    while ((node = listFirst(keys)) != NULL) {
+        robj *kobj = listNodeValue(node);
+        addReplyBulk(c, kobj);
+        decrRefCount(kobj);
+        listDelNode(keys, node); 
+    }
 }
 
 
