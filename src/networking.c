@@ -3856,11 +3856,10 @@ void updatePausedServices(void) {
         if (p->end > server.mstime) server.paused_services |= p->paused_services;
     }
 
-
-    /* If paused-clients state changed, we unblock all clients so they are
-     * reprocessed (may get re-paused) */
+    /* If the pause type is less restrictive than before, we unblock all clients
+     * so they are reprocessed (may get re-paused). */
     uint32_t mask_cli = (PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_CLIENT_ALL);
-    if ((server.paused_services & mask_cli) != (prev_paused_services & mask_cli)) {
+    if ((server.paused_services & mask_cli) < (prev_paused_services & mask_cli)) {
         unblockPostponedClients();
     }
 }

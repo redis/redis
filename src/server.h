@@ -565,7 +565,7 @@ typedef enum {
 
 /* Services pause types */
 #define PAUSE_SVC_CLIENT_WRITE  (1<<0)
-#define PAUSE_SVC_CLIENT_ALL    (1<<1)
+#define PAUSE_SVC_CLIENT_ALL    (1<<1) /* must be bigger than PAUSE_SVC_CLIENT_WRITE */
 #define PAUSE_SVC_EXPIRE        (1<<2)
 #define PAUSE_SVC_EVICT         (1<<3)
 #define PAUSE_SVC_REPLICA       (1<<4) /* pause replica traffic */
