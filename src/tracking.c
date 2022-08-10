@@ -388,7 +388,7 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
         /* If the client enabled the NOLOOP mode, don't send notifications
          * about keys changed by the client itself. */
         if (target->flags & CLIENT_TRACKING_NOLOOP &&
-            target == c)
+            target == server.current_client)
         {
             continue;
         }
