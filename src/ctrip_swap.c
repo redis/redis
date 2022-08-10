@@ -37,8 +37,6 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
         int key_requests_flags, clientKeyRequestFinished finished) {
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
-    ctx->cmd_intention = c->cmd->intention;
-    ctx->cmd_intention_flags = c->cmd->intention_flags; //TODO remove
     moveKeyRequest(ctx->key_request,key_request);
     ctx->key_requests_flags = key_requests_flags;
     ctx->finished = finished;
@@ -46,7 +44,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
     char identity[MAX_MSG];
     snprintf(identity,MAX_MSG,"[%s:%s:%.*s]",
-            swapIntentionName(ctx->cmd_intention),c->cmd->name,MAX_MSG/2,key);
+            swapIntentionName(key_request->cmd_intention),c->cmd->name,MAX_MSG/2,key);
     swapDebugMsgsInit(&ctx->msgs, identity);
 #endif
     return ctx;
@@ -146,8 +144,8 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     char *reason;
     void *msgs = NULL;
     UNUSED(reason), UNUSED(c);
-    int cmd_intention = ctx->cmd_intention;
-    uint32_t cmd_intention_flags = ctx->cmd_intention_flags;
+    int cmd_intention = ctx->key_request->cmd_intention;
+    uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     
     serverAssert(c == ctx->c);
     ctx->listeners = listeners;

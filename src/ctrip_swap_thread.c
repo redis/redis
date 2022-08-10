@@ -113,7 +113,7 @@ static inline int swapThreadsDistNext(int dispatch_mode) {
 }
 
 void swapThreadsDispatch(int dispatch_mode, swapRequest *req) {
-    int idx = swapThreadsDistNext(dispatch_mode);
+    int idx = swapThreadsDistNext(dispatch_mode) % server.swap_threads_num;
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);

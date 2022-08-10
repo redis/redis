@@ -203,8 +203,6 @@ typedef void (*clientKeyRequestFinished)(client *c, struct swapCtx *ctx);
 
 typedef struct swapCtx {
   client *c;
-  int cmd_intention;
-  uint32_t cmd_intention_flags;
   keyRequest key_request[1];
   int key_requests_flags;
   unsigned int expired:1;

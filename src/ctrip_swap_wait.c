@@ -337,20 +337,18 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
 
 static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
-    int i, retval, result;
+    int i, retval, result, count = listener->count;
 
-    for (i = listener->proceeded; i < listener->count; i++) {
+    for (i = listener->proceeded; i < count; i++) {
         requestListenerEntry *entry = listener->entries+i;
 
         DEBUG_MSGS_APPEND(entry->msgs,"wait-proceed","entry=%s",
                 requestListenerEntryDump(entry));
-
+        listener->proceeded++;
         retval = entry->proceed(listeners,entry->db,entry->key,
                 entry->c,entry->pd);
         if (retval < 0) result = retval;
-        listener->proceeded++;
     }
-    serverAssert(listener->proceeded == listener->count);
 
     return result;
 }
@@ -416,9 +414,10 @@ int proceedChain(requestListeners *listeners, requestListener *listener) {
     int64_t txid = listener->txid;
 
     while (1) {
+        parent = listeners->parent;
+
         if (listener != NULL) proceed(listeners,listener);
 
-        parent = listeners->parent;
         if (parent == NULL) break;
 
         first = requestListenersFirst(parent);
