@@ -7062,6 +7062,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
         signalModifiedKey(NULL, &server.db[0], key);
+        moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         decrRefCount(key);
         j++;
