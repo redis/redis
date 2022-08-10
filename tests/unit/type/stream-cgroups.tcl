@@ -773,6 +773,32 @@ start_server {
         assert_equal [dict get $reply entries] "{100-0 {a 1}}"
     }
 
+    test {Consumer seen-time and active-time} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        after 100
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert {[lindex $consumer_info 5] >= 100} ;# consumer idle (seen-time)
+        assert_equal [lindex $consumer_info 7] "-1" ;# consumer inactive (active-time)
+
+        r XADD mystream * f v
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert_equal [lindex $consumer_info 1] "Alice" ;# consumer name
+        assert {[lindex $consumer_info 5] < 80} ;# consumer idle (seen-time)
+        assert {[lindex $consumer_info 7] < 80} ;# consumer inactive (active-time)
+
+        after 100
+        r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream >
+        set reply [r xinfo consumers mystream mygroup]
+        set consumer_info [lindex $reply 0]
+        assert {[lindex $consumer_info 5] < 80} ;# consumer idle (seen-time)
+        assert {[lindex $consumer_info 7] >= 100} ;# consumer inactive (active-time)
+    }
+
     test {XGROUP CREATECONSUMER: create consumer if does not exist} {
         r del mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
@@ -862,13 +888,9 @@ start_server {
             assert {$curr_grpinfo == $grpinfo}
             set n_consumers [lindex $grpinfo 3]
 
-            # Bob should be created only when there will be new data for this consumer
-            assert_equal $n_consumers 2
-            set reply [r xinfo consumers mystream mygroup]
-            set consumer_info [lindex $reply 0]
-            assert_equal [lindex $consumer_info 1] "Alice"
-            set consumer_info [lindex $reply 1]
-            assert_equal [lindex $consumer_info 1] "Charlie"
+            # All consumers are created via XREADGROUP, regardless of whether they managed
+            # to read any entries ot not
+            assert_equal $n_consumers 3
             $rd close
         }
     }
