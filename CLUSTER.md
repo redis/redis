@@ -433,6 +433,29 @@ One option for selecting the subset is by dividing the primary nodes into K buck
 It is worth noting we can (and probably should) decouple and implement this sort of mechanism ASAP (without depending the new
 cluster implementation) as it will substantially improve the behavior of the existing cluster.
 
+### Global Configuration
+
+Flotilla can distribute configuration settings in addition to topology - This will greatly ease the pain of managing
+large clusters (currently admins need to set configs on every single node in the cluster).
+These config settings can include things like:
+- ACLs
+- A subset of configuration from redis.conf
+- Functions (?)
+
+The simplest way to support this is to add the required information to every TopologyState response (using another epoch counter
+to decide when to send the information).
+This approach assumes that the rate of change for the global configuration is (at most) on the same order of magnitude as 
+the rate of change for the cluster topology (adding / removing nodes & slot ownership). Settings which change very frequently 
+cannot be handled by the centralized control plane as it would quickly be overwhelmed.
+By propagating the individual node 'global config' epoch as part of the status messages to the TD we can expose when a certain configuration
+change has been received by all nodes.
+Node local config changes (to the relevant global settings) would be overriden every time a change is propagated through
+the cluster.
+
+Another possibility would be to leverage node level distribution mechanism like unsharded Pub/Sub.
+- Would require some kind of reliability guarantee that isn't present in the current/proposed implementation.
+- Has the benefit of much higher scalability, supporting Lua-like Functions usage.
+
 ### Reference Implementation
 
 Our reference implementation uses a single Redis module that contains both the Failover Coordinator & Topology Director functionality
