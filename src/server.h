@@ -224,6 +224,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_SWAP_PUT (1ULL<<41)        /* Cmd require swap put if key present. */
 #define CMD_SWAP_DEL (1ULL<<42)        /* Cmd require swap del. */
 
+#define CMD_SWAP_MAY_REENTRANT  (1ULL << 43) /* Cmd minght reentrant wait, needs swap sequentially. */
+
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
 #define AOF_ON 1              /* AOF is on */
@@ -1729,8 +1731,8 @@ struct redisServer {
     unsigned long long swap_big_hash_threshold; /* encode as big hash if memory exceeds threshold. */
     unsigned long long swap_max_iter_rate; /* max swap iter rate. */ 
     int rocksdb_compression; /* rocksdb compresssion type: no/snappy/zlib. */
-
     int64_t swap_txid; /* swap txid. */
+    dict *swap_duplicate_key; /* dict used to find if duplicate key exists in single tx. */
 };
 
 #define MAX_KEYS_BUFFER 256

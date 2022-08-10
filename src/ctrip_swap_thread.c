@@ -101,15 +101,19 @@ void swapThreadsDeinit() {
     }
 }
 
-static inline int swapThreadsDistNext() {
+static inline int swapThreadsDistNext(int dispatch_mode) {
     static int dist;
-    dist++;
-    if (dist < 0) dist = 0;
-    return dist;
+    if (dispatch_mode == SWAP_DISPATCH_SEQUENTIAL) {
+        return 0;
+    } else {
+        dist++;
+        if (dist < 0) dist = 0;
+        return dist;
+    }
 }
 
-void swapThreadsDispatch(swapRequest *req) {
-    int idx = swapThreadsDistNext() % server.swap_threads_num;
+void swapThreadsDispatch(int dispatch_mode, swapRequest *req) {
+    int idx = swapThreadsDistNext(dispatch_mode);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
     listAddNodeTail(t->pending_reqs,req);

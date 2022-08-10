@@ -58,8 +58,13 @@ typedef struct keyRequest{
 	int num_subkeys;
 	robj *key;
 	robj **subkeys;
+  int cmd_intention;
+  int cmd_intention_flags;
+  int dbid;
 } keyRequest;
 
+int swapCmdInit();
+void swapCmdDeinit();
 void copyKeyRequest(keyRequest *dst, keyRequest *src);
 void moveKeyRequest(keyRequest *dst, keyRequest *src);
 void keyRequestDeinit(keyRequest *key_request);
@@ -80,17 +85,22 @@ int getKeyRequestsHmget(struct redisCommand *cmd, robj **argv, int argc, struct 
 int getKeyRequestsHlen(struct redisCommand *cmd, robj **argv, int argc, struct getKeyRequestsResult *result);
 
 #define MAX_KEYREQUESTS_BUFFER 128
-#define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER }
+#define GET_KEYREQUESTS_RESULT_INIT { {{0}}, NULL, 0, MAX_KEYREQUESTS_BUFFER, 0}
+
+#define KEYREQUESTS_DBID 0
+#define KEYREQUESTS_RESULT_SEQUENTIAL (1<<0)
 
 typedef struct getKeyRequestsResult {
 	keyRequest buffer[MAX_KEYREQUESTS_BUFFER];
 	keyRequest *key_requests;
 	int num;
 	int size;
+  int flags;
+  dict *dupkey; /* ref to server.swap_duplicate_key. */
 } getKeyRequestsResult;
 
 void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int numswaps);
-void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, robj *key, int num_subkeys, robj **subkeys);
+void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level, robj *key, int num_subkeys, robj **subkeys, int cmd_intention, int cmd_intention_flags, int dbid);
 void getKeyRequestsFreeResult(getKeyRequestsResult *result);
 
 /* --- Data --- */
@@ -140,7 +150,7 @@ typedef struct swapDataType {
   void (*free)(struct swapData *data, void *datactx);
 } swapDataType;
 
-int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flag, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
+int swapDataAna(swapData *d, int cmd_intention, uint32_t cmd_intention_flags, struct keyRequest *key_request, int *intention, uint32_t *intention_flag, void *datactx);
 int swapDataEncodeKeys(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys);
 int swapDataEncodeData(swapData *d, int intention, void *datactx, int *action, int *num, sds **rawkeys, sds **rawvals);
 int swapDataDecodeData(swapData *d, int num, sds *rawkeys, sds *rawvals, robj **decoded);
@@ -196,6 +206,7 @@ typedef struct swapCtx {
   int cmd_intention;
   uint32_t cmd_intention_flags;
   keyRequest key_request[1];
+  int key_requests_flags;
   unsigned int expired:1;
   unsigned int set_dirty:1;
   unsigned int reserved:32;
@@ -211,7 +222,7 @@ typedef struct swapCtx {
 #endif
 } swapCtx;
 
-swapCtx *swapCtxCreate(client *c, keyRequest *key_request, clientKeyRequestFinished finished);
+swapCtx *swapCtxCreate(client *c, keyRequest *key_request, int key_requests_flags, clientKeyRequestFinished finished);
 void swapCtxFree(swapCtx *ctx);
 
 struct objectMeta;
@@ -281,6 +292,9 @@ void hashTransformBig(robj *o, objectMeta *m);
 swapData *createBigHashSwapData(redisDb *db, robj *key, robj *value, robj *evict, objectMeta *meta, void **pdatactx);
 
 /* --- Exec --- */
+#define SWAP_DISPATCH_SEQUENTIAL 0
+#define SWAP_DISPATCH_ROUNDROBIN -1
+
 struct swapRequest;
 
 typedef int (*swapRequestNotifyCallback)(struct swapRequest *req, void *pd);
@@ -306,7 +320,7 @@ swapRequest *swapRequestNew(int intention, uint32_t intention_flags, swapData *d
 void swapRequestFree(swapRequest *req);
 int executeSwapRequest(swapRequest *req);
 int finishSwapRequest(swapRequest *req);
-void submitSwapRequest(int mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
+void submitSwapRequest(int mode, int dispatch_mode, int intention, uint32_t intention_flags, swapData* data, void *datactx, swapRequestFinishedCallback cb, void *pd, void *msgs);
 
 /* --- Threads (encode/rio/decode/finish) --- */
 #define SWAP_THREADS_DEFAULT     4
@@ -323,7 +337,7 @@ typedef struct swapThread {
 
 int swapThreadsInit();
 void swapThreadsDeinit();
-void swapThreadsDispatch(swapRequest *req);
+void swapThreadsDispatch(int dispatch_mode,swapRequest *req);
 int swapThreadsDrained();
 
 /* RIO */
@@ -406,7 +420,7 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq);
 int asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req);
 int asyncCompleteQueueDrain(mstime_t time_limit);
 
-void asyncSwapRequestSubmit(swapRequest *req);
+void asyncSwapRequestSubmit(int dispatch_mode, swapRequest *req);
 
 /* --- Parallel sync --- */
 typedef struct {
@@ -426,7 +440,7 @@ int parallelSyncInit(int parallel);
 void parallelSyncDeinit();
 int parallelSyncDrain();
 
-int parallelSyncSwapRequestSubmit(swapRequest *req);
+int parallelSyncSwapRequestSubmit(int dispatch_mode, swapRequest *req);
 
 /* --- Wait --- */
 #define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 8

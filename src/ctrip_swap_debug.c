@@ -187,7 +187,9 @@ int getKeyRequestsSwap(struct redisCommand *cmd, robj **argv, int argc,
     if (!strcasecmp(argv[1]->ptr,"object") && argc == 3) {
         getKeyRequestsPrepareResult(result,result->num+1);
         incrRefCount(argv[2]);
-        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[2],0,NULL);
+        //TODO 确认intention
+        getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,argv[2],0,NULL,
+                cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
     }
     return 0;
 }

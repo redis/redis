@@ -47,6 +47,10 @@ void copyKeyRequest(keyRequest *dst, keyRequest *src) {
         }
     }
     dst->num_subkeys = src->num_subkeys;
+    dst->level = src->level;
+    dst->cmd_intention = src->cmd_intention;
+    dst->cmd_intention_flags = src->cmd_intention_flags;
+    dst->dbid = src->dbid;
 }
 
 void moveKeyRequest(keyRequest *dst, keyRequest *src) {
@@ -56,6 +60,10 @@ void moveKeyRequest(keyRequest *dst, keyRequest *src) {
     src->subkeys = NULL;
     dst->num_subkeys = src->num_subkeys;
     src->num_subkeys = 0;
+    dst->level = src->level;
+    dst->cmd_intention = src->cmd_intention;
+    dst->cmd_intention_flags = src->cmd_intention_flags;
+    dst->dbid = src->dbid;
 }
 
 void keyRequestDeinit(keyRequest *key_request) {
@@ -100,11 +108,21 @@ void getKeyRequestsPrepareResult(getKeyRequestsResult *result, int num) {
 
 /* Note that key&subkeys ownership moved */
 void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level,
-        robj *key, int num_subkeys, robj **subkeys) {
+        robj *key, int num_subkeys, robj **subkeys, int cmd_intention,
+        int cmd_intention_flags, int dbid) {
     if (result->num == result->size) {
         int newsize = result->size + 
             (result->size > 8192 ? 8192 : result->size);
         getKeyRequestsPrepareResult(result, newsize);
+    }
+
+    if (result->dupkey && !(result->flags & KEYREQUESTS_RESULT_SEQUENTIAL)) {
+        if (key == NULL/*db/svr level*/ || dictFind(result->dupkey,key)) {
+            result->flags |= KEYREQUESTS_RESULT_SEQUENTIAL;
+        } else {
+            incrRefCount(key);
+            dictAdd(result->dupkey,key,NULL);
+        }
     }
 
     keyRequest *key_request = &result->key_requests[result->num++];
@@ -112,6 +130,9 @@ void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level,
     key_request->key = key;
     key_request->num_subkeys = num_subkeys;
     key_request->subkeys = subkeys;
+    key_request->cmd_intention = cmd_intention;
+    key_request->cmd_intention_flags = cmd_intention_flags;
+    key_request->dbid = dbid;
 }
 
 void releaseKeyRequests(getKeyRequestsResult *result) {
@@ -127,10 +148,24 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result) {
     }
 }
 
+int swapCmdInit() {
+    server.swap_duplicate_key = dictCreate(&objectKeyPointerValueDictType,NULL);
+    return 0;
+}
+
+void swapCmdDeinit() {
+    dictRelease(server.swap_duplicate_key);
+}
+
+static dict *swapCmdGetDupKeyDict() {
+    dictEmpty(server.swap_duplicate_key,NULL);
+    return server.swap_duplicate_key;
+}
+
 /* NOTE that result.{key,subkeys} are ONLY REFS to client argv (since client
  * outlives getKeysResult if no swap action happend. key, subkey will be 
  * copied (using incrRefCount) when async swap acutally proceed. */
-static void getSingleCmdKeyRequsts(client *c, getKeyRequestsResult *result) {
+static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
     struct redisCommand *cmd = c->cmd;
 
     if (cmd->getkeyrequests_proc == NULL) {
@@ -141,8 +176,10 @@ static void getSingleCmdKeyRequsts(client *c, getKeyRequestsResult *result) {
         getKeyRequestsPrepareResult(result,result->num+numkeys);
         for (i = 0; i < numkeys; i++) {
             robj *key = c->argv[keys.keys[i]];
+
             incrRefCount(key);
-            getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,0,NULL);
+            getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,0,NULL,
+                    cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
         }
         getKeysFreeResult(&keys); 
     } else if (cmd->flags & CMD_MODULE) {
@@ -154,6 +191,11 @@ static void getSingleCmdKeyRequsts(client *c, getKeyRequestsResult *result) {
 
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
+
+    /* mget, del, multi/exec with duplicate key or db/svr keyrequests
+     * should dispatch sequentially. */
+    if (c->cmd->flags & CMD_SWAP_MAY_REENTRANT)
+        result->dupkey = swapCmdGetDupKeyDict();
 
     if ((c->flags & CLIENT_MULTI) && 
             !(c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) &&
@@ -170,13 +212,13 @@ void getKeyRequests(client *c, getKeyRequestsResult *result) {
             c->argc = c->mstate.commands[i].argc;
             c->argv = c->mstate.commands[i].argv;
             c->cmd = c->mstate.commands[i].cmd;
-            getSingleCmdKeyRequsts(c, result);
+            getSingleCmdKeyRequests(c, result);
         }
         c->argv = orig_argv;
         c->argc = orig_argc;
         c->cmd = orig_cmd;
     } else {
-        getSingleCmdKeyRequsts(c, result);
+        getSingleCmdKeyRequests(c, result);
     }
 }
 
@@ -195,7 +237,8 @@ int getKeyRequestsGlobal(struct redisCommand *cmd, robj **argv, int argc,
     UNUSED(cmd);
     UNUSED(argc);
     UNUSED(argv);
-    getKeyRequestsAppendResult(result,REQUEST_LEVEL_SVR,NULL,0,NULL);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_SVR,NULL,0,NULL,
+            cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
     return 0;
 }
 
@@ -233,7 +276,8 @@ int getKeyRequestsSingleKeyWithSubkeys(struct redisCommand *cmd, robj **argv,
         incrRefCount(subkey);
         subkeys[num++] = subkey;
     }
-    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,num,subkeys);
+    getKeyRequestsAppendResult(result,REQUEST_LEVEL_KEY,key,num,subkeys,
+            cmd->intention,cmd->intention_flags,KEYREQUESTS_DBID);
 
     return 0;
 }
@@ -277,6 +321,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
     TEST("cmd: init") {
         initServerConfig();
         ACLInit();
+        swapCmdInit();
         server.hz = 10;
         c = createClient(NULL);
     }
@@ -286,6 +331,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         rewriteResetClientCommandCString(c,1,"PING");
         getKeyRequests(c,&result);
         test_assert(result.num == 0);
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     } 
@@ -296,6 +342,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 1);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY"));
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -307,6 +354,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.num == 2);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
         test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -329,6 +377,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.key_requests[1].subkeys == NULL);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
         test_assert(result.key_requests[2].subkeys == NULL);
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -344,6 +393,7 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[0].subkeys[0]->ptr, "F1"));
         test_assert(!strcmp(result.key_requests[0].subkeys[1]->ptr, "F2"));
         test_assert(!strcmp(result.key_requests[0].subkeys[2]->ptr, "F3"));
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -369,6 +419,53 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
         test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
         test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
+        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
+
+    TEST("cmd: dispatch swap sequentially for reentrant-key request") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        rewriteResetClientCommandCString(c,4,"MGET", "K1", "K2", "K1");
+        getKeyRequests(c,&result);
+        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+    }
+
+    TEST("cmd: dispatch swap sequentially for reentrant-key request (multi)") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,3,"HMGET","HASH", "F1");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,2,"DEL","HASH");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"EXEC");
+        getKeyRequests(c,&result);
+        test_assert(result.num == 2);
+        test_assert(!strcmp(result.key_requests[0].key->ptr, "HASH"));
+        test_assert(result.key_requests[0].num_subkeys == 1);
+        test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
+        test_assert(result.key_requests[1].subkeys == NULL);
+        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
+        releaseKeyRequests(&result);
+        getKeyRequestsFreeResult(&result);
+        discardTransaction(c);
+    }
+
+    TEST("cmd: dispatch swap sequentially with db/svr request") {
+        getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
+        c->flags |= CLIENT_MULTI;
+        rewriteResetClientCommandCString(c,1,"PING");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"FLUSHDB");
+        queueMultiCommand(c);
+        rewriteResetClientCommandCString(c,1,"EXEC");
+        getKeyRequests(c,&result);
+        test_assert(result.num == 1);
+        test_assert(result.key_requests[0].key == NULL);
+        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
