@@ -807,61 +807,92 @@ void scanCallback_KVpairs(void *privdata, const dictEntry *de);
 
 /* USR ADDED COMMAND
  * This command is used for KV Migration project.
- * Arguments: Cursor (default: 0) and Count (default: 10)
+ * Arguments: Cursor and Count (default: 10)
+ * A negative input value for 'count' will be interpreted as a large number (because it's unsigned)
+ * Note: This command only works when the hash table is NOT rehashing.
+ * Note: It's possible that the outputted number of KV pairs may be greater than 'count'
 */
 void MIGRATE_UNBLOCKED(client *c) {
+    // Parse arguments
     int arg_count = c->argc;
     char *ptr;
-    unsigned long cursor = strtoul(c->argv[1]->ptr, &ptr, 10);
-    unsigned long count = 10;
-
-    if (arg_count >= 3) {
-        count = strtoul(c->argv[2]->ptr, &ptr, 10);
+    
+    errno = 0;
+    const char* cursor_str = c->argv[1]->ptr; 
+    unsigned long cursor = strtoul(cursor_str, &ptr, 10);
+    // Error check cursor value
+    if ((cursor == 0 && cursor_str[0] != '0') || // invalid conversion
+         ptr[0] != '\0' || // characters after numerical value
+         errno == ERANGE) { // number is out of range
+  
+        addReplyError(c, "invalid cursor");
+        return;
     }
-    // Error check arguments:
-    // * can't be negative, check cursor val, only 2 or 3 arguments allowed
-   
-    // Get dictionary (assume kv store, assume not rehashing)
-    dict *ht;
-    ht = c->db->dict;   
+
+    unsigned long count = 10;
+    if (arg_count == 3) {
+        errno = 0;
+        const char * count_str = c->argv[2]->ptr;
+        count = strtoul(count_str, &ptr, 10);
+        // Error check count value
+        if ((count == 0 && count_str[0] != '0') ||
+             ptr[0] != '\0' ||
+             errno == ERANGE) {
+
+            addReplyError(c, "invalid count");
+            return;
+        }
+    } else if (arg_count > 3) {
+        addReplyError(c, "too many arguments");
+        return;
+    }
+ 
+    // Get dictionary
+    dict *ht = c->db->dict;
     list *keys = listCreate();
     list *vals = listCreate();
-    dictEntry *de, *next;
-    unsigned long m0; // size mask
-    int htidx0 = 0;
-    void *privdata[3];
-    privdata[0] = keys;
-    privdata[1] = NULL;
-    privdata[2] = vals;
-    if (!dictIsRehashing(ht)) {
-        
-        m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
+    if (dictSize(ht) == 0) {
+        cursor = 0;
+    } else if (!dictIsRehashing(ht)) {      
+        dictPauseRehashing(ht);
 
-        do {
+        void *privdata[3];
+        privdata[0] = keys;
+        privdata[1] = NULL;
+        privdata[2] = vals;
+
+        // While no rehashing, all data stored in 0. During rehashing, data stored in 0 and 1.
+        int htidx0 = 0;
+        unsigned long m0 = DICTHT_SIZE_MASK(ht->ht_size_exp[htidx0]); // size mask 
+
+        // Get KV Pairs
+        dictEntry *de, *next;
+        while (cursor <= m0 && listLength(keys) < (unsigned long) count) {
             de = ht->ht_table[htidx0][cursor & m0];
             while (de) {
-                // Get Key
                 next = de->next;
                 scanCallback_KVpairs(privdata, de);
                 de = next;
             }
-            cursor++;
-         
-        } while (cursor <= m0 && listLength(keys) < (unsigned long) count);
+            cursor++;     
+        } 
 
         if (cursor > m0) {
             cursor = 0; // indicates scanning is complete
         }
+    
+        dictResumeRehashing(ht);
+    } else {
+        addReplyError(c, "hash table is rehashing");
+        return;
+    }
 
-    } // else: error message?
-
-    // Output kv pairs
-    //addReplyLongLong(c, c->argc);
+    // Reply to client
     addReplyArrayLen(c, 3);
     addReplyBulkLongLong(c, cursor);
-    addReplyArrayLen(c, listLength(keys));
 
-    listNode *node, *nextnode;
+    addReplyArrayLen(c, listLength(keys));
+    listNode *node;
     while ((node = listFirst(keys)) != NULL) {
         robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
@@ -876,30 +907,37 @@ void MIGRATE_UNBLOCKED(client *c) {
         decrRefCount(kobj);
         listDelNode(vals, node); 
     }
+
+cleanup:
+    listSetFreeMethod(keys,decrRefCountVoid);
+    listRelease(keys);
+
+    listSetFreeMethod(vals, decrRefCountVoid);
+    listRelease(vals);
+
 }
 
 /* USR ADDED COMMAND
  * This command is a modified version of scanCallback
-
 */
 void scanCallback_KVpairs(void *privdata, const dictEntry *de) {
     void **pd = (void**) privdata;
     list *keys = pd[0];
     robj *o = pd[1];
     list *vals = pd[2];
-    robj *key, *val = NULL;
-    robj *temp_val = NULL;
 
-    // Function only works when o is NULL
+    robj *key = NULL;
+    robj *val = NULL;
+
     if (o == NULL) {
-        temp_val = dictGetVal(de);        
+        val = dictGetVal(de);        
 
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
     }
-    listAddNodeTail(vals, temp_val);
+
+    listAddNodeTail(vals, val);
     listAddNodeTail(keys, key);
-    if (val) listAddNodeTail(keys, val);
 }
 
 
