@@ -644,6 +644,15 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*attempted to access nonexistent global variable 'set_repl'*}
 
+    test {LIBRARIES - redis.acl_check_cmd from function load} {
+        catch {
+            r function load replace {#!lua name=lib2
+                return redis.acl_check_cmd('set','xx',1)
+            }
+        } e
+        set _ $e
+    } {*attempted to access nonexistent global variable 'acl_check_cmd'*}
+
     test {LIBRARIES - malicious access test} {
         # the 'library' API is not exposed inside a
         # function context and the 'redis' API is not
