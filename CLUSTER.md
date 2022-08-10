@@ -27,6 +27,7 @@
     - [Roles](#roles)
     - [Node and Failover Coordinator IDs](#node-and-failover-coordinator-ids)
     - [Publish/Subscribe](#publish/subscribe) 
+    - [Global Configuration](#global-configuration)
     - [Reference Implementation](#reference-implementation)
         - [Road to Production](#road-to-production) 
         - [Potential Enhancements](#potential-enhancements)
@@ -449,7 +450,7 @@ the rate of change for the cluster topology (adding / removing nodes & slot owne
 cannot be handled by the centralized control plane as it would quickly be overwhelmed.
 By propagating the individual node 'global config' epoch as part of the status messages to the TD we can expose when a certain configuration
 change has been received by all nodes.
-Node local config changes (to the relevant global settings) would be overriden every time a change is propagated through
+Node local config changes (to the relevant global settings) would be overridden every time a change is propagated through
 the cluster.
 
 Another possibility would be to leverage node level distribution mechanism like unsharded Pub/Sub.
