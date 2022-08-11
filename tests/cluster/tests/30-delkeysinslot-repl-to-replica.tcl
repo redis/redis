@@ -54,10 +54,8 @@ test "Instance #3 is a slave, have the 'randomkey'" {
 
 test "set the slot other node, src-node will delete keys in the slot and replicate to replica" {
     set nodeid [R 1 cluster myid]
-    set current_epoch [CI 1 cluster_current_epoch]
-    set target_epoch [expr $current_epoch+1]
 
-    assert_equal [R 1 cluster bumpepoch] "BUMPED $target_epoch"
+    R 1 cluster bumpepoch
     # force assinged $randomkey_slot to node redis-1
     assert_equal [R 1 cluster setslot $randomkey_slot node $nodeid] "OK"
 
