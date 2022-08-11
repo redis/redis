@@ -2520,7 +2520,7 @@ void evictClients(void);
 int listenToPort(int port, socketFds *fds);
 void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask);
 void unpauseServices(pause_purpose purpose);
-uint32_t isPausedServices(uint32_t bitmask);
+uint32_t isPausedServices(uint32_t service_types);
 uint32_t isPausedServicesWithUpdate(uint32_t bitmask);
 void updatePausedServices(void);
 void unblockPostponedClients();

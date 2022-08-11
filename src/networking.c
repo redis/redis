@@ -3912,8 +3912,8 @@ void unpauseServices(pause_purpose purpose) {
 }
 
 /* Returns bitmask of paused services */
-uint32_t isPausedServices(uint32_t bitmask) {
-    return (server.paused_services & bitmask);
+uint32_t isPausedServices(uint32_t service_types) {
+    return (server.paused_services & service_types);
 }
 
 /* Returns bitmask of paused services */
