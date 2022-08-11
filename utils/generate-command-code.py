@@ -329,7 +329,7 @@ class Command(object):
                 s += "CMD_DOC_%s|" % flag
             return s[:-1] if s else "CMD_DOC_NONE"
 
-        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%s,%d)," % (
+        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%d,%s,%d)," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -346,6 +346,7 @@ class Command(object):
             _flags_code(),
             _acl_categories_code(),
             self.key_specs_table_name(),
+            len(self.key_specs),
             self.desc.get("get_keys_function", "NULL"),
             len(self.args),
         )
@@ -373,7 +374,7 @@ class Command(object):
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
 
-        f.write("#ifndef SKIP_CMD_HISTORY_TABLE\n\n")
+        f.write("#ifndef SKIP_CMD_HISTORY_TABLE\n")
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()
         if code:
@@ -384,7 +385,7 @@ class Command(object):
             f.write("#define %s NULL\n\n" % self.history_table_name())
         f.write("#endif\n\n")
 
-        f.write("#ifndef SKIP_CMD_TIPS_TABLE\n\n")
+        f.write("#ifndef SKIP_CMD_TIPS_TABLE\n")
         f.write("/* %s tips */\n" % self.fullname())
         code = self.tips_code()
         if code:
@@ -395,15 +396,15 @@ class Command(object):
             f.write("#define %s NULL\n\n" % self.tips_table_name())
         f.write("#endif\n\n")
 
-        f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n\n")
+        f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n")
         f.write("/* %s key specs */\n" % self.fullname())
         code = self.key_specs_code()
-        f.write("keySpec %s[STATIC_KEY_SPECS_NUM] = {\n" % self.key_specs_table_name())
         if code:
+            f.write("keySpec %s[%d] = {\n" % (self.key_specs_table_name(), len(self.key_specs)))
             f.write("%s\n" % code)
+            f.write("};\n")
         else:
-            f.write("{NULL}\n")
-        f.write("};\n")
+            f.write("#define %s NULL\n\n" % self.key_specs_table_name())
         f.write("#endif\n\n")
 
         if self.args:
@@ -493,7 +494,7 @@ with open("%s/commands.c" % srcdir, "w") as f:
 #endif
 
 #ifndef MAKE_CMD
-#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs
+#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs
 #endif
 #ifndef MAKE_ARG
 #define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since,numsubargs

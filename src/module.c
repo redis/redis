@@ -1143,11 +1143,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->module_cmd = cp;
-    cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
-    cp->rediscmd->key_specs_static = zcalloc(sizeof(keySpec) * STATIC_KEY_SPECS_NUM);
-    cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
         cp->rediscmd->key_specs_num = 1;
+        cp->rediscmd->key_specs = zcalloc(sizeof(keySpec));
         cp->rediscmd->key_specs[0].flags = CMD_KEY_FULL_ACCESS | CMD_KEY_VARIABLE_FLAGS;
         cp->rediscmd->key_specs[0].begin_search_type = KSPEC_BS_INDEX;
         cp->rediscmd->key_specs[0].bs.index.pos = firstkey;
@@ -1157,6 +1155,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
         cp->rediscmd->key_specs[0].fk.range.limit = 0;
     } else {
         cp->rediscmd->key_specs_num = 0;
+        cp->rediscmd->key_specs = NULL;
     }
     populateCommandLegacyRangeSpec(cp->rediscmd);
     cp->rediscmd->microseconds = 0;
@@ -1595,7 +1594,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         cmd->tips || cmd->args ||
         !(cmd->key_specs_num == 0 ||
           /* Allow key spec populated from legacy (first,last,step) to exist. */
-          (cmd->key_specs_num == 1 && cmd->key_specs == cmd->key_specs_static &&
+          (cmd->key_specs_num == 1 && /* cmd->key_specs == cmd->key_specs_static && */
            cmd->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
            cmd->key_specs[0].find_keys_type == KSPEC_FK_RANGE))) {
         errno = EEXIST;
@@ -1646,13 +1645,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         while (moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type)
             count++;
         serverAssert(count < INT_MAX);
-        if (count <= STATIC_KEY_SPECS_NUM) {
-            cmd->key_specs_max = STATIC_KEY_SPECS_NUM;
-            cmd->key_specs = cmd->key_specs_static;
-        } else {
-            cmd->key_specs_max = count;
-            cmd->key_specs = zmalloc(sizeof(keySpec) * count);
-        }
+        cmd->key_specs = zmalloc(sizeof(keySpec) * count);
 
         /* Copy the contents of the RedisModuleCommandKeySpec array. */
         cmd->key_specs_num = count;
@@ -11079,9 +11072,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         if (cmd->key_specs[j].begin_search_type == KSPEC_BS_KEYWORD)
             zfree((char *)cmd->key_specs[j].bs.keyword.keyword);
     }
-    zfree(cmd->key_specs_static);
-    if (cmd->key_specs != cmd->key_specs_static)
-        zfree(cmd->key_specs);
+    zfree(cmd->key_specs);
     for (int j = 0; cmd->tips && cmd->tips[j]; j++)
         zfree((char *)cmd->tips[j]);
     for (int j = 0; cmd->history && cmd->history[j].since; j++) {

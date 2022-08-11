@@ -2795,20 +2795,9 @@ int populateCommandStructure(struct redisCommand *c) {
      * set of flags. */
     setImplicitACLCategories(c);
 
-    /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
-     * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
-    c->key_specs = c->key_specs_static;
-    c->key_specs_max = STATIC_KEY_SPECS_NUM;
-
     /* We start with an unallocated histogram and only allocate memory when a command
      * has been issued for the first time */
     c->latency_histogram = NULL;
-
-    for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
-        if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
-            break;
-        c->key_specs_num++;
-    }
 
     /* Count things so we don't have to use deferred reply in COMMAND reply. */
     while (c->history && c->history[c->num_history].since)
