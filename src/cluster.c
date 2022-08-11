@@ -7055,6 +7055,7 @@ void slotToKeyDestroy(redisDb *db) {
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
+    server.propagate_no_multi = 1;
     dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
     while (de != NULL) {
         sds sdskey = dictGetKey(de);
@@ -7068,6 +7069,13 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
+
+    if (j > 0) {
+        /* Propagate all DELs */
+        propagatePendingCommands();
+    }
+    server.propagate_no_multi = 0;
+
     return j;
 }
 
