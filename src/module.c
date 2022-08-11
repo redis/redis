@@ -1265,6 +1265,21 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
     return (RedisModuleCommandArg *)((char *)(args) + offset);
 }
 
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
+int populateArgsStructure(struct redisCommandArg *args) {
+    if (!args)
+        return 0;
+    int count = 0;
+    while (args->name) {
+        serverAssert(count < INT_MAX);
+        args->num_args = populateArgsStructure(args->subargs);
+        count++;
+        args++;
+    }
+    return count;
+}
+
 /* Set additional command information.
  *
  * Affects the output of `COMMAND`, `COMMAND INFO` and `COMMAND DOCS`, Cluster,

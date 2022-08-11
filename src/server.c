@@ -2778,21 +2778,6 @@ void setImplicitACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
-/* Recursively populate the args structure (setting num_args to the number of
- * subargs) and return the number of args. */
-int populateArgsStructure(struct redisCommandArg *args) {
-    if (!args)
-        return 0;
-    int count = 0;
-    while (args->name) {
-        serverAssert(count < INT_MAX);
-        args->num_args = populateArgsStructure(args->subargs);
-        count++;
-        args++;
-    }
-    return count;
-}
-
 /* Recursively populate the command structure.
  *
  * On success, the function return C_OK. Otherwise C_ERR is returned and we won't
@@ -2830,7 +2815,6 @@ int populateCommandStructure(struct redisCommand *c) {
         c->num_history++;
     while (c->tips && c->tips[c->num_tips])
         c->num_tips++;
-    c->num_args = populateArgsStructure(c->args);
 
     /* Handle the legacy range spec and the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandLegacyRangeSpec(c);

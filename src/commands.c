@@ -14,10 +14,10 @@
 #endif
 
 #ifndef MAKE_CMD
-#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys
+#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs
 #endif
 #ifndef MAKE_ARG
-#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since,numsubargs
 #endif
 #ifndef COMMAND_STRUCT
 #define COMMAND_STRUCT redisCommand

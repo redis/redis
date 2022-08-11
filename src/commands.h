@@ -28,9 +28,8 @@ typedef struct redisCommandArg {
     const char *since;
     int flags;
     const char *deprecated_since;
-    struct redisCommandArg *subargs;
-    /* runtime populated data */
     int num_args;
+    struct redisCommandArg *subargs;
 } redisCommandArg;
 
 /* Returns the command group name by group number. */
