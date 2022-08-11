@@ -828,11 +828,12 @@ void setDeferredPushLen(client *c, void *node, long length) {
     setDeferredAggregateLen(c,node,length,'>');
 }
 
-/* Prints to a buffer unsigned integer `val` with `len` characters.
- * The number string is not null terminated. */
+/* Prints an unsigned integer `val` into a buffer.
+ * The `len` argument is a pre-computed number of required characters.
+ * A null terminator is NOT added. */
 inline void rds_utoa(char *buf, uint32_t val, int len) {
-	for(; val && len ; --len, val /= 10)
-		buf[len - 1] = "0123456789"[val % 10];
+    for(; val && len ; --len, val /= 10)
+        buf[len - 1] = "0123456789"[val % 10];
 }
 
 /* Add a double as a bulk reply */
@@ -850,8 +851,10 @@ void addReplyDouble(client *c, double d) {
         char dbuf[MAX_LONG_DOUBLE_CHARS+32];
         int dlen = 0;
         if (c->resp == 2) {
-            /* Preserve space for maximum header `$0000\r\n` and print double.
-             * Add resp format and send with `start` offset. */
+            /* In order to prepend the string length before the formatted number,
+	     * but still avoid an extra memcpy of the whole number, we reserve space
+	     * for maximum header `$0000\r\n`, print double, add the resp header in
+	     * front of it, and then send the buffer with the right `start` offset. */
             int dlen = snprintf(dbuf+7,sizeof(dbuf) - 7,"%.17g",d);
             int digits = digits10(dlen);
             int start = 4 - digits;
