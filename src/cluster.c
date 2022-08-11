@@ -7070,10 +7070,8 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         server.dirty++;
     }
 
-    if (j > 0) {
-        /* Propagate all DELs */
-        propagatePendingCommands();
-    }
+    /* Propagate all DELs */
+    propagatePendingCommands();
     server.propagate_no_multi = 0;
 
     return j;
