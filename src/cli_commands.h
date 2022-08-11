@@ -36,7 +36,7 @@ struct commandDocs {
 };
 
 /* Definitions to configure commands.c to generate the above structs. */
-#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs) name,summary,group,since,numargs
+#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,num_history,tips,num_tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs) name,summary,group,since,numargs
 #define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,token,since,flags,numsubargs
 #define redisCommandArg cliCommandArg
 #define COMMAND_STRUCT commandDocs

@@ -2200,7 +2200,9 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
+    int num_history;
     const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
+    int num_tips;
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
@@ -2229,8 +2231,6 @@ struct redisCommand {
                                      * still maintained (if applicable) so that
                                      * we can still support the reply format of
                                      * COMMAND INFO and COMMAND GETKEYS */
-    int num_history;
-    int num_tips;
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;

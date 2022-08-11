@@ -2799,12 +2799,6 @@ int populateCommandStructure(struct redisCommand *c) {
      * has been issued for the first time */
     c->latency_histogram = NULL;
 
-    /* Count things so we don't have to use deferred reply in COMMAND reply. */
-    while (c->history && c->history[c->num_history].since)
-        c->num_history++;
-    while (c->tips && c->tips[c->num_tips])
-        c->num_tips++;
-
     /* Handle the legacy range spec and the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandLegacyRangeSpec(c);
 

@@ -289,6 +289,11 @@ class Command(object):
         s += "{0}"
         return s
 
+    def num_history(self):
+        if not self.desc.get("history"):
+            return 0
+        return len(self.desc["history"])
+
     def tips_code(self):
         if not self.desc.get("command_tips"):
             return ""
@@ -297,6 +302,11 @@ class Command(object):
             s += "\"%s\",\n" % hint.lower()
         s += "NULL"
         return s
+
+    def num_tips(self):
+        if not self.desc.get("command_tips"):
+            return 0
+        return len(self.desc["command_tips"])
 
     def key_specs_code(self):
         s = ""
@@ -308,7 +318,7 @@ class Command(object):
     def struct_code(self):
         """
         Output example:
-        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
+        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args
         """
 
         def _flags_code():
@@ -329,7 +339,7 @@ class Command(object):
                 s += "CMD_DOC_%s|" % flag
             return s[:-1] if s else "CMD_DOC_NONE"
 
-        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%d,%s,%d)," % (
+        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%s,%d,%s,%s,%s,%d,%s,%d)," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -340,7 +350,9 @@ class Command(object):
             "\"%s\"" % self.group,
             GROUPS[self.group],
             self.history_table_name(),
+            self.num_history(),
             self.tips_table_name(),
+            self.num_tips(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code(),
@@ -494,7 +506,7 @@ with open("%s/commands.c" % srcdir, "w") as f:
 #endif
 
 #ifndef MAKE_CMD
-#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs
+#define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,num_history,tips,num_tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,num_history,tips,num_tips,function,arity,flags,acl,key_specs,key_specs_num,get_keys,numargs
 #endif
 #ifndef MAKE_ARG
 #define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since,numsubargs
