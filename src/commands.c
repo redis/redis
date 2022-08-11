@@ -5,7 +5,11 @@
  * the fantastic
  * Redis Command Table! */
 
-#ifndef REDIS_CLI_COMMANDS
+#include "commands.h"
+
+#ifdef COMMAND_HEADER_TO_INCLUDE
+#include COMMAND_HEADER_TO_INCLUDE
+#else
 #include "server.h"
 #endif
 
@@ -13,7 +17,7 @@
 #define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys
 #endif
 #ifndef MAKE_ARG
-#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs) name,type,key_spec_index,token,summary,since,flags
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since
 #endif
 #ifndef COMMAND_STRUCT
 #define COMMAND_STRUCT redisCommand
@@ -22,9 +26,34 @@
 #define COMMAND_ARG redisCommandArg
 #endif
 
+/* Must match redisCommandGroup */
+const char *COMMAND_GROUP_STR[] = {
+    "generic",
+    "string",
+    "list",
+    "set",
+    "sorted-set",
+    "hash",
+    "pubsub",
+    "transactions",
+    "connection",
+    "server",
+    "scripting",
+    "hyperloglog",
+    "cluster",
+    "sentinel",
+    "geo",
+    "stream",
+    "bitmap",
+    "module"
+};
+
+const char *commandGroupStr(int index) {
+    return COMMAND_GROUP_STR[index];
+}
 /********** BITCOUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BITCOUNT history */
 commandHistory BITCOUNT_History[] = {
@@ -32,173 +61,201 @@ commandHistory BITCOUNT_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BITCOUNT tips */
 #define BITCOUNT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BITCOUNT key specs */
 keySpec BITCOUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BITCOUNT index index_unit argument table */
 struct COMMAND_ARG BITCOUNT_index_index_unit_Subargs[] = {
-{MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITCOUNT index argument table */
 struct COMMAND_ARG BITCOUNT_index_Subargs[] = {
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2),.subargs=BITCOUNT_index_index_unit_Subargs},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_index_index_unit_Subargs},
 {0}
 };
 
 /* BITCOUNT argument table */
 struct COMMAND_ARG BITCOUNT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=BITCOUNT_index_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITCOUNT_index_Subargs},
 {0}
 };
 
 /********** BITFIELD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BITFIELD history */
 #define BITFIELD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BITFIELD tips */
 #define BITFIELD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BITFIELD key specs */
 keySpec BITFIELD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"This command allows both access and modification of the key",CMD_KEY_RW|CMD_KEY_UPDATE|CMD_KEY_ACCESS|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BITFIELD operation encoding_offset argument table */
 struct COMMAND_ARG BITFIELD_operation_encoding_offset_Subargs[] = {
-{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITFIELD operation write wrap_sat_fail argument table */
 struct COMMAND_ARG BITFIELD_operation_write_wrap_sat_fail_Subargs[] = {
-{MAKE_ARG("wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("wrap",ARG_TYPE_PURE_TOKEN,-1,"WRAP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sat",ARG_TYPE_PURE_TOKEN,-1,"SAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fail",ARG_TYPE_PURE_TOKEN,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_value argument table */
 struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs[] = {
-{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITFIELD operation write write_operation encoding_offset_increment argument table */
 struct COMMAND_ARG BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs[] = {
-{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITFIELD operation write write_operation argument table */
 struct COMMAND_ARG BITFIELD_operation_write_write_operation_Subargs[] = {
-{MAKE_ARG("encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,3),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
-{MAKE_ARG("encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,3),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
+{MAKE_ARG("encoding_offset_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_value_Subargs},
+{MAKE_ARG("encoding_offset_increment",ARG_TYPE_BLOCK,-1,"INCRBY",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=BITFIELD_operation_write_write_operation_encoding_offset_increment_Subargs},
 {0}
 };
 
 /* BITFIELD operation write argument table */
 struct COMMAND_ARG BITFIELD_operation_write_Subargs[] = {
-{MAKE_ARG("wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
-{MAKE_ARG("write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BITFIELD_operation_write_write_operation_Subargs},
+{MAKE_ARG("wrap_sat_fail",ARG_TYPE_ONEOF,-1,"OVERFLOW",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITFIELD_operation_write_wrap_sat_fail_Subargs},
+{MAKE_ARG("write_operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_write_operation_Subargs},
 {0}
 };
 
 /* BITFIELD operation argument table */
 struct COMMAND_ARG BITFIELD_operation_Subargs[] = {
-{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,2),.subargs=BITFIELD_operation_encoding_offset_Subargs},
-{MAKE_ARG("write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BITFIELD_operation_write_Subargs},
+{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_encoding_offset_Subargs},
+{MAKE_ARG("write",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BITFIELD_operation_write_Subargs},
 {0}
 };
 
 /* BITFIELD argument table */
 struct COMMAND_ARG BITFIELD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=BITFIELD_operation_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=BITFIELD_operation_Subargs},
 {0}
 };
 
 /********** BITFIELD_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BITFIELD_RO history */
 #define BITFIELD_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BITFIELD_RO tips */
 #define BITFIELD_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BITFIELD_RO key specs */
 keySpec BITFIELD_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BITFIELD_RO encoding_offset argument table */
 struct COMMAND_ARG BITFIELD_RO_encoding_offset_Subargs[] = {
-{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("encoding",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITFIELD_RO argument table */
 struct COMMAND_ARG BITFIELD_RO_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2),.subargs=BITFIELD_RO_encoding_offset_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("encoding_offset",ARG_TYPE_BLOCK,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=BITFIELD_RO_encoding_offset_Subargs},
 {0}
 };
 
 /********** BITOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BITOP history */
 #define BITOP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BITOP tips */
 #define BITOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BITOP key specs */
 keySpec BITOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BITOP argument table */
 struct COMMAND_ARG BITOP_Args[] = {
-{MAKE_ARG("operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** BITPOS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BITPOS history */
 commandHistory BITPOS_History[] = {
@@ -206,117 +263,149 @@ commandHistory BITPOS_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BITPOS tips */
 #define BITPOS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BITPOS key specs */
 keySpec BITPOS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BITPOS index end_index index_unit argument table */
 struct COMMAND_ARG BITPOS_index_end_index_index_unit_Subargs[] = {
-{MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BITPOS index end_index argument table */
 struct COMMAND_ARG BITPOS_index_end_index_Subargs[] = {
-{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2),.subargs=BITPOS_index_end_index_index_unit_Subargs},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index_unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_index_unit_Subargs},
 {0}
 };
 
 /* BITPOS index argument table */
 struct COMMAND_ARG BITPOS_index_Subargs[] = {
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=BITPOS_index_end_index_Subargs},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end_index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_end_index_Subargs},
 {0}
 };
 
 /* BITPOS argument table */
 struct COMMAND_ARG BITPOS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=BITPOS_index_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bit",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_index_Subargs},
 {0}
 };
 
 /********** GETBIT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GETBIT history */
 #define GETBIT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GETBIT tips */
 #define GETBIT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GETBIT key specs */
 keySpec GETBIT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GETBIT argument table */
 struct COMMAND_ARG GETBIT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SETBIT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SETBIT history */
 #define SETBIT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SETBIT tips */
 #define SETBIT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SETBIT key specs */
 keySpec SETBIT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SETBIT argument table */
 struct COMMAND_ARG SETBIT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ASKING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ASKING history */
 #define ASKING_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ASKING tips */
 #define ASKING_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ASKING key specs */
 keySpec ASKING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER ADDSLOTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER ADDSLOTS history */
 #define CLUSTER_ADDSLOTS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER ADDSLOTS tips */
 const char *CLUSTER_ADDSLOTS_Tips[] = {
@@ -324,25 +413,32 @@ const char *CLUSTER_ADDSLOTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER ADDSLOTS key specs */
 keySpec CLUSTER_ADDSLOTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER ADDSLOTS argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTS_Args[] = {
-{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER ADDSLOTSRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER ADDSLOTSRANGE history */
 #define CLUSTER_ADDSLOTSRANGE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER ADDSLOTSRANGE tips */
 const char *CLUSTER_ADDSLOTSRANGE_Tips[] = {
@@ -350,32 +446,39 @@ const char *CLUSTER_ADDSLOTSRANGE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER ADDSLOTSRANGE key specs */
 keySpec CLUSTER_ADDSLOTSRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER ADDSLOTSRANGE start_slot_end_slot argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs[] = {
-{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLUSTER ADDSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_ADDSLOTSRANGE_Args[] = {
-{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
+{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_ADDSLOTSRANGE_start_slot_end_slot_Subargs},
 {0}
 };
 
 /********** CLUSTER BUMPEPOCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER BUMPEPOCH history */
 #define CLUSTER_BUMPEPOCH_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER BUMPEPOCH tips */
 const char *CLUSTER_BUMPEPOCH_Tips[] = {
@@ -383,19 +486,26 @@ const char *CLUSTER_BUMPEPOCH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER BUMPEPOCH key specs */
 keySpec CLUSTER_BUMPEPOCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER COUNT_FAILURE_REPORTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER COUNT_FAILURE_REPORTS history */
 #define CLUSTER_COUNT_FAILURE_REPORTS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER COUNT_FAILURE_REPORTS tips */
 const char *CLUSTER_COUNT_FAILURE_REPORTS_Tips[] = {
@@ -403,25 +513,32 @@ const char *CLUSTER_COUNT_FAILURE_REPORTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER COUNT_FAILURE_REPORTS key specs */
 keySpec CLUSTER_COUNT_FAILURE_REPORTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER COUNT_FAILURE_REPORTS argument table */
 struct COMMAND_ARG CLUSTER_COUNT_FAILURE_REPORTS_Args[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER COUNTKEYSINSLOT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER COUNTKEYSINSLOT history */
 #define CLUSTER_COUNTKEYSINSLOT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER COUNTKEYSINSLOT tips */
 const char *CLUSTER_COUNTKEYSINSLOT_Tips[] = {
@@ -429,25 +546,32 @@ const char *CLUSTER_COUNTKEYSINSLOT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER COUNTKEYSINSLOT key specs */
 keySpec CLUSTER_COUNTKEYSINSLOT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER COUNTKEYSINSLOT argument table */
 struct COMMAND_ARG CLUSTER_COUNTKEYSINSLOT_Args[] = {
-{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER DELSLOTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER DELSLOTS history */
 #define CLUSTER_DELSLOTS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER DELSLOTS tips */
 const char *CLUSTER_DELSLOTS_Tips[] = {
@@ -455,25 +579,32 @@ const char *CLUSTER_DELSLOTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER DELSLOTS key specs */
 keySpec CLUSTER_DELSLOTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER DELSLOTS argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTS_Args[] = {
-{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER DELSLOTSRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER DELSLOTSRANGE history */
 #define CLUSTER_DELSLOTSRANGE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER DELSLOTSRANGE tips */
 const char *CLUSTER_DELSLOTSRANGE_Tips[] = {
@@ -481,32 +612,39 @@ const char *CLUSTER_DELSLOTSRANGE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER DELSLOTSRANGE key specs */
 keySpec CLUSTER_DELSLOTSRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER DELSLOTSRANGE start_slot_end_slot argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs[] = {
-{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLUSTER DELSLOTSRANGE argument table */
 struct COMMAND_ARG CLUSTER_DELSLOTSRANGE_Args[] = {
-{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
+{MAKE_ARG("start-slot_end-slot",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_DELSLOTSRANGE_start_slot_end_slot_Subargs},
 {0}
 };
 
 /********** CLUSTER FAILOVER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER FAILOVER history */
 #define CLUSTER_FAILOVER_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER FAILOVER tips */
 const char *CLUSTER_FAILOVER_Tips[] = {
@@ -514,32 +652,39 @@ const char *CLUSTER_FAILOVER_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER FAILOVER key specs */
 keySpec CLUSTER_FAILOVER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER FAILOVER options argument table */
 struct COMMAND_ARG CLUSTER_FAILOVER_options_Subargs[] = {
-{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("takeover",ARG_TYPE_PURE_TOKEN,-1,"TAKEOVER",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("takeover",ARG_TYPE_PURE_TOKEN,-1,"TAKEOVER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLUSTER FAILOVER argument table */
 struct COMMAND_ARG CLUSTER_FAILOVER_Args[] = {
-{MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=CLUSTER_FAILOVER_options_Subargs},
+{MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_FAILOVER_options_Subargs},
 {0}
 };
 
 /********** CLUSTER FLUSHSLOTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER FLUSHSLOTS history */
 #define CLUSTER_FLUSHSLOTS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER FLUSHSLOTS tips */
 const char *CLUSTER_FLUSHSLOTS_Tips[] = {
@@ -547,19 +692,26 @@ const char *CLUSTER_FLUSHSLOTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER FLUSHSLOTS key specs */
 keySpec CLUSTER_FLUSHSLOTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER FORGET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER FORGET history */
 #define CLUSTER_FORGET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER FORGET tips */
 const char *CLUSTER_FORGET_Tips[] = {
@@ -567,25 +719,32 @@ const char *CLUSTER_FORGET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER FORGET key specs */
 keySpec CLUSTER_FORGET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER FORGET argument table */
 struct COMMAND_ARG CLUSTER_FORGET_Args[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER GETKEYSINSLOT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER GETKEYSINSLOT history */
 #define CLUSTER_GETKEYSINSLOT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER GETKEYSINSLOT tips */
 const char *CLUSTER_GETKEYSINSLOT_Tips[] = {
@@ -593,43 +752,57 @@ const char *CLUSTER_GETKEYSINSLOT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER GETKEYSINSLOT key specs */
 keySpec CLUSTER_GETKEYSINSLOT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER GETKEYSINSLOT argument table */
 struct COMMAND_ARG CLUSTER_GETKEYSINSLOT_Args[] = {
-{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER HELP history */
 #define CLUSTER_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLUSTER HELP tips */
 #define CLUSTER_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLUSTER HELP key specs */
 keySpec CLUSTER_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER INFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER INFO history */
 #define CLUSTER_INFO_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER INFO tips */
 const char *CLUSTER_INFO_Tips[] = {
@@ -637,19 +810,26 @@ const char *CLUSTER_INFO_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER INFO key specs */
 keySpec CLUSTER_INFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER KEYSLOT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER KEYSLOT history */
 #define CLUSTER_KEYSLOT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER KEYSLOT tips */
 const char *CLUSTER_KEYSLOT_Tips[] = {
@@ -657,25 +837,32 @@ const char *CLUSTER_KEYSLOT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER KEYSLOT key specs */
 keySpec CLUSTER_KEYSLOT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER KEYSLOT argument table */
 struct COMMAND_ARG CLUSTER_KEYSLOT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER LINKS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER LINKS history */
 #define CLUSTER_LINKS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER LINKS tips */
 const char *CLUSTER_LINKS_Tips[] = {
@@ -683,16 +870,19 @@ const char *CLUSTER_LINKS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER LINKS key specs */
 keySpec CLUSTER_LINKS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER MEET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER MEET history */
 commandHistory CLUSTER_MEET_History[] = {
@@ -700,33 +890,44 @@ commandHistory CLUSTER_MEET_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLUSTER MEET tips */
 const char *CLUSTER_MEET_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER MEET key specs */
 keySpec CLUSTER_MEET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER MEET argument table */
 struct COMMAND_ARG CLUSTER_MEET_Args[] = {
-{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cluster_bus_port",ARG_TYPE_INTEGER,-1,NULL,NULL,"4.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** CLUSTER MYID ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER MYID history */
 #define CLUSTER_MYID_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER MYID tips */
 const char *CLUSTER_MYID_Tips[] = {
@@ -734,19 +935,26 @@ const char *CLUSTER_MYID_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER MYID key specs */
 keySpec CLUSTER_MYID_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER NODES ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER NODES history */
 #define CLUSTER_NODES_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER NODES tips */
 const char *CLUSTER_NODES_Tips[] = {
@@ -754,19 +962,26 @@ const char *CLUSTER_NODES_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER NODES key specs */
 keySpec CLUSTER_NODES_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER REPLICAS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER REPLICAS history */
 #define CLUSTER_REPLICAS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER REPLICAS tips */
 const char *CLUSTER_REPLICAS_Tips[] = {
@@ -774,25 +989,32 @@ const char *CLUSTER_REPLICAS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER REPLICAS key specs */
 keySpec CLUSTER_REPLICAS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER REPLICAS argument table */
 struct COMMAND_ARG CLUSTER_REPLICAS_Args[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER REPLICATE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER REPLICATE history */
 #define CLUSTER_REPLICATE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER REPLICATE tips */
 const char *CLUSTER_REPLICATE_Tips[] = {
@@ -800,25 +1022,32 @@ const char *CLUSTER_REPLICATE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER REPLICATE key specs */
 keySpec CLUSTER_REPLICATE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER REPLICATE argument table */
 struct COMMAND_ARG CLUSTER_REPLICATE_Args[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER RESET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER RESET history */
 #define CLUSTER_RESET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER RESET tips */
 const char *CLUSTER_RESET_Tips[] = {
@@ -826,32 +1055,39 @@ const char *CLUSTER_RESET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER RESET key specs */
 keySpec CLUSTER_RESET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER RESET hard_soft argument table */
 struct COMMAND_ARG CLUSTER_RESET_hard_soft_Subargs[] = {
-{MAKE_ARG("hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("hard",ARG_TYPE_PURE_TOKEN,-1,"HARD",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("soft",ARG_TYPE_PURE_TOKEN,-1,"SOFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLUSTER RESET argument table */
 struct COMMAND_ARG CLUSTER_RESET_Args[] = {
-{MAKE_ARG("hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=CLUSTER_RESET_hard_soft_Subargs},
+{MAKE_ARG("hard_soft",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLUSTER_RESET_hard_soft_Subargs},
 {0}
 };
 
 /********** CLUSTER SAVECONFIG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SAVECONFIG history */
 #define CLUSTER_SAVECONFIG_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER SAVECONFIG tips */
 const char *CLUSTER_SAVECONFIG_Tips[] = {
@@ -859,19 +1095,26 @@ const char *CLUSTER_SAVECONFIG_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SAVECONFIG key specs */
 keySpec CLUSTER_SAVECONFIG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER SET_CONFIG_EPOCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SET_CONFIG_EPOCH history */
 #define CLUSTER_SET_CONFIG_EPOCH_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER SET_CONFIG_EPOCH tips */
 const char *CLUSTER_SET_CONFIG_EPOCH_Tips[] = {
@@ -879,25 +1122,32 @@ const char *CLUSTER_SET_CONFIG_EPOCH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SET_CONFIG_EPOCH key specs */
 keySpec CLUSTER_SET_CONFIG_EPOCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER SET_CONFIG_EPOCH argument table */
 struct COMMAND_ARG CLUSTER_SET_CONFIG_EPOCH_Args[] = {
-{MAKE_ARG("config-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("config-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER SETSLOT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SETSLOT history */
 #define CLUSTER_SETSLOT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER SETSLOT tips */
 const char *CLUSTER_SETSLOT_Tips[] = {
@@ -905,35 +1155,42 @@ const char *CLUSTER_SETSLOT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SETSLOT key specs */
 keySpec CLUSTER_SETSLOT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER SETSLOT subcommand argument table */
 struct COMMAND_ARG CLUSTER_SETSLOT_subcommand_Subargs[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"IMPORTING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"MIGRATING",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,"NODE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stable",ARG_TYPE_PURE_TOKEN,-1,"STABLE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLUSTER SETSLOT argument table */
 struct COMMAND_ARG CLUSTER_SETSLOT_Args[] = {
-{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=CLUSTER_SETSLOT_subcommand_Subargs},
+{MAKE_ARG("slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=CLUSTER_SETSLOT_subcommand_Subargs},
 {0}
 };
 
 /********** CLUSTER SHARDS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SHARDS history */
 #define CLUSTER_SHARDS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER SHARDS tips */
 const char *CLUSTER_SHARDS_Tips[] = {
@@ -941,19 +1198,26 @@ const char *CLUSTER_SHARDS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SHARDS key specs */
 keySpec CLUSTER_SHARDS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLUSTER SLAVES ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SLAVES history */
 #define CLUSTER_SLAVES_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLUSTER SLAVES tips */
 const char *CLUSTER_SLAVES_Tips[] = {
@@ -961,22 +1225,25 @@ const char *CLUSTER_SLAVES_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SLAVES key specs */
 keySpec CLUSTER_SLAVES_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER SLAVES argument table */
 struct COMMAND_ARG CLUSTER_SLAVES_Args[] = {
-{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("node-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLUSTER SLOTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER SLOTS history */
 commandHistory CLUSTER_SLOTS_History[] = {
@@ -985,18 +1252,25 @@ commandHistory CLUSTER_SLOTS_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLUSTER SLOTS tips */
 const char *CLUSTER_SLOTS_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLUSTER SLOTS key specs */
 keySpec CLUSTER_SLOTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLUSTER command table */
 struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
@@ -1032,58 +1306,79 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 
 /********** CLUSTER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLUSTER history */
 #define CLUSTER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLUSTER tips */
 #define CLUSTER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLUSTER key specs */
 keySpec CLUSTER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** READONLY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* READONLY history */
 #define READONLY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* READONLY tips */
 #define READONLY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* READONLY key specs */
 keySpec READONLY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** READWRITE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* READWRITE history */
 #define READWRITE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* READWRITE tips */
 #define READWRITE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* READWRITE key specs */
 keySpec READWRITE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** AUTH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* AUTH history */
 commandHistory AUTH_History[] = {
@@ -1091,127 +1386,173 @@ commandHistory AUTH_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* AUTH tips */
 #define AUTH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* AUTH key specs */
 keySpec AUTH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* AUTH argument table */
 struct COMMAND_ARG AUTH_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,"6.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,"6.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLIENT CACHING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT CACHING history */
 #define CLIENT_CACHING_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT CACHING tips */
 #define CLIENT_CACHING_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT CACHING key specs */
 keySpec CLIENT_CACHING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT CACHING mode argument table */
 struct COMMAND_ARG CLIENT_CACHING_mode_Subargs[] = {
-{MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT CACHING argument table */
 struct COMMAND_ARG CLIENT_CACHING_Args[] = {
-{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=CLIENT_CACHING_mode_Subargs},
+{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_CACHING_mode_Subargs},
 {0}
 };
 
 /********** CLIENT GETNAME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT GETNAME history */
 #define CLIENT_GETNAME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT GETNAME tips */
 #define CLIENT_GETNAME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT GETNAME key specs */
 keySpec CLIENT_GETNAME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT GETREDIR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT GETREDIR history */
 #define CLIENT_GETREDIR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT GETREDIR tips */
 #define CLIENT_GETREDIR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT GETREDIR key specs */
 keySpec CLIENT_GETREDIR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT HELP history */
 #define CLIENT_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT HELP tips */
 #define CLIENT_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT HELP key specs */
 keySpec CLIENT_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT ID ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT ID history */
 #define CLIENT_ID_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT ID tips */
 #define CLIENT_ID_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT ID key specs */
 keySpec CLIENT_ID_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT INFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT INFO history */
 #define CLIENT_INFO_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CLIENT INFO tips */
 const char *CLIENT_INFO_Tips[] = {
@@ -1219,16 +1560,19 @@ const char *CLIENT_INFO_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLIENT INFO key specs */
 keySpec CLIENT_INFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT KILL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT KILL history */
 commandHistory CLIENT_KILL_History[] = {
@@ -1240,53 +1584,60 @@ commandHistory CLIENT_KILL_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT KILL tips */
 #define CLIENT_KILL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT KILL key specs */
 keySpec CLIENT_KILL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT KILL filter new_format normal_master_slave_pubsub argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs[] = {
-{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,"5.0.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,"3.2.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slave",ARG_TYPE_PURE_TOKEN,-1,"SLAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,"5.0.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT KILL filter new_format argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5),.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,"2.8.12",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("normal_master_slave_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"2.8.12",CMD_ARG_OPTIONAL,5,NULL),.subargs=CLIENT_KILL_filter_new_format_normal_master_slave_pubsub_Subargs},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("yes/no",ARG_TYPE_STRING,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* CLIENT KILL filter argument table */
 struct COMMAND_ARG CLIENT_KILL_filter_Subargs[] = {
-{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0),.deprecated_since="2.8.12"},
-{MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,6),.subargs=CLIENT_KILL_filter_new_format_Subargs},
+{MAKE_ARG("ip:port",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,"2.8.12")},
+{MAKE_ARG("new-format",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,6,NULL),.subargs=CLIENT_KILL_filter_new_format_Subargs},
 {0}
 };
 
 /* CLIENT KILL argument table */
 struct COMMAND_ARG CLIENT_KILL_Args[] = {
-{MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=CLIENT_KILL_filter_Subargs},
+{MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_KILL_filter_Subargs},
 {0}
 };
 
 /********** CLIENT LIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT LIST history */
 commandHistory CLIENT_LIST_History[] = {
@@ -1296,74 +1647,88 @@ commandHistory CLIENT_LIST_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT LIST tips */
 const char *CLIENT_LIST_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CLIENT LIST key specs */
 keySpec CLIENT_LIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT LIST normal_master_replica_pubsub argument table */
 struct COMMAND_ARG CLIENT_LIST_normal_master_replica_pubsub_Subargs[] = {
-{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("normal",ARG_TYPE_PURE_TOKEN,-1,"NORMAL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("master",ARG_TYPE_PURE_TOKEN,-1,"MASTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replica",ARG_TYPE_PURE_TOKEN,-1,"REPLICA",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pubsub",ARG_TYPE_PURE_TOKEN,-1,"PUBSUB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT LIST id argument table */
 struct COMMAND_ARG CLIENT_LIST_id_Subargs[] = {
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /* CLIENT LIST argument table */
 struct COMMAND_ARG CLIENT_LIST_Args[] = {
-{MAKE_ARG("normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4),.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
-{MAKE_ARG("id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,1),.subargs=CLIENT_LIST_id_Subargs},
+{MAKE_ARG("normal_master_replica_pubsub",ARG_TYPE_ONEOF,-1,"TYPE",NULL,"5.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=CLIENT_LIST_normal_master_replica_pubsub_Subargs},
+{MAKE_ARG("id",ARG_TYPE_BLOCK,-1,"ID",NULL,"6.2.0",CMD_ARG_OPTIONAL,1,NULL),.subargs=CLIENT_LIST_id_Subargs},
 {0}
 };
 
 /********** CLIENT NO_EVICT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT NO_EVICT history */
 #define CLIENT_NO_EVICT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT NO_EVICT tips */
 #define CLIENT_NO_EVICT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT NO_EVICT key specs */
 keySpec CLIENT_NO_EVICT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT NO_EVICT enabled argument table */
 struct COMMAND_ARG CLIENT_NO_EVICT_enabled_Subargs[] = {
-{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT NO_EVICT argument table */
 struct COMMAND_ARG CLIENT_NO_EVICT_Args[] = {
-{MAKE_ARG("enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=CLIENT_NO_EVICT_enabled_Subargs},
+{MAKE_ARG("enabled",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_NO_EVICT_enabled_Subargs},
 {0}
 };
 
 /********** CLIENT PAUSE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT PAUSE history */
 commandHistory CLIENT_PAUSE_History[] = {
@@ -1371,184 +1736,233 @@ commandHistory CLIENT_PAUSE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT PAUSE tips */
 #define CLIENT_PAUSE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT PAUSE key specs */
 keySpec CLIENT_PAUSE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT PAUSE mode argument table */
 struct COMMAND_ARG CLIENT_PAUSE_mode_Subargs[] = {
-{MAKE_ARG("write",ARG_TYPE_PURE_TOKEN,-1,"WRITE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("write",ARG_TYPE_PURE_TOKEN,-1,"WRITE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT PAUSE argument table */
 struct COMMAND_ARG CLIENT_PAUSE_Args[] = {
-{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=CLIENT_PAUSE_mode_Subargs},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_PAUSE_mode_Subargs},
 {0}
 };
 
 /********** CLIENT REPLY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT REPLY history */
 #define CLIENT_REPLY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT REPLY tips */
 #define CLIENT_REPLY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT REPLY key specs */
 keySpec CLIENT_REPLY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT REPLY on_off_skip argument table */
 struct COMMAND_ARG CLIENT_REPLY_on_off_skip_Subargs[] = {
-{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("skip",ARG_TYPE_PURE_TOKEN,-1,"SKIP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT REPLY argument table */
 struct COMMAND_ARG CLIENT_REPLY_Args[] = {
-{MAKE_ARG("on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3),.subargs=CLIENT_REPLY_on_off_skip_Subargs},
+{MAKE_ARG("on_off_skip",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLIENT_REPLY_on_off_skip_Subargs},
 {0}
 };
 
 /********** CLIENT SETNAME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT SETNAME history */
 #define CLIENT_SETNAME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT SETNAME tips */
 #define CLIENT_SETNAME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT SETNAME key specs */
 keySpec CLIENT_SETNAME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT SETNAME argument table */
 struct COMMAND_ARG CLIENT_SETNAME_Args[] = {
-{MAKE_ARG("connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("connection-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** CLIENT TRACKING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT TRACKING history */
 #define CLIENT_TRACKING_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT TRACKING tips */
 #define CLIENT_TRACKING_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT TRACKING key specs */
 keySpec CLIENT_TRACKING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT TRACKING status argument table */
 struct COMMAND_ARG CLIENT_TRACKING_status_Subargs[] = {
-{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("on",ARG_TYPE_PURE_TOKEN,-1,"ON",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("off",ARG_TYPE_PURE_TOKEN,-1,"OFF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT TRACKING argument table */
 struct COMMAND_ARG CLIENT_TRACKING_Args[] = {
-{MAKE_ARG("status",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=CLIENT_TRACKING_status_Subargs},
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"REDIRECT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("prefix",ARG_TYPE_STRING,-1,"PREFIX",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0)},
-{MAKE_ARG("bcast",ARG_TYPE_PURE_TOKEN,-1,"BCAST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("optin",ARG_TYPE_PURE_TOKEN,-1,"OPTIN",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("optout",ARG_TYPE_PURE_TOKEN,-1,"OPTOUT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("status",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_TRACKING_status_Subargs},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"REDIRECT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("prefix",ARG_TYPE_STRING,-1,"PREFIX",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
+{MAKE_ARG("bcast",ARG_TYPE_PURE_TOKEN,-1,"BCAST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("optin",ARG_TYPE_PURE_TOKEN,-1,"OPTIN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("optout",ARG_TYPE_PURE_TOKEN,-1,"OPTOUT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("noloop",ARG_TYPE_PURE_TOKEN,-1,"NOLOOP",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** CLIENT TRACKINGINFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT TRACKINGINFO history */
 #define CLIENT_TRACKINGINFO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT TRACKINGINFO tips */
 #define CLIENT_TRACKINGINFO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT TRACKINGINFO key specs */
 keySpec CLIENT_TRACKINGINFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CLIENT UNBLOCK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT UNBLOCK history */
 #define CLIENT_UNBLOCK_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT UNBLOCK tips */
 #define CLIENT_UNBLOCK_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT UNBLOCK key specs */
 keySpec CLIENT_UNBLOCK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT UNBLOCK timeout_error argument table */
 struct COMMAND_ARG CLIENT_UNBLOCK_timeout_error_Subargs[] = {
-{MAKE_ARG("timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("timeout",ARG_TYPE_PURE_TOKEN,-1,"TIMEOUT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("error",ARG_TYPE_PURE_TOKEN,-1,"ERROR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CLIENT UNBLOCK argument table */
 struct COMMAND_ARG CLIENT_UNBLOCK_Args[] = {
-{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout_error",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_UNBLOCK_timeout_error_Subargs},
 {0}
 };
 
 /********** CLIENT UNPAUSE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT UNPAUSE history */
 #define CLIENT_UNPAUSE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT UNPAUSE tips */
 #define CLIENT_UNPAUSE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT UNPAUSE key specs */
 keySpec CLIENT_UNPAUSE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CLIENT command table */
 struct COMMAND_STRUCT CLIENT_Subcommands[] = {
@@ -1573,47 +1987,61 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 
 /********** CLIENT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CLIENT history */
 #define CLIENT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CLIENT tips */
 #define CLIENT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CLIENT key specs */
 keySpec CLIENT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ECHO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ECHO history */
 #define ECHO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ECHO tips */
 #define ECHO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ECHO key specs */
 keySpec ECHO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ECHO argument table */
 struct COMMAND_ARG ECHO_Args[] = {
-{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HELLO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HELLO history */
 commandHistory HELLO_History[] = {
@@ -1621,43 +2049,54 @@ commandHistory HELLO_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HELLO tips */
 #define HELLO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HELLO key specs */
 keySpec HELLO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HELLO arguments username_password argument table */
 struct COMMAND_ARG HELLO_arguments_username_password_Subargs[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* HELLO arguments argument table */
 struct COMMAND_ARG HELLO_arguments_Subargs[] = {
-{MAKE_ARG("protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=HELLO_arguments_username_password_Subargs},
-{MAKE_ARG("clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("protover",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HELLO_arguments_username_password_Subargs},
+{MAKE_ARG("clientname",ARG_TYPE_STRING,-1,"SETNAME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* HELLO argument table */
 struct COMMAND_ARG HELLO_Args[] = {
-{MAKE_ARG("arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=HELLO_arguments_Subargs},
+{MAKE_ARG("arguments",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=HELLO_arguments_Subargs},
 {0}
 };
 
 /********** PING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PING history */
 #define PING_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* PING tips */
 const char *PING_Tips[] = {
@@ -1666,108 +2105,143 @@ const char *PING_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* PING key specs */
 keySpec PING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PING argument table */
 struct COMMAND_ARG PING_Args[] = {
-{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** QUIT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* QUIT history */
 #define QUIT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* QUIT tips */
 #define QUIT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* QUIT key specs */
 keySpec QUIT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** RESET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RESET history */
 #define RESET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RESET tips */
 #define RESET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RESET key specs */
 keySpec RESET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SELECT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SELECT history */
 #define SELECT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SELECT tips */
 #define SELECT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SELECT key specs */
 keySpec SELECT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SELECT argument table */
 struct COMMAND_ARG SELECT_Args[] = {
-{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** COPY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COPY history */
 #define COPY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COPY tips */
 #define COPY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* COPY key specs */
 keySpec COPY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* COPY argument table */
 struct COMMAND_ARG COPY_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,"DB",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,"DB",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** DEL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DEL history */
 #define DEL_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* DEL tips */
 const char *DEL_Tips[] = {
@@ -1776,25 +2250,32 @@ const char *DEL_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* DEL key specs */
 keySpec DEL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* DEL argument table */
 struct COMMAND_ARG DEL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** DUMP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DUMP history */
 #define DUMP_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* DUMP tips */
 const char *DUMP_Tips[] = {
@@ -1802,28 +2283,35 @@ const char *DUMP_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* DUMP key specs */
 keySpec DUMP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* DUMP argument table */
 struct COMMAND_ARG DUMP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** EXISTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EXISTS history */
 commandHistory EXISTS_History[] = {
 {"3.0.3","Accepts multiple `key` arguments."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* EXISTS tips */
 const char *EXISTS_Tips[] = {
@@ -1832,22 +2320,25 @@ const char *EXISTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* EXISTS key specs */
 keySpec EXISTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EXISTS argument table */
 struct COMMAND_ARG EXISTS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** EXPIRE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EXPIRE history */
 commandHistory EXPIRE_History[] = {
@@ -1855,36 +2346,43 @@ commandHistory EXPIRE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EXPIRE tips */
 #define EXPIRE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EXPIRE key specs */
 keySpec EXPIRE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EXPIRE condition argument table */
 struct COMMAND_ARG EXPIRE_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* EXPIRE argument table */
 struct COMMAND_ARG EXPIRE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4),.subargs=EXPIRE_condition_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=EXPIRE_condition_Subargs},
 {0}
 };
 
 /********** EXPIREAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EXPIREAT history */
 commandHistory EXPIREAT_History[] = {
@@ -1892,62 +2390,80 @@ commandHistory EXPIREAT_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EXPIREAT tips */
 #define EXPIREAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EXPIREAT key specs */
 keySpec EXPIREAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EXPIREAT condition argument table */
 struct COMMAND_ARG EXPIREAT_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* EXPIREAT argument table */
 struct COMMAND_ARG EXPIREAT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4),.subargs=EXPIREAT_condition_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=EXPIREAT_condition_Subargs},
 {0}
 };
 
 /********** EXPIRETIME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EXPIRETIME history */
 #define EXPIRETIME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EXPIRETIME tips */
 #define EXPIRETIME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EXPIRETIME key specs */
 keySpec EXPIRETIME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EXPIRETIME argument table */
 struct COMMAND_ARG EXPIRETIME_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** KEYS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* KEYS history */
 #define KEYS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* KEYS tips */
 const char *KEYS_Tips[] = {
@@ -1956,22 +2472,25 @@ const char *KEYS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* KEYS key specs */
 keySpec KEYS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* KEYS argument table */
 struct COMMAND_ARG KEYS_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** MIGRATE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MIGRATE history */
 commandHistory MIGRATE_History[] = {
@@ -1982,84 +2501,102 @@ commandHistory MIGRATE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MIGRATE tips */
 const char *MIGRATE_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MIGRATE key specs */
 keySpec MIGRATE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={3},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"KEYS",-2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MIGRATE key_or_empty_string argument table */
 struct COMMAND_ARG MIGRATE_key_or_empty_string_Subargs[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("empty_string",ARG_TYPE_PURE_TOKEN,-1,"""",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MIGRATE authentication username_password argument table */
 struct COMMAND_ARG MIGRATE_authentication_username_password_Subargs[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MIGRATE authentication argument table */
 struct COMMAND_ARG MIGRATE_authentication_Subargs[] = {
-{MAKE_ARG("password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,2),.subargs=MIGRATE_authentication_username_password_Subargs},
+{MAKE_ARG("password",ARG_TYPE_STRING,-1,"AUTH",NULL,"4.0.7",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("username_password",ARG_TYPE_BLOCK,-1,"AUTH2",NULL,"6.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_username_password_Subargs},
 {0}
 };
 
 /* MIGRATE argument table */
 struct COMMAND_ARG MIGRATE_Args[] = {
-{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=MIGRATE_key_or_empty_string_Subargs},
-{MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=MIGRATE_authentication_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key_or_empty_string",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MIGRATE_key_or_empty_string_Subargs},
+{MAKE_ARG("destination-db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("copy",ARG_TYPE_PURE_TOKEN,-1,"COPY",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("authentication",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=MIGRATE_authentication_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,"KEYS",NULL,"3.0.6",CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** MOVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MOVE history */
 #define MOVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MOVE tips */
 #define MOVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MOVE key specs */
 keySpec MOVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MOVE argument table */
 struct COMMAND_ARG MOVE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("db",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** OBJECT ENCODING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT ENCODING history */
 #define OBJECT_ENCODING_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* OBJECT ENCODING tips */
 const char *OBJECT_ENCODING_Tips[] = {
@@ -2067,25 +2604,32 @@ const char *OBJECT_ENCODING_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* OBJECT ENCODING key specs */
 keySpec OBJECT_ENCODING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* OBJECT ENCODING argument table */
 struct COMMAND_ARG OBJECT_ENCODING_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** OBJECT FREQ ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT FREQ history */
 #define OBJECT_FREQ_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* OBJECT FREQ tips */
 const char *OBJECT_FREQ_Tips[] = {
@@ -2093,42 +2637,56 @@ const char *OBJECT_FREQ_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* OBJECT FREQ key specs */
 keySpec OBJECT_FREQ_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* OBJECT FREQ argument table */
 struct COMMAND_ARG OBJECT_FREQ_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** OBJECT HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT HELP history */
 #define OBJECT_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* OBJECT HELP tips */
 #define OBJECT_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* OBJECT HELP key specs */
 keySpec OBJECT_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** OBJECT IDLETIME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT IDLETIME history */
 #define OBJECT_IDLETIME_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* OBJECT IDLETIME tips */
 const char *OBJECT_IDLETIME_Tips[] = {
@@ -2136,25 +2694,32 @@ const char *OBJECT_IDLETIME_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* OBJECT IDLETIME key specs */
 keySpec OBJECT_IDLETIME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* OBJECT IDLETIME argument table */
 struct COMMAND_ARG OBJECT_IDLETIME_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** OBJECT REFCOUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT REFCOUNT history */
 #define OBJECT_REFCOUNT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* OBJECT REFCOUNT tips */
 const char *OBJECT_REFCOUNT_Tips[] = {
@@ -2162,16 +2727,19 @@ const char *OBJECT_REFCOUNT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* OBJECT REFCOUNT key specs */
 keySpec OBJECT_REFCOUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* OBJECT REFCOUNT argument table */
 struct COMMAND_ARG OBJECT_REFCOUNT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
@@ -2187,47 +2755,61 @@ struct COMMAND_STRUCT OBJECT_Subcommands[] = {
 
 /********** OBJECT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* OBJECT history */
 #define OBJECT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* OBJECT tips */
 #define OBJECT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* OBJECT key specs */
 keySpec OBJECT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** PERSIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PERSIST history */
 #define PERSIST_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PERSIST tips */
 #define PERSIST_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PERSIST key specs */
 keySpec PERSIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PERSIST argument table */
 struct COMMAND_ARG PERSIST_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** PEXPIRE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PEXPIRE history */
 commandHistory PEXPIRE_History[] = {
@@ -2235,36 +2817,43 @@ commandHistory PEXPIRE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PEXPIRE tips */
 #define PEXPIRE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PEXPIRE key specs */
 keySpec PEXPIRE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PEXPIRE condition argument table */
 struct COMMAND_ARG PEXPIRE_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* PEXPIRE argument table */
 struct COMMAND_ARG PEXPIRE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4),.subargs=PEXPIRE_condition_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=PEXPIRE_condition_Subargs},
 {0}
 };
 
 /********** PEXPIREAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PEXPIREAT history */
 commandHistory PEXPIREAT_History[] = {
@@ -2272,59 +2861,73 @@ commandHistory PEXPIREAT_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PEXPIREAT tips */
 #define PEXPIREAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PEXPIREAT key specs */
 keySpec PEXPIREAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PEXPIREAT condition argument table */
 struct COMMAND_ARG PEXPIREAT_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* PEXPIREAT argument table */
 struct COMMAND_ARG PEXPIREAT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4),.subargs=PEXPIREAT_condition_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=PEXPIREAT_condition_Subargs},
 {0}
 };
 
 /********** PEXPIRETIME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PEXPIRETIME history */
 #define PEXPIRETIME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PEXPIRETIME tips */
 #define PEXPIRETIME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PEXPIRETIME key specs */
 keySpec PEXPIRETIME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PEXPIRETIME argument table */
 struct COMMAND_ARG PEXPIRETIME_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** PTTL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PTTL history */
 commandHistory PTTL_History[] = {
@@ -2332,31 +2935,42 @@ commandHistory PTTL_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PTTL tips */
 const char *PTTL_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* PTTL key specs */
 keySpec PTTL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PTTL argument table */
 struct COMMAND_ARG PTTL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RANDOMKEY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RANDOMKEY history */
 #define RANDOMKEY_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* RANDOMKEY tips */
 const char *RANDOMKEY_Tips[] = {
@@ -2365,40 +2979,50 @@ const char *RANDOMKEY_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* RANDOMKEY key specs */
 keySpec RANDOMKEY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** RENAME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RENAME history */
 #define RENAME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RENAME tips */
 #define RENAME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RENAME key specs */
 keySpec RENAME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RENAME argument table */
 struct COMMAND_ARG RENAME_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RENAMENX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RENAMENX history */
 commandHistory RENAMENX_History[] = {
@@ -2406,26 +3030,33 @@ commandHistory RENAMENX_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RENAMENX tips */
 #define RENAMENX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RENAMENX key specs */
 keySpec RENAMENX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RENAMENX argument table */
 struct COMMAND_ARG RENAMENX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("newkey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RESTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RESTORE history */
 commandHistory RESTORE_History[] = {
@@ -2435,37 +3066,48 @@ commandHistory RESTORE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RESTORE tips */
 #define RESTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RESTORE key specs */
 keySpec RESTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RESTORE argument table */
 struct COMMAND_ARG RESTORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SCAN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCAN history */
 commandHistory SCAN_History[] = {
 {"6.0.0","Added the `TYPE` subcommand."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SCAN tips */
 const char *SCAN_Tips[] = {
@@ -2474,113 +3116,134 @@ const char *SCAN_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SCAN key specs */
 keySpec SCAN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCAN argument table */
 struct COMMAND_ARG SCAN_Args[] = {
-{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("type",ARG_TYPE_STRING,-1,"TYPE",NULL,"6.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SORT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SORT history */
 #define SORT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SORT tips */
 #define SORT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SORT key specs */
 keySpec SORT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}},{"For the optional STORE keyword. It is marked 'unknown' because the keyword can appear anywhere in the argument array",CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SORT offset_count argument table */
 struct COMMAND_ARG SORT_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SORT order argument table */
 struct COMMAND_ARG SORT_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SORT argument table */
 struct COMMAND_ARG SORT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=SORT_offset_count_Subargs},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0)},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=SORT_order_Subargs},
-{MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_offset_count_Subargs},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_order_Subargs},
+{MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,2,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SORT_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SORT_RO history */
 #define SORT_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SORT_RO tips */
 #define SORT_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SORT_RO key specs */
 keySpec SORT_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_UNKNOWN,{{0}},KSPEC_FK_UNKNOWN,{{0}}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SORT_RO offset_count argument table */
 struct COMMAND_ARG SORT_RO_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SORT_RO order argument table */
 struct COMMAND_ARG SORT_RO_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SORT_RO argument table */
 struct COMMAND_ARG SORT_RO_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=SORT_RO_offset_count_Subargs},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0)},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=SORT_RO_order_Subargs},
-{MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"BY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_offset_count_Subargs},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,1,"GET",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,0,NULL)},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SORT_RO_order_Subargs},
+{MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** TOUCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* TOUCH history */
 #define TOUCH_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* TOUCH tips */
 const char *TOUCH_Tips[] = {
@@ -2589,22 +3252,25 @@ const char *TOUCH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* TOUCH key specs */
 keySpec TOUCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* TOUCH argument table */
 struct COMMAND_ARG TOUCH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** TTL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* TTL history */
 commandHistory TTL_History[] = {
@@ -2612,54 +3278,72 @@ commandHistory TTL_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* TTL tips */
 const char *TTL_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* TTL key specs */
 keySpec TTL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* TTL argument table */
 struct COMMAND_ARG TTL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** TYPE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* TYPE history */
 #define TYPE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* TYPE tips */
 #define TYPE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* TYPE key specs */
 keySpec TYPE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* TYPE argument table */
 struct COMMAND_ARG TYPE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** UNLINK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* UNLINK history */
 #define UNLINK_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* UNLINK tips */
 const char *UNLINK_Tips[] = {
@@ -2668,25 +3352,32 @@ const char *UNLINK_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* UNLINK key specs */
 keySpec UNLINK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RM|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* UNLINK argument table */
 struct COMMAND_ARG UNLINK_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** WAIT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* WAIT history */
 #define WAIT_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* WAIT tips */
 const char *WAIT_Tips[] = {
@@ -2695,23 +3386,26 @@ const char *WAIT_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* WAIT key specs */
 keySpec WAIT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* WAIT argument table */
 struct COMMAND_ARG WAIT_Args[] = {
-{MAKE_ARG("numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("numreplicas",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** GEOADD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEOADD history */
 commandHistory GEOADD_History[] = {
@@ -2719,126 +3413,154 @@ commandHistory GEOADD_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEOADD tips */
 #define GEOADD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEOADD key specs */
 keySpec GEOADD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEOADD condition argument table */
 struct COMMAND_ARG GEOADD_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOADD longitude_latitude_member argument table */
 struct COMMAND_ARG GEOADD_longitude_latitude_member_Subargs[] = {
-{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOADD argument table */
 struct COMMAND_ARG GEOADD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=GEOADD_condition_Subargs},
-{MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3),.subargs=GEOADD_longitude_latitude_member_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOADD_condition_Subargs},
+{MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("longitude_latitude_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,3,NULL),.subargs=GEOADD_longitude_latitude_member_Subargs},
 {0}
 };
 
 /********** GEODIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEODIST history */
 #define GEODIST_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEODIST tips */
 #define GEODIST_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEODIST key specs */
 keySpec GEODIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEODIST unit argument table */
 struct COMMAND_ARG GEODIST_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEODIST argument table */
 struct COMMAND_ARG GEODIST_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member2",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4),.subargs=GEODIST_unit_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member2",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=GEODIST_unit_Subargs},
 {0}
 };
 
 /********** GEOHASH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEOHASH history */
 #define GEOHASH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEOHASH tips */
 #define GEOHASH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEOHASH key specs */
 keySpec GEOHASH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEOHASH argument table */
 struct COMMAND_ARG GEOHASH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** GEOPOS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEOPOS history */
 #define GEOPOS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEOPOS tips */
 #define GEOPOS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEOPOS key specs */
 keySpec GEOPOS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEOPOS argument table */
 struct COMMAND_ARG GEOPOS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** GEORADIUS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEORADIUS history */
 commandHistory GEORADIUS_History[] = {
@@ -2846,169 +3568,190 @@ commandHistory GEORADIUS_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEORADIUS tips */
 #define GEORADIUS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEORADIUS key specs */
 keySpec GEORADIUS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEORADIUS unit argument table */
 struct COMMAND_ARG GEORADIUS_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUS count argument table */
 struct COMMAND_ARG GEORADIUS_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEORADIUS order argument table */
 struct COMMAND_ARG GEORADIUS_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUS argument table */
 struct COMMAND_ARG GEORADIUS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEORADIUS_unit_Subargs},
-{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUS_count_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUS_order_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEORADIUS_unit_Subargs},
+{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_count_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_order_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** GEORADIUSBYMEMBER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEORADIUSBYMEMBER history */
 #define GEORADIUSBYMEMBER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEORADIUSBYMEMBER tips */
 #define GEORADIUSBYMEMBER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEORADIUSBYMEMBER key specs */
 keySpec GEORADIUSBYMEMBER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEORADIUSBYMEMBER unit argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER count argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER order argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEORADIUSBYMEMBER_unit_Subargs},
-{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUSBYMEMBER_count_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEORADIUSBYMEMBER_unit_Subargs},
+{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_count_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_order_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** GEORADIUSBYMEMBER_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEORADIUSBYMEMBER_RO history */
 #define GEORADIUSBYMEMBER_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEORADIUSBYMEMBER_RO tips */
 #define GEORADIUSBYMEMBER_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEORADIUSBYMEMBER_RO key specs */
 keySpec GEORADIUSBYMEMBER_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEORADIUSBYMEMBER_RO unit argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO count argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO order argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUSBYMEMBER_RO argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_RO_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEORADIUSBYMEMBER_RO_unit_Subargs},
-{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEORADIUSBYMEMBER_RO_unit_Subargs},
+{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_count_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_RO_order_Subargs},
 {0}
 };
 
 /********** GEORADIUS_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEORADIUS_RO history */
 commandHistory GEORADIUS_RO_History[] = {
@@ -3016,252 +3759,273 @@ commandHistory GEORADIUS_RO_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEORADIUS_RO tips */
 #define GEORADIUS_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEORADIUS_RO key specs */
 keySpec GEORADIUS_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEORADIUS_RO unit argument table */
 struct COMMAND_ARG GEORADIUS_RO_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUS_RO count argument table */
 struct COMMAND_ARG GEORADIUS_RO_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEORADIUS_RO order argument table */
 struct COMMAND_ARG GEORADIUS_RO_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEORADIUS_RO argument table */
 struct COMMAND_ARG GEORADIUS_RO_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEORADIUS_RO_unit_Subargs},
-{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUS_RO_count_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEORADIUS_RO_order_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEORADIUS_RO_unit_Subargs},
+{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_count_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_RO_order_Subargs},
 {0}
 };
 
 /********** GEOSEARCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEOSEARCH history */
 #define GEOSEARCH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEOSEARCH tips */
 #define GEOSEARCH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEOSEARCH key specs */
 keySpec GEOSEARCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEOSEARCH from longitude_latitude argument table */
 struct COMMAND_ARG GEOSEARCH_from_longitude_latitude_Subargs[] = {
-{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCH from argument table */
 struct COMMAND_ARG GEOSEARCH_from_Subargs[] = {
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_longitude_latitude_Subargs},
 {0}
 };
 
 /* GEOSEARCH by circle unit argument table */
 struct COMMAND_ARG GEOSEARCH_by_circle_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCH by circle argument table */
 struct COMMAND_ARG GEOSEARCH_by_circle_Subargs[] = {
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEOSEARCH_by_circle_unit_Subargs},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCH_by_circle_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCH by box unit argument table */
 struct COMMAND_ARG GEOSEARCH_by_box_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCH by box argument table */
 struct COMMAND_ARG GEOSEARCH_by_box_Subargs[] = {
-{MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEOSEARCH_by_box_unit_Subargs},
+{MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCH_by_box_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCH by argument table */
 struct COMMAND_ARG GEOSEARCH_by_Subargs[] = {
-{MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCH_by_circle_Subargs},
-{MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3),.subargs=GEOSEARCH_by_box_Subargs},
+{MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_by_circle_Subargs},
+{MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=GEOSEARCH_by_box_Subargs},
 {0}
 };
 
 /* GEOSEARCH order argument table */
 struct COMMAND_ARG GEOSEARCH_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCH count argument table */
 struct COMMAND_ARG GEOSEARCH_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEOSEARCH argument table */
 struct COMMAND_ARG GEOSEARCH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCH_from_Subargs},
-{MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCH_by_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEOSEARCH_order_Subargs},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEOSEARCH_count_Subargs},
-{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_from_Subargs},
+{MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCH_by_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCH_order_Subargs},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCH_count_Subargs},
+{MAKE_ARG("withcoord",ARG_TYPE_PURE_TOKEN,-1,"WITHCOORD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withdist",ARG_TYPE_PURE_TOKEN,-1,"WITHDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** GEOSEARCHSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GEOSEARCHSTORE history */
 #define GEOSEARCHSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GEOSEARCHSTORE tips */
 #define GEOSEARCHSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GEOSEARCHSTORE key specs */
 keySpec GEOSEARCHSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GEOSEARCHSTORE from longitude_latitude argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_from_longitude_latitude_Subargs[] = {
-{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("longitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("latitude",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCHSTORE from argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_from_Subargs[] = {
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,"FROMMEMBER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("longitude_latitude",ARG_TYPE_BLOCK,-1,"FROMLONLAT",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_longitude_latitude_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by circle unit argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_circle_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCHSTORE by circle argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_circle_Subargs[] = {
-{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
+{MAKE_ARG("radius",ARG_TYPE_DOUBLE,-1,"BYRADIUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCHSTORE_by_circle_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by box unit argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_box_unit_Subargs[] = {
-{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("m",ARG_TYPE_PURE_TOKEN,-1,"M",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("km",ARG_TYPE_PURE_TOKEN,-1,"KM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ft",ARG_TYPE_PURE_TOKEN,-1,"FT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mi",ARG_TYPE_PURE_TOKEN,-1,"MI",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCHSTORE by box argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_box_Subargs[] = {
-{MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
+{MAKE_ARG("width",ARG_TYPE_DOUBLE,-1,"BYBOX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("height",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=GEOSEARCHSTORE_by_box_unit_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE by argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_by_Subargs[] = {
-{MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCHSTORE_by_circle_Subargs},
-{MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3),.subargs=GEOSEARCHSTORE_by_box_Subargs},
+{MAKE_ARG("circle",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_by_circle_Subargs},
+{MAKE_ARG("box",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=GEOSEARCHSTORE_by_box_Subargs},
 {0}
 };
 
 /* GEOSEARCHSTORE order argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_order_Subargs[] = {
-{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("asc",ARG_TYPE_PURE_TOKEN,-1,"ASC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GEOSEARCHSTORE count argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_count_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("any",ARG_TYPE_PURE_TOKEN,-1,"ANY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* GEOSEARCHSTORE argument table */
 struct COMMAND_ARG GEOSEARCHSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("source",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCHSTORE_from_Subargs},
-{MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=GEOSEARCHSTORE_by_Subargs},
-{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEOSEARCHSTORE_order_Subargs},
-{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=GEOSEARCHSTORE_count_Subargs},
-{MAKE_ARG("storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("source",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("from",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_from_Subargs},
+{MAKE_ARG("by",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=GEOSEARCHSTORE_by_Subargs},
+{MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_order_Subargs},
+{MAKE_ARG("count",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEOSEARCHSTORE_count_Subargs},
+{MAKE_ARG("storedist",ARG_TYPE_PURE_TOKEN,-1,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** HDEL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HDEL history */
 commandHistory HDEL_History[] = {
@@ -3269,77 +4033,102 @@ commandHistory HDEL_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HDEL tips */
 #define HDEL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HDEL key specs */
 keySpec HDEL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HDEL argument table */
 struct COMMAND_ARG HDEL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** HEXISTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HEXISTS history */
 #define HEXISTS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HEXISTS tips */
 #define HEXISTS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HEXISTS key specs */
 keySpec HEXISTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HEXISTS argument table */
 struct COMMAND_ARG HEXISTS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HGET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HGET history */
 #define HGET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HGET tips */
 #define HGET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HGET key specs */
 keySpec HGET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HGET argument table */
 struct COMMAND_ARG HGET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HGETALL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HGETALL history */
 #define HGETALL_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* HGETALL tips */
 const char *HGETALL_Tips[] = {
@@ -3347,75 +4136,96 @@ const char *HGETALL_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* HGETALL key specs */
 keySpec HGETALL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HGETALL argument table */
 struct COMMAND_ARG HGETALL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HINCRBY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HINCRBY history */
 #define HINCRBY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HINCRBY tips */
 #define HINCRBY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HINCRBY key specs */
 keySpec HINCRBY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HINCRBY argument table */
 struct COMMAND_ARG HINCRBY_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HINCRBYFLOAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HINCRBYFLOAT history */
 #define HINCRBYFLOAT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HINCRBYFLOAT tips */
 #define HINCRBYFLOAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HINCRBYFLOAT key specs */
 keySpec HINCRBYFLOAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HINCRBYFLOAT argument table */
 struct COMMAND_ARG HINCRBYFLOAT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HKEYS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HKEYS history */
 #define HKEYS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* HKEYS tips */
 const char *HKEYS_Tips[] = {
@@ -3423,103 +4233,131 @@ const char *HKEYS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* HKEYS key specs */
 keySpec HKEYS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HKEYS argument table */
 struct COMMAND_ARG HKEYS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HLEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HLEN history */
 #define HLEN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HLEN tips */
 #define HLEN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HLEN key specs */
 keySpec HLEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HLEN argument table */
 struct COMMAND_ARG HLEN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HMGET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HMGET history */
 #define HMGET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HMGET tips */
 #define HMGET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HMGET key specs */
 keySpec HMGET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HMGET argument table */
 struct COMMAND_ARG HMGET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** HMSET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HMSET history */
 #define HMSET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HMSET tips */
 #define HMSET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HMSET key specs */
 keySpec HMSET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HMSET field_value argument table */
 struct COMMAND_ARG HMSET_field_value_Subargs[] = {
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* HMSET argument table */
 struct COMMAND_ARG HMSET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=HMSET_field_value_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HMSET_field_value_Subargs},
 {0}
 };
 
 /********** HRANDFIELD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HRANDFIELD history */
 #define HRANDFIELD_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* HRANDFIELD tips */
 const char *HRANDFIELD_Tips[] = {
@@ -3527,33 +4365,40 @@ const char *HRANDFIELD_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* HRANDFIELD key specs */
 keySpec HRANDFIELD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HRANDFIELD options argument table */
 struct COMMAND_ARG HRANDFIELD_options_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withvalues",ARG_TYPE_PURE_TOKEN,-1,"WITHVALUES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* HRANDFIELD argument table */
 struct COMMAND_ARG HRANDFIELD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=HRANDFIELD_options_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HRANDFIELD_options_Subargs},
 {0}
 };
 
 /********** HSCAN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HSCAN history */
 #define HSCAN_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* HSCAN tips */
 const char *HSCAN_Tips[] = {
@@ -3561,25 +4406,28 @@ const char *HSCAN_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* HSCAN key specs */
 keySpec HSCAN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HSCAN argument table */
 struct COMMAND_ARG HSCAN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** HSET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HSET history */
 commandHistory HSET_History[] = {
@@ -3587,85 +4435,110 @@ commandHistory HSET_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HSET tips */
 #define HSET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HSET key specs */
 keySpec HSET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HSET field_value argument table */
 struct COMMAND_ARG HSET_field_value_Subargs[] = {
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* HSET argument table */
 struct COMMAND_ARG HSET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=HSET_field_value_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_field_value_Subargs},
 {0}
 };
 
 /********** HSETNX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HSETNX history */
 #define HSETNX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HSETNX tips */
 #define HSETNX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HSETNX key specs */
 keySpec HSETNX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HSETNX argument table */
 struct COMMAND_ARG HSETNX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HSTRLEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HSTRLEN history */
 #define HSTRLEN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* HSTRLEN tips */
 #define HSTRLEN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* HSTRLEN key specs */
 keySpec HSTRLEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HSTRLEN argument table */
 struct COMMAND_ARG HSTRLEN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** HVALS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* HVALS history */
 #define HVALS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* HVALS tips */
 const char *HVALS_Tips[] = {
@@ -3673,209 +4546,261 @@ const char *HVALS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* HVALS key specs */
 keySpec HVALS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* HVALS argument table */
 struct COMMAND_ARG HVALS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** PFADD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PFADD history */
 #define PFADD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PFADD tips */
 #define PFADD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PFADD key specs */
 keySpec PFADD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PFADD argument table */
 struct COMMAND_ARG PFADD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** PFCOUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PFCOUNT history */
 #define PFCOUNT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PFCOUNT tips */
 #define PFCOUNT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PFCOUNT key specs */
 keySpec PFCOUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"RW because it may change the internal representation of the key, and propagate to replicas",CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PFCOUNT argument table */
 struct COMMAND_ARG PFCOUNT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** PFDEBUG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PFDEBUG history */
 #define PFDEBUG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PFDEBUG tips */
 #define PFDEBUG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PFDEBUG key specs */
 keySpec PFDEBUG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PFDEBUG argument table */
 struct COMMAND_ARG PFDEBUG_Args[] = {
-{MAKE_ARG("subcommand",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("subcommand",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** PFMERGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PFMERGE history */
 #define PFMERGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PFMERGE tips */
 #define PFMERGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PFMERGE key specs */
 keySpec PFMERGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PFMERGE argument table */
 struct COMMAND_ARG PFMERGE_Args[] = {
-{MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sourcekey",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** PFSELFTEST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PFSELFTEST history */
 #define PFSELFTEST_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PFSELFTEST tips */
 #define PFSELFTEST_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PFSELFTEST key specs */
 keySpec PFSELFTEST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** BLMOVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BLMOVE history */
 #define BLMOVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BLMOVE tips */
 #define BLMOVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BLMOVE key specs */
 keySpec BLMOVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BLMOVE wherefrom argument table */
 struct COMMAND_ARG BLMOVE_wherefrom_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BLMOVE whereto argument table */
 struct COMMAND_ARG BLMOVE_whereto_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BLMOVE argument table */
 struct COMMAND_ARG BLMOVE_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BLMOVE_wherefrom_Subargs},
-{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BLMOVE_whereto_Subargs},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVE_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVE_whereto_Subargs},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** BLMPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BLMPOP history */
 #define BLMPOP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BLMPOP tips */
 #define BLMPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BLMPOP key specs */
 keySpec BLMPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BLMPOP where argument table */
 struct COMMAND_ARG BLMPOP_where_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BLMPOP argument table */
 struct COMMAND_ARG BLMPOP_Args[] = {
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BLMPOP_where_Subargs},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMPOP_where_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** BLPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BLPOP history */
 commandHistory BLPOP_History[] = {
@@ -3883,26 +4808,33 @@ commandHistory BLPOP_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BLPOP tips */
 #define BLPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BLPOP key specs */
 keySpec BLPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BLPOP argument table */
 struct COMMAND_ARG BLPOP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** BRPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BRPOP history */
 commandHistory BRPOP_History[] = {
@@ -3910,26 +4842,33 @@ commandHistory BRPOP_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BRPOP tips */
 #define BRPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BRPOP key specs */
 keySpec BRPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BRPOP argument table */
 struct COMMAND_ARG BRPOP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** BRPOPLPUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BRPOPLPUSH history */
 commandHistory BRPOPLPUSH_History[] = {
@@ -3937,180 +4876,222 @@ commandHistory BRPOPLPUSH_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BRPOPLPUSH tips */
 #define BRPOPLPUSH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BRPOPLPUSH key specs */
 keySpec BRPOPLPUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BRPOPLPUSH argument table */
 struct COMMAND_ARG BRPOPLPUSH_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LINDEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LINDEX history */
 #define LINDEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LINDEX tips */
 #define LINDEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LINDEX key specs */
 keySpec LINDEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LINDEX argument table */
 struct COMMAND_ARG LINDEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LINSERT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LINSERT history */
 #define LINSERT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LINSERT tips */
 #define LINSERT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LINSERT key specs */
 keySpec LINSERT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LINSERT where argument table */
 struct COMMAND_ARG LINSERT_where_Subargs[] = {
-{MAKE_ARG("before",ARG_TYPE_PURE_TOKEN,-1,"BEFORE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("after",ARG_TYPE_PURE_TOKEN,-1,"AFTER",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("before",ARG_TYPE_PURE_TOKEN,-1,"BEFORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("after",ARG_TYPE_PURE_TOKEN,-1,"AFTER",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* LINSERT argument table */
 struct COMMAND_ARG LINSERT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=LINSERT_where_Subargs},
-{MAKE_ARG("pivot",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LINSERT_where_Subargs},
+{MAKE_ARG("pivot",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LLEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LLEN history */
 #define LLEN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LLEN tips */
 #define LLEN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LLEN key specs */
 keySpec LLEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LLEN argument table */
 struct COMMAND_ARG LLEN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LMOVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LMOVE history */
 #define LMOVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LMOVE tips */
 #define LMOVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LMOVE key specs */
 keySpec LMOVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LMOVE wherefrom argument table */
 struct COMMAND_ARG LMOVE_wherefrom_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* LMOVE whereto argument table */
 struct COMMAND_ARG LMOVE_whereto_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* LMOVE argument table */
 struct COMMAND_ARG LMOVE_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=LMOVE_wherefrom_Subargs},
-{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=LMOVE_whereto_Subargs},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_whereto_Subargs},
 {0}
 };
 
 /********** LMPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LMPOP history */
 #define LMPOP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LMPOP tips */
 #define LMPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LMPOP key specs */
 keySpec LMPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LMPOP where argument table */
 struct COMMAND_ARG LMPOP_where_Subargs[] = {
-{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* LMPOP argument table */
 struct COMMAND_ARG LMPOP_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=LMPOP_where_Subargs},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMPOP_where_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** LPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LPOP history */
 commandHistory LPOP_History[] = {
@@ -4118,53 +5099,67 @@ commandHistory LPOP_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LPOP tips */
 #define LPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LPOP key specs */
 keySpec LPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LPOP argument table */
 struct COMMAND_ARG LPOP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** LPOS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LPOS history */
 #define LPOS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LPOS tips */
 #define LPOS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LPOS key specs */
 keySpec LPOS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LPOS argument table */
 struct COMMAND_ARG LPOS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("rank",ARG_TYPE_INTEGER,-1,"RANK",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("num-matches",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("rank",ARG_TYPE_INTEGER,-1,"RANK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("num-matches",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MAXLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** LPUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LPUSH history */
 commandHistory LPUSH_History[] = {
@@ -4172,26 +5167,33 @@ commandHistory LPUSH_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LPUSH tips */
 #define LPUSH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LPUSH key specs */
 keySpec LPUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LPUSH argument table */
 struct COMMAND_ARG LPUSH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** LPUSHX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LPUSHX history */
 commandHistory LPUSHX_History[] = {
@@ -4199,126 +5201,161 @@ commandHistory LPUSHX_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LPUSHX tips */
 #define LPUSHX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LPUSHX key specs */
 keySpec LPUSHX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LPUSHX argument table */
 struct COMMAND_ARG LPUSHX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** LRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LRANGE history */
 #define LRANGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LRANGE tips */
 #define LRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LRANGE key specs */
 keySpec LRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LRANGE argument table */
 struct COMMAND_ARG LRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LREM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LREM history */
 #define LREM_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LREM tips */
 #define LREM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LREM key specs */
 keySpec LREM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LREM argument table */
 struct COMMAND_ARG LREM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LSET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LSET history */
 #define LSET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LSET tips */
 #define LSET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LSET key specs */
 keySpec LSET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LSET argument table */
 struct COMMAND_ARG LSET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LTRIM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LTRIM history */
 #define LTRIM_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LTRIM tips */
 #define LTRIM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LTRIM key specs */
 keySpec LTRIM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LTRIM argument table */
 struct COMMAND_ARG LTRIM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RPOP history */
 commandHistory RPOP_History[] = {
@@ -4326,50 +5363,64 @@ commandHistory RPOP_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RPOP tips */
 #define RPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RPOP key specs */
 keySpec RPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RPOP argument table */
 struct COMMAND_ARG RPOP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** RPOPLPUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RPOPLPUSH history */
 #define RPOPLPUSH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RPOPLPUSH tips */
 #define RPOPLPUSH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RPOPLPUSH key specs */
 keySpec RPOPLPUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RPOPLPUSH argument table */
 struct COMMAND_ARG RPOPLPUSH_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RPUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RPUSH history */
 commandHistory RPUSH_History[] = {
@@ -4377,26 +5428,33 @@ commandHistory RPUSH_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RPUSH tips */
 #define RPUSH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RPUSH key specs */
 keySpec RPUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RPUSH argument table */
 struct COMMAND_ARG RPUSH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** RPUSHX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RPUSHX history */
 commandHistory RPUSHX_History[] = {
@@ -4404,199 +5462,262 @@ commandHistory RPUSHX_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RPUSHX tips */
 #define RPUSHX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RPUSHX key specs */
 keySpec RPUSHX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RPUSHX argument table */
 struct COMMAND_ARG RPUSHX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("element",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** PSUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PSUBSCRIBE history */
 #define PSUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PSUBSCRIBE tips */
 #define PSUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PSUBSCRIBE key specs */
 keySpec PSUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PSUBSCRIBE pattern argument table */
 struct COMMAND_ARG PSUBSCRIBE_pattern_Subargs[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* PSUBSCRIBE argument table */
 struct COMMAND_ARG PSUBSCRIBE_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1),.subargs=PSUBSCRIBE_pattern_Subargs},
+{MAKE_ARG("pattern",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=PSUBSCRIBE_pattern_Subargs},
 {0}
 };
 
 /********** PUBLISH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBLISH history */
 #define PUBLISH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBLISH tips */
 #define PUBLISH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBLISH key specs */
 keySpec PUBLISH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUBLISH argument table */
 struct COMMAND_ARG PUBLISH_Args[] = {
-{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** PUBSUB CHANNELS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB CHANNELS history */
 #define PUBSUB_CHANNELS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB CHANNELS tips */
 #define PUBSUB_CHANNELS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB CHANNELS key specs */
 keySpec PUBSUB_CHANNELS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUBSUB CHANNELS argument table */
 struct COMMAND_ARG PUBSUB_CHANNELS_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** PUBSUB HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB HELP history */
 #define PUBSUB_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB HELP tips */
 #define PUBSUB_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB HELP key specs */
 keySpec PUBSUB_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** PUBSUB NUMPAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB NUMPAT history */
 #define PUBSUB_NUMPAT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB NUMPAT tips */
 #define PUBSUB_NUMPAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB NUMPAT key specs */
 keySpec PUBSUB_NUMPAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** PUBSUB NUMSUB ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB NUMSUB history */
 #define PUBSUB_NUMSUB_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB NUMSUB tips */
 #define PUBSUB_NUMSUB_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB NUMSUB key specs */
 keySpec PUBSUB_NUMSUB_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUBSUB NUMSUB argument table */
 struct COMMAND_ARG PUBSUB_NUMSUB_Args[] = {
-{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** PUBSUB SHARDCHANNELS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB SHARDCHANNELS history */
 #define PUBSUB_SHARDCHANNELS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB SHARDCHANNELS tips */
 #define PUBSUB_SHARDCHANNELS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB SHARDCHANNELS key specs */
 keySpec PUBSUB_SHARDCHANNELS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUBSUB SHARDCHANNELS argument table */
 struct COMMAND_ARG PUBSUB_SHARDCHANNELS_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** PUBSUB SHARDNUMSUB ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB SHARDNUMSUB history */
 #define PUBSUB_SHARDNUMSUB_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB SHARDNUMSUB tips */
 #define PUBSUB_SHARDNUMSUB_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB SHARDNUMSUB key specs */
 keySpec PUBSUB_SHARDNUMSUB_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUBSUB SHARDNUMSUB argument table */
 struct COMMAND_ARG PUBSUB_SHARDNUMSUB_Args[] = {
-{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
@@ -4613,322 +5734,417 @@ struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 
 /********** PUBSUB ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUBSUB history */
 #define PUBSUB_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUBSUB tips */
 #define PUBSUB_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUBSUB key specs */
 keySpec PUBSUB_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** PUNSUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PUNSUBSCRIBE history */
 #define PUNSUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PUNSUBSCRIBE tips */
 #define PUNSUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PUNSUBSCRIBE key specs */
 keySpec PUNSUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PUNSUBSCRIBE argument table */
 struct COMMAND_ARG PUNSUBSCRIBE_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SPUBLISH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SPUBLISH history */
 #define SPUBLISH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SPUBLISH tips */
 #define SPUBLISH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SPUBLISH key specs */
 keySpec SPUBLISH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SPUBLISH argument table */
 struct COMMAND_ARG SPUBLISH_Args[] = {
-{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("message",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SSUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SSUBSCRIBE history */
 #define SSUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SSUBSCRIBE tips */
 #define SSUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SSUBSCRIBE key specs */
 keySpec SSUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SSUBSCRIBE argument table */
 struct COMMAND_ARG SSUBSCRIBE_Args[] = {
-{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SUBSCRIBE history */
 #define SUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SUBSCRIBE tips */
 #define SUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SUBSCRIBE key specs */
 keySpec SUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SUBSCRIBE argument table */
 struct COMMAND_ARG SUBSCRIBE_Args[] = {
-{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SUNSUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SUNSUBSCRIBE history */
 #define SUNSUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SUNSUBSCRIBE tips */
 #define SUNSUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SUNSUBSCRIBE key specs */
 keySpec SUNSUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SUNSUBSCRIBE argument table */
 struct COMMAND_ARG SUNSUBSCRIBE_Args[] = {
-{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** UNSUBSCRIBE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* UNSUBSCRIBE history */
 #define UNSUBSCRIBE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* UNSUBSCRIBE tips */
 #define UNSUBSCRIBE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* UNSUBSCRIBE key specs */
 keySpec UNSUBSCRIBE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* UNSUBSCRIBE argument table */
 struct COMMAND_ARG UNSUBSCRIBE_Args[] = {
-{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("channel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** EVAL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EVAL history */
 #define EVAL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EVAL tips */
 #define EVAL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EVAL key specs */
 keySpec EVAL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EVAL argument table */
 struct COMMAND_ARG EVAL_Args[] = {
-{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** EVALSHA ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EVALSHA history */
 #define EVALSHA_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EVALSHA tips */
 #define EVALSHA_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EVALSHA key specs */
 keySpec EVALSHA_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EVALSHA argument table */
 struct COMMAND_ARG EVALSHA_Args[] = {
-{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** EVALSHA_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EVALSHA_RO history */
 #define EVALSHA_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EVALSHA_RO tips */
 #define EVALSHA_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EVALSHA_RO key specs */
 keySpec EVALSHA_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EVALSHA_RO argument table */
 struct COMMAND_ARG EVALSHA_RO_Args[] = {
-{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** EVAL_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EVAL_RO history */
 #define EVAL_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EVAL_RO tips */
 #define EVAL_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EVAL_RO key specs */
 keySpec EVAL_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"We cannot tell how the keys will be used so we assume the worst, RO and ACCESS",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* EVAL_RO argument table */
 struct COMMAND_ARG EVAL_RO_Args[] = {
-{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** FCALL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FCALL history */
 #define FCALL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FCALL tips */
 #define FCALL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FCALL key specs */
 keySpec FCALL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"We cannot tell how the keys will be used so we assume the worst, RW and UPDATE",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FCALL argument table */
 struct COMMAND_ARG FCALL_Args[] = {
-{MAKE_ARG("function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** FCALL_RO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FCALL_RO history */
 #define FCALL_RO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FCALL_RO tips */
 #define FCALL_RO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FCALL_RO key specs */
 keySpec FCALL_RO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"We cannot tell how the keys will be used so we assume the worst, RO and ACCESS",CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FCALL_RO argument table */
 struct COMMAND_ARG FCALL_RO_Args[] = {
-{MAKE_ARG("function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("function",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** FUNCTION DELETE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION DELETE history */
 #define FUNCTION_DELETE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION DELETE tips */
 const char *FUNCTION_DELETE_Tips[] = {
@@ -4937,42 +6153,56 @@ const char *FUNCTION_DELETE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION DELETE key specs */
 keySpec FUNCTION_DELETE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION DELETE argument table */
 struct COMMAND_ARG FUNCTION_DELETE_Args[] = {
-{MAKE_ARG("library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("library-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** FUNCTION DUMP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION DUMP history */
 #define FUNCTION_DUMP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FUNCTION DUMP tips */
 #define FUNCTION_DUMP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FUNCTION DUMP key specs */
 keySpec FUNCTION_DUMP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** FUNCTION FLUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION FLUSH history */
 #define FUNCTION_FLUSH_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION FLUSH tips */
 const char *FUNCTION_FLUSH_Tips[] = {
@@ -4981,49 +6211,63 @@ const char *FUNCTION_FLUSH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION FLUSH key specs */
 keySpec FUNCTION_FLUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION FLUSH async argument table */
 struct COMMAND_ARG FUNCTION_FLUSH_async_Subargs[] = {
-{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* FUNCTION FLUSH argument table */
 struct COMMAND_ARG FUNCTION_FLUSH_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=FUNCTION_FLUSH_async_Subargs},
+{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FUNCTION_FLUSH_async_Subargs},
 {0}
 };
 
 /********** FUNCTION HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION HELP history */
 #define FUNCTION_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FUNCTION HELP tips */
 #define FUNCTION_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FUNCTION HELP key specs */
 keySpec FUNCTION_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** FUNCTION KILL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION KILL history */
 #define FUNCTION_KILL_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION KILL tips */
 const char *FUNCTION_KILL_Tips[] = {
@@ -5032,19 +6276,26 @@ const char *FUNCTION_KILL_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION KILL key specs */
 keySpec FUNCTION_KILL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** FUNCTION LIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION LIST history */
 #define FUNCTION_LIST_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION LIST tips */
 const char *FUNCTION_LIST_Tips[] = {
@@ -5052,26 +6303,33 @@ const char *FUNCTION_LIST_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION LIST key specs */
 keySpec FUNCTION_LIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION LIST argument table */
 struct COMMAND_ARG FUNCTION_LIST_Args[] = {
-{MAKE_ARG("library-name-pattern",ARG_TYPE_STRING,-1,"LIBRARYNAME",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withcode",ARG_TYPE_PURE_TOKEN,-1,"WITHCODE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("library-name-pattern",ARG_TYPE_STRING,-1,"LIBRARYNAME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withcode",ARG_TYPE_PURE_TOKEN,-1,"WITHCODE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** FUNCTION LOAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION LOAD history */
 #define FUNCTION_LOAD_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION LOAD tips */
 const char *FUNCTION_LOAD_Tips[] = {
@@ -5080,26 +6338,33 @@ const char *FUNCTION_LOAD_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION LOAD key specs */
 keySpec FUNCTION_LOAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION LOAD argument table */
 struct COMMAND_ARG FUNCTION_LOAD_Args[] = {
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("function-code",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** FUNCTION RESTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION RESTORE history */
 #define FUNCTION_RESTORE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION RESTORE tips */
 const char *FUNCTION_RESTORE_Tips[] = {
@@ -5108,34 +6373,41 @@ const char *FUNCTION_RESTORE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION RESTORE key specs */
 keySpec FUNCTION_RESTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION RESTORE policy argument table */
 struct COMMAND_ARG FUNCTION_RESTORE_policy_Subargs[] = {
-{MAKE_ARG("flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("flush",ARG_TYPE_PURE_TOKEN,-1,"FLUSH",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("append",ARG_TYPE_PURE_TOKEN,-1,"APPEND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* FUNCTION RESTORE argument table */
 struct COMMAND_ARG FUNCTION_RESTORE_Args[] = {
-{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=FUNCTION_RESTORE_policy_Subargs},
+{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("policy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=FUNCTION_RESTORE_policy_Subargs},
 {0}
 };
 
 /********** FUNCTION STATS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION STATS history */
 #define FUNCTION_STATS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* FUNCTION STATS tips */
 const char *FUNCTION_STATS_Tips[] = {
@@ -5145,12 +6417,15 @@ const char *FUNCTION_STATS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FUNCTION STATS key specs */
 keySpec FUNCTION_STATS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FUNCTION command table */
 struct COMMAND_STRUCT FUNCTION_Subcommands[] = {
@@ -5168,58 +6443,76 @@ struct COMMAND_STRUCT FUNCTION_Subcommands[] = {
 
 /********** FUNCTION ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FUNCTION history */
 #define FUNCTION_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FUNCTION tips */
 #define FUNCTION_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FUNCTION key specs */
 keySpec FUNCTION_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SCRIPT DEBUG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT DEBUG history */
 #define SCRIPT_DEBUG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SCRIPT DEBUG tips */
 #define SCRIPT_DEBUG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SCRIPT DEBUG key specs */
 keySpec SCRIPT_DEBUG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCRIPT DEBUG mode argument table */
 struct COMMAND_ARG SCRIPT_DEBUG_mode_Subargs[] = {
-{MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("yes",ARG_TYPE_PURE_TOKEN,-1,"YES",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SCRIPT DEBUG argument table */
 struct COMMAND_ARG SCRIPT_DEBUG_Args[] = {
-{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3),.subargs=SCRIPT_DEBUG_mode_Subargs},
+{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=SCRIPT_DEBUG_mode_Subargs},
 {0}
 };
 
 /********** SCRIPT EXISTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT EXISTS history */
 #define SCRIPT_EXISTS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SCRIPT EXISTS tips */
 const char *SCRIPT_EXISTS_Tips[] = {
@@ -5228,28 +6521,35 @@ const char *SCRIPT_EXISTS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SCRIPT EXISTS key specs */
 keySpec SCRIPT_EXISTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCRIPT EXISTS argument table */
 struct COMMAND_ARG SCRIPT_EXISTS_Args[] = {
-{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("sha1",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SCRIPT FLUSH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT FLUSH history */
 commandHistory SCRIPT_FLUSH_History[] = {
 {"6.2.0","Added the `ASYNC` and `SYNC` flushing mode modifiers."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SCRIPT FLUSH tips */
 const char *SCRIPT_FLUSH_Tips[] = {
@@ -5258,49 +6558,63 @@ const char *SCRIPT_FLUSH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SCRIPT FLUSH key specs */
 keySpec SCRIPT_FLUSH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCRIPT FLUSH async argument table */
 struct COMMAND_ARG SCRIPT_FLUSH_async_Subargs[] = {
-{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SCRIPT FLUSH argument table */
 struct COMMAND_ARG SCRIPT_FLUSH_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=SCRIPT_FLUSH_async_Subargs},
+{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=SCRIPT_FLUSH_async_Subargs},
 {0}
 };
 
 /********** SCRIPT HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT HELP history */
 #define SCRIPT_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SCRIPT HELP tips */
 #define SCRIPT_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SCRIPT HELP key specs */
 keySpec SCRIPT_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SCRIPT KILL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT KILL history */
 #define SCRIPT_KILL_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SCRIPT KILL tips */
 const char *SCRIPT_KILL_Tips[] = {
@@ -5309,19 +6623,26 @@ const char *SCRIPT_KILL_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SCRIPT KILL key specs */
 keySpec SCRIPT_KILL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SCRIPT LOAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT LOAD history */
 #define SCRIPT_LOAD_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SCRIPT LOAD tips */
 const char *SCRIPT_LOAD_Tips[] = {
@@ -5330,16 +6651,19 @@ const char *SCRIPT_LOAD_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SCRIPT LOAD key specs */
 keySpec SCRIPT_LOAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCRIPT LOAD argument table */
 struct COMMAND_ARG SCRIPT_LOAD_Args[] = {
-{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("script",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
@@ -5356,514 +6680,668 @@ struct COMMAND_STRUCT SCRIPT_Subcommands[] = {
 
 /********** SCRIPT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCRIPT history */
 #define SCRIPT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SCRIPT tips */
 #define SCRIPT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SCRIPT key specs */
 keySpec SCRIPT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL CKQUORUM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL CKQUORUM history */
 #define SENTINEL_CKQUORUM_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL CKQUORUM tips */
 #define SENTINEL_CKQUORUM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL CKQUORUM key specs */
 keySpec SENTINEL_CKQUORUM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL CKQUORUM argument table */
 struct COMMAND_ARG SENTINEL_CKQUORUM_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL CONFIG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL CONFIG history */
 #define SENTINEL_CONFIG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL CONFIG tips */
 #define SENTINEL_CONFIG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL CONFIG key specs */
 keySpec SENTINEL_CONFIG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL CONFIG set_or_get set_param_value argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_set_param_value_Subargs[] = {
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SENTINEL CONFIG set_or_get argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_set_or_get_Subargs[] = {
-{MAKE_ARG("set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("set_param_value",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_set_param_value_Subargs},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /* SENTINEL CONFIG argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_Args[] = {
-{MAKE_ARG("set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
+{MAKE_ARG("set_or_get",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_set_or_get_Subargs},
 {0}
 };
 
 /********** SENTINEL DEBUG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL DEBUG history */
 #define SENTINEL_DEBUG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL DEBUG tips */
 #define SENTINEL_DEBUG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL DEBUG key specs */
 keySpec SENTINEL_DEBUG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL DEBUG parameter_value argument table */
 struct COMMAND_ARG SENTINEL_DEBUG_parameter_value_Subargs[] = {
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SENTINEL DEBUG argument table */
 struct COMMAND_ARG SENTINEL_DEBUG_Args[] = {
-{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
+{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_DEBUG_parameter_value_Subargs},
 {0}
 };
 
 /********** SENTINEL FAILOVER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL FAILOVER history */
 #define SENTINEL_FAILOVER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL FAILOVER tips */
 #define SENTINEL_FAILOVER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL FAILOVER key specs */
 keySpec SENTINEL_FAILOVER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL FAILOVER argument table */
 struct COMMAND_ARG SENTINEL_FAILOVER_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL FLUSHCONFIG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL FLUSHCONFIG history */
 #define SENTINEL_FLUSHCONFIG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL FLUSHCONFIG tips */
 #define SENTINEL_FLUSHCONFIG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL FLUSHCONFIG key specs */
 keySpec SENTINEL_FLUSHCONFIG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL GET_MASTER_ADDR_BY_NAME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL GET_MASTER_ADDR_BY_NAME history */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL GET_MASTER_ADDR_BY_NAME tips */
 #define SENTINEL_GET_MASTER_ADDR_BY_NAME_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL GET_MASTER_ADDR_BY_NAME key specs */
 keySpec SENTINEL_GET_MASTER_ADDR_BY_NAME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL GET_MASTER_ADDR_BY_NAME argument table */
 struct COMMAND_ARG SENTINEL_GET_MASTER_ADDR_BY_NAME_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL HELP history */
 #define SENTINEL_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL HELP tips */
 #define SENTINEL_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL HELP key specs */
 keySpec SENTINEL_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL INFO_CACHE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL INFO_CACHE history */
 #define SENTINEL_INFO_CACHE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL INFO_CACHE tips */
 #define SENTINEL_INFO_CACHE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL INFO_CACHE key specs */
 keySpec SENTINEL_INFO_CACHE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL INFO_CACHE argument table */
 struct COMMAND_ARG SENTINEL_INFO_CACHE_Args[] = {
-{MAKE_ARG("nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL IS_MASTER_DOWN_BY_ADDR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR history */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR tips */
 #define SENTINEL_IS_MASTER_DOWN_BY_ADDR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR key specs */
 keySpec SENTINEL_IS_MASTER_DOWN_BY_ADDR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL IS_MASTER_DOWN_BY_ADDR argument table */
 struct COMMAND_ARG SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args[] = {
-{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("current-epoch",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("runid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL MASTER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL MASTER history */
 #define SENTINEL_MASTER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL MASTER tips */
 #define SENTINEL_MASTER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL MASTER key specs */
 keySpec SENTINEL_MASTER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL MASTER argument table */
 struct COMMAND_ARG SENTINEL_MASTER_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL MASTERS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL MASTERS history */
 #define SENTINEL_MASTERS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL MASTERS tips */
 #define SENTINEL_MASTERS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL MASTERS key specs */
 keySpec SENTINEL_MASTERS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL MONITOR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL MONITOR history */
 #define SENTINEL_MONITOR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL MONITOR tips */
 #define SENTINEL_MONITOR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL MONITOR key specs */
 keySpec SENTINEL_MONITOR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL MONITOR argument table */
 struct COMMAND_ARG SENTINEL_MONITOR_Args[] = {
-{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("quorum",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL MYID ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL MYID history */
 #define SENTINEL_MYID_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL MYID tips */
 #define SENTINEL_MYID_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL MYID key specs */
 keySpec SENTINEL_MYID_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL PENDING_SCRIPTS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL PENDING_SCRIPTS history */
 #define SENTINEL_PENDING_SCRIPTS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL PENDING_SCRIPTS tips */
 #define SENTINEL_PENDING_SCRIPTS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL PENDING_SCRIPTS key specs */
 keySpec SENTINEL_PENDING_SCRIPTS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SENTINEL REMOVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL REMOVE history */
 #define SENTINEL_REMOVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL REMOVE tips */
 #define SENTINEL_REMOVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL REMOVE key specs */
 keySpec SENTINEL_REMOVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL REMOVE argument table */
 struct COMMAND_ARG SENTINEL_REMOVE_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL REPLICAS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL REPLICAS history */
 #define SENTINEL_REPLICAS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL REPLICAS tips */
 #define SENTINEL_REPLICAS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL REPLICAS key specs */
 keySpec SENTINEL_REPLICAS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL REPLICAS argument table */
 struct COMMAND_ARG SENTINEL_REPLICAS_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL RESET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL RESET history */
 #define SENTINEL_RESET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL RESET tips */
 #define SENTINEL_RESET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL RESET key specs */
 keySpec SENTINEL_RESET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL RESET argument table */
 struct COMMAND_ARG SENTINEL_RESET_Args[] = {
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL SENTINELS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL SENTINELS history */
 #define SENTINEL_SENTINELS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL SENTINELS tips */
 #define SENTINEL_SENTINELS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL SENTINELS key specs */
 keySpec SENTINEL_SENTINELS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL SENTINELS argument table */
 struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SENTINEL SET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL SET history */
 #define SENTINEL_SET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL SET tips */
 #define SENTINEL_SET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL SET key specs */
 keySpec SENTINEL_SET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL SET option_value argument table */
 struct COMMAND_ARG SENTINEL_SET_option_value_Subargs[] = {
-{MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SENTINEL SET argument table */
 struct COMMAND_ARG SENTINEL_SET_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=SENTINEL_SET_option_value_Subargs},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("option_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_SET_option_value_Subargs},
 {0}
 };
 
 /********** SENTINEL SIMULATE_FAILURE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL SIMULATE_FAILURE history */
 #define SENTINEL_SIMULATE_FAILURE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL SIMULATE_FAILURE tips */
 #define SENTINEL_SIMULATE_FAILURE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL SIMULATE_FAILURE key specs */
 keySpec SENTINEL_SIMULATE_FAILURE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL SIMULATE_FAILURE mode argument table */
 struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_mode_Subargs[] = {
-{MAKE_ARG("crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("crash-after-election",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("crash-after-promotion",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("help",ARG_TYPE_PURE_TOKEN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SENTINEL SIMULATE_FAILURE argument table */
 struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_Args[] = {
-{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,3),.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
+{MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,3,NULL),.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
 {0}
 };
 
 /********** SENTINEL SLAVES ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL SLAVES history */
 #define SENTINEL_SLAVES_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL SLAVES tips */
 #define SENTINEL_SLAVES_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL SLAVES key specs */
 keySpec SENTINEL_SLAVES_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SENTINEL SLAVES argument table */
 struct COMMAND_ARG SENTINEL_SLAVES_Args[] = {
-{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
@@ -5895,118 +7373,153 @@ struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 
 /********** SENTINEL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SENTINEL history */
 #define SENTINEL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SENTINEL tips */
 #define SENTINEL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SENTINEL key specs */
 keySpec SENTINEL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL CAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL CAT history */
 #define ACL_CAT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL CAT tips */
 #define ACL_CAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL CAT key specs */
 keySpec ACL_CAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL CAT argument table */
 struct COMMAND_ARG ACL_CAT_Args[] = {
-{MAKE_ARG("categoryname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("categoryname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ACL DELUSER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL DELUSER history */
 #define ACL_DELUSER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL DELUSER tips */
 #define ACL_DELUSER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL DELUSER key specs */
 keySpec ACL_DELUSER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL DELUSER argument table */
 struct COMMAND_ARG ACL_DELUSER_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ACL DRYRUN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL DRYRUN history */
 #define ACL_DRYRUN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL DRYRUN tips */
 #define ACL_DRYRUN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL DRYRUN key specs */
 keySpec ACL_DRYRUN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL DRYRUN argument table */
 struct COMMAND_ARG ACL_DRYRUN_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ACL GENPASS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL GENPASS history */
 #define ACL_GENPASS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL GENPASS tips */
 #define ACL_GENPASS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL GENPASS key specs */
 keySpec ACL_GENPASS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL GENPASS argument table */
 struct COMMAND_ARG ACL_GENPASS_Args[] = {
-{MAKE_ARG("bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("bits",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ACL GETUSER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL GETUSER history */
 commandHistory ACL_GETUSER_History[] = {
@@ -6015,123 +7528,165 @@ commandHistory ACL_GETUSER_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL GETUSER tips */
 #define ACL_GETUSER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL GETUSER key specs */
 keySpec ACL_GETUSER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL GETUSER argument table */
 struct COMMAND_ARG ACL_GETUSER_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ACL HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL HELP history */
 #define ACL_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL HELP tips */
 #define ACL_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL HELP key specs */
 keySpec ACL_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL LIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL LIST history */
 #define ACL_LIST_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL LIST tips */
 #define ACL_LIST_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL LIST key specs */
 keySpec ACL_LIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL LOAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL LOAD history */
 #define ACL_LOAD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL LOAD tips */
 #define ACL_LOAD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL LOAD key specs */
 keySpec ACL_LOAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL LOG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL LOG history */
 #define ACL_LOG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL LOG tips */
 #define ACL_LOG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL LOG key specs */
 keySpec ACL_LOG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL LOG operation argument table */
 struct COMMAND_ARG ACL_LOG_operation_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("reset",ARG_TYPE_PURE_TOKEN,-1,"RESET",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("reset",ARG_TYPE_PURE_TOKEN,-1,"RESET",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ACL LOG argument table */
 struct COMMAND_ARG ACL_LOG_Args[] = {
-{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ACL_LOG_operation_Subargs},
+{MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ACL_LOG_operation_Subargs},
 {0}
 };
 
 /********** ACL SAVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL SAVE history */
 #define ACL_SAVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL SAVE tips */
 #define ACL_SAVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL SAVE key specs */
 keySpec ACL_SAVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL SETUSER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL SETUSER history */
 commandHistory ACL_SETUSER_History[] = {
@@ -6140,56 +7695,77 @@ commandHistory ACL_SETUSER_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL SETUSER tips */
 #define ACL_SETUSER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL SETUSER key specs */
 keySpec ACL_SETUSER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL SETUSER argument table */
 struct COMMAND_ARG ACL_SETUSER_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("rule",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("rule",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ACL USERS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL USERS history */
 #define ACL_USERS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL USERS tips */
 #define ACL_USERS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL USERS key specs */
 keySpec ACL_USERS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** ACL WHOAMI ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL WHOAMI history */
 #define ACL_WHOAMI_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL WHOAMI tips */
 #define ACL_WHOAMI_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL WHOAMI key specs */
 keySpec ACL_WHOAMI_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ACL command table */
 struct COMMAND_STRUCT ACL_Subcommands[] = {
@@ -6211,41 +7787,55 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 
 /********** ACL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ACL history */
 #define ACL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ACL tips */
 #define ACL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ACL key specs */
 keySpec ACL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** BGREWRITEAOF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BGREWRITEAOF history */
 #define BGREWRITEAOF_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BGREWRITEAOF tips */
 #define BGREWRITEAOF_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BGREWRITEAOF key specs */
 keySpec BGREWRITEAOF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** BGSAVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BGSAVE history */
 commandHistory BGSAVE_History[] = {
@@ -6253,45 +7843,63 @@ commandHistory BGSAVE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BGSAVE tips */
 #define BGSAVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BGSAVE key specs */
 keySpec BGSAVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BGSAVE argument table */
 struct COMMAND_ARG BGSAVE_Args[] = {
-{MAKE_ARG("schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("schedule",ARG_TYPE_PURE_TOKEN,-1,"SCHEDULE",NULL,"3.2.2",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** COMMAND COUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND COUNT history */
 #define COMMAND_COUNT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COMMAND COUNT tips */
 #define COMMAND_COUNT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* COMMAND COUNT key specs */
 keySpec COMMAND_COUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** COMMAND DOCS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND DOCS history */
 #define COMMAND_DOCS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* COMMAND DOCS tips */
 const char *COMMAND_DOCS_Tips[] = {
@@ -6299,73 +7907,97 @@ const char *COMMAND_DOCS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* COMMAND DOCS key specs */
 keySpec COMMAND_DOCS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* COMMAND DOCS argument table */
 struct COMMAND_ARG COMMAND_DOCS_Args[] = {
-{MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** COMMAND GETKEYS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND GETKEYS history */
 #define COMMAND_GETKEYS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COMMAND GETKEYS tips */
 #define COMMAND_GETKEYS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* COMMAND GETKEYS key specs */
 keySpec COMMAND_GETKEYS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** COMMAND GETKEYSANDFLAGS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND GETKEYSANDFLAGS history */
 #define COMMAND_GETKEYSANDFLAGS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COMMAND GETKEYSANDFLAGS tips */
 #define COMMAND_GETKEYSANDFLAGS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* COMMAND GETKEYSANDFLAGS key specs */
 keySpec COMMAND_GETKEYSANDFLAGS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** COMMAND HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND HELP history */
 #define COMMAND_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COMMAND HELP tips */
 #define COMMAND_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* COMMAND HELP key specs */
 keySpec COMMAND_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** COMMAND INFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND INFO history */
 commandHistory COMMAND_INFO_History[] = {
@@ -6373,31 +8005,42 @@ commandHistory COMMAND_INFO_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* COMMAND INFO tips */
 const char *COMMAND_INFO_Tips[] = {
 "nondeterministic_output_order",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* COMMAND INFO key specs */
 keySpec COMMAND_INFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* COMMAND INFO argument table */
 struct COMMAND_ARG COMMAND_INFO_Args[] = {
-{MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("command-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** COMMAND LIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND LIST history */
 #define COMMAND_LIST_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* COMMAND LIST tips */
 const char *COMMAND_LIST_Tips[] = {
@@ -6405,24 +8048,27 @@ const char *COMMAND_LIST_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* COMMAND LIST key specs */
 keySpec COMMAND_LIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* COMMAND LIST filterby argument table */
 struct COMMAND_ARG COMMAND_LIST_filterby_Subargs[] = {
-{MAKE_ARG("module-name",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("category",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("module-name",ARG_TYPE_STRING,-1,"MODULE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("category",ARG_TYPE_STRING,-1,"ACLCAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* COMMAND LIST argument table */
 struct COMMAND_ARG COMMAND_LIST_Args[] = {
-{MAKE_ARG("filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=COMMAND_LIST_filterby_Subargs},
+{MAKE_ARG("filterby",ARG_TYPE_ONEOF,-1,"FILTERBY",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=COMMAND_LIST_filterby_Subargs},
 {0}
 };
 
@@ -6440,10 +8086,14 @@ struct COMMAND_STRUCT COMMAND_Subcommands[] = {
 
 /********** COMMAND ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* COMMAND history */
 #define COMMAND_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* COMMAND tips */
 const char *COMMAND_Tips[] = {
@@ -6451,16 +8101,19 @@ const char *COMMAND_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* COMMAND key specs */
 keySpec COMMAND_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CONFIG GET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG GET history */
 commandHistory CONFIG_GET_History[] = {
@@ -6468,88 +8121,120 @@ commandHistory CONFIG_GET_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CONFIG GET tips */
 #define CONFIG_GET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CONFIG GET key specs */
 keySpec CONFIG_GET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CONFIG GET parameter argument table */
 struct COMMAND_ARG CONFIG_GET_parameter_Subargs[] = {
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CONFIG GET argument table */
 struct COMMAND_ARG CONFIG_GET_Args[] = {
-{MAKE_ARG("parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1),.subargs=CONFIG_GET_parameter_Subargs},
+{MAKE_ARG("parameter",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,1,NULL),.subargs=CONFIG_GET_parameter_Subargs},
 {0}
 };
 
 /********** CONFIG HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG HELP history */
 #define CONFIG_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CONFIG HELP tips */
 #define CONFIG_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CONFIG HELP key specs */
 keySpec CONFIG_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CONFIG RESETSTAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG RESETSTAT history */
 #define CONFIG_RESETSTAT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CONFIG RESETSTAT tips */
 #define CONFIG_RESETSTAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CONFIG RESETSTAT key specs */
 keySpec CONFIG_RESETSTAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CONFIG REWRITE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG REWRITE history */
 #define CONFIG_REWRITE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CONFIG REWRITE tips */
 #define CONFIG_REWRITE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CONFIG REWRITE key specs */
 keySpec CONFIG_REWRITE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** CONFIG SET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG SET history */
 commandHistory CONFIG_SET_History[] = {
 {"7.0.0","Added the ability to set multiple parameters in one call."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* CONFIG SET tips */
 const char *CONFIG_SET_Tips[] = {
@@ -6558,23 +8243,26 @@ const char *CONFIG_SET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* CONFIG SET key specs */
 keySpec CONFIG_SET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* CONFIG SET parameter_value argument table */
 struct COMMAND_ARG CONFIG_SET_parameter_value_Subargs[] = {
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* CONFIG SET argument table */
 struct COMMAND_ARG CONFIG_SET_Args[] = {
-{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=CONFIG_SET_parameter_value_Subargs},
+{MAKE_ARG("parameter_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CONFIG_SET_parameter_value_Subargs},
 {0}
 };
 
@@ -6590,27 +8278,38 @@ struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 
 /********** CONFIG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* CONFIG history */
 #define CONFIG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* CONFIG tips */
 #define CONFIG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* CONFIG key specs */
 keySpec CONFIG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** DBSIZE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DBSIZE history */
 #define DBSIZE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* DBSIZE tips */
 const char *DBSIZE_Tips[] = {
@@ -6619,66 +8318,83 @@ const char *DBSIZE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* DBSIZE key specs */
 keySpec DBSIZE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** DEBUG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DEBUG history */
 #define DEBUG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* DEBUG tips */
 #define DEBUG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* DEBUG key specs */
 keySpec DEBUG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** FAILOVER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FAILOVER history */
 #define FAILOVER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FAILOVER tips */
 #define FAILOVER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* FAILOVER key specs */
 keySpec FAILOVER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FAILOVER target argument table */
 struct COMMAND_ARG FAILOVER_target_Subargs[] = {
-{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* FAILOVER argument table */
 struct COMMAND_ARG FAILOVER_Args[] = {
-{MAKE_ARG("target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=FAILOVER_target_Subargs},
-{MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("target",ARG_TYPE_BLOCK,-1,"TO",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=FAILOVER_target_Subargs},
+{MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** FLUSHALL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FLUSHALL history */
 commandHistory FLUSHALL_History[] = {
@@ -6687,6 +8403,10 @@ commandHistory FLUSHALL_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FLUSHALL tips */
 const char *FLUSHALL_Tips[] = {
 "request_policy:all_shards",
@@ -6694,29 +8414,32 @@ const char *FLUSHALL_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FLUSHALL key specs */
 keySpec FLUSHALL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FLUSHALL async argument table */
 struct COMMAND_ARG FLUSHALL_async_Subargs[] = {
-{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0)},
+{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* FLUSHALL argument table */
 struct COMMAND_ARG FLUSHALL_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=FLUSHALL_async_Subargs},
+{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHALL_async_Subargs},
 {0}
 };
 
 /********** FLUSHDB ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* FLUSHDB history */
 commandHistory FLUSHDB_History[] = {
@@ -6725,6 +8448,10 @@ commandHistory FLUSHDB_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* FLUSHDB tips */
 const char *FLUSHDB_Tips[] = {
 "request_policy:all_shards",
@@ -6732,35 +8459,42 @@ const char *FLUSHDB_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* FLUSHDB key specs */
 keySpec FLUSHDB_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* FLUSHDB async argument table */
 struct COMMAND_ARG FLUSHDB_async_Subargs[] = {
-{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0)},
+{MAKE_ARG("async",ARG_TYPE_PURE_TOKEN,-1,"ASYNC",NULL,"4.0.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sync",ARG_TYPE_PURE_TOKEN,-1,"SYNC",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* FLUSHDB argument table */
 struct COMMAND_ARG FLUSHDB_Args[] = {
-{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=FLUSHDB_async_Subargs},
+{MAKE_ARG("async",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=FLUSHDB_async_Subargs},
 {0}
 };
 
 /********** INFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* INFO history */
 commandHistory INFO_History[] = {
 {"7.0.0","Added support for taking multiple section arguments."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* INFO tips */
 const char *INFO_Tips[] = {
@@ -6770,25 +8504,32 @@ const char *INFO_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* INFO key specs */
 keySpec INFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* INFO argument table */
 struct COMMAND_ARG INFO_Args[] = {
-{MAKE_ARG("section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("section",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** LASTSAVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LASTSAVE history */
 #define LASTSAVE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LASTSAVE tips */
 const char *LASTSAVE_Tips[] = {
@@ -6796,19 +8537,26 @@ const char *LASTSAVE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LASTSAVE key specs */
 keySpec LASTSAVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** LATENCY DOCTOR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY DOCTOR history */
 #define LATENCY_DOCTOR_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY DOCTOR tips */
 const char *LATENCY_DOCTOR_Tips[] = {
@@ -6818,19 +8566,26 @@ const char *LATENCY_DOCTOR_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY DOCTOR key specs */
 keySpec LATENCY_DOCTOR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** LATENCY GRAPH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY GRAPH history */
 #define LATENCY_GRAPH_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY GRAPH tips */
 const char *LATENCY_GRAPH_Tips[] = {
@@ -6840,42 +8595,56 @@ const char *LATENCY_GRAPH_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY GRAPH key specs */
 keySpec LATENCY_GRAPH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LATENCY GRAPH argument table */
 struct COMMAND_ARG LATENCY_GRAPH_Args[] = {
-{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LATENCY HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY HELP history */
 #define LATENCY_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LATENCY HELP tips */
 #define LATENCY_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LATENCY HELP key specs */
 keySpec LATENCY_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** LATENCY HISTOGRAM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY HISTOGRAM history */
 #define LATENCY_HISTOGRAM_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY HISTOGRAM tips */
 const char *LATENCY_HISTOGRAM_Tips[] = {
@@ -6885,25 +8654,32 @@ const char *LATENCY_HISTOGRAM_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY HISTOGRAM key specs */
 keySpec LATENCY_HISTOGRAM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LATENCY HISTOGRAM argument table */
 struct COMMAND_ARG LATENCY_HISTOGRAM_Args[] = {
-{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** LATENCY HISTORY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY HISTORY history */
 #define LATENCY_HISTORY_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY HISTORY tips */
 const char *LATENCY_HISTORY_Tips[] = {
@@ -6913,25 +8689,32 @@ const char *LATENCY_HISTORY_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY HISTORY key specs */
 keySpec LATENCY_HISTORY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LATENCY HISTORY argument table */
 struct COMMAND_ARG LATENCY_HISTORY_Args[] = {
-{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LATENCY LATEST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY LATEST history */
 #define LATENCY_LATEST_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY LATEST tips */
 const char *LATENCY_LATEST_Tips[] = {
@@ -6941,19 +8724,26 @@ const char *LATENCY_LATEST_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY LATEST key specs */
 keySpec LATENCY_LATEST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** LATENCY RESET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY RESET history */
 #define LATENCY_RESET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* LATENCY RESET tips */
 const char *LATENCY_RESET_Tips[] = {
@@ -6962,16 +8752,19 @@ const char *LATENCY_RESET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* LATENCY RESET key specs */
 keySpec LATENCY_RESET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LATENCY RESET argument table */
 struct COMMAND_ARG LATENCY_RESET_Args[] = {
-{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("event",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
@@ -6989,50 +8782,68 @@ struct COMMAND_STRUCT LATENCY_Subcommands[] = {
 
 /********** LATENCY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LATENCY history */
 #define LATENCY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LATENCY tips */
 #define LATENCY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LATENCY key specs */
 keySpec LATENCY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** LOLWUT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LOLWUT history */
 #define LOLWUT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LOLWUT tips */
 #define LOLWUT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LOLWUT key specs */
 keySpec LOLWUT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LOLWUT argument table */
 struct COMMAND_ARG LOLWUT_Args[] = {
-{MAKE_ARG("version",ARG_TYPE_INTEGER,-1,"VERSION",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("version",ARG_TYPE_INTEGER,-1,"VERSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** MEMORY DOCTOR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY DOCTOR history */
 #define MEMORY_DOCTOR_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MEMORY DOCTOR tips */
 const char *MEMORY_DOCTOR_Tips[] = {
@@ -7042,36 +8853,50 @@ const char *MEMORY_DOCTOR_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MEMORY DOCTOR key specs */
 keySpec MEMORY_DOCTOR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MEMORY HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY HELP history */
 #define MEMORY_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MEMORY HELP tips */
 #define MEMORY_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MEMORY HELP key specs */
 keySpec MEMORY_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MEMORY MALLOC_STATS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY MALLOC_STATS history */
 #define MEMORY_MALLOC_STATS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MEMORY MALLOC_STATS tips */
 const char *MEMORY_MALLOC_STATS_Tips[] = {
@@ -7081,19 +8906,26 @@ const char *MEMORY_MALLOC_STATS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MEMORY MALLOC_STATS key specs */
 keySpec MEMORY_MALLOC_STATS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MEMORY PURGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY PURGE history */
 #define MEMORY_PURGE_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MEMORY PURGE tips */
 const char *MEMORY_PURGE_Tips[] = {
@@ -7102,19 +8934,26 @@ const char *MEMORY_PURGE_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MEMORY PURGE key specs */
 keySpec MEMORY_PURGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MEMORY STATS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY STATS history */
 #define MEMORY_STATS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MEMORY STATS tips */
 const char *MEMORY_STATS_Tips[] = {
@@ -7124,34 +8963,44 @@ const char *MEMORY_STATS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MEMORY STATS key specs */
 keySpec MEMORY_STATS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MEMORY USAGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY USAGE history */
 #define MEMORY_USAGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MEMORY USAGE tips */
 #define MEMORY_USAGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MEMORY USAGE key specs */
 keySpec MEMORY_USAGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MEMORY USAGE argument table */
 struct COMMAND_ARG MEMORY_USAGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"SAMPLES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
@@ -7168,44 +9017,62 @@ struct COMMAND_STRUCT MEMORY_Subcommands[] = {
 
 /********** MEMORY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MEMORY history */
 #define MEMORY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MEMORY tips */
 #define MEMORY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MEMORY key specs */
 keySpec MEMORY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MODULE HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE HELP history */
 #define MODULE_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MODULE HELP tips */
 #define MODULE_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MODULE HELP key specs */
 keySpec MODULE_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MODULE LIST ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE LIST history */
 #define MODULE_LIST_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MODULE LIST tips */
 const char *MODULE_LIST_Tips[] = {
@@ -7213,95 +9080,119 @@ const char *MODULE_LIST_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MODULE LIST key specs */
 keySpec MODULE_LIST_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MODULE LOAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE LOAD history */
 #define MODULE_LOAD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MODULE LOAD tips */
 #define MODULE_LOAD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MODULE LOAD key specs */
 keySpec MODULE_LOAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MODULE LOAD argument table */
 struct COMMAND_ARG MODULE_LOAD_Args[] = {
-{MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** MODULE LOADEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE LOADEX history */
 #define MODULE_LOADEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MODULE LOADEX tips */
 #define MODULE_LOADEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MODULE LOADEX key specs */
 keySpec MODULE_LOADEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MODULE LOADEX configs argument table */
 struct COMMAND_ARG MODULE_LOADEX_configs_Subargs[] = {
-{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MODULE LOADEX args argument table */
 struct COMMAND_ARG MODULE_LOADEX_args_Subargs[] = {
-{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("arg",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MODULE LOADEX argument table */
 struct COMMAND_ARG MODULE_LOADEX_Args[] = {
-{MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2),.subargs=MODULE_LOADEX_configs_Subargs},
-{MAKE_ARG("args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,1),.subargs=MODULE_LOADEX_args_Subargs},
+{MAKE_ARG("path",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("configs",ARG_TYPE_BLOCK,-1,"CONFIG",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE|CMD_ARG_MULTIPLE_TOKEN,2,NULL),.subargs=MODULE_LOADEX_configs_Subargs},
+{MAKE_ARG("args",ARG_TYPE_BLOCK,-1,"ARGS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,1,NULL),.subargs=MODULE_LOADEX_args_Subargs},
 {0}
 };
 
 /********** MODULE UNLOAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE UNLOAD history */
 #define MODULE_UNLOAD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MODULE UNLOAD tips */
 #define MODULE_UNLOAD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MODULE UNLOAD key specs */
 keySpec MODULE_UNLOAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MODULE UNLOAD argument table */
 struct COMMAND_ARG MODULE_UNLOAD_Args[] = {
-{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
@@ -7317,106 +9208,141 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 
 /********** MODULE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MODULE history */
 #define MODULE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MODULE tips */
 #define MODULE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MODULE key specs */
 keySpec MODULE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MONITOR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MONITOR history */
 #define MONITOR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MONITOR tips */
 #define MONITOR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MONITOR key specs */
 keySpec MONITOR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** PSYNC ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PSYNC history */
 #define PSYNC_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PSYNC tips */
 #define PSYNC_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PSYNC key specs */
 keySpec PSYNC_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PSYNC argument table */
 struct COMMAND_ARG PSYNC_Args[] = {
-{MAKE_ARG("replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("replicationid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** REPLCONF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* REPLCONF history */
 #define REPLCONF_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* REPLCONF tips */
 #define REPLCONF_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* REPLCONF key specs */
 keySpec REPLCONF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** REPLICAOF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* REPLICAOF history */
 #define REPLICAOF_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* REPLICAOF tips */
 #define REPLICAOF_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* REPLICAOF key specs */
 keySpec REPLICAOF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* REPLICAOF argument table */
 struct COMMAND_ARG REPLICAOF_Args[] = {
-{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** RESTORE_ASKING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* RESTORE_ASKING history */
 commandHistory RESTORE_ASKING_History[] = {
@@ -7426,65 +9352,86 @@ commandHistory RESTORE_ASKING_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* RESTORE_ASKING tips */
 #define RESTORE_ASKING_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* RESTORE_ASKING key specs */
 keySpec RESTORE_ASKING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* RESTORE_ASKING argument table */
 struct COMMAND_ARG RESTORE_ASKING_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ttl",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("serialized-value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("replace",ARG_TYPE_PURE_TOKEN,-1,"REPLACE",NULL,"3.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("absttl",ARG_TYPE_PURE_TOKEN,-1,"ABSTTL",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"IDLETIME",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("frequency",ARG_TYPE_INTEGER,-1,"FREQ",NULL,"5.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ROLE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ROLE history */
 #define ROLE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ROLE tips */
 #define ROLE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ROLE key specs */
 keySpec ROLE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SAVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SAVE history */
 #define SAVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SAVE tips */
 #define SAVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SAVE key specs */
 keySpec SAVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SHUTDOWN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SHUTDOWN history */
 commandHistory SHUTDOWN_History[] = {
@@ -7492,65 +9439,83 @@ commandHistory SHUTDOWN_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SHUTDOWN tips */
 #define SHUTDOWN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SHUTDOWN key specs */
 keySpec SHUTDOWN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SHUTDOWN nosave_save argument table */
 struct COMMAND_ARG SHUTDOWN_nosave_save_Subargs[] = {
-{MAKE_ARG("nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nosave",ARG_TYPE_PURE_TOKEN,-1,"NOSAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("save",ARG_TYPE_PURE_TOKEN,-1,"SAVE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SHUTDOWN argument table */
 struct COMMAND_ARG SHUTDOWN_Args[] = {
-{MAKE_ARG("nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=SHUTDOWN_nosave_save_Subargs},
-{MAKE_ARG("now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("nosave_save",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SHUTDOWN_nosave_save_Subargs},
+{MAKE_ARG("now",ARG_TYPE_PURE_TOKEN,-1,"NOW",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("abort",ARG_TYPE_PURE_TOKEN,-1,"ABORT",NULL,"7.0.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SLAVEOF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLAVEOF history */
 #define SLAVEOF_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SLAVEOF tips */
 #define SLAVEOF_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SLAVEOF key specs */
 keySpec SLAVEOF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SLAVEOF argument table */
 struct COMMAND_ARG SLAVEOF_Args[] = {
-{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SLOWLOG GET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLOWLOG GET history */
 commandHistory SLOWLOG_GET_History[] = {
 {"4.0.0","Added client IP address, port and name to the reply."},
 {0}
 };
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SLOWLOG GET tips */
 const char *SLOWLOG_GET_Tips[] = {
@@ -7559,42 +9524,56 @@ const char *SLOWLOG_GET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SLOWLOG GET key specs */
 keySpec SLOWLOG_GET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SLOWLOG GET argument table */
 struct COMMAND_ARG SLOWLOG_GET_Args[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SLOWLOG HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLOWLOG HELP history */
 #define SLOWLOG_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SLOWLOG HELP tips */
 #define SLOWLOG_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SLOWLOG HELP key specs */
 keySpec SLOWLOG_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SLOWLOG LEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLOWLOG LEN history */
 #define SLOWLOG_LEN_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SLOWLOG LEN tips */
 const char *SLOWLOG_LEN_Tips[] = {
@@ -7604,19 +9583,26 @@ const char *SLOWLOG_LEN_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SLOWLOG LEN key specs */
 keySpec SLOWLOG_LEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SLOWLOG RESET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLOWLOG RESET history */
 #define SLOWLOG_RESET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SLOWLOG RESET tips */
 const char *SLOWLOG_RESET_Tips[] = {
@@ -7625,12 +9611,15 @@ const char *SLOWLOG_RESET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SLOWLOG RESET key specs */
 keySpec SLOWLOG_RESET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SLOWLOG command table */
 struct COMMAND_STRUCT SLOWLOG_Subcommands[] = {
@@ -7643,68 +9632,93 @@ struct COMMAND_STRUCT SLOWLOG_Subcommands[] = {
 
 /********** SLOWLOG ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SLOWLOG history */
 #define SLOWLOG_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SLOWLOG tips */
 #define SLOWLOG_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SLOWLOG key specs */
 keySpec SLOWLOG_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SWAPDB ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SWAPDB history */
 #define SWAPDB_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SWAPDB tips */
 #define SWAPDB_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SWAPDB key specs */
 keySpec SWAPDB_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SWAPDB argument table */
 struct COMMAND_ARG SWAPDB_Args[] = {
-{MAKE_ARG("index1",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("index2",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("index1",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("index2",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SYNC ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SYNC history */
 #define SYNC_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SYNC tips */
 #define SYNC_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SYNC key specs */
 keySpec SYNC_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** TIME ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* TIME history */
 #define TIME_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* TIME tips */
 const char *TIME_Tips[] = {
@@ -7712,16 +9726,19 @@ const char *TIME_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* TIME key specs */
 keySpec TIME_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** SADD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SADD history */
 commandHistory SADD_History[] = {
@@ -7729,52 +9746,70 @@ commandHistory SADD_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SADD tips */
 #define SADD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SADD key specs */
 keySpec SADD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SADD argument table */
 struct COMMAND_ARG SADD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SCARD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SCARD history */
 #define SCARD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SCARD tips */
 #define SCARD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SCARD key specs */
 keySpec SCARD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SCARD argument table */
 struct COMMAND_ARG SCARD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SDIFF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SDIFF history */
 #define SDIFF_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SDIFF tips */
 const char *SDIFF_Tips[] = {
@@ -7782,49 +9817,63 @@ const char *SDIFF_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SDIFF key specs */
 keySpec SDIFF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SDIFF argument table */
 struct COMMAND_ARG SDIFF_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SDIFFSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SDIFFSTORE history */
 #define SDIFFSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SDIFFSTORE tips */
 #define SDIFFSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SDIFFSTORE key specs */
 keySpec SDIFFSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SDIFFSTORE argument table */
 struct COMMAND_ARG SDIFFSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SINTER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SINTER history */
 #define SINTER_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SINTER tips */
 const char *SINTER_Tips[] = {
@@ -7832,98 +9881,126 @@ const char *SINTER_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SINTER key specs */
 keySpec SINTER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SINTER argument table */
 struct COMMAND_ARG SINTER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SINTERCARD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SINTERCARD history */
 #define SINTERCARD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SINTERCARD tips */
 #define SINTERCARD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SINTERCARD key specs */
 keySpec SINTERCARD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SINTERCARD argument table */
 struct COMMAND_ARG SINTERCARD_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SINTERSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SINTERSTORE history */
 #define SINTERSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SINTERSTORE tips */
 #define SINTERSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SINTERSTORE key specs */
 keySpec SINTERSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SINTERSTORE argument table */
 struct COMMAND_ARG SINTERSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SISMEMBER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SISMEMBER history */
 #define SISMEMBER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SISMEMBER tips */
 #define SISMEMBER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SISMEMBER key specs */
 keySpec SISMEMBER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SISMEMBER argument table */
 struct COMMAND_ARG SISMEMBER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SMEMBERS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SMEMBERS history */
 #define SMEMBERS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SMEMBERS tips */
 const char *SMEMBERS_Tips[] = {
@@ -7931,71 +10008,88 @@ const char *SMEMBERS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SMEMBERS key specs */
 keySpec SMEMBERS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SMEMBERS argument table */
 struct COMMAND_ARG SMEMBERS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SMISMEMBER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SMISMEMBER history */
 #define SMISMEMBER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SMISMEMBER tips */
 #define SMISMEMBER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SMISMEMBER key specs */
 keySpec SMISMEMBER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SMISMEMBER argument table */
 struct COMMAND_ARG SMISMEMBER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SMOVE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SMOVE history */
 #define SMOVE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SMOVE tips */
 #define SMOVE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SMOVE key specs */
 keySpec SMOVE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SMOVE argument table */
 struct COMMAND_ARG SMOVE_Args[] = {
-{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SPOP history */
 commandHistory SPOP_History[] = {
@@ -8003,29 +10097,36 @@ commandHistory SPOP_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SPOP tips */
 const char *SPOP_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SPOP key specs */
 keySpec SPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SPOP argument table */
 struct COMMAND_ARG SPOP_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SRANDMEMBER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SRANDMEMBER history */
 commandHistory SRANDMEMBER_History[] = {
@@ -8033,29 +10134,36 @@ commandHistory SRANDMEMBER_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SRANDMEMBER tips */
 const char *SRANDMEMBER_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SRANDMEMBER key specs */
 keySpec SRANDMEMBER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SRANDMEMBER argument table */
 struct COMMAND_ARG SRANDMEMBER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"2.6.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SREM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SREM history */
 commandHistory SREM_History[] = {
@@ -8063,29 +10171,40 @@ commandHistory SREM_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SREM tips */
 #define SREM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SREM key specs */
 keySpec SREM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SREM argument table */
 struct COMMAND_ARG SREM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SSCAN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SSCAN history */
 #define SSCAN_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SSCAN tips */
 const char *SSCAN_Tips[] = {
@@ -8093,28 +10212,35 @@ const char *SSCAN_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SSCAN key specs */
 keySpec SSCAN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SSCAN argument table */
 struct COMMAND_ARG SSCAN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** SUNION ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SUNION history */
 #define SUNION_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* SUNION tips */
 const char *SUNION_Tips[] = {
@@ -8122,80 +10248,97 @@ const char *SUNION_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* SUNION key specs */
 keySpec SUNION_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SUNION argument table */
 struct COMMAND_ARG SUNION_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** SUNIONSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SUNIONSTORE history */
 #define SUNIONSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SUNIONSTORE tips */
 #define SUNIONSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SUNIONSTORE key specs */
 keySpec SUNIONSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SUNIONSTORE argument table */
 struct COMMAND_ARG SUNIONSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** BZMPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BZMPOP history */
 #define BZMPOP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BZMPOP tips */
 #define BZMPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BZMPOP key specs */
 keySpec BZMPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BZMPOP where argument table */
 struct COMMAND_ARG BZMPOP_where_Subargs[] = {
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* BZMPOP argument table */
 struct COMMAND_ARG BZMPOP_Args[] = {
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=BZMPOP_where_Subargs},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BZMPOP_where_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** BZPOPMAX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BZPOPMAX history */
 commandHistory BZPOPMAX_History[] = {
@@ -8203,26 +10346,33 @@ commandHistory BZPOPMAX_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BZPOPMAX tips */
 #define BZPOPMAX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BZPOPMAX key specs */
 keySpec BZPOPMAX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BZPOPMAX argument table */
 struct COMMAND_ARG BZPOPMAX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** BZPOPMIN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* BZPOPMIN history */
 commandHistory BZPOPMIN_History[] = {
@@ -8230,26 +10380,33 @@ commandHistory BZPOPMIN_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* BZPOPMIN tips */
 #define BZPOPMIN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* BZPOPMIN key specs */
 keySpec BZPOPMIN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-2,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* BZPOPMIN argument table */
 struct COMMAND_ARG BZPOPMIN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZADD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZADD history */
 commandHistory ZADD_History[] = {
@@ -8259,402 +10416,504 @@ commandHistory ZADD_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZADD tips */
 #define ZADD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZADD key specs */
 keySpec ZADD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZADD condition argument table */
 struct COMMAND_ARG ZADD_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZADD comparison argument table */
 struct COMMAND_ARG ZADD_comparison_Subargs[] = {
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZADD score_member argument table */
 struct COMMAND_ARG ZADD_score_member_Subargs[] = {
-{MAKE_ARG("score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("score",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZADD argument table */
 struct COMMAND_ARG ZADD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",CMD_ARG_OPTIONAL,2),.subargs=ZADD_condition_Subargs},
-{MAKE_ARG("comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=ZADD_comparison_Subargs},
-{MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=ZADD_score_member_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"3.0.2",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZADD_condition_Subargs},
+{MAKE_ARG("comparison",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZADD_comparison_Subargs},
+{MAKE_ARG("change",ARG_TYPE_PURE_TOKEN,-1,"CH",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_PURE_TOKEN,-1,"INCR",NULL,"3.0.2",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("score_member",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=ZADD_score_member_Subargs},
 {0}
 };
 
 /********** ZCARD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZCARD history */
 #define ZCARD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZCARD tips */
 #define ZCARD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZCARD key specs */
 keySpec ZCARD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZCARD argument table */
 struct COMMAND_ARG ZCARD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZCOUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZCOUNT history */
 #define ZCOUNT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZCOUNT tips */
 #define ZCOUNT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZCOUNT key specs */
 keySpec ZCOUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZCOUNT argument table */
 struct COMMAND_ARG ZCOUNT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZDIFF ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZDIFF history */
 #define ZDIFF_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZDIFF tips */
 #define ZDIFF_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZDIFF key specs */
 keySpec ZDIFF_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZDIFF argument table */
 struct COMMAND_ARG ZDIFF_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZDIFFSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZDIFFSTORE history */
 #define ZDIFFSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZDIFFSTORE tips */
 #define ZDIFFSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZDIFFSTORE key specs */
 keySpec ZDIFFSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZDIFFSTORE argument table */
 struct COMMAND_ARG ZDIFFSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ZINCRBY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZINCRBY history */
 #define ZINCRBY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZINCRBY tips */
 #define ZINCRBY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZINCRBY key specs */
 keySpec ZINCRBY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZINCRBY argument table */
 struct COMMAND_ARG ZINCRBY_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZINTER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZINTER history */
 #define ZINTER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZINTER tips */
 #define ZINTER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZINTER key specs */
 keySpec ZINTER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZINTER aggregate argument table */
 struct COMMAND_ARG ZINTER_aggregate_Subargs[] = {
-{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZINTER argument table */
 struct COMMAND_ARG ZINTER_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=ZINTER_aggregate_Subargs},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTER_aggregate_Subargs},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZINTERCARD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZINTERCARD history */
 #define ZINTERCARD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZINTERCARD tips */
 #define ZINTERCARD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZINTERCARD key specs */
 keySpec ZINTERCARD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZINTERCARD argument table */
 struct COMMAND_ARG ZINTERCARD_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZINTERSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZINTERSTORE history */
 #define ZINTERSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZINTERSTORE tips */
 #define ZINTERSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZINTERSTORE key specs */
 keySpec ZINTERSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZINTERSTORE aggregate argument table */
 struct COMMAND_ARG ZINTERSTORE_aggregate_Subargs[] = {
-{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZINTERSTORE argument table */
 struct COMMAND_ARG ZINTERSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=ZINTERSTORE_aggregate_Subargs},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZINTERSTORE_aggregate_Subargs},
 {0}
 };
 
 /********** ZLEXCOUNT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZLEXCOUNT history */
 #define ZLEXCOUNT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZLEXCOUNT tips */
 #define ZLEXCOUNT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZLEXCOUNT key specs */
 keySpec ZLEXCOUNT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZLEXCOUNT argument table */
 struct COMMAND_ARG ZLEXCOUNT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZMPOP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZMPOP history */
 #define ZMPOP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZMPOP tips */
 #define ZMPOP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZMPOP key specs */
 keySpec ZMPOP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZMPOP where argument table */
 struct COMMAND_ARG ZMPOP_where_Subargs[] = {
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZMPOP argument table */
 struct COMMAND_ARG ZMPOP_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=ZMPOP_where_Subargs},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("where",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ZMPOP_where_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZMSCORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZMSCORE history */
 #define ZMSCORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZMSCORE tips */
 #define ZMSCORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZMSCORE key specs */
 keySpec ZMSCORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZMSCORE argument table */
 struct COMMAND_ARG ZMSCORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ZPOPMAX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZPOPMAX history */
 #define ZPOPMAX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZPOPMAX tips */
 #define ZPOPMAX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZPOPMAX key specs */
 keySpec ZPOPMAX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZPOPMAX argument table */
 struct COMMAND_ARG ZPOPMAX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZPOPMIN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZPOPMIN history */
 #define ZPOPMIN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZPOPMIN tips */
 #define ZPOPMIN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZPOPMIN key specs */
 keySpec ZPOPMIN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZPOPMIN argument table */
 struct COMMAND_ARG ZPOPMIN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZRANDMEMBER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANDMEMBER history */
 #define ZRANDMEMBER_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* ZRANDMEMBER tips */
 const char *ZRANDMEMBER_Tips[] = {
@@ -8662,30 +10921,33 @@ const char *ZRANDMEMBER_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* ZRANDMEMBER key specs */
 keySpec ZRANDMEMBER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANDMEMBER options argument table */
 struct COMMAND_ARG ZRANDMEMBER_options_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* ZRANDMEMBER argument table */
 struct COMMAND_ARG ZRANDMEMBER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZRANDMEMBER_options_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("options",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANDMEMBER_options_Subargs},
 {0}
 };
 
 /********** ZRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANGE history */
 commandHistory ZRANGE_History[] = {
@@ -8693,78 +10955,92 @@ commandHistory ZRANGE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZRANGE tips */
 #define ZRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZRANGE key specs */
 keySpec ZRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANGE sortby argument table */
 struct COMMAND_ARG ZRANGE_sortby_Subargs[] = {
-{MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGE offset_count argument table */
 struct COMMAND_ARG ZRANGE_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGE argument table */
 struct COMMAND_ARG ZRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stop",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=ZRANGE_sortby_Subargs},
-{MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,2),.subargs=ZRANGE_offset_count_Subargs},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stop",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_sortby_Subargs},
+{MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGE_offset_count_Subargs},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZRANGEBYLEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANGEBYLEX history */
 #define ZRANGEBYLEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZRANGEBYLEX tips */
 #define ZRANGEBYLEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZRANGEBYLEX key specs */
 keySpec ZRANGEBYLEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANGEBYLEX offset_count argument table */
 struct COMMAND_ARG ZRANGEBYLEX_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGEBYLEX argument table */
 struct COMMAND_ARG ZRANGEBYLEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZRANGEBYLEX_offset_count_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYLEX_offset_count_Subargs},
 {0}
 };
 
 /********** ZRANGEBYSCORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANGEBYSCORE history */
 commandHistory ZRANGEBYSCORE_History[] = {
@@ -8772,103 +11048,124 @@ commandHistory ZRANGEBYSCORE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZRANGEBYSCORE tips */
 #define ZRANGEBYSCORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZRANGEBYSCORE key specs */
 keySpec ZRANGEBYSCORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANGEBYSCORE offset_count argument table */
 struct COMMAND_ARG ZRANGEBYSCORE_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGEBYSCORE argument table */
 struct COMMAND_ARG ZRANGEBYSCORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZRANGEBYSCORE_offset_count_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,"2.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGEBYSCORE_offset_count_Subargs},
 {0}
 };
 
 /********** ZRANGESTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANGESTORE history */
 #define ZRANGESTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZRANGESTORE tips */
 #define ZRANGESTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZRANGESTORE key specs */
 keySpec ZRANGESTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANGESTORE sortby argument table */
 struct COMMAND_ARG ZRANGESTORE_sortby_Subargs[] = {
-{MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("byscore",ARG_TYPE_PURE_TOKEN,-1,"BYSCORE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bylex",ARG_TYPE_PURE_TOKEN,-1,"BYLEX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGESTORE offset_count argument table */
 struct COMMAND_ARG ZRANGESTORE_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZRANGESTORE argument table */
 struct COMMAND_ARG ZRANGESTORE_Args[] = {
-{MAKE_ARG("dst",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("src",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZRANGESTORE_sortby_Subargs},
-{MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZRANGESTORE_offset_count_Subargs},
+{MAKE_ARG("dst",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("src",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("sortby",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_sortby_Subargs},
+{MAKE_ARG("rev",ARG_TYPE_PURE_TOKEN,-1,"REV",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZRANGESTORE_offset_count_Subargs},
 {0}
 };
 
 /********** ZRANK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZRANK history */
 #define ZRANK_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZRANK tips */
 #define ZRANK_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZRANK key specs */
 keySpec ZRANK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZRANK argument table */
 struct COMMAND_ARG ZRANK_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZREM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREM history */
 commandHistory ZREM_History[] = {
@@ -8876,160 +11173,202 @@ commandHistory ZREM_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREM tips */
 #define ZREM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREM key specs */
 keySpec ZREM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREM argument table */
 struct COMMAND_ARG ZREM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** ZREMRANGEBYLEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREMRANGEBYLEX history */
 #define ZREMRANGEBYLEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREMRANGEBYLEX tips */
 #define ZREMRANGEBYLEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREMRANGEBYLEX key specs */
 keySpec ZREMRANGEBYLEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREMRANGEBYLEX argument table */
 struct COMMAND_ARG ZREMRANGEBYLEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZREMRANGEBYRANK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREMRANGEBYRANK history */
 #define ZREMRANGEBYRANK_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREMRANGEBYRANK tips */
 #define ZREMRANGEBYRANK_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREMRANGEBYRANK key specs */
 keySpec ZREMRANGEBYRANK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREMRANGEBYRANK argument table */
 struct COMMAND_ARG ZREMRANGEBYRANK_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZREMRANGEBYSCORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREMRANGEBYSCORE history */
 #define ZREMRANGEBYSCORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREMRANGEBYSCORE tips */
 #define ZREMRANGEBYSCORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREMRANGEBYSCORE key specs */
 keySpec ZREMRANGEBYSCORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREMRANGEBYSCORE argument table */
 struct COMMAND_ARG ZREMRANGEBYSCORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZREVRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREVRANGE history */
 #define ZREVRANGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREVRANGE tips */
 #define ZREVRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREVRANGE key specs */
 keySpec ZREVRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREVRANGE argument table */
 struct COMMAND_ARG ZREVRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stop",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZREVRANGEBYLEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREVRANGEBYLEX history */
 #define ZREVRANGEBYLEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREVRANGEBYLEX tips */
 #define ZREVRANGEBYLEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREVRANGEBYLEX key specs */
 keySpec ZREVRANGEBYLEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREVRANGEBYLEX offset_count argument table */
 struct COMMAND_ARG ZREVRANGEBYLEX_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZREVRANGEBYLEX argument table */
 struct COMMAND_ARG ZREVRANGEBYLEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYLEX_offset_count_Subargs},
 {0}
 };
 
 /********** ZREVRANGEBYSCORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREVRANGEBYSCORE history */
 commandHistory ZREVRANGEBYSCORE_History[] = {
@@ -9037,63 +11376,81 @@ commandHistory ZREVRANGEBYSCORE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREVRANGEBYSCORE tips */
 #define ZREVRANGEBYSCORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREVRANGEBYSCORE key specs */
 keySpec ZREVRANGEBYSCORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREVRANGEBYSCORE offset_count argument table */
 struct COMMAND_ARG ZREVRANGEBYSCORE_offset_count_Subargs[] = {
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZREVRANGEBYSCORE argument table */
 struct COMMAND_ARG ZREVRANGEBYSCORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("offset_count",ARG_TYPE_BLOCK,-1,"LIMIT",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=ZREVRANGEBYSCORE_offset_count_Subargs},
 {0}
 };
 
 /********** ZREVRANK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZREVRANK history */
 #define ZREVRANK_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZREVRANK tips */
 #define ZREVRANK_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZREVRANK key specs */
 keySpec ZREVRANK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZREVRANK argument table */
 struct COMMAND_ARG ZREVRANK_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZSCAN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZSCAN history */
 #define ZSCAN_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* ZSCAN tips */
 const char *ZSCAN_Tips[] = {
@@ -9101,144 +11458,175 @@ const char *ZSCAN_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* ZSCAN key specs */
 keySpec ZSCAN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZSCAN argument table */
 struct COMMAND_ARG ZSCAN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZSCORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZSCORE history */
 #define ZSCORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZSCORE tips */
 #define ZSCORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZSCORE key specs */
 keySpec ZSCORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZSCORE argument table */
 struct COMMAND_ARG ZSCORE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** ZUNION ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZUNION history */
 #define ZUNION_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZUNION tips */
 #define ZUNION_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZUNION key specs */
 keySpec ZUNION_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZUNION aggregate argument table */
 struct COMMAND_ARG ZUNION_aggregate_Subargs[] = {
-{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZUNION argument table */
 struct COMMAND_ARG ZUNION_Args[] = {
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=ZUNION_aggregate_Subargs},
-{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNION_aggregate_Subargs},
+{MAKE_ARG("withscores",ARG_TYPE_PURE_TOKEN,-1,"WITHSCORES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** ZUNIONSTORE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* ZUNIONSTORE history */
 #define ZUNIONSTORE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* ZUNIONSTORE tips */
 #define ZUNIONSTORE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* ZUNIONSTORE key specs */
 keySpec ZUNIONSTORE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* ZUNIONSTORE aggregate argument table */
 struct COMMAND_ARG ZUNIONSTORE_aggregate_Subargs[] = {
-{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* ZUNIONSTORE argument table */
 struct COMMAND_ARG ZUNIONSTORE_Args[] = {
-{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3),.subargs=ZUNIONSTORE_aggregate_Subargs},
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,"WEIGHTS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("aggregate",ARG_TYPE_ONEOF,-1,"AGGREGATE",NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=ZUNIONSTORE_aggregate_Subargs},
 {0}
 };
 
 /********** XACK ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XACK history */
 #define XACK_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XACK tips */
 #define XACK_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XACK key specs */
 keySpec XACK_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XACK argument table */
 struct COMMAND_ARG XACK_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** XADD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XADD history */
 commandHistory XADD_History[] = {
@@ -9247,69 +11635,76 @@ commandHistory XADD_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XADD tips */
 const char *XADD_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XADD key specs */
 keySpec XADD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"UPDATE instead of INSERT because of the optional trimming feature",CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XADD trim strategy argument table */
 struct COMMAND_ARG XADD_trim_strategy_Subargs[] = {
-{MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0)},
+{MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XADD trim operator argument table */
 struct COMMAND_ARG XADD_trim_operator_Subargs[] = {
-{MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XADD trim argument table */
 struct COMMAND_ARG XADD_trim_Subargs[] = {
-{MAKE_ARG("strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=XADD_trim_strategy_Subargs},
-{MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=XADD_trim_operator_Subargs},
-{MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_trim_strategy_Subargs},
+{MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_trim_operator_Subargs},
+{MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* XADD id_or_auto argument table */
 struct COMMAND_ARG XADD_id_or_auto_Subargs[] = {
-{MAKE_ARG("auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("auto_id",ARG_TYPE_PURE_TOKEN,-1,"*",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XADD field_value argument table */
 struct COMMAND_ARG XADD_field_value_Subargs[] = {
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XADD argument table */
 struct COMMAND_ARG XADD_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4),.subargs=XADD_trim_Subargs},
-{MAKE_ARG("id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=XADD_id_or_auto_Subargs},
-{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=XADD_field_value_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
+{MAKE_ARG("id_or_auto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_or_auto_Subargs},
+{MAKE_ARG("field_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_field_value_Subargs},
 {0}
 };
 
 /********** XAUTOCLAIM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XAUTOCLAIM history */
 commandHistory XAUTOCLAIM_History[] = {
@@ -9317,37 +11712,48 @@ commandHistory XAUTOCLAIM_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XAUTOCLAIM tips */
 const char *XAUTOCLAIM_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XAUTOCLAIM key specs */
 keySpec XAUTOCLAIM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XAUTOCLAIM argument table */
 struct COMMAND_ARG XAUTOCLAIM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XCLAIM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XCLAIM history */
 #define XCLAIM_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* XCLAIM tips */
 const char *XCLAIM_Tips[] = {
@@ -9355,56 +11761,66 @@ const char *XCLAIM_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XCLAIM key specs */
 keySpec XCLAIM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XCLAIM argument table */
 struct COMMAND_ARG XCLAIM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("ms",ARG_TYPE_INTEGER,-1,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"TIME",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min-idle-time",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("ms",ARG_TYPE_INTEGER,-1,"IDLE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"TIME",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"RETRYCOUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("force",ARG_TYPE_PURE_TOKEN,-1,"FORCE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,"LASTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XDEL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XDEL history */
 #define XDEL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XDEL tips */
 #define XDEL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XDEL key specs */
 keySpec XDEL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XDEL argument table */
 struct COMMAND_ARG XDEL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** XGROUP CREATE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP CREATE history */
 commandHistory XGROUP_CREATE_History[] = {
@@ -9412,127 +11828,162 @@ commandHistory XGROUP_CREATE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP CREATE tips */
 #define XGROUP_CREATE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP CREATE key specs */
 keySpec XGROUP_CREATE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XGROUP CREATE id argument table */
 struct COMMAND_ARG XGROUP_CREATE_id_Subargs[] = {
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XGROUP CREATE argument table */
 struct COMMAND_ARG XGROUP_CREATE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=XGROUP_CREATE_id_Subargs},
-{MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_Subargs},
+{MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XGROUP CREATECONSUMER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP CREATECONSUMER history */
 #define XGROUP_CREATECONSUMER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP CREATECONSUMER tips */
 #define XGROUP_CREATECONSUMER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP CREATECONSUMER key specs */
 keySpec XGROUP_CREATECONSUMER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XGROUP CREATECONSUMER argument table */
 struct COMMAND_ARG XGROUP_CREATECONSUMER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XGROUP DELCONSUMER ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP DELCONSUMER history */
 #define XGROUP_DELCONSUMER_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP DELCONSUMER tips */
 #define XGROUP_DELCONSUMER_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP DELCONSUMER key specs */
 keySpec XGROUP_DELCONSUMER_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XGROUP DELCONSUMER argument table */
 struct COMMAND_ARG XGROUP_DELCONSUMER_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumername",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XGROUP DESTROY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP DESTROY history */
 #define XGROUP_DESTROY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP DESTROY tips */
 #define XGROUP_DESTROY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP DESTROY key specs */
 keySpec XGROUP_DESTROY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XGROUP DESTROY argument table */
 struct COMMAND_ARG XGROUP_DESTROY_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XGROUP HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP HELP history */
 #define XGROUP_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP HELP tips */
 #define XGROUP_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP HELP key specs */
 keySpec XGROUP_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** XGROUP SETID ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP SETID history */
 commandHistory XGROUP_SETID_History[] = {
@@ -9540,29 +11991,36 @@ commandHistory XGROUP_SETID_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP SETID tips */
 #define XGROUP_SETID_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP SETID key specs */
 keySpec XGROUP_SETID_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XGROUP SETID id argument table */
 struct COMMAND_ARG XGROUP_SETID_id_Subargs[] = {
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("new_id",ARG_TYPE_PURE_TOKEN,-1,"$",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XGROUP SETID argument table */
 struct COMMAND_ARG XGROUP_SETID_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=XGROUP_SETID_id_Subargs},
-{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_SETID_id_Subargs},
+{MAKE_ARG("entries_read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
@@ -9579,27 +12037,38 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 
 /********** XGROUP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XGROUP history */
 #define XGROUP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XGROUP tips */
 #define XGROUP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XGROUP key specs */
 keySpec XGROUP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** XINFO CONSUMERS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XINFO CONSUMERS history */
 #define XINFO_CONSUMERS_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* XINFO CONSUMERS tips */
 const char *XINFO_CONSUMERS_Tips[] = {
@@ -9607,23 +12076,26 @@ const char *XINFO_CONSUMERS_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XINFO CONSUMERS key specs */
 keySpec XINFO_CONSUMERS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XINFO CONSUMERS argument table */
 struct COMMAND_ARG XINFO_CONSUMERS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("groupname",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XINFO GROUPS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XINFO GROUPS history */
 commandHistory XINFO_GROUPS_History[] = {
@@ -9631,42 +12103,56 @@ commandHistory XINFO_GROUPS_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XINFO GROUPS tips */
 #define XINFO_GROUPS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XINFO GROUPS key specs */
 keySpec XINFO_GROUPS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XINFO GROUPS argument table */
 struct COMMAND_ARG XINFO_GROUPS_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XINFO HELP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XINFO HELP history */
 #define XINFO_HELP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XINFO HELP tips */
 #define XINFO_HELP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XINFO HELP key specs */
 keySpec XINFO_HELP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** XINFO STREAM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XINFO STREAM history */
 commandHistory XINFO_STREAM_History[] = {
@@ -9675,26 +12161,33 @@ commandHistory XINFO_STREAM_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XINFO STREAM tips */
 #define XINFO_STREAM_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XINFO STREAM key specs */
 keySpec XINFO_STREAM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XINFO STREAM full argument table */
 struct COMMAND_ARG XINFO_STREAM_full_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* XINFO STREAM argument table */
 struct COMMAND_ARG XINFO_STREAM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,1),.subargs=XINFO_STREAM_full_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("full",ARG_TYPE_BLOCK,-1,"FULL",NULL,NULL,CMD_ARG_OPTIONAL,1,NULL),.subargs=XINFO_STREAM_full_Subargs},
 {0}
 };
 
@@ -9709,47 +12202,61 @@ struct COMMAND_STRUCT XINFO_Subcommands[] = {
 
 /********** XINFO ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XINFO history */
 #define XINFO_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XINFO tips */
 #define XINFO_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XINFO key specs */
 keySpec XINFO_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** XLEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XLEN history */
 #define XLEN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XLEN tips */
 #define XLEN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XLEN key specs */
 keySpec XLEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XLEN argument table */
 struct COMMAND_ARG XLEN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** XPENDING ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XPENDING history */
 commandHistory XPENDING_History[] = {
@@ -9757,40 +12264,47 @@ commandHistory XPENDING_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XPENDING tips */
 const char *XPENDING_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XPENDING key specs */
 keySpec XPENDING_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XPENDING filters argument table */
 struct COMMAND_ARG XPENDING_filters_Subargs[] = {
-{MAKE_ARG("min-idle-time",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("min-idle-time",ARG_TYPE_INTEGER,-1,"IDLE",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* XPENDING argument table */
 struct COMMAND_ARG XPENDING_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5),.subargs=XPENDING_filters_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("filters",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=XPENDING_filters_Subargs},
 {0}
 };
 
 /********** XRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XRANGE history */
 commandHistory XRANGE_History[] = {
@@ -9798,101 +12312,122 @@ commandHistory XRANGE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XRANGE tips */
 #define XRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XRANGE key specs */
 keySpec XRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XRANGE argument table */
 struct COMMAND_ARG XRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XREAD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XREAD history */
 #define XREAD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XREAD tips */
 #define XREAD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XREAD key specs */
 keySpec XREAD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XREAD streams argument table */
 struct COMMAND_ARG XREAD_streams_Subargs[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /* XREAD argument table */
 struct COMMAND_ARG XREAD_Args[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2),.subargs=XREAD_streams_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREAD_streams_Subargs},
 {0}
 };
 
 /********** XREADGROUP ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XREADGROUP history */
 #define XREADGROUP_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XREADGROUP tips */
 #define XREADGROUP_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XREADGROUP key specs */
 keySpec XREADGROUP_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XREADGROUP group_consumer argument table */
 struct COMMAND_ARG XREADGROUP_group_consumer_Subargs[] = {
-{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("consumer",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XREADGROUP streams argument table */
 struct COMMAND_ARG XREADGROUP_streams_Subargs[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
-{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /* XREADGROUP argument table */
 struct COMMAND_ARG XREADGROUP_Args[] = {
-{MAKE_ARG("group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2),.subargs=XREADGROUP_group_consumer_Subargs},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2),.subargs=XREADGROUP_streams_Subargs},
+{MAKE_ARG("group_consumer",ARG_TYPE_BLOCK,-1,"GROUP",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_group_consumer_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"BLOCK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("noack",ARG_TYPE_PURE_TOKEN,-1,"NOACK",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("streams",ARG_TYPE_BLOCK,-1,"STREAMS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XREADGROUP_streams_Subargs},
 {0}
 };
 
 /********** XREVRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XREVRANGE history */
 commandHistory XREVRANGE_History[] = {
@@ -9900,28 +12435,35 @@ commandHistory XREVRANGE_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XREVRANGE tips */
 #define XREVRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XREVRANGE key specs */
 keySpec XREVRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XREVRANGE argument table */
 struct COMMAND_ARG XREVRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XSETID ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XSETID history */
 commandHistory XSETID_History[] = {
@@ -9929,28 +12471,35 @@ commandHistory XSETID_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XSETID tips */
 #define XSETID_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* XSETID key specs */
 keySpec XSETID_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XSETID argument table */
 struct COMMAND_ARG XSETID_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("last-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("entries_added",ARG_TYPE_INTEGER,-1,"ENTRIESADDED",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("max_deleted_entry_id",ARG_TYPE_STRING,-1,"MAXDELETEDID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** XTRIM ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* XTRIM history */
 commandHistory XTRIM_History[] = {
@@ -9958,354 +12507,449 @@ commandHistory XTRIM_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* XTRIM tips */
 const char *XTRIM_Tips[] = {
 "nondeterministic_output",
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* XTRIM key specs */
 keySpec XTRIM_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* XTRIM trim strategy argument table */
 struct COMMAND_ARG XTRIM_trim_strategy_Subargs[] = {
-{MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0)},
+{MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("minid",ARG_TYPE_PURE_TOKEN,-1,"MINID",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XTRIM trim operator argument table */
 struct COMMAND_ARG XTRIM_trim_operator_Subargs[] = {
-{MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("equal",ARG_TYPE_PURE_TOKEN,-1,"=",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("approximately",ARG_TYPE_PURE_TOKEN,-1,"~",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* XTRIM trim argument table */
 struct COMMAND_ARG XTRIM_trim_Subargs[] = {
-{MAKE_ARG("strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2),.subargs=XTRIM_trim_strategy_Subargs},
-{MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2),.subargs=XTRIM_trim_operator_Subargs},
-{MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("strategy",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XTRIM_trim_strategy_Subargs},
+{MAKE_ARG("operator",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XTRIM_trim_operator_Subargs},
+{MAKE_ARG("threshold",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /* XTRIM argument table */
 struct COMMAND_ARG XTRIM_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4),.subargs=XTRIM_trim_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=XTRIM_trim_Subargs},
 {0}
 };
 
 /********** APPEND ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* APPEND history */
 #define APPEND_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* APPEND tips */
 #define APPEND_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* APPEND key specs */
 keySpec APPEND_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* APPEND argument table */
 struct COMMAND_ARG APPEND_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** DECR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DECR history */
 #define DECR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* DECR tips */
 #define DECR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* DECR key specs */
 keySpec DECR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* DECR argument table */
 struct COMMAND_ARG DECR_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** DECRBY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DECRBY history */
 #define DECRBY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* DECRBY tips */
 #define DECRBY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* DECRBY key specs */
 keySpec DECRBY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* DECRBY argument table */
 struct COMMAND_ARG DECRBY_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("decrement",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** GET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GET history */
 #define GET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GET tips */
 #define GET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GET key specs */
 keySpec GET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GET argument table */
 struct COMMAND_ARG GET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** GETDEL ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GETDEL history */
 #define GETDEL_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GETDEL tips */
 #define GETDEL_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GETDEL key specs */
 keySpec GETDEL_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GETDEL argument table */
 struct COMMAND_ARG GETDEL_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** GETEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GETEX history */
 #define GETEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GETEX tips */
 #define GETEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GETEX key specs */
 keySpec GETEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"RW and UPDATE because it changes the TTL",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GETEX expiration argument table */
 struct COMMAND_ARG GETEX_expiration_Subargs[] = {
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* GETEX argument table */
 struct COMMAND_ARG GETEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5),.subargs=GETEX_expiration_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=GETEX_expiration_Subargs},
 {0}
 };
 
 /********** GETRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GETRANGE history */
 #define GETRANGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GETRANGE tips */
 #define GETRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GETRANGE key specs */
 keySpec GETRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GETRANGE argument table */
 struct COMMAND_ARG GETRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** GETSET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* GETSET history */
 #define GETSET_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* GETSET tips */
 #define GETSET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* GETSET key specs */
 keySpec GETSET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* GETSET argument table */
 struct COMMAND_ARG GETSET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** INCR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* INCR history */
 #define INCR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* INCR tips */
 #define INCR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* INCR key specs */
 keySpec INCR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* INCR argument table */
 struct COMMAND_ARG INCR_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** INCRBY ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* INCRBY history */
 #define INCRBY_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* INCRBY tips */
 #define INCRBY_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* INCRBY key specs */
 keySpec INCRBY_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* INCRBY argument table */
 struct COMMAND_ARG INCRBY_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** INCRBYFLOAT ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* INCRBYFLOAT history */
 #define INCRBYFLOAT_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* INCRBYFLOAT tips */
 #define INCRBYFLOAT_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* INCRBYFLOAT key specs */
 keySpec INCRBYFLOAT_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* INCRBYFLOAT argument table */
 struct COMMAND_ARG INCRBYFLOAT_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** LCS ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* LCS history */
 #define LCS_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* LCS tips */
 #define LCS_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* LCS key specs */
 keySpec LCS_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* LCS argument table */
 struct COMMAND_ARG LCS_Args[] = {
-{MAKE_ARG("key1",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("key2",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("len",ARG_TYPE_PURE_TOKEN,-1,"LEN",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0)},
+{MAKE_ARG("key1",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("key2",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("len",ARG_TYPE_PURE_TOKEN,-1,"LEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("idx",ARG_TYPE_PURE_TOKEN,-1,"IDX",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("len",ARG_TYPE_INTEGER,-1,"MINMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("withmatchlen",ARG_TYPE_PURE_TOKEN,-1,"WITHMATCHLEN",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {0}
 };
 
 /********** MGET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MGET history */
 #define MGET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MGET tips */
 const char *MGET_Tips[] = {
@@ -10313,25 +12957,32 @@ const char *MGET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MGET key specs */
 keySpec MGET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MGET argument table */
 struct COMMAND_ARG MGET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 
 /********** MSET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MSET history */
 #define MSET_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MSET tips */
 const char *MSET_Tips[] = {
@@ -10340,32 +12991,39 @@ const char *MSET_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MSET key specs */
 keySpec MSET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MSET key_value argument table */
 struct COMMAND_ARG MSET_key_value_Subargs[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MSET argument table */
 struct COMMAND_ARG MSET_Args[] = {
-{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=MSET_key_value_Subargs},
+{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSET_key_value_Subargs},
 {0}
 };
 
 /********** MSETNX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MSETNX history */
 #define MSETNX_History NULL
+
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
 
 /* MSETNX tips */
 const char *MSETNX_Tips[] = {
@@ -10374,54 +13032,64 @@ const char *MSETNX_Tips[] = {
 NULL
 };
 
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+
 /* MSETNX key specs */
 keySpec MSETNX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,2,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* MSETNX key_value argument table */
 struct COMMAND_ARG MSETNX_key_value_Subargs[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* MSETNX argument table */
 struct COMMAND_ARG MSETNX_Args[] = {
-{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2),.subargs=MSETNX_key_value_Subargs},
+{MAKE_ARG("key_value",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=MSETNX_key_value_Subargs},
 {0}
 };
 
 /********** PSETEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* PSETEX history */
 #define PSETEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* PSETEX tips */
 #define PSETEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* PSETEX key specs */
 keySpec PSETEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* PSETEX argument table */
 struct COMMAND_ARG PSETEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SET ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SET history */
 commandHistory SET_History[] = {
@@ -10432,253 +13100,330 @@ commandHistory SET_History[] = {
 {0}
 };
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SET tips */
 #define SET_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SET key specs */
 keySpec SET_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {"RW and ACCESS due to the optional `GET` argument",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SET condition argument table */
 struct COMMAND_ARG SET_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SET expiration argument table */
 struct COMMAND_ARG SET_expiration_Subargs[] = {
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"2.6.12",CMD_ARG_NONE,0)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"2.6.12",CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"6.2.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"6.2.0",CMD_ARG_NONE,0)},
-{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE,0)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"2.6.12",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"2.6.12",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"6.2.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /* SET argument table */
 struct COMMAND_ARG SET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,2),.subargs=SET_condition_Subargs},
-{MAKE_ARG("get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL,0)},
-{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5),.subargs=SET_expiration_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,2,NULL),.subargs=SET_condition_Subargs},
+{MAKE_ARG("get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=SET_expiration_Subargs},
 {0}
 };
 
 /********** SETEX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SETEX history */
 #define SETEX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SETEX tips */
 #define SETEX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SETEX key specs */
 keySpec SETEX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SETEX argument table */
 struct COMMAND_ARG SETEX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SETNX ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SETNX history */
 #define SETNX_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SETNX tips */
 #define SETNX_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SETNX key specs */
 keySpec SETNX_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_OW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SETNX argument table */
 struct COMMAND_ARG SETNX_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SETRANGE ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SETRANGE history */
 #define SETRANGE_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SETRANGE tips */
 #define SETRANGE_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SETRANGE key specs */
 keySpec SETRANGE_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SETRANGE argument table */
 struct COMMAND_ARG SETRANGE_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** STRLEN ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* STRLEN history */
 #define STRLEN_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* STRLEN tips */
 #define STRLEN_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* STRLEN key specs */
 keySpec STRLEN_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* STRLEN argument table */
 struct COMMAND_ARG STRLEN_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** SUBSTR ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* SUBSTR history */
 #define SUBSTR_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* SUBSTR tips */
 #define SUBSTR_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* SUBSTR key specs */
 keySpec SUBSTR_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* SUBSTR argument table */
 struct COMMAND_ARG SUBSTR_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
-{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {0}
 };
 
 /********** DISCARD ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* DISCARD history */
 #define DISCARD_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* DISCARD tips */
 #define DISCARD_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* DISCARD key specs */
 keySpec DISCARD_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** EXEC ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* EXEC history */
 #define EXEC_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* EXEC tips */
 #define EXEC_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* EXEC key specs */
 keySpec EXEC_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** MULTI ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* MULTI history */
 #define MULTI_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* MULTI tips */
 #define MULTI_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* MULTI key specs */
 keySpec MULTI_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** UNWATCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* UNWATCH history */
 #define UNWATCH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* UNWATCH tips */
 #define UNWATCH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* UNWATCH key specs */
 keySpec UNWATCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /********** WATCH ********************/
 
-#ifndef REDIS_CLI_COMMANDS
+#ifndef SKIP_CMD_HISTORY_TABLE
 
 /* WATCH history */
 #define WATCH_History NULL
 
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+
 /* WATCH tips */
 #define WATCH_Tips NULL
+
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
 
 /* WATCH key specs */
 keySpec WATCH_Keyspecs[STATIC_KEY_SPECS_NUM] = {
 {NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
-
-#endif /* REDIS_CLI_COMMANDS */
+#endif
 
 /* WATCH argument table */
 struct COMMAND_ARG WATCH_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0)},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 {0}
 };
 

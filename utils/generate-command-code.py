@@ -215,7 +215,7 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d)" % (
+        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d,%s)" % (
             self.name,
             ARG_TYPES[self.type],
             self.desc.get("key_spec_index", -1),
@@ -223,10 +223,11 @@ class Argument(object):
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
-            len(self.subargs)
+            len(self.subargs),
+            get_optional_desc_string(self.desc, "deprecated_since"),
         )
-        if "deprecated_since" in self.desc:
-            s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
+        # if "deprecated_since" in self.desc:
+        #     s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if self.subargs:
             s += ",.subargs=%s" % self.subarg_table_name()
 
@@ -348,12 +349,8 @@ class Command(object):
             _acl_categories_code(),
             self.key_specs_table_name(),
             self.desc.get("get_keys_function", "NULL"),
-            # get_optional_desc_string(self.desc, "get_keys_function"),
             len(self.args),
         )
-
-        # if self.desc.get("get_keys_function"):
-        #     s += "%s," % self.desc["get_keys_function"]
 
         if self.subcommands:
             s += ".subcommands=%s," % self.subcommand_table_name()
@@ -378,8 +375,7 @@ class Command(object):
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
 
-        f.write("#ifndef REDIS_CLI_COMMANDS\n\n")
-
+        f.write("#ifndef SKIP_CMD_HISTORY_TABLE\n\n")
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()
         if code:
@@ -388,7 +384,9 @@ class Command(object):
             f.write("};\n\n")
         else:
             f.write("#define %s NULL\n\n" % self.history_table_name())
+        f.write("#endif\n\n")
 
+        f.write("#ifndef SKIP_CMD_TIPS_TABLE\n\n")
         f.write("/* %s tips */\n" % self.fullname())
         code = self.tips_code()
         if code:
@@ -397,7 +395,9 @@ class Command(object):
             f.write("};\n\n")
         else:
             f.write("#define %s NULL\n\n" % self.tips_table_name())
+        f.write("#endif\n\n")
 
+        f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n\n")
         f.write("/* %s key specs */\n" % self.fullname())
         code = self.key_specs_code()
         f.write("keySpec %s[STATIC_KEY_SPECS_NUM] = {\n" % self.key_specs_table_name())
@@ -406,8 +406,7 @@ class Command(object):
         else:
             f.write("{NULL}\n")
         f.write("};\n")
-
-        f.write("\n#endif /* REDIS_CLI_COMMANDS */\n\n")
+        f.write("#endif\n\n")
 
         if self.args:
             for arg in self.args:
@@ -487,7 +486,11 @@ with open("%s/commands.c" % srcdir, "w") as f:
  * the fantastic
  * Redis Command Table! */
 
-#ifndef REDIS_CLI_COMMANDS
+#include "commands.h"
+
+#ifdef COMMAND_HEADER_TO_INCLUDE
+#include COMMAND_HEADER_TO_INCLUDE
+#else
 #include \"server.h\"
 #endif
 
@@ -495,7 +498,7 @@ with open("%s/commands.c" % srcdir, "w") as f:
 #define MAKE_CMD(name,summary,complexity,since,doc_flags,replaced,deprecated,group,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys,numargs) name,summary,complexity,since,doc_flags,replaced,deprecated,group_enum,history,tips,function,arity,flags,acl,key_specs,get_keys
 #endif
 #ifndef MAKE_ARG
-#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs) name,type,key_spec_index,token,summary,since,flags
+#define MAKE_ARG(name,type,key_spec_index,token,summary,since,flags,numsubargs,deprecated_since) name,type,key_spec_index,token,summary,since,flags,deprecated_since
 #endif
 #ifndef COMMAND_STRUCT
 #define COMMAND_STRUCT redisCommand
@@ -504,6 +507,31 @@ with open("%s/commands.c" % srcdir, "w") as f:
 #define COMMAND_ARG redisCommandArg
 #endif
 
+/* Must match redisCommandGroup */
+const char *COMMAND_GROUP_STR[] = {
+    "generic",
+    "string",
+    "list",
+    "set",
+    "sorted-set",
+    "hash",
+    "pubsub",
+    "transactions",
+    "connection",
+    "server",
+    "scripting",
+    "hyperloglog",
+    "cluster",
+    "sentinel",
+    "geo",
+    "stream",
+    "bitmap",
+    "module"
+};
+
+const char *commandGroupStr(int index) {
+    return COMMAND_GROUP_STR[index];
+}
 """
     )
 

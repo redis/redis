@@ -63,7 +63,7 @@
 #include "cli_common.h"
 #include "mt19937-64.h"
 
-#include "cli_commands.h"
+#define COMMAND_HEADER_TO_INCLUDE "cli_commands.h"
 #include "commands.c"
 
 #define UNUSED(V) ((void) V)
@@ -267,6 +267,7 @@ static struct config {
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
     int in_multi;
     int pre_multi_dbnum;
+    char *server_version;
     char *test_hint;
     char *test_hint_file;
 } config;
@@ -827,10 +828,19 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
     return numCommands;
 }
 
+/* Gets the server version string by calling INFO SERVER.
+ * Stores the result in config.server_version.
+ */
 static sds cliGetServerVersion() {
-    const char *key = "\nredis_version:";
-    redisReply *serverInfo = redisCommand(context, "INFO SERVER");
+    static const char *key = "\nredis_version:";
+    redisReply *serverInfo = NULL;
     char *pos;
+
+    if (config.server_version != NULL) {
+        return config.server_version;
+    }
+
+    serverInfo = redisCommand(context, "INFO SERVER");
     if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
         freeReplyObject(serverInfo);
         return sdsempty();
@@ -839,6 +849,7 @@ static sds cliGetServerVersion() {
     assert(serverInfo->type == REDIS_REPLY_STRING);
     sds info = serverInfo->str;
 
+    /* Finds the first appearance of "redis_version" in the INFO SERVER reply. */
     pos = strstr(info, key);
     if (pos) {
         pos += strlen(key);
@@ -846,6 +857,7 @@ static sds cliGetServerVersion() {
         if (end) {
             sds version = sdsnewlen(pos, end - pos);
             freeReplyObject(serverInfo);
+            config.server_version = version;
             return version;
         }
     }
@@ -855,7 +867,7 @@ static sds cliGetServerVersion() {
 
 static void cliLegacyInitHelp(dict *groups) {
     sds serverVersion = cliGetServerVersion();
-
+    
     /* Scan the commandDocs array and fill in the entries */
     helpEntriesLen = cliLegacyCountCommands(redisCommandTable, serverVersion);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
@@ -1574,6 +1586,16 @@ static int cliSwitchProto(void) {
             result = REDIS_ERR;
         } else if (config.resp3 == 2) {
             result = REDIS_OK;
+        }
+    }
+
+    /* Retrieve server version string for later use. */
+    for (size_t i = 0; i < reply->elements; i += 2) {
+        assert(reply->element[i]->type == REDIS_REPLY_STRING);
+        char *key = reply->element[i]->str;
+        if (!strcmp(key, "version")) {
+            assert(reply->element[i + 1]->type == REDIS_REPLY_STRING);
+            config.server_version = sdsnew(reply->element[i + 1]->str);
         }
     }
     freeReplyObject(reply);
@@ -9519,6 +9541,7 @@ int main(int argc, char **argv) {
     config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.in_multi = 0;
+    config.server_version = NULL;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

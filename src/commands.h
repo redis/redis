@@ -33,4 +33,7 @@ typedef struct redisCommandArg {
     int num_args;
 } redisCommandArg;
 
+/* Returns the command group name by group number. */
+const char *commandGroupStr(int index);
+
 #endif
