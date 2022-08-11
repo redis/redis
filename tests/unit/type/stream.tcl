@@ -811,7 +811,7 @@ start_server {tags {"stream xsetid"}} {
     } {ERR *smaller*}
 }
 
-start_server {tags {"stream offset"}} {
+start_server {tags {"stream stream-offset"}} {
     test {XADD advances the entries-added counter and sets the recorded-first-entry-id} {
         r DEL x
         r XADD x 1-0 data a
