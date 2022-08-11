@@ -491,7 +491,7 @@ static int isSafeToPerformEvictions(void) {
      * be static not just from the POV of clients not being able
      * to write, but also from the POV of expires and evictions of
      * keys not being performed. */
-    if (isPausedServicesWithUpdate(PAUSE_SVC_EVICT)) return 0;
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EVICT)) return 0;
 
     return 1;
 }

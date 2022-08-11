@@ -563,12 +563,12 @@ typedef enum {
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
 
-/* Services pause types */
-#define PAUSE_SVC_CLIENT_WRITE  (1<<0)
-#define PAUSE_SVC_CLIENT_ALL    (1<<1) /* must be bigger than PAUSE_SVC_CLIENT_WRITE */
-#define PAUSE_SVC_EXPIRE        (1<<2)
-#define PAUSE_SVC_EVICT         (1<<3)
-#define PAUSE_SVC_REPLICA       (1<<4) /* pause replica traffic */
+/* Actions pause types */
+#define PAUSE_ACTION_CLIENT_WRITE  (1<<0)
+#define PAUSE_ACTION_CLIENT_ALL    (1<<1) /* must be bigger than PAUSE_ACTION_CLIENT_WRITE */
+#define PAUSE_ACTION_EXPIRE        (1<<2)
+#define PAUSE_ACTION_EVICT         (1<<3)
+#define PAUSE_ACTION_REPLICA       (1<<4) /* pause replica traffic */
 
 /* Client pause purposes. Each purpose has its own end time and pause type. */
 typedef enum {
@@ -579,7 +579,7 @@ typedef enum {
 } pause_purpose;
 
 typedef struct {
-    uint32_t paused_services; /* Bitmask of services */
+    uint32_t paused_actions; /* Bitmask of actions */
     mstime_t end;
 } pause_event;
 
@@ -1530,7 +1530,7 @@ struct redisServer {
     long fixed_time_expire;     /* If > 0, expire keys against server.mstime. */
     int in_nested_call;         /* If > 0, in a nested call of a call */
     rax *clients_index;         /* Active clients dictionary by client ID. */
-    uint32_t paused_services;   /* Bitmask of services that are currently paused */
+    uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
     pause_event client_pause_per_purpose[NUM_PAUSE_PURPOSES];
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
@@ -2518,11 +2518,11 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 void evictClients(void);
 int listenToPort(int port, socketFds *fds);
-void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask);
-void unpauseServices(pause_purpose purpose);
-uint32_t isPausedServices(uint32_t service_types);
-uint32_t isPausedServicesWithUpdate(uint32_t bitmask);
-void updatePausedServices(void);
+void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
+void unpauseActions(pause_purpose purpose);
+uint32_t isPausedActions(uint32_t action_bitmask);
+uint32_t isPausedActionsWithUpdate(uint32_t action_bitmask);
+void updatePausedActions(void);
 void unblockPostponedClients();
 void processEventsWhileBlocked(void);
 void whileBlockedCron();

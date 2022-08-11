@@ -3178,18 +3178,18 @@ NULL
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"unpause") && c->argc == 2) {
         /* CLIENT UNPAUSE */
-        unpauseServices(PAUSE_BY_CLIENT_COMMAND);
+        unpauseActions(PAUSE_BY_CLIENT_COMMAND);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && (c->argc == 3 ||
                                                         c->argc == 4))
     {
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         mstime_t end;
-        /* This feature externally is refactored internally to become services-paused */
-        uint32_t services = PAUSE_SVC_CLIENT_ALL|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA;
+        /* This feature is refactored internally to become pause-actions */
+        uint32_t actions = PAUSE_ACTION_CLIENT_ALL|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
-                services = PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA;
+                actions = PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA;
             } else if (strcasecmp(c->argv[3]->ptr,"all")) {
                 addReplyError(c,
                     "CLIENT PAUSE mode must be WRITE or ALL");  
@@ -3199,7 +3199,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseServices(PAUSE_BY_CLIENT_COMMAND, end, services);
+        pauseActions(PAUSE_BY_CLIENT_COMMAND, end, actions);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3847,19 +3847,19 @@ void flushSlavesOutputBuffers(void) {
 
 /* Compute current most restrictive pause type and its end time, aggregated for
  * all pause purposes. */
-void updatePausedServices(void) {
-    uint32_t prev_paused_services = server.paused_services;
-    server.paused_services = 0;
+void updatePausedActions(void) {
+    uint32_t prev_paused_actions = server.paused_actions;
+    server.paused_actions = 0;
 
     for (int i = 0; i < NUM_PAUSE_PURPOSES; i++) {
         pause_event *p = &(server.client_pause_per_purpose[i]);
-        if (p->end > server.mstime) server.paused_services |= p->paused_services;
+        if (p->end > server.mstime) server.paused_actions |= p->paused_actions;
     }
 
     /* If the pause type is less restrictive than before, we unblock all clients
      * so they are reprocessed (may get re-paused). */
-    uint32_t mask_cli = (PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_CLIENT_ALL);
-    if ((server.paused_services & mask_cli) < (prev_paused_services & mask_cli)) {
+    uint32_t mask_cli = (PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_CLIENT_ALL);
+    if ((server.paused_actions & mask_cli) < (prev_paused_actions & mask_cli)) {
         unblockPostponedClients();
     }
 }
@@ -3888,12 +3888,12 @@ void unblockPostponedClients() {
  *
  * The function always succeed, even if there is already a pause in progress.
  * The new values of a given 'purpose' will override the old ones */
-void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask) {
+void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     /* Manage pause type and end time per pause purpose. */
-    server.client_pause_per_purpose[purpose].paused_services = bitmask;
+    server.client_pause_per_purpose[purpose].paused_actions = actions;
     server.client_pause_per_purpose[purpose].end = end;
 
-    updatePausedServices();
+    updatePausedActions();
 
     /* We allow write commands that were queued
      * up before and after to execute. We need
@@ -3905,22 +3905,22 @@ void pauseServices(pause_purpose purpose, mstime_t end, uint32_t bitmask) {
 }
 
 /* Unpause clients and queue them for reprocessing. */
-void unpauseServices(pause_purpose purpose) {
+void unpauseActions(pause_purpose purpose) {
     server.client_pause_per_purpose[purpose].end = 0;
-    server.client_pause_per_purpose[purpose].paused_services = 0;
-    updatePausedServices();
+    server.client_pause_per_purpose[purpose].paused_actions = 0;
+    updatePausedActions();
 }
 
-/* Returns bitmask of paused services */
-uint32_t isPausedServices(uint32_t service_types) {
-    return (server.paused_services & service_types);
+/* Returns bitmask of paused actions */
+uint32_t isPausedActions(uint32_t actions_bitmask) {
+    return (server.paused_actions & actions_bitmask);
 }
 
-/* Returns bitmask of paused services */
-uint32_t isPausedServicesWithUpdate(uint32_t bitmask) {
-    if (!(server.paused_services & bitmask)) return 0;  // common-flow
-    updatePausedServices();
-    return (server.paused_services & bitmask);
+/* Returns bitmask of paused actions */
+uint32_t isPausedActionsWithUpdate(uint32_t actions_bitmask) {
+    if (!(server.paused_actions & actions_bitmask)) return 0;  // common-flow
+    updatePausedActions();
+    return (server.paused_actions & actions_bitmask);
 }
 
 /* This function is called by Redis in order to process a few events from

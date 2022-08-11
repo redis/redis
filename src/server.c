@@ -1356,8 +1356,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
     }
 
-    /* Clear the paused services state if needed. */
-    updatePausedServices();
+    /* Clear the paused actions state if needed. */
+    updatePausedActions();
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. 
@@ -1594,7 +1594,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * We also don't send the ACKs while clients are paused, since it can
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
-    if (server.get_ack_from_slaves && !isPausedServicesWithUpdate(PAUSE_SVC_REPLICA)) {
+    if (server.get_ack_from_slaves && !isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA)) {
         sendGetackToReplicas();
         server.get_ack_from_slaves = 0;
     }
@@ -2426,7 +2426,7 @@ void initServer(void) {
     server.tracking_pending_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
-    server.paused_services = 0;
+    server.paused_actions = 0;
     memset(server.client_pause_per_purpose, 0,
            sizeof(server.client_pause_per_purpose));
     server.postponed_clients = listCreate();
@@ -3085,7 +3085,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
 
     /* This needs to be unreachable since the dataset should be fixed during
      * replica pause (otherwise data may be lost during a failover) */
-    serverAssert(!(isPausedServices(PAUSE_SVC_REPLICA) &&
+    serverAssert(!(isPausedActions(PAUSE_ACTION_REPLICA) &&
                    (!server.client_pause_in_transaction)));
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
@@ -3925,8 +3925,8 @@ int processCommand(client *c) {
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
     if (!(c->flags & CLIENT_SLAVE) && 
-        ((isPausedServices(PAUSE_SVC_CLIENT_ALL)) ||
-        ( (isPausedServices(PAUSE_SVC_CLIENT_WRITE)) && is_may_replicate_command)))
+        ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
+        ( (isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) && is_may_replicate_command)))
     {
         c->bpop.timeout = 0;
         blockClient(c,BLOCKED_POSTPONE);
@@ -4033,10 +4033,10 @@ int prepareForShutdown(int flags) {
         !isReadyToShutdown())
     {
         server.shutdown_mstime = server.mstime + server.shutdown_timeout * 1000;
-        if (!isPausedServices(PAUSE_SVC_REPLICA)) sendGetackToReplicas();
-        pauseServices(PAUSE_DURING_SHUTDOWN,
+        if (!isPausedActions(PAUSE_ACTION_REPLICA)) sendGetackToReplicas();
+        pauseActions(PAUSE_DURING_SHUTDOWN,
                       LLONG_MAX,
-                      PAUSE_SVC_CLIENT_WRITE|PAUSE_SVC_EXPIRE|PAUSE_SVC_EVICT|PAUSE_SVC_REPLICA);
+                      PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA);
         serverLog(LL_NOTICE, "Waiting for replicas before shutting down.");
         return C_ERR;
     }
@@ -4070,7 +4070,7 @@ static void cancelShutdown(void) {
     server.shutdown_mstime = 0;
     server.last_sig_received = 0;
     replyToClientsBlockedOnShutdown();
-    unpauseServices(PAUSE_DURING_SHUTDOWN);
+    unpauseActions(PAUSE_DURING_SHUTDOWN);
 }
 
 /* Returns C_OK if shutdown was aborted and C_ERR if shutdown wasn't ongoing. */
