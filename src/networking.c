@@ -3186,10 +3186,10 @@ NULL
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         mstime_t end;
         /* This feature is refactored internally to become pause-actions */
-        uint32_t actions = PAUSE_ACTION_CLIENT_ALL|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA;
+        uint32_t actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
-                actions = PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA;
+                actions = PAUSE_ACTIONS_CLIENT_WRITE_SET;
             } else if (strcasecmp(c->argv[3]->ptr,"all")) {
                 addReplyError(c,
                     "CLIENT PAUSE mode must be WRITE or ALL");  

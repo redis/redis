@@ -564,11 +564,21 @@ typedef enum {
 #define PROPAGATE_REPL 2
 
 /* Actions pause types */
-#define PAUSE_ACTION_CLIENT_WRITE  (1<<0)
-#define PAUSE_ACTION_CLIENT_ALL    (1<<1) /* must be bigger than PAUSE_ACTION_CLIENT_WRITE */
-#define PAUSE_ACTION_EXPIRE        (1<<2)
-#define PAUSE_ACTION_EVICT         (1<<3)
-#define PAUSE_ACTION_REPLICA       (1<<4) /* pause replica traffic */
+#define PAUSE_ACTION_CLIENT_WRITE     (1<<0)
+#define PAUSE_ACTION_CLIENT_ALL       (1<<1) /* must be bigger than PAUSE_ACTION_CLIENT_WRITE */
+#define PAUSE_ACTION_EXPIRE           (1<<2)
+#define PAUSE_ACTION_EVICT            (1<<3)
+#define PAUSE_ACTION_REPLICA          (1<<4) /* pause replica traffic */
+
+/* common sets of actions to pause/unpause */
+#define PAUSE_ACTIONS_CLIENT_WRITE_SET (PAUSE_ACTION_CLIENT_WRITE|\
+                                        PAUSE_ACTION_EXPIRE|\
+                                        PAUSE_ACTION_EVICT|\
+                                        PAUSE_ACTION_REPLICA)
+#define PAUSE_ACTIONS_CLIENT_ALL_SET   (PAUSE_ACTION_CLIENT_ALL|\
+                                        PAUSE_ACTION_EXPIRE|\
+                                        PAUSE_ACTION_EVICT|\
+                                        PAUSE_ACTION_REPLICA)
 
 /* Client pause purposes. Each purpose has its own end time and pause type. */
 typedef enum {

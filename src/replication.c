@@ -4000,7 +4000,7 @@ void failoverCommand(client *c) {
     /* Cluster failover will unpause eventually */
     pauseActions(PAUSE_DURING_FAILOVER,
                   LLONG_MAX,
-                  PAUSE_ACTION_CLIENT_WRITE|PAUSE_ACTION_EXPIRE|PAUSE_ACTION_EVICT|PAUSE_ACTION_REPLICA);
+                 PAUSE_ACTIONS_CLIENT_WRITE_SET);
     addReply(c,shared.ok);
 }
 
