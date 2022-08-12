@@ -839,7 +839,7 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc) {
 static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j;
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx);
+    serverAssert(rctx); /* Only supported inside script invocation */
     sds err = NULL;
     client* c = rctx->c;
     sds reply;
@@ -1050,7 +1050,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
     int flags, argc = lua_gettop(lua);
 
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx);
+    serverAssert(rctx); /* Only supported inside script invocation */
 
     if (argc != 1) {
         luaPushError(lua, "redis.set_repl() requires two arguments.");
@@ -1072,7 +1072,7 @@ static int luaRedisSetReplCommand(lua_State *lua) {
  * Checks ACL permissions for given command for the current user. */
 static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx);
+    serverAssert(rctx); /* Only supported inside script invocation */
     int raise_error = 0;
 
     int argc;
@@ -1144,7 +1144,7 @@ static int luaLogCommand(lua_State *lua) {
 /* redis.setresp() */
 static int luaSetResp(lua_State *lua) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx);
+    serverAssert(rctx); /* Only supported inside script invocation */
     int argc = lua_gettop(lua);
 
     if (argc != 1) {
@@ -1506,7 +1506,7 @@ static int redis_math_randomseed (lua_State *L) {
 static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
-    serverAssert(rctx);
+    serverAssert(rctx); /* Only supported inside script invocation */
     if (scriptInterrupt(rctx) == SCRIPT_KILL) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
 
