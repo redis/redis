@@ -28,21 +28,46 @@
 
 #include "ctrip_swap.h"
 
-int64_t swapTxidInit() {
-    return server.swap_txid = 0;
+void swapTxidInit() {
+    server.swap_txid = 0;
 }
 
 int64_t swapTxidNext() {
     return server.swap_txid++;
 }
 
-static inline void requestListenersLink(requestListeners *listeners,
+static inline txCtx *txCtxRef(txCtx *ctx) {
+    ctx->refs++;
+    return ctx;
+}
+
+static inline void txCtxAcked(txCtx *ctx) {
+    ctx->acked++;
+}
+
+static inline void txCtxUnref(txCtx *ctx) {
+    if (ctx == NULL) return;
+    ctx->refs--;
+    if (ctx->refs == 0) zfree(ctx);
+}
+
+static txCtx *txCtxNew(int64_t txid) {
+    txCtx *txctx = zmalloc(sizeof(txCtx));
+    txctx->acked = 0;
+    txctx->refs = 1;
+    txctx->txid = txid;
+    return txctx;
+}
+
+static inline void requestListenersLinkListener(requestListeners *listeners,
         requestListener *listener) {
     while (listeners) {
         listeners->nlistener++;
         if (listeners->cur_txid != listener->txid) {
             listeners->cur_txid = listener->txid;
             listeners->cur_ntxlistener = 0;
+            listeners->cur_ntxrequest = 0;
+            listeners->cur_txctx = listener->txctx;
         }
         listeners->cur_ntxlistener++;
         listeners = listeners->parent;
@@ -56,11 +81,21 @@ static inline void requestListenersUnlink(requestListeners *listeners) {
     }
 }
 
+static inline void requestListenersLinkEntry(requestListeners *listeners,
+        int64_t txid) {
+    while (listeners) {
+        /* Must link listener before link entry */
+        serverAssert(listeners->cur_txid == txid);
+        listeners->cur_ntxrequest++;
+        listeners = listeners->parent;
+    }
+}
+
 static void requestListenersPush(requestListeners *listeners,
         requestListener *listener) {
     serverAssert(listeners);
     listAddNodeTail(listeners->listeners, listener);
-    requestListenersLink(listeners, listener);
+    requestListenersLinkListener(listeners, listener);
 }
 
 requestListener *requestListenersPop(requestListeners *listeners) {
@@ -88,26 +123,28 @@ static requestListener *requestListenersFirst(requestListeners *listeners) {
 }
 
 requestListener *requestListenerCreate(requestListeners *listeners,
-        int64_t txid) {
+        int64_t txid,txCtx *txctx) {
     requestListener *listener = zcalloc(sizeof(requestListener));
     UNUSED(listeners);
     listener->txid = txid;
+    listener->txctx = txCtxRef(txctx);
     listener->entries = listener->buf;
     listener->capacity = sizeof(listener->buf)/sizeof(requestListenerEntry);
     listener->count = 0;
     listener->proceeded = 0;
     listener->notified = 0;
     requestListenersPush(listeners, listener);
-    serverAssert(listener->txid == listeners->cur_txid);
     listener->ntxlistener = listeners->cur_ntxlistener;
+    listener->ntxrequest = listeners->cur_ntxrequest;
+    serverAssert(listener->txid == listeners->cur_txid);
     return listener;
 }
 
 /* Normally pd is swapCtx, which should not be freed untill binded listener
  * released. so we pass pdfree to listener to free it. */
-void requestListenerPushEntry(requestListener *listener,
-        redisDb *db, robj *key, requestProceed cb, client *c, void *pd,
-        freefunc pdfree, void *msgs) {
+void requestListenerPushEntry(requestListeners *listeners,
+        requestListener *listener, redisDb *db, robj *key, requestProceed cb,
+        client *c, void *pd, freefunc pdfree, void *msgs) {
     requestListenerEntry *entry;
     UNUSED(msgs);
 
@@ -140,6 +177,7 @@ void requestListenerPushEntry(requestListener *listener,
 #endif
 
     listener->count++;
+    requestListenersLinkEntry(listeners, listener->txid);
 }
 
 void requestListenerRelease(requestListener *listener) {
@@ -152,6 +190,7 @@ void requestListenerRelease(requestListener *listener) {
        if (entry->pdfree) entry->pdfree(entry->pd);
     }
     if (listener->buf != listener->entries) zfree(listener->entries);
+    txCtxUnref(listener->txctx);
     zfree(listener);
 }
 
@@ -202,7 +241,9 @@ static requestListeners *requestListenersCreate(int level, redisDb *db,
     listeners->parent = parent;
     listeners->level = level;
     listeners->cur_txid = -1;
+    listeners->cur_txctx = NULL;
     listeners->cur_ntxlistener = 0;
+    listeners->cur_ntxrequest = 0;
 
     switch (level) {
     case REQUEST_LEVEL_SVR:
@@ -337,20 +378,20 @@ static requestListeners *requestBindListeners(redisDb *db, robj *key,
 
 static inline int proceed(requestListeners *listeners,
         requestListener *listener) {
-    int i, retval, result, count = listener->count;
+    int proceeded = 0;
 
-    for (i = listener->proceeded; i < count; i++) {
-        requestListenerEntry *entry = listener->entries+i;
+    if (listener->proceeded < listener->count) {
+        requestListenerEntry *entry = listener->entries+listener->proceeded;
 
         DEBUG_MSGS_APPEND(entry->msgs,"wait-proceed","entry=%s",
                 requestListenerEntryDump(entry));
         listener->proceeded++;
-        retval = entry->proceed(listeners,entry->db,entry->key,
+        entry->proceed(listeners,entry->db,entry->key,
                 entry->c,entry->pd);
-        if (retval < 0) result = retval;
+        proceeded++;
     }
 
-    return result;
+    return proceeded;
 }
 
 static inline requestListener *requestListenersLast(requestListeners *listeners) {
@@ -358,26 +399,51 @@ static inline requestListener *requestListenersLast(requestListeners *listeners)
     return ln ? listNodeValue(ln) : NULL;
 }
 
-/* There are listener in listeners blocking txid from proceeding. */
-static int listenerWaitWouldBlock(int64_t txid, requestListeners *listeners) {
-    int64_t ntxlistener;
-    ntxlistener = listeners->cur_txid == txid ? listeners->cur_ntxlistener : 0;
-    return listeners->nlistener > ntxlistener;
+/* request of txid wait on listeners would be blocked from proceeding? */
+static int listenersWaitWouldBlock(int64_t txid, requestListeners *listeners) {
+    /* listener, request ack that already registered to txid. */
+    int ntxlistener, ntxrequest, ntxacked;
+
+    if (listeners->cur_txid == txid) {
+        ntxlistener = listeners->cur_ntxlistener;
+        ntxrequest = listeners->cur_ntxrequest;
+        ntxacked = listeners->cur_txctx->acked;
+    } else {
+        ntxlistener = 0, ntxrequest = 0, ntxacked = 0;
+    }
+
+    /* There are other listener of different tx blocking txid, or
+     * there are pending(not acked) request of the same tx blocking txid
+     * from proceeding. */
+    return listeners->nlistener > ntxlistener || ntxrequest > ntxacked;
 }
 
 int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key) {
     requestListeners *listeners = requestBindListeners(db,key,0);
     if (listeners == NULL) return 0;
-    return listenerWaitWouldBlock(txid, listeners);
+    return listenersWaitWouldBlock(txid, listeners);
 }
 
-requestListener *requestBindListener(int64_t txid,
+requestListener *requestBindListener(int64_t txid, txCtx *txctx,
         requestListeners *listeners) {
     requestListener *last = requestListenersLast(listeners);
     if (last == NULL || last->txid != txid) {
-        last = requestListenerCreate(listeners,txid);
+        last = requestListenerCreate(listeners,txid,txctx);
     }
     return last;
+}
+
+static inline txCtx *requestWaitFeedTxid(int64_t txid) {
+    static int64_t cur_txid = -1;
+    static txCtx *cur_txctx = NULL;
+
+    if (cur_txid != txid) {
+        cur_txid = txid;
+        txCtxUnref(cur_txctx);
+        cur_txctx = txCtxNew(txid);
+    }
+
+    return cur_txctx;
 }
 
 /* Note: to support reentrant wait, requestWait for one txid MUST next to
@@ -387,12 +453,13 @@ int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb,
     int blocking;
     requestListeners *listeners;
     requestListener *listener;
+    txCtx *txctx = requestWaitFeedTxid(txid);
 
     listeners = requestBindListeners(db,key,1);
-    blocking = listenerWaitWouldBlock(txid,listeners);
+    blocking = listenersWaitWouldBlock(txid,listeners);
 
-    listener = requestBindListener(txid,listeners);
-    requestListenerPushEntry(listener,db,key,cb,c,pd,pdfree,msgs);
+    listener = requestBindListener(txid,txctx,listeners);
+    requestListenerPushEntry(listeners,listener,db,key,cb,c,pd,pdfree,msgs);
 
 #ifdef SWAP_DEBUG
     sds dump = requestListenersDump(listeners);
@@ -408,7 +475,7 @@ int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb,
 }
 
 int proceedChain(requestListeners *listeners, requestListener *listener) {
-    int nchilds;
+    int nchilds, proceeded = 0;
     requestListeners *parent;
     requestListener *first;
     int64_t txid = listener->txid;
@@ -416,7 +483,12 @@ int proceedChain(requestListeners *listeners, requestListener *listener) {
     while (1) {
         parent = listeners->parent;
 
-        if (listener != NULL) proceed(listeners,listener);
+        if (listener != NULL) {
+            if (proceed(listeners,listener)) {
+                proceeded++;
+                break;
+            }
+        }
 
         if (parent == NULL) break;
 
@@ -427,9 +499,11 @@ int proceedChain(requestListeners *listeners, requestListener *listener) {
 
         /* Proceed upwards if:
          * - parent is empty.
-         * - all childs and parent are in the same tx. */ 
+         * - all childs and parent are in the same tx and there no preeceding
+         *   un-acked requests. */ 
         if (first == NULL || (first->txid == txid &&
-                    first->ntxlistener > nchilds)) {
+                    first->ntxlistener > nchilds &&
+                    first->txctx->acked == first->ntxrequest)) {
             listeners = parent;
             listener = first;
         } else {
@@ -437,6 +511,15 @@ int proceedChain(requestListeners *listeners, requestListener *listener) {
         }
     }
 
+    return proceeded;
+}
+
+int requestAck(void *listeners_) {
+    requestListeners *listeners = listeners_;
+    requestListener *current = requestListenersPeek(listeners);
+    current->acked++;
+    txCtxAcked(current->txctx);
+    proceedChain(listeners,current);
     return 0;
 }
 
@@ -453,6 +536,8 @@ int requestNotify(void *listeners_) {
     sdsfree(dump);
 #endif
 
+    /* Must ack before notify. */ 
+    serverAssert(current->acked > current->notified);
     serverAssert(current->count > current->notified);
     current->notified++;
     if (current->notified < current->count) {
@@ -503,8 +588,19 @@ int proceedNotifyLater(void *listeners, redisDb *db, robj *key, client *c, void 
     void **pd = pd_;
     *pd = listeners;
     blocked--;
+    requestAck(listeners);
     return 0;
 }
+
+#define wait_init_suite() do {  \
+    if (server.hz != 10) {  \
+        server.hz = 10; \
+        server.dbnum = 4;   \
+        server.db = zmalloc(sizeof(redisDb)*server.dbnum);  \
+        for (int i = 0; i < server.dbnum; i++) server.db[i].id = i; \
+        server.request_listeners = serverRequestListenersCreate(); \
+    }   \
+} while (0)
 
 int swapWaitTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
@@ -517,20 +613,13 @@ int swapWaitTest(int argc, char *argv[], int accurate) {
     void *handle1, *handle2, *handle3, *handledb, *handledb2, *handlesvr;
     int64_t txid = 0;
 
+    wait_init_suite();
+
     TEST("wait: init") {
-        int i;
-        server.hz = 10;
-        server.dbnum = 4;
-        server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-        for (i = 0; i < server.dbnum; i++) server.db[i].id = i;
         db = server.db, db2 = server.db+1;
-        server.request_listeners = serverRequestListenersCreate();
         key1 = createStringObject("key-1",5);
         key2 = createStringObject("key-2",5);
         key3 = createStringObject("key-3",5);
-
-        test_assert(server.request_listeners);
-        test_assert(!blocked);
     }
 
    TEST("wait: parallel key") {
@@ -645,6 +734,7 @@ int proceededCounter(void *listeners, redisDb *db, robj *key, client *c, void *p
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
+    requestAck(listeners);
     return 0;
 }
 
@@ -665,19 +755,12 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
     void *handle1, *handle2, *handle3, *handle4, *handle5, *handle6,
          *handle7, *handle8;
 
+    wait_init_suite();
+
     TEST("wait-reentrant: init") {
-        int i;
-        server.hz = 10;
-        server.dbnum = 4;
-        server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-        for (i = 0; i < server.dbnum; i++) server.db[i].id = i;
         db = server.db, db2 = server.db+1;
-        server.request_listeners = serverRequestListenersCreate();
         key1 = createStringObject("key-1",5);
         key2 = createStringObject("key-2",5);
-
-        test_assert(server.request_listeners);
-        test_assert(!blocked);
     }
 
    TEST("wait-reentrant: key (without prceeding listener)") {
@@ -923,6 +1006,193 @@ int swapWaitReentrantTest(int argc, char *argv[], int accurate) {
    }
 
     return error;
+}
+
+int proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(db), UNUSED(key), UNUSED(c);
+    void **pd = pd_;
+    *pd = listeners;
+    proceeded++;
+    return 0;
+}
+
+#define ack_case_reset() do { \
+    proceeded = 0; \
+    handle1 = NULL, handle2 = NULL, handle3 = NULL, handle4 = NULL; \
+    handle5 = NULL, handle6 = NULL, handle7 = NULL, handle8 = NULL;\
+} while (0)
+
+int swapWaitAckTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    int error = 0;
+    redisDb *db, *db2;
+    robj *key1, *key2;
+    void *handle1, *handle2, *handle3, *handle4, *handle5, *handle6,
+         *handle7, *handle8;
+
+    wait_init_suite();
+
+    TEST("wait-ack: init") {
+        db = server.db, db2 = server.db+1;
+        key1 = createStringObject("key-1",5);
+        key2 = createStringObject("key-2",5);
+        ack_case_reset();
+        UNUSED(db2);
+    }
+
+    TEST("wait-ack: multi-level (db & svr)") {
+        test_assert(requestBindListeners(db,NULL,0) != NULL);
+        test_assert(!requestWaitWouldBlock(10,db,NULL));
+        requestWait(10,db,NULL,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        test_assert(requestWaitWouldBlock(10,db,NULL));
+        requestWait(10,db,NULL,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        requestWait(10,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 == NULL && proceeded == 1);
+        requestWait(10,db2,NULL,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 != NULL && proceeded == 2);
+        requestWait(10,db2,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 2);
+        requestWait(10,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+        test_assert(handle6 == NULL && proceeded == 2);
+        requestWait(10,db2,key2,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+        test_assert(handle7 == NULL && proceeded == 2);
+        requestWait(11,db,key1,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+        test_assert(handle8 == NULL && proceeded == 2);
+
+        requestAck(handle1);
+        test_assert(handle2 == handle1 && proceeded == 3);
+        requestAck(handle4);
+        test_assert(handle5 == handle4 && proceeded == 4);
+        requestAck(handle5);
+        test_assert(handle6 == NULL && proceeded == 4);
+        requestAck(handle2);
+        test_assert(handle3 == handle1 && proceeded == 5);
+        requestAck(handle3);
+        test_assert(handle6 != handle1 && proceeded == 6);
+        requestAck(handle6);
+        test_assert(handle7 == handle6 && proceeded == 7);
+        requestAck(handle7);
+        test_assert(handle8 == NULL && proceeded == 7);
+
+        requestNotify(handle1), requestNotify(handle2), requestNotify(handle3),
+            requestNotify(handle4), requestNotify(handle5), requestNotify(handle6),
+            requestNotify(handle7);
+
+        test_assert(handle8 == handle6 && proceeded == 8);
+        requestAck(handle8);
+        requestNotify(handle8);
+
+        ack_case_reset();
+    }
+
+    TEST("wait-ack: multi-level (key & svr)") {
+        requestWait(20,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+        test_assert(handle1 != NULL && proceeded == 1);
+        requestWait(20,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+        test_assert(handle2 == NULL && proceeded == 1);
+        requestWait(20,db,key2,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+        test_assert(handle3 != NULL && proceeded == 2);
+        requestWait(20,db,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+        test_assert(handle4 == NULL && proceeded == 2);
+        requestWait(20,NULL,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+        test_assert(handle5 == NULL && proceeded == 2);
+        requestAck(handle3);
+        test_assert(handle4 != NULL && proceeded == 3);
+        requestAck(handle1);
+        test_assert(handle2 != NULL && handle5 == NULL && proceeded == 4);
+        requestAck(handle2);
+        test_assert(handle5 == NULL && proceeded == 4);
+        requestAck(handle4);
+        test_assert(handle5 != NULL && proceeded == 5);
+        requestAck(handle5);
+        requestNotify(handle1), requestNotify(handle2), requestNotify(handle3),
+            requestNotify(handle4), requestNotify(handle5);
+        test_assert(requestBindListeners(db,key1,0) == NULL);
+        ack_case_reset();
+    }
+
+    /* TEST("wait-ack: multi-level (key & db & svr)") { */
+        /* requestWait(30,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL); */
+        /* requestWait(30,db,key2,proceedWithoutAck,NULL,&handle2,NULL,NULL); */
+        /* test_assert(handle1 != handle2 && handle1 && handle2 && proceeded == 2); */
+        /* requestWait(30,db2,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL); */
+        /* requestWait(30,db2,key2,proceedWithoutAck,NULL,&handle4,NULL,NULL); */
+        /* test_assert(handle3 != handle4 && handle3 && handle4 && proceeded == 4); */
+        /* requestWait(30,db,NULL,proceedWithoutAck,NULL,&handle5,NULL,NULL); */
+        /* test_assert(handle5 == NULL && proceeded == 4); */
+        /* requestWait(30,NULL,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL); */
+        /* test_assert(handle6 == NULL && proceeded == 4); */
+        /* requestWait(30,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL); */
+        /* test_assert(handle6 == NULL && proceeded == 4); */
+        
+        /* requestAck(handle4), requestAck(handle3), requestAck(handle2), requestAck(handle1); */
+        /* printf("hanlde5=%p proceeded=%d", handle5, proceeded); */
+        /* test_assert(handle5 != NULL && proceeded == 5); */
+        /* requestAck(handle5); */
+        /* test_assert(handle6 != NULL && handle6 != handle5 && proceeded == 6); */
+        /* requestAck(handle6); */
+
+        /* requestNotify(handle1), requestNotify(handle2), requestNotify(handle3), */
+            /* requestNotify(handle4), requestNotify(handle5), requestNotify(handle6); */
+
+        /* ack_case_reset(); */
+    /* } */
+
+    TEST("wait-ack: proceed ack disorder") {
+       test_assert(!requestWaitWouldBlock(40,db,key1));
+       requestWait(40,db,key1,proceedWithoutAck,NULL,&handle1,NULL,NULL);
+       test_assert(handle1 != NULL && proceeded == 1);
+       test_assert(requestWaitWouldBlock(40,db,key1));
+       requestWait(40,db,key1,proceedWithoutAck,NULL,&handle2,NULL,NULL);
+       test_assert(handle2 == NULL && proceeded == 1);
+       requestAck(handle1);
+       test_assert(handle2 != NULL && proceeded == 2);
+       test_assert(requestWaitWouldBlock(41,db,key1));
+       requestAck(handle2);
+       test_assert(proceeded == 2);
+       test_assert(requestWaitWouldBlock(41,db,key1));
+       requestNotify(handle1);
+       test_assert(requestWaitWouldBlock(41,db,key1));
+       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle3,NULL,NULL);
+       test_assert(handle3 == NULL && proceeded == 2);
+       /* proceed iff previous tx finished. */
+       requestNotify(handle2);
+       test_assert(handle3 != NULL && proceeded == 3);
+       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle4,NULL,NULL);
+       test_assert(handle4 == NULL && proceeded == 3);
+       requestWait(41,db,key2,proceedWithoutAck,NULL,&handle5,NULL,NULL);
+       test_assert(handle5 != NULL && proceeded == 4);
+       requestWait(41,db,NULL,proceedWithoutAck,NULL,&handle6,NULL,NULL);
+       test_assert(handle6 == NULL && proceeded == 4);
+       requestWait(41,db,key1,proceedWithoutAck,NULL,&handle7,NULL,NULL);
+       test_assert(handle7 == NULL && proceeded == 4);
+       requestWait(42,db,key2,proceedWithoutAck,NULL,&handle8,NULL,NULL);
+       test_assert(handle8 == NULL && proceeded == 4);
+
+       requestAck(handle3);
+       test_assert(handle4 != NULL && handle6 == NULL && proceeded == 5);
+       requestAck(handle5);
+       test_assert(handle6 == NULL && proceeded == 5);
+       requestAck(handle4);
+       test_assert(handle6 != NULL && proceeded == 6);
+       requestAck(handle6);
+       test_assert(handle7 != NULL && handle8 == NULL && proceeded == 7);
+       requestAck(handle7);
+       requestNotify(handle3), requestNotify(handle4), requestNotify(handle5),
+           requestNotify(handle6), requestNotify(handle7);
+       test_assert(handle8 != NULL && proceeded == 8);
+       requestAck(handle8);
+       requestNotify(handle8);
+       test_assert(proceeded == 8);
+       ack_case_reset();
+   }
+
+   return error;
 }
 
 #endif

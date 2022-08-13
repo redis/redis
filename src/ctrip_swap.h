@@ -442,9 +442,17 @@ int parallelSyncSwapRequestSubmit(int dispatch_mode, swapRequest *req);
 
 /* --- Wait --- */
 #define DEFAULT_REQUEST_LISTENER_REENTRANT_SIZE 8
+#define REQUEST_NOTIFY_ACK  (1<<0)
+#define REQUEST_NOTIFY_RLS  (1<<1)
 
 typedef void (*freefunc)(void *);
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
+
+typedef struct txCtx {
+  int64_t txid;
+  int refs;
+  int acked;
+} txCtx;
 
 typedef struct requestListenerEntry {
   redisDb *db;    /* key level request listener might bind on svr/db level */
@@ -465,8 +473,11 @@ typedef struct requestListener {
   int capacity;
   int count;
   int proceeded;
+  int acked;
   int notified;
   int ntxlistener; /* # of txlistener of current and childs. */
+  int ntxrequest;
+  txCtx *txctx;
 } requestListener;
 
 typedef struct requestListeners {
@@ -488,16 +499,19 @@ typedef struct requestListeners {
       } key;
   };
   int64_t cur_txid;
+  txCtx *cur_txctx;
   int cur_ntxlistener;
+  int cur_ntxrequest; 
 } requestListeners;
 
 requestListeners *serverRequestListenersCreate(void);
 void serverRequestListenersRelease(requestListeners *s);
 int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key);
 int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
+int requestAck(void *listeners);
 int requestNotify(void *listeners);
 
-int64_t swapTxidInit();
+void swapTxidInit();
 int64_t swapTxidNext();
 
 /* --- Evict --- */
@@ -864,6 +878,7 @@ int swapDataWholeKeyTest(int argc, char **argv, int accurate);
 int swapDataBigHashTest(int argc, char **argv, int accurate);
 int swapWaitTest(int argc, char **argv, int accurate);
 int swapWaitReentrantTest(int argc, char **argv, int accurate);
+int swapWaitAckTest(int argc, char **argv, int accurate);
 int swapCmdTest(int argc, char **argv, int accurate);
 int swapExecTest(int argc, char **argv, int accurate);
 int swapRdbTest(int argc, char **argv, int accurate);

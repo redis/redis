@@ -385,14 +385,15 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  result += swapWaitTest(argc, argv, accurate);
-  result += swapWaitReentrantTest(argc, argv, accurate);
-  result += swapCmdTest(argc, argv, accurate);
-  result += swapExecTest(argc, argv, accurate);
-  result += swapRdbTest(argc, argv, accurate);
-  result += swapObjectTest(argc, argv, accurate);
-  result += swapDataWholeKeyTest(argc, argv, accurate);
-  result += swapDataBigHashTest(argc, argv, accurate);
+  /* result += swapWaitTest(argc, argv, accurate); */
+  /* result += swapWaitReentrantTest(argc, argv, accurate); */
+  result += swapWaitAckTest(argc, argv, accurate);
+  /* result += swapCmdTest(argc, argv, accurate); */
+  /* result += swapExecTest(argc, argv, accurate); */
+  /* result += swapRdbTest(argc, argv, accurate); */
+  /* result += swapObjectTest(argc, argv, accurate); */
+  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
+  /* result += swapDataBigHashTest(argc, argv, accurate); */
   return result;
 }
 #endif
