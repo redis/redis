@@ -51,7 +51,7 @@
 
 /* This macro tells if we are in the context of a RESTORE command, and not loading an RDB or AOF. */
 #define isRestoreContext() \
-    (server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1
+    ((server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
@@ -508,7 +508,6 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * On I/O error NULL is returned.
  */
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
-    int encode = flags & RDB_LOAD_ENC;
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
@@ -547,8 +546,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? tryCreateStringObject(SDS_NOINIT,len) :
-                           tryCreateRawStringObject(SDS_NOINIT,len);
+        robj *o = tryCreateStringObject(SDS_NOINIT,len);
         if (!o) {
             serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
             return NULL;
@@ -2891,7 +2889,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 
 
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
- * otherwise C_ERR is returned and 'errno' is set accordingly. 
+ * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
@@ -2909,13 +2907,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
-        errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
-        errno = EINVAL;
         return C_ERR;
     }
 
@@ -3254,7 +3250,13 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     int retval;
     struct stat sb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        if (errno == ENOENT) return RDB_NOT_EXIST;
+
+        serverLog(LL_WARNING,"Fatal error: can't open the RDB file %s for reading: %s", filename, strerror(errno));
+        return RDB_FAILED;
+    }
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
@@ -3266,7 +3268,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
-    return retval;
+    return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.

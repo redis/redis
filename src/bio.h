@@ -37,7 +37,7 @@ void bioInit(void);
 unsigned long long bioPendingJobsOfType(int type);
 unsigned long long bioWaitStepOfType(int type);
 void bioKillThreads(void);
-void bioCreateCloseJob(int fd);
+void bioCreateCloseJob(int fd, int need_fsync);
 void bioCreateFsyncJob(int fd);
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
 

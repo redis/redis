@@ -363,7 +363,7 @@ typedef struct RedisModuleServerInfoData {
  * we assume default behavior, that is, Redis signals.
  * (see RM_GetThreadSafeContext) */
 #define SHOULD_SIGNAL_MODIFIED_KEYS(ctx) \
-    ctx->module? !(ctx->module->options & REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED) : 1
+    ((ctx)->module? !((ctx)->module->options & REDISMODULE_OPTION_NO_IMPLICIT_SIGNAL_MODIFIED) : 1)
 
 /* Server events hooks data structures and defines: this modules API
  * allow modules to subscribe to certain events in Redis, such as
@@ -2027,13 +2027,28 @@ int RM_IsModuleNameBusy(const char *name) {
 }
 
 /* Return the current UNIX time in milliseconds. */
-long long RM_Milliseconds(void) {
+mstime_t RM_Milliseconds(void) {
     return mstime();
 }
 
 /* Return counter of micro-seconds relative to an arbitrary point in time. */
 uint64_t RM_MonotonicMicroseconds(void) {
     return getMonotonicUs();
+}
+
+/* Return the current UNIX time in microseconds */
+ustime_t RM_Microseconds() {
+    return ustime();
+}
+
+/* Return the cached UNIX time in microseconds.
+ * It is updated in the server cron job and before executing a command.
+ * It is useful for complex call stacks, such as a command causing a
+ * key space notification, causing a module to execute a RedisModule_Call,
+ * causing another notification, etc.
+ * It makes sense that all this callbacks would use the same clock. */
+ustime_t RM_CachedMicroseconds() {
+    return server.ustime;
 }
 
 /* Mark a point in time that will be used as the start time to calculate
@@ -12483,6 +12498,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringTruncate);
     REGISTER_API(SetExpire);
     REGISTER_API(GetExpire);
+    REGISTER_API(SetAbsExpire);
+    REGISTER_API(GetAbsExpire);
     REGISTER_API(ResetDataset);
     REGISTER_API(DbSize);
     REGISTER_API(RandomKey);
@@ -12576,6 +12593,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
     REGISTER_API(MonotonicMicroseconds);
+    REGISTER_API(Microseconds);
+    REGISTER_API(CachedMicroseconds);
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);

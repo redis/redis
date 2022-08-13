@@ -752,6 +752,7 @@ typedef enum {
 #ifndef REDISMODULE_CORE
 
 typedef long long mstime_t;
+typedef long long ustime_t;
 
 /* Macro definitions specific to individual compilers */
 #ifndef REDISMODULE_ATTR_UNUSED
@@ -1055,8 +1056,10 @@ REDISMODULE_API int (*RedisModule_GetDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx) 
 REDISMODULE_API int (*RedisModule_GetToDbIdFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API const RedisModuleString * (*RedisModule_GetToKeyNameFromOptCtx)(RedisModuleKeyOptCtx *ctx) REDISMODULE_ATTR;
-REDISMODULE_API long long (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API mstime_t (*RedisModule_Milliseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_MonotonicMicroseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API ustime_t (*RedisModule_Microseconds)(void) REDISMODULE_ATTR;
+REDISMODULE_API ustime_t (*RedisModule_CachedMicroseconds)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, const char *ele, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DigestEndSequence)(RedisModuleDigest *md) REDISMODULE_ATTR;
@@ -1390,6 +1393,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetToDbIdFromOptCtx);
     REDISMODULE_GET_API(Milliseconds);
     REDISMODULE_GET_API(MonotonicMicroseconds);
+    REDISMODULE_GET_API(Microseconds);
+    REDISMODULE_GET_API(CachedMicroseconds);
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);

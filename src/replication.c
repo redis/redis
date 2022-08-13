@@ -103,7 +103,7 @@ int bg_unlink(const char *filename) {
             errno = old_errno;
             return -1;
         }
-        bioCreateCloseJob(fd);
+        bioCreateCloseJob(fd, 0);
         return 0; /* Success. */
     }
 }
@@ -2055,7 +2055,7 @@ void readSyncBulkPayload(connection *conn) {
             /* RDB loading failed. */
             serverLog(LL_WARNING,
                       "Failed trying to load the MASTER synchronization DB "
-                      "from socket: %s", strerror(errno));
+                      "from socket, check server logs.");
             loadingFailed = 1;
         } else if (usemark) {
             /* Verify the end mark is correct. */
@@ -2149,7 +2149,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         /* Close old rdb asynchronously. */
-        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd);
+        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0);
 
         /* Sync the directory to ensure rename is persisted */
         if (fsyncFileDir(server.rdb_filename) == -1) {
@@ -2161,10 +2161,10 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != C_OK) {
+        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
-                "DB from disk: %s", strerror(errno));
+                "DB from disk, check server logs.");
             cancelReplicationHandshake(1);
             if (server.rdb_del_sync_files && allPersistenceDisabled()) {
                 serverLog(LL_NOTICE,"Removing the RDB file obtained from "

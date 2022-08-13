@@ -41,81 +41,95 @@
         ],
         "arguments": [
             {
-                "name": "old_format",
-                "display": "ip:port",
-                "type": "string",
-                "optional": true
-            },
-            {
-                "token": "ID",
-                "name": "client-id",
-                "type": "integer",
-                "optional": true,
-                "since": "2.8.12"
-            },
-            {
-                "token": "TYPE",
-                "name": "type",
+                "name": "filter",
                 "type": "oneof",
-                "optional": true,
-                "since": "2.8.12",
                 "arguments": [
                     {
-                        "name": "normal",
-                        "type": "pure-token",
-                        "token": "normal"
+                        "name": "old_format",
+                        "display": "ip:port",
+                        "type": "string",
+                        "deprecated_since": "2.8.12"
                     },
                     {
-                        "name": "master",
-                        "type": "pure-token",
-                        "token": "master",
-                        "since": "3.2.0"
-                    },
-                    {
-                        "name": "slave",
-                        "type": "pure-token",
-                        "token": "slave"
-                    },
-                    {
-                        "name": "replica",
-                        "type": "pure-token",
-                        "token": "replica",
-                        "since": "5.0.0"
-                    },
-                    {
-                        "name": "pubsub",
-                        "type": "pure-token",
-                        "token": "pubsub"
+                        "name": "new_format",
+                        "type": "oneof",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "token": "ID",
+                                "name": "client_id",
+                                "display": "client-id",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "2.8.12"
+                            },
+                            {
+                                "token": "TYPE",
+                                "name": "client_type",
+                                "type": "oneof",
+                                "optional": true,
+                                "since": "2.8.12",
+                                "arguments": [
+                                    {
+                                        "name": "normal",
+                                        "type": "pure-token",
+                                        "token": "normal"
+                                    },
+                                    {
+                                        "name": "master",
+                                        "type": "pure-token",
+                                        "token": "master",
+                                        "since": "3.2.0"
+                                    },
+                                    {
+                                        "name": "slave",
+                                        "type": "pure-token",
+                                        "token": "slave"
+                                    },
+                                    {
+                                        "name": "replica",
+                                        "type": "pure-token",
+                                        "token": "replica",
+                                        "since": "5.0.0"
+                                    },
+                                    {
+                                        "name": "pubsub",
+                                        "type": "pure-token",
+                                        "token": "pubsub"
+                                    }
+                                ]
+                            },
+                            {
+                                "token": "USER",
+                                "name": "username",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "token": "ADDR",
+                                "name": "addr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "token": "LADDR",
+                                "name": "laddr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true,
+                                "since": "6.2.0"
+                            },
+                            {
+                                "token": "SKIPME",
+                                "name": "skipme",
+                                "display": "yes/no",
+                                "type": "string",
+                                "optional": true
+                            }
+                        ]
                     }
                 ]
-            },
-            {
-                "token": "USER",
-                "name": "username",
-                "type": "string",
-                "optional": true
-            },
-            {
-                "token": "ADDR",
-                "name": "addr",
-                "display": "ip:port",
-                "type": "string",
-                "optional": true
-            },
-            {
-                "token": "LADDR",
-                "name": "laddr",
-                "display": "ip:port",
-                "type": "string",
-                "optional": true,
-                "since": "6.2.0"
-            },
-            {
-                "token": "SKIPME",
-                "name": "skipme",
-                "display": "yes/no",
-                "type": "string",
-                "optional": true
             }
         ]
     }

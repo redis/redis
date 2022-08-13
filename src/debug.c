@@ -567,8 +567,8 @@ NULL
         protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL,flags);
         unprotectClient(c);
-        if (ret != C_OK) {
-            addReplyError(c,"Error trying to load the RDB dump");
+        if (ret != RDB_OK) {
+            addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
         serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");

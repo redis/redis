@@ -1763,12 +1763,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 /* IP -> string conversion. 'buf' is supposed to at least be 46 bytes.
  * If 'announced_ip' length is non-zero, it is used instead of extracting
  * the IP from the socket peer address. */
-void nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
+int nodeIp2String(char *buf, clusterLink *link, char *announced_ip) {
     if (announced_ip[0] != '\0') {
         memcpy(buf,announced_ip,NET_IP_STR_LEN);
         buf[NET_IP_STR_LEN-1] = '\0'; /* We are not sure the input is sane. */
+        return C_OK;
     } else {
-        connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL);
+        if (connPeerToString(link->conn, buf, NET_IP_STR_LEN, NULL) == C_ERR) {
+            serverLog(LL_NOTICE, "Error converting peer IP to string: %s",
+                link->conn ? connGetLastError(link->conn) : "no link");
+            return C_ERR;
+        }
+        return C_OK;
     }
 }
 
@@ -1800,7 +1806,11 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * it is safe to call during packet processing. */
     if (link == node->link) return 0;
 
-    nodeIp2String(ip,link,hdr->myip);
+    /* If the peer IP is unavailable for some reasons like invalid fd or closed
+     * link, just give up the update this time, and the update will be retried
+     * in the next round of PINGs */
+    if (nodeIp2String(ip,link,hdr->myip) == C_ERR) return 0;
+
     if (node->port == port && node->cport == cport && node->pport == pport &&
         strcmp(ip,node->ip) == 0) return 0;
 
@@ -2025,7 +2035,22 @@ int writeHostnamePingExt(clusterMsgPingExt **cursor) {
     (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_HOSTNAME);
     (*cursor)->length = htonl(extension_size);
     /* Make sure the string is NULL terminated by adding 1 */
-    *cursor = (clusterMsgPingExt *) (ext->hostname + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
+    *cursor = (clusterMsgPingExt *) ((intptr_t)ext + EIGHT_BYTE_ALIGN(sdslen(myself->hostname) + 1));
+    return extension_size;
+}
+
+/* Write the forgotten node ping extension at the start of the cursor, update
+ * the cursor to point to the end of the written extension and return the number
+ * of bytes written. */
+int writeForgottenNodePingExt(clusterMsgPingExt **cursor, sds name, uint64_t ttl) {
+    serverAssert(sdslen(name) == CLUSTER_NAMELEN);
+    clusterMsgPingExtForgottenNode *ext = &(*cursor)->ext[0].forgotten_node;
+    memcpy(ext->name, name, CLUSTER_NAMELEN);
+    ext->ttl = htonu64(ttl);
+    uint32_t extension_size = sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode);
+    (*cursor)->type = htons(CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE);
+    (*cursor)->length = htonl(extension_size);
+    *cursor = (clusterMsgPingExt *) (ext + 1);
     return extension_size;
 }
 
@@ -2042,6 +2067,19 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
             ext_hostname = hostname_ext->hostname;
+        } else if (type == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
+            clusterMsgPingExtForgottenNode *forgotten_node_ext = &(ext->ext[0].forgotten_node);
+            clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
+            if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
+                sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
+                dictEntry *de = dictAddRaw(server.cluster->nodes_black_list, id, NULL);
+                serverAssert(de != NULL);
+                uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
+                dictSetUnsignedIntegerVal(de, expire);
+                clusterDelNode(n);
+                clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                                     CLUSTER_TODO_SAVE_CONFIG);
+            }
         } else {
             /* Unknown type, we will ignore it but log what happened. */
             serverLog(LL_WARNING, "Received unknown extension type %d", type);
@@ -2253,7 +2291,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterNode *node;
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            nodeIp2String(node->ip,link,hdr->myip);
+            serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
             node->port = ntohs(hdr->port);
             node->pport = ntohs(hdr->pport);
             node->cport = ntohs(hdr->cport);
@@ -2941,6 +2979,8 @@ void clusterSendPing(clusterLink *link, int type) {
     estlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     estlen += (sizeof(clusterMsgDataGossip)*(wanted + pfail_wanted));
     estlen += getHostnamePingExtSize();
+    estlen += dictSize(server.cluster->nodes_black_list) *
+        (sizeof(clusterMsgPingExt) + sizeof(clusterMsgPingExtForgottenNode));
 
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
@@ -3019,6 +3059,22 @@ void clusterSendPing(clusterLink *link, int type) {
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
         totlen += writeHostnamePingExt(&cursor);
         extensions++;
+    }
+
+    /* Gossip forgotten nodes */
+    if (dictSize(server.cluster->nodes_black_list) > 0) {
+        dictIterator *di = dictGetIterator(server.cluster->nodes_black_list);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            sds name = dictGetKey(de);
+            uint64_t expire = dictGetUnsignedIntegerVal(de);
+            if ((time_t)expire < server.unixtime) continue; /* already expired */
+            uint64_t ttl = expire - server.unixtime;
+            hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
+            totlen += writeForgottenNodePingExt(&cursor, name, ttl);
+            extensions++;
+        }
+        dictReleaseIterator(di);
     }
 
     /* Compute the actual total length and send! */
@@ -5629,7 +5685,12 @@ NULL
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         if (!n) {
-            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
+            if (clusterBlacklistExists((char*)c->argv[2]->ptr))
+                /* Already forgotten. The deletion may have been gossipped by
+                 * another node, so we pretend it succeeded. */
+                addReply(c,shared.ok);
+            else
+                addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
             return;
         } else if (n == myself) {
             addReplyError(c,"I tried hard but I can't forget myself...");
@@ -6686,18 +6747,17 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             } else {
                 /* If it is not the first key/channel, make sure it is exactly
                  * the same key/channel as the first we saw. */
-                if (!equalStringObjects(firstkey,thiskey)) {
-                    if (slot != thisslot) {
-                        /* Error: multiple keys from different slots. */
-                        getKeysFreeResult(&result);
-                        if (error_code)
-                            *error_code = CLUSTER_REDIR_CROSS_SLOT;
-                        return NULL;
-                    } else {
-                        /* Flag this request as one with multiple different
-                         * keys/channels. */
-                        multiple_keys = 1;
-                    }
+                if (slot != thisslot) {
+                    /* Error: multiple keys from different slots. */
+                    getKeysFreeResult(&result);
+                    if (error_code)
+                        *error_code = CLUSTER_REDIR_CROSS_SLOT;
+                    return NULL;                  
+                }
+                if (importing_slot && !multiple_keys && !equalStringObjects(firstkey,thiskey)) {
+                    /* Flag this request as one with multiple different
+                     * keys/channels when the slot is in importing state. */
+                    multiple_keys = 1;
                 }
             }
 
