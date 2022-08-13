@@ -208,6 +208,19 @@ start_server {tags {"tracking network"}} {
         assert {$res eq {key1}}
     }
 
+    test {Invalid keys should not be tracked for scripts in NOLOOP mode} {
+        $rd_sg CLIENT TRACKING off
+        $rd_sg CLIENT TRACKING on NOLOOP
+        $rd_sg HELLO 3
+        $rd_sg SET key1 1
+        assert_equal "1" [$rd_sg GET key1]
+
+        # For write command in script, invalid key should not be tracked with NOLOOP flag
+        $rd_sg eval "return redis.call('set', 'key1', '2')" 1 key1
+        assert_equal "2" [$rd_sg GET key1]
+        $rd_sg CLIENT TRACKING off
+    }
+
     test {Tracking only occurs for scripts when a command calls a read-only command} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on
