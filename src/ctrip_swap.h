@@ -448,12 +448,6 @@ int parallelSyncSwapRequestSubmit(int dispatch_mode, swapRequest *req);
 typedef void (*freefunc)(void *);
 typedef int (*requestProceed)(void *listeners, redisDb *db, robj *key, client *c, void *pd);
 
-typedef struct txCtx {
-  int64_t txid;
-  int refs;
-  int acked;
-} txCtx;
-
 typedef struct requestListenerEntry {
   redisDb *db;    /* key level request listener might bind on svr/db level */
   robj *key;      /* so we need to save db&key for each requst listener. */
@@ -477,7 +471,7 @@ typedef struct requestListener {
   int notified;
   int ntxlistener; /* # of txlistener of current and childs. */
   int ntxrequest;
-  txCtx *txctx;
+  int ntxacked;
 } requestListener;
 
 typedef struct requestListeners {
@@ -499,9 +493,11 @@ typedef struct requestListeners {
       } key;
   };
   int64_t cur_txid;
-  txCtx *cur_txctx;
   int cur_ntxlistener;
   int cur_ntxrequest; 
+  /* # of acked requests for successive requestWait of cur_txid. note that
+   * cur_ntxacked is not correct when requestNotify. */
+  int cur_ntxacked; 
 } requestListeners;
 
 requestListeners *serverRequestListenersCreate(void);
