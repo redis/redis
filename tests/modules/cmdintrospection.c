@@ -116,11 +116,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 }
             },
             {
-                .name = "id_or_auto",
+                .name = "id-selector",
                 .type = REDISMODULE_ARG_TYPE_ONEOF,
                 .subargs = (RedisModuleCommandArg[]){
                     {
-                        .name = "auto_id",
+                        .name = "auto-id",
                         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                         .token = "*"
                     },
@@ -132,7 +132,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 }
             },
             {
-                .name = "field_value",
+                .name = "data",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                 .subargs = (RedisModuleCommandArg[]){
