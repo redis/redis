@@ -38,7 +38,7 @@
         "arguments": [
             {
                 "token": "GROUP",
-                "name": "group_consumer",
+                "name": "group-block",
                 "type": "block",
                 "arguments": [
                     {

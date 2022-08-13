@@ -45,27 +45,26 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "old_format",
+                        "name": "old-format",
                         "display": "ip:port",
                         "type": "string",
                         "deprecated_since": "2.8.12"
                     },
                     {
-                        "name": "new_format",
+                        "name": "new-format",
                         "type": "oneof",
                         "multiple": true,
                         "arguments": [
                             {
                                 "token": "ID",
-                                "name": "client_id",
-                                "display": "client-id",
+                                "name": "client-id",
                                 "type": "integer",
                                 "optional": true,
                                 "since": "2.8.12"
                             },
                             {
                                 "token": "TYPE",
-                                "name": "client_type",
+                                "name": "client-type",
                                 "type": "oneof",
                                 "optional": true,
                                 "since": "2.8.12",

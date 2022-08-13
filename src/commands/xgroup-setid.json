@@ -50,7 +50,7 @@
                 "type": "string"
             },
             {
-                "name": "id_block",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -58,14 +58,15 @@
                         "type": "string"
                     },
                     {
-                        "name": "lastid",
+                        "name": "new-id",
                         "type": "pure-token",
                         "token": "$"
                     }
                 ]
             },
             {
-                "name": "entries_read",
+                "name": "entriesread",
+                "display": "entries-read",
                 "token": "ENTRIESREAD",
                 "type": "integer",
                 "optional": true

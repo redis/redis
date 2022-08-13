@@ -37,7 +37,7 @@
         "arguments": [
             {
                 "token": "TYPE",
-                "name": "normal_master_replica_pubsub",
+                "name": "client-type",
                 "type": "oneof",
                 "optional": true,
                 "since": "5.0.0",

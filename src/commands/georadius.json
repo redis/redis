@@ -146,7 +146,7 @@
                 "optional": true
             },
             {
-                "name": "count_block",
+                "name": "count-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [

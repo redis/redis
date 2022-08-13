@@ -14,18 +14,17 @@
         ],
         "arguments": [
             {
-                "name":"set_or_get",
+                "name":"action",
                 "type":"oneof",
                 "arguments":[
                     {
-                        "name":"set_param_value",
+                        "name":"set",
                         "token":"SET",
                         "type":"block",
                         "multiple":true,
                         "arguments":[
                             {
-                                "name":"set_parameter",
-                                "display":"parameter",
+                                "name":"parameter",
                                 "type":"string"
                             },
                             {
@@ -37,7 +36,7 @@
                     {
                         "token":"GET",
                         "multiple":true,
-                        "name":"get_parameter",
+                        "name":"get",
                         "display":"parameter",
                         "type":"string"
                     }

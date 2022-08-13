@@ -39,7 +39,7 @@
         ],
         "arguments": [
             {
-                "name": "key_value",
+                "name": "data",
                 "type": "block",
                 "multiple": true,
                 "arguments": [

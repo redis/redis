@@ -50,16 +50,14 @@
                 "arguments": [
                     {
                         "token": "GET",
-                        "name": "get_block",
+                        "name": "get-block",
                         "type": "block",
                         "arguments": [
                             {
-                                "name": "get_encoding",
-                                "display": "encoding",
+                                "name": "encoding",
                                 "type": "string"
                             },
                             {
-                                "name": "get_offset",
                                 "name": "offset",
                                 "type": "integer"
                             }
@@ -71,7 +69,7 @@
                         "arguments": [
                             {
                                 "token": "OVERFLOW",
-                                "name": "overflow_block",
+                                "name": "overflow-block",
                                 "type": "oneof",
                                 "optional": true,
                                 "arguments": [
@@ -93,49 +91,43 @@
                                 ]
                             },
                             {
-                                "name": "write_operation",
+                                "name": "write-operation",
                                 "type": "oneof",
                                 "arguments": [
                                     {
                                         "token": "SET",
-                                        "name": "set_block",
+                                        "name": "set-block",
                                         "type": "block",
                                         "arguments": [
                                             {
-                                                "name": "set_encoding",
-                                                "display": "encoding",
+                                                "name": "encoding",
                                                 "type": "string"
                                             },
                                             {
-                                                "name": "set_offset",
-                                                "display": "offset",
+                                                "name": "offset",
                                                 "type": "integer"
                                             },
                                             {
-                                                "name": "set_value",
-                                                "display": "value",
+                                                "name": "value",
                                                 "type": "integer"
                                             }
                                         ]
                                     },
                                     {
                                         "token": "INCRBY",
-                                        "name": "incrby_info",
+                                        "name": "incrby-block",
                                         "type": "block",
                                         "arguments": [
                                             {
-                                                "name": "incrby_encoding",
-                                                "display": "encoding",
+                                                "name": "encoding",
                                                 "type": "string"
                                             },
                                             {
-                                                "name": "incrby_offset",
-                                                "display": "offset",
+                                                "name": "offset",
                                                 "type": "integer"
                                             },
                                             {
-                                                "name": "incrby_increment",
-                                                "display": "increment",
+                                                "name": "increment",
                                                 "type": "integer"
                                             }
                                         ]

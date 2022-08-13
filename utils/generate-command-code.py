@@ -175,6 +175,14 @@ class KeySpec(object):
         )
 
 
+def verify_no_dup_names(container_fullname, args):
+    name_list = [arg.name for arg in args]
+    name_set = set(name_list)
+    if len(name_list) != len(name_set):
+        print("{}: Dup argument names: {}".format(container_fullname, name_list))
+        exit(1)
+
+
 class Argument(object):
     def __init__(self, parent_name, desc):
         self.desc = desc
@@ -191,6 +199,7 @@ class Argument(object):
             if len(self.subargs) < 2:
                 print("{}: oneof or block arg contains less than two subargs".format(self.fullname()))
                 exit(1)
+            verify_no_dup_names(self.fullname(), self.subargs)
         else:
             self.display = self.desc.get("display")
 
@@ -251,12 +260,6 @@ class Argument(object):
             f.write("{0}\n")
             f.write("};\n\n")
 
-    def all_names(self):
-        names = [self.name]
-        for subarg in self.subargs:
-            names += subarg.all_names()
-        return names
-
 
 class Command(object):
     def __init__(self, name, desc):
@@ -266,14 +269,10 @@ class Command(object):
         self.key_specs = self.desc.get("key_specs", [])
         self.subcommands = []
         self.args = []
-        all_arg_names = []
         for arg_desc in self.desc.get("arguments", []):
             arg = Argument(self.fullname(), arg_desc)
             self.args.append(arg)
-            all_arg_names += arg.all_names()
-        if len(all_arg_names) != len(set(all_arg_names)):
-            print("{}: Dup argument names: {}".format(self.fullname(), all_arg_names))
-            exit(1)
+        verify_no_dup_names(self.fullname(), self.args)
 
     def fullname(self):
         return self.name.replace("-", "_").replace(":", "")

@@ -20,7 +20,7 @@
         ],
         "arguments": [
             {
-                "name": "flush_type",
+                "name": "flush-type",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [

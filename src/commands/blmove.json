@@ -70,14 +70,12 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "from_left",
-                        "display": "left",
+                        "name": "left",
                         "type": "pure-token",
                         "token": "LEFT"
                     },
                     {
-                        "name": "from_right",
-                        "display": "right",
+                        "name": "right",
                         "type": "pure-token",
                         "token": "RIGHT"
                     }
@@ -88,14 +86,12 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "to_left",
-                        "display": "left",
+                        "name": "left",
                         "type": "pure-token",
                         "token": "LEFT"
                     },
                     {
-                        "name": "to_right",
-                        "display": "right",
+                        "name": "right",
                         "type": "pure-token",
                         "token": "RIGHT"
                     }

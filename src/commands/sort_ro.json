@@ -57,7 +57,7 @@
             },
             {
                 "token": "BY",
-                "name": "by_pattern",
+                "name": "by-pattern",
                 "display": "pattern",
                 "type": "pattern",
                 "key_spec_index": 1,
@@ -65,7 +65,7 @@
             },
             {
                 "token": "LIMIT",
-                "name": "offset_count",
+                "name": "limit",
                 "type": "block",
                 "optional": true,
                 "arguments": [
@@ -81,7 +81,7 @@
             },
             {
                 "token": "GET",
-                "name": "get_pattern",
+                "name": "get-pattern",
                 "display": "pattern",
                 "key_spec_index": 1,
                 "type": "pattern",
