@@ -171,6 +171,27 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     return o;
 }
 
+void dbAddUndo(robj* key, void** data, unsigned int nData) {
+    UNUSED(data);
+    UNUSED(nData);
+    serverLog(LL_WARNING, "MVCC KEY=%s mutating operation operation='dbAdd' UNDO action='dbDelete'", (char *)key->ptr);
+    dbDelete(server.current_client->db, key);
+}
+void dbDecrObjRef(void** data, unsigned int nData) {
+    assert(nData == 1);
+    decrRefCount(data[0]);
+}
+
+void dbRecordAddMutation(robj *key, robj *val) {
+    mutationOperation* m = mutationOperationCreate(key,
+                                                   &dbAddUndo,
+                                                   &dbDecrObjRef,
+                                                   1);
+    incrRefCount(val);
+    mutationOperationSetData(m, 0, val);
+    mutationLogRecordMutation(server.ml, m);
+}
+
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
@@ -183,6 +204,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
+
+    if (server.record_mutation) {
+        dbRecordAddMutation(key, val);
+    }
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -536,7 +561,7 @@ long long dbTotalServerKeyCount() {
  * Hooks for key space changes.
  *
  * Every time a key in the database is modified the function
- * signalModifiedKey() is called.
+ * signalModifiedKe(y) is called.
  *
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
@@ -544,6 +569,10 @@ long long dbTotalServerKeyCount() {
 /* Note that the 'c' argument may be NULL if the key was modified out of
  * a context of a client. */
 void signalModifiedKey(client *c, redisDb *db, robj *key) {
+    if (server.hold_events_and_signals) {
+	mutationLogRecordModifiedKey(server.ml, c, db, key);
+	return;
+    }
     touchWatchedKey(db,key);
     trackingInvalidateKey(c,key,1);
 }

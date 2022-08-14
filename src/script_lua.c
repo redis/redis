@@ -1508,6 +1508,7 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     scriptRunCtx* rctx = luaGetFromRegistry(lua, REGISTRY_RUN_CTX_NAME);
     serverAssert(rctx); /* Only supported inside script invocation */
     if (scriptInterrupt(rctx) == SCRIPT_KILL) {
+        rollbackMutations();
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
 
         /*

@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -52,6 +53,8 @@
 #include <lua.h>
 #include <signal.h>
 #include "hdr_histogram.h"
+
+#include "mutations.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -1888,11 +1891,11 @@ struct redisServer {
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
-                                        is down? */
+                                          is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
     unsigned long long cluster_link_sendbuf_limit_bytes;  /* Memory usage limit on individual link send buffers*/
     int cluster_drop_packet_filter; /* Debug config that allows tactically
-                                   * dropping packets of a specific type */
+                                     * dropping packets of a specific type */
     /* Scripting */
     client *script_caller;       /* The client running script right now, or NULL */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
@@ -1942,7 +1945,15 @@ struct redisServer {
                                                 is down, doesn't affect pubsub global. */
     long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
+
+    int allow_script_undo; /* If script undo is allowed */
+    int record_mutation; /* If mutations undo should be recorded. */
+    int hold_events_and_signals; /* If keyspace events and signals should be recorded and not sent right away. */
+    mutationLog* ml; /* The mutations undo log. */
 };
+
+void rollbackMutations();
+void commitsMutations();
 
 #define MAX_KEYS_BUFFER 256
 
@@ -2977,7 +2988,7 @@ robj *setTypeDup(robj *o);
 void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
-int hashTypeDelete(robj *o, sds key);
+int hashTypeDelete(robj *key, robj *o, sds field);
 unsigned long hashTypeLength(const robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
@@ -2991,7 +3002,7 @@ void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
 robj *hashTypeGetValueObject(robj *o, sds field);
-int hashTypeSet(robj *o, sds field, sds value, int flags);
+int hashTypeSet(robj* key, robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o);
 
 /* Pub / Sub */
