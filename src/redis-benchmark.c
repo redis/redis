@@ -229,19 +229,13 @@ static long long ustime(void) {
     long long ust;
 
     gettimeofday(&tv, NULL);
-    ust = ((long)tv.tv_sec)*1000000;
+    ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
 }
 
 static long long mstime(void) {
-    struct timeval tv;
-    long long mst;
-
-    gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
-    mst += tv.tv_usec/1000;
-    return mst;
+    return ustime()/1000;
 }
 
 static uint64_t dictSdsHash(const void *key) {
