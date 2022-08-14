@@ -171,10 +171,6 @@ struct redisServer server; /* Server global state */
  *                or may just execute read commands. A command can not be marked 
  *                both "write" and "may-replicate"
  *
- * swap-may-reentrant: Command may cause reentrant requestWait, we need to
- *               detect duplicate key or db/svr level keyrequests for those
- *               commands, and dispatch swap requests sequentially.
- *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  *
@@ -240,15 +236,15 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"del",delCommand,-2,
-     "write swap-may-reentrant @keyspace",
+     "write @keyspace",
      0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
 
     {"unlink",unlinkCommand,-2,
-     "write fast swap-may-reentrant @keyspace",
+     "write fast @keyspace",
      0,NULL,NULL,SWAP_IN,INTENTION_IN_DEL,1,-1,1,0,0,0},
 
     {"exists",existsCommand,-2,
-     "read-only fast swap-may-reentrant @keyspace",
+     "read-only fast @keyspace",
      0,NULL,NULL,SWAP_NOP,0,1,-1,1,0,0,0},
 
     {"setbit",setbitCommand,4,
@@ -288,7 +284,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"mget",mgetCommand,-2,
-     "read-only fast swap-may-reentrant @string",
+     "read-only fast @string",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"rpush",rpushCommand,-3,
@@ -324,11 +320,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"brpoplpush",brpoplpushCommand,4,
-     "write use-memory no-script swap-may-reentrant @list @blocking",
+     "write use-memory no-script @list @blocking",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blmove",blmoveCommand,6,
-     "write use-memory no-script swap-may-reentrant @list @blocking",
+     "write use-memory no-script @list @blocking",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"blpop",blpopCommand,-3,
@@ -364,11 +360,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"rpoplpush",rpoplpushCommand,3,
-     "write use-memory swap-may-reentrant @list",
+     "write use-memory @list",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"lmove",lmoveCommand,5,
-     "write use-memory swap-may-reentrant @list",
+     "write use-memory @list",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sadd",saddCommand,-3,
@@ -380,7 +376,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"smove",smoveCommand,4,
-     "write fast swap-may-reentrant @set",
+     "write fast @set",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"sismember",sismemberCommand,3,
@@ -404,27 +400,27 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"sinter",sinterCommand,-2,
-     "read-only to-sort swap-may-reentrant @set",
+     "read-only to-sort @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sinterstore",sinterstoreCommand,-3,
-     "write use-memory swap-may-reentrant @set",
+     "write use-memory @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunion",sunionCommand,-2,
-     "read-only to-sort swap-may-reentrant @set",
+     "read-only to-sort @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sunionstore",sunionstoreCommand,-3,
-     "write use-memory swap-may-reentrant @set",
+     "write use-memory @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiff",sdiffCommand,-2,
-     "read-only to-sort swap-may-reentrant @set",
+     "read-only to-sort @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"sdiffstore",sdiffstoreCommand,-3,
-     "write use-memory swap-may-reentrant @set",
+     "write use-memory @set",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"smembers",sinterCommand,2,
@@ -460,27 +456,27 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zunionstore",zunionstoreCommand,-4,
-     "write use-memory swap-may-reentrant @sortedset",
+     "write use-memory @sortedset",
      0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zinterstore",zinterstoreCommand,-4,
-     "write use-memory swap-may-reentrant @sortedset",
+     "write use-memory @sortedset",
      0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zdiffstore",zdiffstoreCommand,-4,
-     "write use-memory swap-may-reentrant @sortedset",
+     "write use-memory @sortedset",
      0,zunionInterDiffStoreGetKeys,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zunion",zunionCommand,-3,
-     "read-only swap-may-reentrant @sortedset",
+     "read-only @sortedset",
      0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zinter",zinterCommand,-3,
-     "read-only swap-may-reentrant @sortedset",
+     "read-only @sortedset",
      0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zdiff",zdiffCommand,-3,
-     "read-only swap-may-reentrant @sortedset",
+     "read-only @sortedset",
      0,zunionInterDiffGetKeys,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"zrange",zrangeCommand,-4,
@@ -488,7 +484,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"zrangestore",zrangestoreCommand,-5,
-     "write use-memory swap-may-reentrant @sortedset",
+     "write use-memory @sortedset",
      0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"zrangebyscore",zrangebyscoreCommand,-4,
@@ -552,11 +548,11 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"bzpopmin",bzpopminCommand,-3,
-     "write no-script fast swap-may-reentrant @sortedset @blocking",
+     "write no-script fast @sortedset @blocking",
      0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"bzpopmax",bzpopmaxCommand,-3,
-     "write no-script fast swap-may-reentrant @sortedset @blocking",
+     "write no-script fast @sortedset @blocking",
      0,NULL,NULL,SWAP_IN,0,1,-2,1,0,0,0},
 
     {"zrandmember",zrandmemberCommand,-2,
@@ -644,7 +640,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"mset",msetCommand,-3,
-     "write use-memory swap-may-reentrant @string",
+     "write use-memory @string",
      0,NULL,NULL,SWAP_IN,0,1,-1,2,0,0,0},
 
     {"msetnx",msetnxCommand,-3,
@@ -757,7 +753,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"exec",execCommand,1,
-     "no-script no-slowlog ok-loading ok-stale swap-may-reentrant @transaction",
+     "no-script no-slowlog ok-loading ok-stale @transaction",
      0,NULL,NULL,SWAP_IN,0,0,0,0,0,0,0},
 
     {"discard",discardCommand,1,
@@ -801,7 +797,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_NOP,0,1,1,1,0,0,0},
 
     {"touch",touchCommand,-2,
-     "read-only fast swap-may-reentrant @keyspace",
+     "read-only fast @keyspace",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
@@ -943,7 +939,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,NULL,SWAP_NOP,0,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
-     "write use-memory swap-may-reentrant @bitmap",
+     "write use-memory @bitmap",
      0,NULL,NULL,SWAP_IN,0,2,-1,1,0,0,0},
 
     {"bitcount",bitcountCommand,-2,
@@ -1000,7 +996,7 @@ struct redisCommand redisCommandTable[] = {
       0,NULL,NULL,SWAP_IN,0,1,1,1,0,0,0},
 
     {"geosearchstore",geosearchstoreCommand,-8,
-     "write use-memory swap-may-reentrant @geo",
+     "write use-memory @geo",
       0,NULL,NULL,SWAP_IN,0,1,2,1,0,0,0},
 
     {"pfselftest",pfselftestCommand,1,
@@ -1016,11 +1012,11 @@ struct redisCommand redisCommandTable[] = {
      * we claim that the representation, even if accessible, is an internal
      * affair, and the command is semantically read only. */
     {"pfcount",pfcountCommand,-2,
-     "read-only may-replicate swap-may-reentrant @hyperloglog",
+     "read-only may-replicate @hyperloglog",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     {"pfmerge",pfmergeCommand,-2,
-     "write use-memory swap-may-reentrant @hyperloglog",
+     "write use-memory @hyperloglog",
      0,NULL,NULL,SWAP_IN,0,1,-1,1,0,0,0},
 
     /* Unlike PFCOUNT that is considered as a read-only command (although
@@ -3486,7 +3482,6 @@ void InitServerLast() {
     asyncCompleteQueueInit();
     parallelSyncInit(server.ps_parallism_rdb);
     swapThreadsInit();
-    swapCmdInit();
     swapInit();
     initSwapWholeKey();
     initThreadedIO();
@@ -3540,8 +3535,6 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
             c->flags |= CMD_NO_AUTH;
         } else if (!strcasecmp(flag,"may-replicate")) {
             c->flags |= CMD_MAY_REPLICATE;
-        } else if (!strcasecmp(flag,"swap-may-reentrant")) {
-            c->flags |= CMD_SWAP_MAY_REENTRANT;
         } else {
             /* Parse ACL categories here if the flag name starts with @. */
             uint64_t catflag;

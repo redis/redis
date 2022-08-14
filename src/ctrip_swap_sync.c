@@ -112,7 +112,7 @@ int parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
 }
 
 /* Submit one swap (task). swap will start and finish in submit order. */
-int parallelSyncSwapRequestSubmit(int dispatch_mode, swapRequest *req) {
+int parallelSyncSwapRequestSubmit(swapRequest *req) {
     listNode *ln;
     swapEntry *e;
     parallelSync *ps = server.parallel_sync;
@@ -126,7 +126,7 @@ int parallelSyncSwapRequestSubmit(int dispatch_mode, swapRequest *req) {
     req->notify_pd = e;
     e->req = req;
     e->inprogress = 1;
-    swapThreadsDispatch(dispatch_mode,req);
+    swapThreadsDispatch(req);
     return C_OK;
 }
 

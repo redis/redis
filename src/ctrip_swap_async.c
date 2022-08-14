@@ -150,10 +150,10 @@ int asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
     return 0;
 }
 
-void asyncSwapRequestSubmit(int dispatch_mode, swapRequest *req) {
+void asyncSwapRequestSubmit(swapRequest *req) {
     req->notify_cb = asyncSwapRequestNotifyCallback;
     req->notify_pd = NULL;
-    swapThreadsDispatch(dispatch_mode,req);
+    swapThreadsDispatch(req);
 }
 
 static int asyncCompleteQueueDrained() {

@@ -34,11 +34,10 @@
  * - swapRequest managed by async/sync complete queue (not by swapCtx).
  * swapCtx released when keyRequest finishes. */
 swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
-        int key_requests_flags, clientKeyRequestFinished finished) {
+        clientKeyRequestFinished finished) {
     swapCtx *ctx = zcalloc(sizeof(swapCtx));
     ctx->c = c;
     moveKeyRequest(ctx->key_request,key_request);
-    ctx->key_requests_flags = key_requests_flags;
     ctx->finished = finished;
 #ifdef SWAP_DEBUG
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
@@ -136,7 +135,7 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 
 int genericRequestProceed(void *listeners, redisDb *db, robj *key,
         client *c, void *pd) {
-    int retval = C_OK, reason_num = 0, dispatch_mode = SWAP_DISPATCH_ROUNDROBIN;
+    int retval = C_OK, reason_num = 0;
     void *datactx;
     swapData *data = NULL;
     swapCtx *ctx = pd;
@@ -215,10 +214,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     msgs = &ctx->msgs;
 #endif
 
-    if (ctx->key_requests_flags & KEYREQUESTS_RESULT_SEQUENTIAL)
-        dispatch_mode = SWAP_DISPATCH_SEQUENTIAL;
-
-    submitSwapRequest(SWAP_MODE_ASYNC,dispatch_mode,ctx->swap_intention,
+    submitSwapRequest(SWAP_MODE_ASYNC,ctx->swap_intention,
             ctx->swap_intention_flags,
             data,datactx,keyRequestSwapFinished,ctx,msgs);
 
@@ -247,7 +243,7 @@ void submitClientKeyRequests(client *c, getKeyRequestsResult *result,
         keyRequest *key_request = result->key_requests + i;
         redisDb *db = key_request->level == REQUEST_LEVEL_SVR ? NULL : c->db;
         robj *key = key_request->key;
-        swapCtx *ctx = swapCtxCreate(c,key_request,result->flags,cb); /*key_request moved.*/
+        swapCtx *ctx = swapCtxCreate(c,key_request,cb); /*key_request moved.*/
         if (key) clientHoldKey(c,key,0);
 #ifdef SWAP_DEBUG
         msgs = &ctx->msgs;

@@ -715,15 +715,15 @@ int finishSwapRequest(swapRequest *req) {
     }
 }
 
-void submitSwapRequest(int mode, int dispatch_mode, int intention,
+void submitSwapRequest(int mode, int intention,
         uint32_t intention_flags, swapData* data, void *datactx,
         swapRequestFinishedCallback cb, void *pd, void *msgs) {
     swapRequest *req = swapRequestNew(intention,intention_flags,data,datactx,cb,pd,msgs);
     updateStatsSwapStart(req);
     if (mode == SWAP_MODE_ASYNC) {
-        asyncSwapRequestSubmit(dispatch_mode,req);
+        asyncSwapRequestSubmit(req);
     } else {
-        parallelSyncSwapRequestSubmit(dispatch_mode,req);
+        parallelSyncSwapRequestSubmit(req);
     }
 }
 

@@ -116,15 +116,6 @@ void getKeyRequestsAppendResult(getKeyRequestsResult *result, int level,
         getKeyRequestsPrepareResult(result, newsize);
     }
 
-    if (result->dupkey && !(result->flags & KEYREQUESTS_RESULT_SEQUENTIAL)) {
-        if (key == NULL/*db/svr level*/ || dictFind(result->dupkey,key)) {
-            result->flags |= KEYREQUESTS_RESULT_SEQUENTIAL;
-        } else {
-            incrRefCount(key);
-            dictAdd(result->dupkey,key,NULL);
-        }
-    }
-
     keyRequest *key_request = &result->key_requests[result->num++];
     key_request->level = level;
     key_request->key = key;
@@ -146,20 +137,6 @@ void getKeyRequestsFreeResult(getKeyRequestsResult *result) {
     if (result && result->key_requests != result->buffer) {
         zfree(result->key_requests);
     }
-}
-
-int swapCmdInit() {
-    server.swap_duplicate_key = dictCreate(&objectKeyPointerValueDictType,NULL);
-    return 0;
-}
-
-void swapCmdDeinit() {
-    dictRelease(server.swap_duplicate_key);
-}
-
-static dict *swapCmdGetDupKeyDict() {
-    dictEmpty(server.swap_duplicate_key,NULL);
-    return server.swap_duplicate_key;
 }
 
 /* NOTE that result.{key,subkeys} are ONLY REFS to client argv (since client
@@ -191,11 +168,6 @@ static void getSingleCmdKeyRequests(client *c, getKeyRequestsResult *result) {
 
 void getKeyRequests(client *c, getKeyRequestsResult *result) {
     getKeyRequestsPrepareResult(result, MAX_KEYREQUESTS_BUFFER);
-
-    /* mget, del, multi/exec with duplicate key or db/svr keyrequests
-     * should dispatch sequentially. */
-    if (c->cmd->flags & CMD_SWAP_MAY_REENTRANT)
-        result->dupkey = swapCmdGetDupKeyDict();
 
     if ((c->flags & CLIENT_MULTI) && 
             !(c->flags & (CLIENT_DIRTY_CAS | CLIENT_DIRTY_EXEC)) &&
@@ -321,7 +293,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
     TEST("cmd: init") {
         initServerConfig();
         ACLInit();
-        swapCmdInit();
         server.hz = 10;
         c = createClient(NULL);
     }
@@ -331,7 +302,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         rewriteResetClientCommandCString(c,1,"PING");
         getKeyRequests(c,&result);
         test_assert(result.num == 0);
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     } 
@@ -342,7 +312,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 1);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY"));
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -354,7 +323,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.num == 2);
         test_assert(!strcmp(result.key_requests[0].key->ptr, "KEY1"));
         test_assert(!strcmp(result.key_requests[1].key->ptr, "KEY2"));
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -377,7 +345,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.key_requests[1].subkeys == NULL);
         test_assert(!strcmp(result.key_requests[2].key->ptr, "KEY3"));
         test_assert(result.key_requests[2].subkeys == NULL);
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -393,7 +360,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[0].subkeys[0]->ptr, "F1"));
         test_assert(!strcmp(result.key_requests[0].subkeys[1]->ptr, "F2"));
         test_assert(!strcmp(result.key_requests[0].subkeys[2]->ptr, "F3"));
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -419,7 +385,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(!strcmp(result.key_requests[2].subkeys[0]->ptr, "F1"));
         test_assert(!strcmp(result.key_requests[2].subkeys[1]->ptr, "F2"));
         test_assert(!strcmp(result.key_requests[2].subkeys[2]->ptr, "F3"));
-        test_assert(!(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL));
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -429,7 +394,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequestsResult result = GET_KEYREQUESTS_RESULT_INIT;
         rewriteResetClientCommandCString(c,4,"MGET", "K1", "K2", "K1");
         getKeyRequests(c,&result);
-        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
     }
@@ -448,7 +412,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         test_assert(result.key_requests[0].num_subkeys == 1);
         test_assert(!strcmp(result.key_requests[1].key->ptr, "HASH"));
         test_assert(result.key_requests[1].subkeys == NULL);
-        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
@@ -465,7 +428,6 @@ int swapCmdTest(int argc, char *argv[], int accurate) {
         getKeyRequests(c,&result);
         test_assert(result.num == 1);
         test_assert(result.key_requests[0].key == NULL);
-        test_assert(result.flags&KEYREQUESTS_RESULT_SEQUENTIAL);
         releaseKeyRequests(&result);
         getKeyRequestsFreeResult(&result);
         discardTransaction(c);
