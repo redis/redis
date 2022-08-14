@@ -752,7 +752,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
     }
 }
 
-start_server {tags {"stream xsetid"}} {
+start_server {tags {"stream"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -811,7 +811,7 @@ start_server {tags {"stream xsetid"}} {
     } {ERR *smaller*}
 }
 
-start_server {tags {"stream offset"}} {
+start_server {tags {"stream"}} {
     test {XADD advances the entries-added counter and sets the recorded-first-entry-id} {
         r DEL x
         r XADD x 1-0 data a
