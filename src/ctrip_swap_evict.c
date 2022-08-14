@@ -124,9 +124,13 @@ int keyIsHolded(redisDb *db, robj *key) {
 
 void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
+    robj *key = ctx->key_request->key;
+    incrRefCount(key);
     c->keyrequests_count--;
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_EVICT);
-    clientUnholdKey(c,ctx->key_request->key);
+    clientReleaseSwapLocks(c,ctx);
+    clientUnholdKey(c,key);
+    decrRefCount(key);
 }
 
 int submitEvictClientRequest(client *c, robj *key) {

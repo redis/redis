@@ -994,6 +994,7 @@ typedef struct client {
     long long cmd_reploff; /* Command replication offset when dispatch if this is a repl worker */
     struct client *repl_client; /* Master or peer client if this is a repl worker */
     long long swap_rl_until; /* client should not read or swap untill swap_rl_untill */
+    list *swap_locks; /* swap locks */
 } client;
 
 struct saveparam {

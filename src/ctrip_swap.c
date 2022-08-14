@@ -28,6 +28,50 @@
 
 #include "ctrip_swap.h"
 
+void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock) {
+    serverAssert(ctx->swap_lock == NULL);
+    ctx->swap_lock = lock;
+    switch (c->client_hold_mode) {
+    case CLIENT_HOLD_MODE_CMD:
+    case CLIENT_HOLD_MODE_REPL:
+        serverAssert(c->swap_locks != NULL);
+        listAddNodeTail(c->swap_locks,lock);
+        break;
+    case CLIENT_HOLD_MODE_EVICT:
+    default:
+        break;
+    }
+}
+
+void clientReleaseSwapIO(client *c, swapCtx *ctx) {
+    UNUSED(c);
+    requestAck(ctx->swap_lock);
+}
+
+void clientReleaseSwapLocks(client *c, swapCtx *ctx) {
+    listIter li;
+    listNode *ln;
+
+    switch (c->client_hold_mode) {
+    case CLIENT_HOLD_MODE_CMD:
+    case CLIENT_HOLD_MODE_REPL:
+        listRewind(c->swap_locks, &li);
+        while((ln = listNext(&li))) {
+            requestNotify(listNodeValue(ln));
+        }
+        listEmpty(c->swap_locks);
+        break;
+    case CLIENT_HOLD_MODE_EVICT:
+        if (ctx->swap_lock) {
+            requestNotify(ctx->swap_lock);
+            ctx->swap_lock = NULL;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 /* SwapCtx manages context and data for swapping specific key. Note that:
  * - key_request copy to swapCtx.key_request
  * - swapdata moved to swapCtx,
@@ -39,6 +83,8 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     ctx->c = c;
     moveKeyRequest(ctx->key_request,key_request);
     ctx->finished = finished;
+    ctx->errcode = 0;
+    ctx->swap_lock = NULL;
 #ifdef SWAP_DEBUG
     char *key = key_request->key ? key_request->key->ptr : "(nil)";
     char identity[MAX_MSG];
@@ -74,6 +120,7 @@ void continueProcessCommand(client *c) {
         handleClientsBlockedOnKeys();
     /* unhold keys for current command. */
     serverAssert(c->client_hold_mode == CLIENT_HOLD_MODE_CMD);
+    clientReleaseSwapLocks(c,NULL/*ctx unused*/);
     clientUnholdKeys(c);
     /* post command */
     commandProcessed(c);
@@ -112,9 +159,13 @@ int keyRequestSwapFinished(swapData *data, void *pd) {
                 "set_dirty=%s", (sds)key->ptr);
     }
 
+    /* release io will trigger either another swap within the same tx or
+     * command call, but never both. so swap and main thread will not
+     * touch the same key in parallel. */
+    clientReleaseSwapIO(ctx->c,ctx);
+
     ctx->finished(ctx->c,ctx);
-    requestAck(ctx->listeners);
-    requestNotify(ctx->listeners);
+    
     return 0;
 }
 
@@ -148,7 +199,7 @@ int genericRequestProceed(void *listeners, redisDb *db, robj *key,
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     
     serverAssert(c == ctx->c);
-    ctx->listeners = listeners;
+    clientGotSwapIOAndLock(c,ctx,listeners);
 
     if (db == NULL || key == NULL) {
         reason = "noswap needed for db/svr level request";

@@ -206,6 +206,7 @@ client *createClient(connection *conn) {
     c->CLIENT_REPL_SWAPPING = 0;
     c->CLIENT_REPL_CMD_DISCARDED = 0;
     c->swap_rl_until = 0;
+    c->swap_locks = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (conn) linkClient(c);
@@ -1494,6 +1495,7 @@ void freeClient(client *c) {
     sdsfree(c->peerid);
     sdsfree(c->sockname);
     sdsfree(c->slave_addr);
+    listRelease(c->swap_locks);
     zfree(c);
 }
 

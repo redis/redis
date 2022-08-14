@@ -202,13 +202,13 @@ typedef struct swapCtx {
   unsigned int expired:1;
   unsigned int set_dirty:1;
   unsigned int reserved:32;
-  void *listeners;
   int swap_intention;
   uint32_t swap_intention_flags;
   swapData *data;
   void *datactx;
   clientKeyRequestFinished finished;
   int errcode;
+  void *swap_lock;
 #ifdef SWAP_DEBUG
   swapDebugMsgs msgs;
 #endif
@@ -497,6 +497,9 @@ int requestWaitWouldBlock(int64_t txid, redisDb *db, robj *key);
 int requestWait(int64_t txid, redisDb *db, robj *key, requestProceed cb, client *c, void *pd, freefunc pdfree, void *msgs);
 int requestAck(void *listeners);
 int requestNotify(void *listeners);
+
+void clientGotSwapIOAndLock(client *c, swapCtx *ctx, void *lock);
+void clientReleaseSwapLocks(client *c, swapCtx *ctx);
 
 /* --- Evict --- */
 #define EVICT_SUCC_SWAPPED      1

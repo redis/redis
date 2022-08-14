@@ -116,6 +116,7 @@ static void processFinishedReplCommands() {
         if (wc->CLIENT_REPL_CMD_DISCARDED) {
             commandProcessed(wc);
             serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
+            clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
             clientUnholdKeys(wc);
             wc->CLIENT_REPL_CMD_DISCARDED = 0;
             continue;
@@ -140,6 +141,7 @@ static void processFinishedReplCommands() {
         commandProcessed(wc);
 
         serverAssert(wc->client_hold_mode == CLIENT_HOLD_MODE_REPL);
+        clientReleaseSwapLocks(wc,NULL/*ctx unused*/);
         clientUnholdKeys(wc);
 
         long long prev_offset = c->reploff;
