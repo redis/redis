@@ -10,6 +10,19 @@ start_server {tags {"pause network"}} {
         $rd close
     }
 
+    test "Test new pause time is smaller than old one, then old time preserved" {
+        r client PAUSE 60000 WRITE
+        r client PAUSE 10 WRITE
+        after 100
+        set rd [redis_deferring_client]
+        $rd SET FOO BAR
+        wait_for_blocked_clients_count 1 10 100
+
+        r client unpause
+        assert_match "OK" [$rd read]
+        $rd close
+    }
+
     test "Test write commands are paused by RO" {
         r client PAUSE 60000 WRITE
 

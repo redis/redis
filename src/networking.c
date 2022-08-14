@@ -37,6 +37,7 @@
 #include <ctype.h>
 
 static void setProtocolError(const char *errstr, client *c);
+static void pauseClients(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
@@ -3185,11 +3186,10 @@ NULL
     {
         /* CLIENT PAUSE TIMEOUT [WRITE|ALL] */
         mstime_t end;
-        /* This feature is refactored internally to become pause-actions */
-        uint32_t actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
+        int isPauseClientAll = 1;
         if (c->argc == 4) {
             if (!strcasecmp(c->argv[3]->ptr,"write")) {
-                actions = PAUSE_ACTIONS_CLIENT_WRITE_SET;
+                isPauseClientAll = 0;
             } else if (strcasecmp(c->argv[3]->ptr,"all")) {
                 addReplyError(c,
                     "CLIENT PAUSE mode must be WRITE or ALL");  
@@ -3199,7 +3199,7 @@ NULL
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&end,
             UNIT_MILLISECONDS) != C_OK) return;
-        pauseActions(PAUSE_BY_CLIENT_COMMAND, end, actions);
+        pauseClients(end, isPauseClientAll);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"tracking") && c->argc >= 3) {
         /* CLIENT TRACKING (on|off) [REDIRECT <id>] [BCAST] [PREFIX first]
@@ -3845,7 +3845,7 @@ void flushSlavesOutputBuffers(void) {
     }
 }
 
-/* Compute current most restrictive pause type and its end time, aggregated for
+/* Compute current paused actions and its end time, aggregated for
  * all pause purposes. */
 void updatePausedActions(void) {
     uint32_t prev_paused_actions = server.paused_actions;
@@ -3876,7 +3876,37 @@ void unblockPostponedClients() {
     }
 }
 
-/* Pause clients up to the specified unixtime (in ms) for a given type of
+/* As pause-client feature refactored internally to become pause-actions,
+ * this is a wrapper that keeps pause-client backward compatible logic:
+ * 1. Keep higher end-time value between configured and the new one
+ * 2. Keep most restrictive action between configured and the new one
+ *
+ * Note: this logic is problematic to follow when pause/unpause actions.
+ * To the rest of action's purposes we take simplified approach (common
+ * implementation of pause-action) such that for a given action-purpose,
+ * new pause is the only one to count, irrelevant what was configured
+ * before */
+static void pauseClients(mstime_t endTime, int isPauseClientAll) {
+    uint32_t actions;
+    pause_event *p = &server.client_pause_per_purpose[PAUSE_BY_CLIENT_COMMAND];
+
+    if (isPauseClientAll)
+        actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
+    else {
+        actions = PAUSE_ACTIONS_CLIENT_WRITE_SET;
+        /* If currently configured most restrictive client pause, then keep it */
+        if (p->paused_actions & PAUSE_ACTION_CLIENT_ALL)
+            actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
+    }
+
+    /* If currently configured end time bigger than new one, then keep it */
+    if (p->end > endTime)
+        endTime = p->end;
+
+    pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
+}
+
+/* Pause actions up to the specified unixtime (in ms) for a given type of
  * commands.
  *
  * A main use case of this function is to allow pausing replication traffic
@@ -3904,7 +3934,7 @@ void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     }
 }
 
-/* Unpause clients and queue them for reprocessing. */
+/* Unpause actions and queue them for reprocessing. */
 void unpauseActions(pause_purpose purpose) {
     server.client_pause_per_purpose[purpose].end = 0;
     server.client_pause_per_purpose[purpose].paused_actions = 0;
